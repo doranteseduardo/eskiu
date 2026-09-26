@@ -372,6 +372,8 @@ void TypeChecker::visit(FunctionDecl* node) {
     currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
     bool prevInAsync = inAsyncFn;
     inAsyncFn = node->isAsync;
+    bool prevVariadic = inVariadicFn;
+    inVariadicFn = !node->params.empty() && node->params.back().first == "...";
     bool prevAwaitSeen = awaitSeenInFn;
     awaitSeenInFn = false;
     pushScope();
@@ -468,6 +470,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     popScope();
     currentFunctionReturnType = "";
     inAsyncFn = prevInAsync;
+    inVariadicFn = prevVariadic;
     awaitSeenInFn = prevAwaitSeen;
 }
 
@@ -812,6 +815,8 @@ void TypeChecker::visit(StructDecl* node) {
         if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
             std::string savedReturn = currentFunctionReturnType;
             currentFunctionReturnType = func->returnType;
+            bool savedVariadic = inVariadicFn;
+            inVariadicFn = !func->params.empty() && func->params.back().first == "...";
             pushScope();
             defineSymbol("self", "*" + node->name);
             for (const auto& p : func->params) {
@@ -821,6 +826,7 @@ void TypeChecker::visit(StructDecl* node) {
             if (func->body) func->body->accept(this);
             popScope();
             currentFunctionReturnType = savedReturn;
+            inVariadicFn = savedVariadic;
         }
     }
 }

@@ -55,6 +55,7 @@ struct Sema {
     int param_depth;         // depth of the current function's parameters (-1 outside one)
     int had_error;
     int in_async;           // currently inside an `async` function body?
+    int in_variadic;        // the function being checked has a variadic parameter (`...`)?
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
     string match_ty;        // subject type of the `match` whose arms are being checked
@@ -3466,6 +3467,22 @@ void sema_binary_chain(Sema* s, *ExprNode e) {
     List_free<*ExprNode>(&spine);
 }
 
+// `va_start(ap)` / `va_end(ap)` / `va_arg<T>(ap)`: one `va_list` operand (mirrors
+// TypeChecker::checkVaListArg).
+void sema_check_va_list_arg(Sema* s, string what, *ExprNode e) {
+    int n = List_len<*ExprNode>(&e.kids);
+    if (n != 1) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: '%s' takes one argument (a va_list), got %d\n", s.filename, s.line, s.col, what, n);
+        return;
+    }
+    string t = sema_infer_type(s, List_get<*ExprNode>(&e.kids, 0));
+    if (t[0] != 0 && sema_streq(sema_canon(s, t), "va_list") == 0) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: '%s' needs a 'va_list', got '%s'\n", s.filename, s.line, s.col, what, t);
+    }
+}
+
 void sema_expr_k(Sema* s, *ExprNode e) {
     if (e == null) { return; }
     int k = e.kind;
@@ -4065,6 +4082,14 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         && sema_find_fndecl(s, e.a.sval) == null && sema_variant_enum(s, e.a.sval) != null) {
         sema_check_variant_args(s, e, e.a.sval, null);
     }
+    if (k == EK_CALL && e.a != null && e.a.kind == EK_IDENT && sema_lookup(s, e.a.sval) == 0
+        && (sema_streq(e.a.sval, "va_start") == 1 || sema_streq(e.a.sval, "va_end") == 1)) {
+        sema_check_va_list_arg(s, e.a.sval, e);
+        if (sema_streq(e.a.sval, "va_start") == 1 && s.in_variadic == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: 'va_start' used in a function with no variadic parameter ('...')\n", s.filename, s.line, s.col);
+        }
+    }
     if (k == EK_CALL) {
         // arg-count check: only when the callee is a bare global function (not a local
         // fn-pointer var, not an ADT variant, not a generic — those resolve elsewhere).
@@ -4242,6 +4267,19 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_TEMPLATECALL) {        // Name<args>(...) — check bounded-generic constraints
         *DeclNode fd = sema_find_fndecl(s, sema_base_name(e.sval));
         string tbase = sema_base_name(e.sval);
+        if (fd == null && sema_streq(tbase, "va_arg") == 1) {
+            List<string> vat; List_init<string>(&vat, 1);
+            sema_parse_targs(e.sval, &vat);
+            sema_check_va_list_arg(s, "va_arg", e);
+            if (List_len<string>(&vat) == 1) {
+                string vt = List_get<string>(&vat, 0);
+                string vc = sema_canon(s, sema_isub(s, vt));
+                if (sema_is_aggregate(s, vc) == 1 || sema_is_void_value(vc) == 1) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: 'va_arg' cannot read a '%s': a variadic argument is an integer, a floating-point value or a pointer\n", s.filename, s.line, s.col, vt);
+                }
+            }
+        }
         if (fd == null && sema_is_variant_name(s, tbase) == 1) {
             List<string> vtargs; List_init<string>(&vtargs, 2);
             sema_parse_targs(e.sval, &vtargs);
@@ -4334,7 +4372,8 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List<string> pnames; List_init<string>(&pnames, 4);
     sema_lambda_sig(e.sval, &ptys, &pnames);
     string saved_ret = s.cur_ret; int saved_async = s.in_async; int saved_seen = s.await_seen;
-    int saved_sw = s.sw_depth; int saved_pd = s.param_depth;
+    int saved_sw = s.sw_depth; int saved_pd = s.param_depth; int saved_var = s.in_variadic;
+    s.in_variadic = 0;
     List<string> saved_lbls = s.loop_lbls;
     List_init<string>(&s.loop_lbls, 4);
     // The body sees the enclosing null-narrowing; its assignments to captured copies do
@@ -4373,7 +4412,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_remove<int>(&s.lam_esc, List_len<int>(&s.lam_esc) - 1);
     List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
     s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
-    s.sw_depth = saved_sw; s.param_depth = saved_pd;
+    s.sw_depth = saved_sw; s.param_depth = saved_pd; s.in_variadic = saved_var;
     s.loop_lbls = saved_lbls;
     s.narrowed = saved_narrowed;
 }
@@ -5923,6 +5962,9 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
                s.filename, s.line, s.col);
     }
     s.in_async = f.is_async;
+    s.in_variadic = 0;
+    int vpn = List_len<Param>(&f.params);
+    if (vpn > 0 && sema_streq(List_get<Param>(&f.params, vpn - 1).ty, "...") == 1) { s.in_variadic = 1; }
     s.await_seen = 0;
     s.cur_ret = sema_isub(s, f.ret_type);
     // Escape soundness: watch non-escaping fn-type params for the body walk. (Not in a

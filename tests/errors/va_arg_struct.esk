@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 'va_arg' cannot read a 'P'
+struct P { int x; int y; }
+int f(int n, ...) { va_list ap; va_start(ap); P p = va_arg<P>(ap); va_end(ap); return p.x; }
+int main() { return 0; }

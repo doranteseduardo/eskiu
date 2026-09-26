@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 'va_start' used in a function with no variadic parameter
+int f(int n) { va_list ap; va_start(ap); va_end(ap); return n; }
+int main() { return f(1); }

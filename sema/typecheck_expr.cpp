@@ -598,6 +598,16 @@ void TypeChecker::visit(IncDecExpr* node) {
     expressionTypes[node] = t;
 }
 
+void TypeChecker::checkVaListArg(ASTNode* at, const std::string& what, const std::vector<ExprPtr>& args) {
+    if (args.size() != 1) {
+        errorAt(at, "'" + what + "' takes one argument (a va_list), got " + std::to_string(args.size()));
+        return;
+    }
+    std::string t = getExpressionType(args[0].get());
+    if (t != "unknown" && normalizeType(t) != "va_list")
+        errorAt(at, "'" + what + "' needs a 'va_list', got '" + t + "'");
+}
+
 void TypeChecker::visit(CallExpr* node) {
     // The callee may assign any global: a global's narrowing ends after the call.
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
@@ -605,6 +615,9 @@ void TypeChecker::visit(CallExpr* node) {
     if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
         if ((bid->name == "va_start" || bid->name == "va_end") && lookupSymbol(bid->name).empty()) {
             for (auto& a : node->args) a->accept(this);
+            checkVaListArg(node, bid->name, node->args);
+            if (bid->name == "va_start" && !inVariadicFn)
+                errorAt(node, "'va_start' used in a function with no variadic parameter ('...')");
             expressionTypes[node] = "void";
             return;
         }
@@ -1422,8 +1435,9 @@ void TypeChecker::visit(LambdaExpr* node) {
     switchDepth = 0;
     // A lambda is its own (non-async) function: an `await` in its body does not belong to
     // an enclosing async function.
-    bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn;
+    bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn, savedVariadic = inVariadicFn;
     inAsyncFn = false;
+    inVariadicFn = false;
     // Captures are by value: an assignment to a captured name inside the body changes the
     // lambda's copy, so it must not end a narrowing of the enclosing variable.
     std::set<std::string> savedNarrowed = narrowedNonNull;
@@ -1445,6 +1459,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     loopLabelStack = std::move(savedLoops);
     switchDepth = savedSwitch;
     inAsyncFn = savedAsync;
+    inVariadicFn = savedVariadic;
     awaitSeenInFn = savedAwait;
     narrowedNonNull = savedNarrowed;
     popScope();
@@ -1542,7 +1557,12 @@ void TypeChecker::visit(TemplateCallExpr* node) {
     // Variadic access: va_arg<T>(ap) yields the next argument as T.
     if (node->templateName == "va_arg" && node->typeArgs.size() == 1) {
         for (auto& a : node->args) a->accept(this);
-        expressionTypes[node] = normalizeType(node->typeArgs[0]);
+        checkVaListArg(node, "va_arg", node->args);
+        std::string t = normalizeType(node->typeArgs[0]);
+        if (isAggregateValue(t) || isVoidValueType(t))
+            errorAt(node, "'va_arg' cannot read a '" + node->typeArgs[0] +
+                          "': a variadic argument is an integer, a floating-point value or a pointer");
+        expressionTypes[node] = t;
         return;
     }
     // Generic algebraic-variant construction with explicit type args:

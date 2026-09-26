@@ -291,6 +291,11 @@ private:
     std::string calleeContext;
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;
+    // Whether the function being checked has a variadic parameter (`...`): only there
+    // can `va_start` begin reading the variadic arguments.
+    bool inVariadicFn = false;
+    // `va_start(ap)` / `va_end(ap)` / `va_arg<T>(ap)`: one `va_list` operand.
+    void checkVaListArg(ASTNode* at, const std::string& what, const std::vector<ExprPtr>& args);
     // Set when an `await` is seen in the current function body — an `async fn`
     // with none is rejected (the transform needs at least one suspend point).
     bool awaitSeenInFn = false;
