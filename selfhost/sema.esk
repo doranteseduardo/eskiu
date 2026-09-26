@@ -3855,6 +3855,37 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_expr(s, e.a);
         return;
     }
+    if (k == EK_ALLOCWITH && e.a != null && e.b != null) {
+        // The count is an integer; the allocator's type names its alloc method,
+        // `<Type>_alloc` (mirrors the C++ visit(AllocWithExpr)).
+        string awc = sema_infer_type(s, e.b);
+        if (awc[0] != 0 && sema_is_int_ty(sema_canon(s, awc)) == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: alloc_with count must be integer, got %s\n", s.filename, s.line, s.col, awc);
+        }
+        string awa = sema_infer_type(s, e.a);
+        if (awa[0] != 0) {
+            string ab = sema_strip_nullable(sema_canon(s, awa));
+            int a0 = 0; while ((int)ab[a0] == 42) { a0 = a0 + 1; }
+            int a1 = sema_slen(ab); while (a1 > a0 && (int)ab[a1 - 1] == 42) { a1 = a1 - 1; }
+            ab = sema_sub_str(ab, a0, a1);
+            string afn = sema_cat(ab, "_alloc");
+            int has = 0;
+            if (sema_find_fn(s, afn) >= 0) { has = 1; }
+            *DeclNode asd = sema_find_struct(s, ab);           // or an inline `alloc` method
+            if (asd != null) {
+                int mi = 0;
+                while (mi < List_len<*DeclNode>(&asd.methods)) {
+                    if (sema_streq(List_get<*DeclNode>(&asd.methods, mi).name, "alloc") == 1) { has = 1; }
+                    mi = mi + 1;
+                }
+            }
+            if (has == 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: alloc_with: allocator type '%s' has no alloc method (%s)\n", s.filename, s.line, s.col, ab, afn);
+            }
+        }
+    }
     if (k == EK_INDEX || k == EK_ALLOCWITH) {
         // Constant slice bounds `a[lo..hi]`: 0 <= lo <= hi on any base, and <= N into a fixed array.
         // Constant indices and bounds (a literal, an enum member, a `const`, or an

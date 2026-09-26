@@ -1649,8 +1649,19 @@ void TypeChecker::visit(AllocWithExpr* node) {
     node->allocator->accept(this);
     node->count->accept(this);
     std::string countType = getExpressionType(node->count.get());
-    if (countType != "unknown" && !isIntType(countType))
+    if (countType != "unknown" && !isIntType(dealiasOperand(countType)))
         errorAt(node,"alloc_with count must be integer, got " + countType);
+    // The allocator's type names its alloc method, `<Type>_alloc`.
+    std::string at = getExpressionType(node->allocator.get());
+    if (at != "unknown") {
+        at = normalizeType(at);
+        if (!at.empty() && at[0] == '?') at = at.substr(1);
+        while (!at.empty() && at.front() == '*') at = at.substr(1);
+        while (!at.empty() && at.back()  == '*') at.pop_back();
+        if (at.rfind("struct:", 0) == 0) at = at.substr(7);
+        if (!functionSignatures.count(at + "_alloc"))
+            errorAt(node, "alloc_with: allocator type '" + at + "' has no alloc method (" + at + "_alloc)");
+    }
     expressionTypes[node] = "*" + node->elemType;
 }
 
