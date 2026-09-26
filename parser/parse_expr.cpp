@@ -136,6 +136,11 @@ bool Parser::isTypeName(const std::string& name) const {
     return false;
 }
 
+bool Parser::isLocalVar(const std::string& name) const {
+    for (const auto& v : localVars) if (v == name) return true;
+    return false;
+}
+
 bool Parser::typeArgIsEvident(const std::string& t) const {
     if (t.find_first_of("<(") != std::string::npos) return true;   // Name<...> or fn(...)->R
     size_t b = 0, e = t.size();
@@ -221,6 +226,8 @@ ExprPtr Parser::tryParseLambda() {
         auto params = parseParameterList(&esc);
         consume(TokenType::RPAREN, "");
         if (check(TokenType::LBRACE)) {
+            LocalScope scope(*this);
+            declareParams(params);
             StmtPtr body = parseBlockStatement();
             auto lambda = std::make_shared<LambdaExpr>(params, retType, body);
             lambda->line = tok.line; lambda->col = tok.column;
@@ -283,9 +290,10 @@ ExprPtr Parser::parseUnary() {
         bool isTypeKeyword = isPrimitiveTypeToken(inner) ||
                              (inner == TokenType::STAR && starParenIsCast());
         // Also a cast when the inner token names a declared type — a struct,
-        // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`.
+        // enum, union, or alias — as `(Name)x`, `(Name*)x`, or `(Name<...>)x`,
+        // unless a local of that name shadows the type.
         if (!isTypeKeyword && inner == TokenType::IDENT &&
-            isTypeName(peek_ahead(1).value)) {
+            isTypeName(peek_ahead(1).value) && !isLocalVar(peek_ahead(1).value)) {
             isTypeKeyword = true;
         }
         if (isTypeKeyword) {

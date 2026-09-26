@@ -37,6 +37,7 @@ struct Parser {
 List<string> g_imported;       // resolved import paths already parsed (dedup)
 List<string> g_typenames;      // declared type names → enables `(Foo)x` casts
 List<string> g_genericnames;   // generic fns + generic enum variants (`Name<...>(` is a call)
+List<string> g_localvars;      // locals + params in scope (a local named like a type shadows it)
 int g_cur_pack;                // active `#pragma pack(N)` alignment (0 = natural)
 List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(pop)`
 List<string> g_link_libs;      // `#pragma link("name")` libraries, first-seen order, no dups
@@ -138,6 +139,7 @@ void parser_session_init() {
     List_init<string>(&g_imported, 16);
     List_init<string>(&g_typenames, 64);
     List_init<string>(&g_genericnames, 16);
+    List_init<string>(&g_localvars, 16);
     g_cur_pack = 0;
     List_init<int>(&g_pack_stack, 8);
     List_init<string>(&g_link_libs, 4);
@@ -498,6 +500,25 @@ int is_type_name(Parser* p, string name) {
     int i = 0;
     while (i < List_len<string>(&g_tparams)) {
         if (str_eq(List_get<string>(&g_tparams, i), name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Locals and params in scope (mirrors Parser::localVars): a block, function or lambda
+// body drops what it declared when it ends (local_pop to its local_mark).
+int local_mark() { return List_len<string>(&g_localvars); }
+void local_pop(int mark) {
+    while (List_len<string>(&g_localvars) > mark) { List_remove<string>(&g_localvars, List_len<string>(&g_localvars) - 1); }
+}
+void local_push_params(*DeclNode d) {
+    int i = 0;
+    while (i < List_len<Param>(&d.params)) { List_push<string>(&g_localvars, List_get<Param>(&d.params, i).name); i = i + 1; }
+}
+int is_local_var(string name) {
+    int i = 0;
+    while (i < List_len<string>(&g_localvars)) {
+        if (str_eq(List_get<string>(&g_localvars, i), name) == 1) { return 1; }
         i = i + 1;
     }
     return 0;
@@ -880,7 +901,11 @@ int lambda_ahead(Parser* p) {
     p.spec = p.spec - 1;
     if (p.failed == 0 && p_at(p) == LBRACE) {
         *ExprNode e = ast_new_expr();
-        e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp); e.stmt = parse_block(p);
+        e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp);
+        int lmark = local_mark();
+        local_push_params(tmp);
+        e.stmt = parse_block(p);
+        local_pop(lmark);
         return e;
     }
     p.failed = 0;
@@ -1159,7 +1184,8 @@ int star_paren_is_cast(Parser* p) {
         int is_cast = 0;
         if (is_type_kw(inner) == 1) { is_cast = 1; }
         else if (inner == STAR) { is_cast = star_paren_is_cast(p); }
-        else if (inner == IDENT && is_type_name(p, tok_text(p.src, i2)) == 1) { is_cast = 1; }
+        else if (inner == IDENT && is_type_name(p, tok_text(p.src, i2)) == 1
+                 && is_local_var(tok_text(p.src, i2)) == 0) { is_cast = 1; }   // unless a local shadows it
         if (is_cast == 1 && p.failed == 0) {
             // Speculative: `(Type)operand` is a cast, but `(Type { ... })` is a
             // parenthesized struct literal — distinguished by what follows the type. Parse
@@ -1545,7 +1571,7 @@ string fresh_name(string base, List<string>* used) {
     if (p_at(p) != SEMICOLON) {
         int save = p.pos;
         *StmtNode d = spec_var_decl(p);
-        if (d != null) { init = wrap_block(d); }     // decl consumes its own ';'
+        if (d != null) { List_push<string>(&g_localvars, d.name); init = wrap_block(d); }     // decl consumes its own ';'
         else { p.pos = save; init = parse_expr_stmt(p); }
     } else {
         p_expect(p, SEMICOLON, "Expected ';'");
@@ -1864,7 +1890,7 @@ void check_name_not_keyword(Parser* p) {
         || t == FN || t == QUESTION || is_type_kw(t) == 1) {   // QUESTION: a `?*T` nullable decl
         int save = p.pos;
         *StmtNode d = spec_var_decl(p);
-        if (d != null) { return d; }
+        if (d != null) { List_push<string>(&g_localvars, d.name); return d; }
         p.pos = save;
     }
     return parse_stmt(p);
@@ -1875,10 +1901,12 @@ void check_name_not_keyword(Parser* p) {
     *StmtNode b = ast_new_stmt();
     b.kind = SK_BLOCK;
     List_init<*StmtNode>(&b.items, 4);
+    int mark = local_mark();
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         if (p_at(p) == PRAGMA) { p_take_pragma(p); }   // pack / link state, no item
         else { List_push<*StmtNode>(&b.items, parse_block_item(p)); }
     }
+    local_pop(mark);
     p_expect(p, RBRACE, "Expected '}'");
     return b;
 }
@@ -2006,7 +2034,10 @@ string parse_operator_token(Parser* p) {
     }
     if (p_at(p) == LBRACE) {
         int mark = push_tparams(&d.type_params);
+        int lmark = local_mark();
+        local_push_params(d);
         d.body = parse_block(p);
+        local_pop(lmark);
         pop_tparams(mark);
     }
     else { d.body = null; p_adv(p); }      // forward declaration: ';' (no body)
@@ -2122,7 +2153,12 @@ string i64_to_str(int64 n) {
             p_expect(p, LPAREN, "Expected '('");
             parse_params(p, m);
             p_expect(p, RPAREN, "Expected ')'");
-            if (p_at(p) == LBRACE) { m.body = parse_block(p); } else { m.body = null; p_adv(p); }
+            if (p_at(p) == LBRACE) {
+                int lmark = local_mark();
+                local_push_params(m);
+                m.body = parse_block(p);
+                local_pop(lmark);
+            } else { m.body = null; p_adv(p); }
             List_push<*DeclNode>(&d.methods, m);
         } else {
             int bw = 0;

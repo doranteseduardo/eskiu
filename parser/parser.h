@@ -196,6 +196,20 @@ private:
     // `alloc<T>` names a type even though T is not a declared type name.
     std::vector<std::string> typeParamScope;
     bool isTypeName(const std::string& name) const;
+    // Locals and parameters in scope, innermost last. A local named like a type
+    // (`int P = 10;` beside `struct P`) shadows it, so `(P) - 1` is not a cast.
+    std::vector<std::string> localVars;
+    bool isLocalVar(const std::string& name) const;
+    // Drops the names a block, function or lambda body declared when it ends.
+    struct LocalScope {
+        Parser& p;
+        size_t mark;
+        explicit LocalScope(Parser& parser) : p(parser), mark(parser.localVars.size()) {}
+        ~LocalScope() { p.localVars.resize(mark); }
+    };
+    void declareParams(const std::vector<std::pair<std::string, std::string>>& params) {
+        for (const auto& pr : params) localVars.push_back(pr.second);
+    }
     // Can the parsed template argument `t` only be a type? A bare name that is not a
     // declared type (`b` in `f(a < b, c > (d))`) may equally be a comparison operand.
     bool typeArgIsEvident(const std::string& t) const;

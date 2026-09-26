@@ -114,6 +114,7 @@ when you add a test.
 | `list_free_reuse` | `List_free` sets `data` to null: a push after it regrows the list and a second free (also via `String_split_free`) is a no-op, not a double free |
 | `member_temp` | member access on a struct-valued temporary (call result) |
 | `cast_alias` | casts to struct-pointer / alias / enum; alias used as a type |
+| `cast_shadowed_type` | a local or parameter named like a type shadows it, so `(P) - 1` is not a cast |
 | `lambdas` | anonymous functions, `fn(T)->R`, higher-order functions |
 | `closures` | capturing & non-capturing lambdas through higher-order functions |
 | `closure_escape` | escape analysis: non-escaping closure on the stack, escaping one heap + `free_closure` |

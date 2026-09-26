@@ -164,6 +164,7 @@ StmtPtr Parser::parseStatement() {
 StmtPtr Parser::parseBlockStatement() {
     Token lbTok = consume(TokenType::LBRACE, "Expected '{'");
     std::vector<BlockItem> items;
+    LocalScope scope(*this);
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         // A #pragma in a body updates parser state (pack / link) and emits nothing.
@@ -182,6 +183,7 @@ StmtPtr Parser::parseBlockStatement() {
             try {
                 DeclPtr decl = parseDeclaration();
                 if (decl) {
+                    if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
                     items.push_back(decl);
                     continue;
                 }
@@ -296,6 +298,7 @@ StmtPtr Parser::parseForStatement() {
         size_t savePos = current;
         try {
             DeclPtr decl = parseDeclaration();
+            if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
             init = std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
         } catch (const NestingError&) {
             throw;

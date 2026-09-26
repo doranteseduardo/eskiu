@@ -353,6 +353,8 @@ DeclPtr Parser::parseFunctionDecl() {
     if (!match(TokenType::SEMICOLON)) {
         size_t scopeMark = typeParamScope.size();
         typeParamScope.insert(typeParamScope.end(), typeParams.begin(), typeParams.end());
+        LocalScope scope(*this);
+        declareParams(params);
         try { body = parseBlockStatement(); }
         catch (...) { typeParamScope.resize(scopeMark); throw; }
         typeParamScope.resize(scopeMark);
