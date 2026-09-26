@@ -175,6 +175,14 @@ The coerced types match what clang emits for the same C signature. Other
 targets keep the first-class lowering. Fat values (closures, slices) and
 `va_list` are not C aggregates and keep their own layout.
 
+**Narrow integers.** Like clang, an `extern`'s `int8`/`int16`/`uint8`/`uint16`/
+`bool`/`char` parameters and results are declared `signext` or `zeroext` (by the
+type's signedness; `char` follows the target's C `char`, unsigned on AArch64 and
+32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
+32 bits. Every Eskiu function returning one extends its result (`define signext
+i8 @f`), since a C caller (a callback, or C calling it by name) relies on that on
+AArch64 Darwin and x86-64.
+
 **Callbacks from C.** An Eskiu function handed to C as a raw function pointer
 (`(*void)f`, the cast of a top-level function name to a pointer type) is called
 with the C convention. When it takes or returns an aggregate by value, the cast
@@ -194,7 +202,13 @@ other argument there, since a closure's environment cannot cross into C.
 `va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
 both; `va_start`/`va_arg<T>`/`va_end` lower to the corresponding LLVM
-intrinsics/instruction. Variadic arguments follow C default promotions:
+intrinsics/instruction. An `extern` parameter of type `va_list` (`vprintf`,
+`vsnprintf`) is declared `ptr` and gets what C passes for its `va_list`: the
+address of the storage on x86-64 System V and AArch64 outside Darwin and Windows
+(an array/struct type there), and the `char*` that `llvm.va_start` stored at
+offset 0 on Darwin AArch64, Windows x64 and 32-bit ARM (`evalCVaList` /
+`cg_c_va_list`). Between Eskiu functions a `va_list` stays a first-class value.
+Variadic arguments follow C default promotions:
 integers narrower than 32 bits widen to `i32` (sign- or zero-extended), `bool`
 zero-extends, and `float` widens to `double`.
 

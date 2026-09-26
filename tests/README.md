@@ -399,6 +399,14 @@ when you add a test.
 | `http_conn_feed_incremental` | `HttpConnBuf_feed` parses the head once and decodes a chunked body as it arrives (it reparsed the whole request on every read: quadratic CPU for small reads); a chunk-size or trailer line over `HTTP_CHUNK_LINE_MAX` is 400 |
 | `http_async_slow_reader` | `http_serve_async` writes answers through `net_write_async` on a non-blocking socket, so a client that never reads an 8 MB answer no longer stalls the loop and the other client (`net_set_nonblocking` was also a no-op on arm64 macOS: `fcntl` is variadic) |
 | `http2_body_limit` | The HTTP/2 engine buffers at most `s.max_body` bytes per request body and `s.max_buffered` per connection: a request past either (or with a content-length past `max_body`) is answered 413 without the handler and reset with NO_ERROR (DATA used to be buffered without limit while the window credit came back) |
+| `c_abi_narrow` | narrow integer params and results across `extern` (+ `.c`): `signext`/`zeroext`, callbacks and C calling Eskiu |
+| `va_list_c` | a `va_list` handed to `vprintf`/`vsnprintf`, also through an Eskiu `va_list` param |
+| `volatile_access` | volatile loads/stores through a volatile local or global (`*p`, `p[i]`, `p.f`, `++`, `+=`); IR count checked |
+| `inline_asm_ext` | extended inline asm with inputs and a clobber (AArch64 and x86-64 spellings) |
+| `async_arm_locals` | an async fn declaring locals in `match` arms and `try`/`catch`/`finally` bodies |
+| `async_closure_param` | an async fn's closure param outlives the caller (heap env), awaited after the caller returned |
+| `generic_enum_alias_arg` | a generic enum instantiated with an alias type argument (`Opt<F>`, a fn-type alias) |
+| `alias_ptr_dotcall` | a dot-call through a pointer to an alias of a generic instance and of a struct |
 
 ### `smoke` tests (compile + link + exit 0)
 

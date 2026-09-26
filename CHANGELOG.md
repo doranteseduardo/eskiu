@@ -705,6 +705,34 @@ more and a third about 60, fixed the same way.
   the operand types (a pointer argument converts only through `*void`), as C++ does:
   `v + &g.a` for `operator +(V, *int64)` compiled to invalid IR. Test
   `errors/operator_ptr_arg_mismatch`.
+- Narrow integers cross the C boundary extended, as clang does: an `extern`'s `int8`,
+  `int16`, `uint8`, `uint16`, `bool` and `char` params and results carry `signext` /
+  `zeroext`, and an Eskiu function returning one (a callback, or a function C calls by
+  name) extends its result. AArch64 Darwin and x86-64 C code relies on it; a C callee
+  read garbage high bits. `char` follows the target's C `char`. Both compilers; test
+  `c_abi_narrow` (+ `.c`), also in `cabi_parity.sh`.
+- A `va_list` passed to a C function (`vprintf`, `vsnprintf`) goes the way the target's
+  C `va_list` does: by address on x86-64 System V and AArch64 Linux, as its `char*` on
+  Darwin AArch64, Windows x64 and 32-bit ARM. It was passed as a 32-byte aggregate (a
+  crash on x86-64). Both compilers; test `va_list_c`.
+- Every load and store through a `volatile` variable is volatile: `*p`, `p[i]`, `p.f`,
+  `++`/`--` and compound assignment, for locals and globals. C++ marked only the
+  variable's own loads (a volatile global not even those), the self-host ignored
+  `volatile`. Test `volatile_access` (IR checked in `run.sh` and `cg_parity.sh`).
+- The self-host emits inline assembly (it dropped `asm(...)` statements), with inputs
+  and clobbers like C++. Test `inline_asm_ext`.
+- An async function whose `match` arms or `try`/`catch`/`finally` bodies declare locals
+  compiles: the lowering hoists them to frame fields (C++ failed with "has no member",
+  the self-host emitted invalid IR). Test `async_arm_locals`.
+- The self-host instantiates a generic enum with an alias type argument (`Opt<F>`,
+  `type F = int`) as the target's instance (invalid IR). Test `generic_enum_alias_arg`.
+- The self-host dot-calls through a pointer to an alias (`IL* l; l.len()` with
+  `type IL = List<int>`), as C++ does. Test `alias_ptr_dotcall`.
+- A closure param of an async function is retained by the coroutine frame, so the
+  call's lambda gets a heap environment even when the body only calls it. C++ rejected
+  the program with an internal error. Test `async_closure_param`.
+- An `await` the async lowering can't place (`r += await f()`) is an error located at
+  that await, in both compilers (C++ reported "expected at least one `await`").
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
