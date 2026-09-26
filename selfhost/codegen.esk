@@ -6260,7 +6260,9 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
                 if (bitpos / ub != (bitpos + bw - 1) / ub) { bitpos = cg_align_up(bitpos, ub); }
                 slot.boffs = bitpos / ub * size; slot.boff = bitpos - slot.boffs * 8;
                 slot.aal = nal;
-                let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + size; u.ty = lty;
+                // A bool bitfield is read and written as its byte (the value is i1).
+                if (cg_streq(lty, "i1") == 1) { slot.aty = "i8"; }
+                let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + size; u.ty = slot.aty;
                 cg_span_insert(&units, u, 1);
             }
             bitpos = bitpos + bw;
@@ -6379,12 +6381,13 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
         slot.boffs = 0 - 1; slot.aal = 0;
         if (bw > 0) {
             string sty = cg_lltype(g, pm.ty);
-            int stb = cg_int_w(sty);
+            string uty = sty; if (cg_streq(sty, "i1") == 1) { uty = "i8"; }   // a bool's unit is its byte
+            int stb = cg_int_w(uty);
             if (curword < 0 || curbits != stb || curoff + bw > stb) {   // open a fresh word
-                curword = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, sty);
+                curword = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, uty);
                 curbits = stb; curoff = 0;
             }
-            slot.fidx = curword; slot.boff = curoff; slot.bw = bw; slot.sty = sty; slot.aty = sty;
+            slot.fidx = curword; slot.boff = curoff; slot.bw = bw; slot.sty = sty; slot.aty = uty;
             slot.sgn = 0; if (cg_is_unsigned(cg_dealias(g, pm.ty)) == 0) { slot.sgn = 1; }
             curoff = curoff + bw;
         } else {
@@ -6581,7 +6584,8 @@ int cg_ll_leaves(Codegen* g, string s, int* pos, int base, List<CgLeaf>* out, in
                     int fp = 0; int fal = 1; cg_ll_leaves(g, flt, &fp, base + bs.boffs, out, &fal);
                 } else {
                     int first = bs.boffs * 8 + bs.boff;
-                    int last = first + cg_int_w(bs.sty);
+                    int bsw = cg_int_w(bs.sty); if (bsw < 8) { bsw = 8; }
+                    int last = first + bsw;
                     int b = first / 8;
                     while (b < (last + 7) / 8 && b < sz) {
                         let bl: CgLeaf; bl.off = base + b; bl.ty = "i8"; List_push<CgLeaf>(out, bl);

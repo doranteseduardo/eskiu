@@ -490,16 +490,19 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
         for (const auto& f : fields) {
             if (f.bitWidth > 0) {
                 llvm::Type* sty = getTypeFromString(f.type);
-                unsigned stBits = sty->getIntegerBitWidth();
+                // A bool bitfield's storage unit is its byte, as in C (the value is i1).
+                llvm::Type* uty = sty->isIntegerTy(1) ? llvm::Type::getInt8Ty(*context) : sty;
+                unsigned stBits = uty->getIntegerBitWidth();
                 if (curPhys < 0 || curUnitBits != stBits ||
                     curOffset + (unsigned)f.bitWidth > stBits) {
-                    curPhys = (int)addElem(sty);
+                    curPhys = (int)addElem(uty);
                     curUnitBits = stBits; curOffset = 0;
                 }
                 BitfieldSlot s;
                 s.isBitfield = true; s.physIndex = (unsigned)curPhys;
                 s.bitOffset = curOffset; s.bitWidth = (unsigned)f.bitWidth;
                 s.storageType = sty; s.isSigned = !eskiuUnsigned(f.type);
+                if (uty != sty) s.accessType = uty;
                 slots[f.name] = s;
                 curOffset += (unsigned)f.bitWidth;
             } else {
@@ -555,9 +558,11 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
                     bitpos = (bitpos + unitBits - 1) / unitBits * unitBits;
                 s.byteOffset = bitpos / unitBits * size;
                 s.bitOffset = (unsigned)(bitpos - s.byteOffset * 8);
-                s.accessType = ty;
-                s.accessAlign = (unsigned)DL.getABITypeAlign(ty).value();
-                units.push_back({s.byteOffset, s.byteOffset + size, ty});
+                // A bool bitfield is read and written as its byte (the value is i1).
+                llvm::Type* uty = ty->isIntegerTy(1) ? i8 : ty;
+                s.accessType = uty;
+                s.accessAlign = (unsigned)DL.getABITypeAlign(uty).value();
+                units.push_back({s.byteOffset, s.byteOffset + size, uty});
             }
             bitpos += w;
         } else {

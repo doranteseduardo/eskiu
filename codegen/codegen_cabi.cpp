@@ -55,7 +55,7 @@ void CodeGen::cabiLeaves(llvm::Type* ty, uint64_t base,
                 const BitfieldSlot& s = lit->second.at(f.name);
                 if (!s.isBitfield) { cabiLeaves(s.storageType, base + s.byteOffset, out); continue; }
                 uint64_t first = s.byteOffset * 8 + s.bitOffset;
-                uint64_t last = first + s.storageType->getIntegerBitWidth();
+                uint64_t last = first + std::max(8u, s.storageType->getIntegerBitWidth());
                 for (uint64_t b = first / 8; b < (last + 7) / 8 && b < size; ++b)
                     out.push_back({base + b, llvm::Type::getInt8Ty(ty->getContext())});
             }
