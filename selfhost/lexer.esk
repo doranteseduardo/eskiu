@@ -256,6 +256,36 @@ int keyword_type(*uint8 src, int start, int len) {
     return IDENT;
 }
 
+// Scan one escape at the backslash (mirrors Lexer::readEscape): `\xNN` (one or two
+// hex digits), octal `\NNN` (one to three digits, at most 255), or a simple escape;
+// anything else is an error located at the backslash.
+int lx_is_simple_esc(int e) {
+    return e == 110 || e == 116 || e == 114 || e == 102 || e == 118 || e == 97 || e == 98
+        || e == 92 || e == 34 || e == 39 || e == 63;
+}
+void lx_scan_escape(Lexer* lx) {
+    int el = lx.line; int ec = lx.col;
+    lx_advance(lx);                                  // backslash
+    int e = lx_advance(lx);
+    if (e == 120) {                                  // \x
+        if (is_hex(lx_peek(lx)) == 0) { lx_error(el, ec, "\\x used with no following hex digits"); return; }
+        lx_advance(lx);
+        if (is_hex(lx_peek(lx)) == 1) { lx_advance(lx); }
+        return;
+    }
+    if (e >= 48 && e <= 55) {                        // octal
+        int v = e - 48; int k = 0;
+        while (k < 2 && lx_peek(lx) >= 48 && lx_peek(lx) <= 55) { v = v * 8 + (lx_advance(lx) - 48); k = k + 1; }
+        if (v > 255) { lx_error(el, ec, "octal escape sequence out of range"); }
+        return;
+    }
+    if (lx_is_simple_esc(e) == 0) {
+        uint8[48] mb;
+        sprintf((string)&mb[0], "unknown escape sequence '\\%c'", e);
+        lx_error(el, ec, (string)&mb[0]);
+    }
+}
+
 Token lx_next(Lexer* lx) {
     lx_skip_ws(lx);
     // Skip comments (interleaved with whitespace), exactly like next_token.
@@ -364,13 +394,12 @@ Token lx_next(Lexer* lx) {
     }
 
     // String literal (mirror read_string's escape-aware scan; value decoded by
-    // the driver). The span [start, len) includes both quotes.
+    // the driver, escapes checked by lx_scan_escape). The span includes both quotes.
     if (c == 34) {                                   // '"'
         lx_advance(lx);                              // opening "
         while (lx_at_end(lx) == 0 && lx_peek(lx) != 34) {
             if (lx_peek(lx) == 92 && lx_peek_next(lx) != 0) {   // '\' + a char
-                lx_advance(lx);                      // backslash
-                lx_advance(lx);                      // escaped char
+                lx_scan_escape(lx);
             } else {
                 lx_advance(lx);
             }
@@ -403,12 +432,7 @@ Token lx_next(Lexer* lx) {
             return t;
         }
         if (lx_peek(lx) == 92) {                     // backslash escape
-            lx_advance(lx);
-            int esc = lx_advance(lx);
-            if (esc == 120 && is_hex(lx_peek(lx)) == 1) {        // \xNN: up to two hex digits
-                lx_advance(lx);
-                if (is_hex(lx_peek(lx)) == 1) { lx_advance(lx); }
-            }
+            lx_scan_escape(lx);
         } else {
             lx_advance(lx);
         }

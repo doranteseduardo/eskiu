@@ -34,8 +34,9 @@ FLOAT_LIT  = [0-9]+ '.' [0-9]+ EXP?  |  [0-9]+ EXP
 EXP        = ('e' | 'E') ('+' | '-')? [0-9]+
 STRING_LIT = '"' ( escape | not('"') )* '"'        // adjacent literals concatenate: "a" "b" == "ab"
 CHAR_LIT   = "'" ( escape | not("'") ) "'"
-escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '"' | "'" | '0'    // string and char share the set
-                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits
+escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | 'a' | 'b' | '\' | '"' | "'" | '?'  // string and char share the set
+                 | OCT OCT? OCT?                                         // raw byte, 1-3 octal digits (<= \377)
+                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits; any other escape is an error
 ```
 
 Comments: `// … end-of-line` and `/* … */` (block comments do not nest).

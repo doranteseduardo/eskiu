@@ -1,0 +1,6 @@
+// A hex escape needs at least one hex digit after the x.
+// EXPECT-ERROR: used with no following hex digits
+int main() {
+    string s = "\xg";
+    return 0;
+}

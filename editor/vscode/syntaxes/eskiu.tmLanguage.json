@@ -62,7 +62,7 @@
       "patterns": [
         {
           "name": "constant.character.escape.eskiu",
-          "match": "\\\\[ntr\\\\\"'0]"
+          "match": "\\\\([ntrfvab\\\\\"'?]|[0-7]{1,3}|x[0-9A-Fa-f]{1,2})"
         }
       ]
     },

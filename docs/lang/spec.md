@@ -124,13 +124,18 @@ digit. An integer literal that does not fit in 64 bits is a lexical error.
 | `\r`   | Carriage return  |
 | `\f`   | Form feed        |
 | `\v`   | Vertical tab     |
-| `\0`   | NUL byte         |
+| `\a`   | Alert (bell, byte 7) |
+| `\b`   | Backspace (byte 8) |
 | `\\`   | Backslash        |
 | `\"`   | Double quote     |
 | `\'`   | Single quote     |
+| `\?`   | Question mark    |
+| `\NNN` | Raw byte from one to three octal digits, at most `\377` (e.g. `\0` is NUL, `\012` is a newline) |
 | `\xNN` | Raw byte from one or two hex digits (e.g. `\xC3` is byte `0xC3`) |
 
-An unrecognized escape (`\q`) yields the character itself (`q`).
+Any other escape (`\q`), an octal escape above `\377`, and `\x` with no hex digit are
+errors located at the backslash. As in C, an octal escape takes at most three digits
+(`"\1234"` is `S` followed by `4`), and `\0` followed by a non-octal character is NUL.
 
 ```eskiu
 "Hello, world!\n"

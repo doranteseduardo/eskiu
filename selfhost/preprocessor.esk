@@ -552,15 +552,17 @@ int pp_hex_digit(int c) {
     return 0 - 1;
 }
 
-// A single-char escape's byte (mirrors decodeEscape; unknown → the char itself).
+// A simple escape's byte (mirrors decodeEscape), -1 for an unknown escape.
 int pp_escape_char(int e) {
+    if (e == 97) { return 7; }
+    if (e == 98) { return 8; }
+    if (e == 92 || e == 34 || e == 39 || e == 63) { return e; }
     if (e == 110) { return 10; }
     if (e == 116) { return 9; }
     if (e == 114) { return 13; }
     if (e == 102) { return 12; }
     if (e == 118) { return 11; }
-    if (e == 48) { return 0; }
-    return e;
+    return 0 - 1;
 }
 
 // The value of a character constant `t` (quotes included), decoded like the lexer's
@@ -578,8 +580,19 @@ int64 pp_ev_char(PPEval* ev, string t) {
             v = pp_hex_digit((int)t[i]);
             i = i + 1;
             if (i < n && pp_hex_digit((int)t[i]) >= 0) { v = v * 16 + pp_hex_digit((int)t[i]); i = i + 1; }
+        } else if (e == 120) {
+            pp_ev_fail(ev, "\\x used with no following hex digits"); return 0;
+        } else if (e >= 48 && e <= 55) {
+            v = e - 48; int k = 0;
+            while (k < 2 && i < n && (int)t[i] >= 48 && (int)t[i] <= 55) { v = v * 8 + ((int)t[i] - 48); i = i + 1; k = k + 1; }
+            if (v > 255) { pp_ev_fail(ev, "octal escape sequence out of range"); return 0; }
         } else {
             v = pp_escape_char(e);
+            if (v < 0) {
+                uint8[48] mb;
+                sprintf((string)&mb[0], "unknown escape sequence '\\%c'", e);
+                pp_ev_fail(ev, (string)&mb[0]); return 0;
+            }
         }
     } else {
         v = (int)t[i] & 255;

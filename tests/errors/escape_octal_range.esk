@@ -1,0 +1,6 @@
+// An octal escape above 255 (a backslash then 777) is out of range.
+// EXPECT-ERROR: octal escape sequence out of range
+int main() {
+    char c = '\777';
+    return (int)c;
+}

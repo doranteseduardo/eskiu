@@ -246,10 +246,17 @@ static int hexDigit(char c) {
     return -1;
 }
 
-// Decode a backslash escape to the byte it denotes. Shared by string and char
-// literals so both accept the same set. An unrecognized escape yields the char
-// itself (so `\q` is `q`), matching C's lenient handling. `\xNN` (one or two hex
-// digits) is handled separately by the readers, since it consumes extra chars.
+// Decode a single-char backslash escape to the byte it denotes. Shared by string and
+// char literals so both accept the same set (C's simple escapes). `\xNN` (one or two
+// hex digits) and octal `\NNN` (one to three digits) are handled by the readers,
+// since they consume extra chars; any other escape is an error (isSimpleEscape).
+static bool isSimpleEscape(char e) {
+    switch (e) {
+        case 'n': case 't': case 'r': case 'f': case 'v': case 'a': case 'b':
+        case '\\': case '"': case '\'': case '?': return true;
+        default: return false;
+    }
+}
 static char decodeEscape(char e) {
     switch (e) {
         case 'n':  return '\n';
@@ -257,13 +264,12 @@ static char decodeEscape(char e) {
         case 'r':  return '\r';
         case 'f':  return '\f';
         case 'v':  return '\v';
-        case '0':  return '\0';
-        case '\\': return '\\';
-        case '"':  return '"';
-        case '\'': return '\'';
-        default:   return e;
+        case 'a':  return '\a';
+        case 'b':  return '\b';
+        default:   return e;   // \\ \" \' \?
     }
 }
+static bool isOctalDigit(char c) { return c >= '0' && c <= '7'; }
 
 // Decode a whole character literal `lit` (quotes included) exactly as read_char
 // does: one character or one escape (`\xNN` or a single-char escape) between the
@@ -285,8 +291,19 @@ bool decodeCharLiteral(const std::string& lit, int& value, std::string& err) {
             int b = hexDigit(lit[i++]);
             if (i < n && hexDigit(lit[i]) >= 0) b = b * 16 + hexDigit(lit[i++]);
             v = (unsigned char)b;
-        } else {
+        } else if (e == 'x') {
+            err = "\\x used with no following hex digits";
+            return false;
+        } else if (isOctalDigit(e)) {
+            int b = e - '0';
+            for (int k = 0; k < 2 && i < n && isOctalDigit(lit[i]); ++k) b = b * 8 + (lit[i++] - '0');
+            if (b > 255) { err = "octal escape sequence out of range"; return false; }
+            v = (unsigned char)b;
+        } else if (isSimpleEscape(e)) {
             v = (unsigned char)decodeEscape(e);
+        } else {
+            err = std::string("unknown escape sequence '\\") + e + "'";
+            return false;
         }
     } else {
         v = (unsigned char)lit[i++];
@@ -300,15 +317,25 @@ bool decodeCharLiteral(const std::string& lit, int& value, std::string& err) {
 }
 
 // Decode one escape sequence, assuming the leading '\' has already been consumed:
-// \xNN (one or two hex digits) yields that byte; a single-char escape resolves via
-// decodeEscape (an unknown escape is the character itself).
+// \xNN (one or two hex digits) and octal \NNN (one to three digits) yield that byte;
+// a simple escape resolves via decodeEscape; anything else is a located error.
 char Lexer::readEscape() {
+    int el = line, ec = column - 1;          // the backslash
     char e = advance();
-    if (e == 'x' && hexDigit(peek()) >= 0) {
+    if (e == 'x') {
+        if (hexDigit(peek()) < 0) { lexError(el, ec, "\\x used with no following hex digits"); return 'x'; }
         int b = hexDigit(advance());
         if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
         return (char)b;
     }
+    if (isOctalDigit(e)) {
+        int b = e - '0';
+        for (int k = 0; k < 2 && isOctalDigit(peek()); ++k) b = b * 8 + (advance() - '0');
+        if (b > 255) lexError(el, ec, "octal escape sequence out of range");
+        return (char)b;
+    }
+    if (!isSimpleEscape(e))
+        lexError(el, ec, std::string("unknown escape sequence '\\") + e + "'");
     return decodeEscape(e);
 }
 

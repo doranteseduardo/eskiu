@@ -1,0 +1,6 @@
+// An unknown escape sequence is a lexer error located at the backslash.
+// EXPECT-ERROR: escape_unknown.esk:4:17: unknown escape sequence '\q'
+int main() {
+    string s = "\q";
+    return 0;
+}
