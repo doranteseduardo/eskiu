@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.9.1" />
+  <meta name="description" content="Version: v0.9.2" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -99,7 +99,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.9.1</p>
+<p><strong>Version:</strong> v0.9.2</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -126,6 +126,7 @@ clang file.o -o file        # link it yourself
 </code></pre>
 <hr>
 <h2 id="2-lexical-elements">2. Lexical Elements</h2>
+<p>A source file is bytes; a leading UTF-8 byte order mark (<code>EF BB BF</code>) is skipped.</p>
 <h3 id="21-comments">2.1 Comments</h3>
 <p>Single-line comments begin with <code>//</code> and extend to the end of the line. A trailing backslash does <strong>not</strong> continue the comment onto the next line (unlike C). Block comments are enclosed in <code>/* ... */</code> and may span multiple lines. Comments do not nest.</p>
 <pre><code class="language-eskiu">// This is a single-line comment
@@ -204,8 +205,12 @@ digit. An integer literal that does not fit in 64 bits is a lexical error.</p>
 <td>Vertical tab</td>
 </tr>
 <tr>
-<td><code>\0</code></td>
-<td>NUL byte</td>
+<td><code>\a</code></td>
+<td>Alert (bell, byte 7)</td>
+</tr>
+<tr>
+<td><code>\b</code></td>
+<td>Backspace (byte 8)</td>
 </tr>
 <tr>
 <td><code>\\</code></td>
@@ -220,12 +225,22 @@ digit. An integer literal that does not fit in 64 bits is a lexical error.</p>
 <td>Single quote</td>
 </tr>
 <tr>
+<td><code>\?</code></td>
+<td>Question mark</td>
+</tr>
+<tr>
+<td><code>\NNN</code></td>
+<td>Raw byte from one to three octal digits, at most <code>\377</code> (e.g. <code>\0</code> is NUL, <code>\012</code> is a newline)</td>
+</tr>
+<tr>
 <td><code>\xNN</code></td>
 <td>Raw byte from one or two hex digits (e.g. <code>\xC3</code> is byte <code>0xC3</code>)</td>
 </tr>
 </tbody>
 </table></div>
-<p>An unrecognized escape (<code>\q</code>) yields the character itself (<code>q</code>).</p>
+<p>Any other escape (<code>\q</code>), an octal escape above <code>\377</code>, and <code>\x</code> with no hex digit are
+errors located at the backslash. As in C, an octal escape takes at most three digits
+(<code>"\1234"</code> is <code>S</code> followed by <code>4</code>), and <code>\0</code> followed by a non-octal character is NUL.</p>
 <pre><code class="language-eskiu">&quot;Hello, world!\n&quot;
 &quot;path\\to\\file&quot;
 &quot;column\theader&quot;
@@ -533,12 +548,20 @@ C, with one exception. Implicit (no cast needed):</p>
   fractional part, so it must be written out: <code>int n = (int)3.9;</code> gives <code>3</code>; <code>int n =
   3.9;</code> is a compile error.</li>
 </ul>
-<p>Two statically-known mistakes are also compile errors:</p>
+<p>Statically-known mistakes are also compile errors:</p>
 <ul>
 <li>An <strong>integer literal that does not fit</strong> its target type: <code>int8 x = 300;</code> (300 is
   outside <code>int8</code>'s range). A literal that fits is fine: <code>uint8 c = 255;</code>.</li>
-<li><strong>Division or remainder by a literal zero</strong>: <code>x / 0</code>, <code>x % 0</code>.</li>
+<li><strong>Integer division or remainder by zero</strong>, or of the most negative value by <code>-1</code>, when
+  the operands are constant: a literal (<code>x / 0</code>), a <code>const</code> name, a fixed-size <code>sizeof</code>,
+  a cast (<code>x / (int)0.5</code>) or an expression of those. <code>M / -1</code> with <code>const int M =
+  -2147483647 - 1</code> does not fit an <code>int</code>.</li>
+<li>A <strong>floating constant converted to an integer type that cannot hold it</strong>, written as a
+  literal or reached through <code>const</code> names and arithmetic: <code>(int)1e10</code>, <code>(int)D</code> with
+  <code>const double D = 1e10</code>, <code>(uint32)(0.0 - 1.0)</code>.</li>
 </ul>
+<p>A constant shift count out of range and a constant array index out of bounds are errors
+by the same folding (<code>a &lt;&lt; sizeof(int64) * 8</code>, <code>a[sizeof(int)]</code> on an <code>int[4]</code>).</p>
 <pre><code class="language-eskiu">int64 big = strlen(s);   // ok: no cast needed for the length
 int   n   = strlen(s);   // ok: int64 to int truncates, as in C
 int   x   = (int)3.9;    // ok: explicit
@@ -2429,6 +2452,11 @@ A concurrent server combines <code>&lt;net&gt;</code> with <code>thread_create</
 accepted connection to a worker (see §6.5 for passing a function as a value).
 Complete programs are in <code>examples/http_server.esk</code> and
 <code>examples/tcp_echo_server.esk</code>.</p>
+<p>The HTTP servers (<code>http_serve</code>, <code>http_serve_async</code>, <code>http2_serve_async</code> and the TLS
+servers) bound request heads, bodies and header lists, but in 0.9.2 they have no read or
+idle timeout: a client that connects and then sends nothing holds a worker or a file
+descriptor until it disconnects. Run them behind a reverse proxy (nginx, Caddy) when they
+face untrusted clients.</p>
 <hr>
 <h2 id="15-inline-assembly">15. Inline Assembly</h2>
 <p>Eskiu supports inline assembly via the <code>asm(...)</code> statement, which lowers directly to an LLVM inline asm node.</p>

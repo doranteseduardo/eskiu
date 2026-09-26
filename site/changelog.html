@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
@@ -103,14 +103,16 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
-<h2 id="092-2026-09-25">[0.9.2] - 2026-09-25</h2>
+<h2 id="092-2026-09-26">[0.9.2] - 2026-09-26</h2>
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
 are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
 regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
 ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
-known limitations left from 0.9.1 (R and S). A second blind audit round found about 165
-more and a third about 60, fixed the same way.</p>
+known limitations left from 0.9.1 (R and S). Seven more blind audit rounds followed, each
+on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
+rounds concentrated on the C ABI, generics, <code>volatile</code> and the HTTP servers under hostile
+input. What is still open is listed under Known issues.</p>
 <h3 id="added">Added</h3>
 <ul>
 <li><strong><code>#pragma link("name")</code></strong> links the executable with <code>-lname</code>. The driver also adds
@@ -340,6 +342,26 @@ more and a third about 60, fixed the same way.</p>
   deduce different integer types meet at their common type (<code>maxof(1, big)</code> with <code>int64
   big</code> is <code>maxof&lt;int64&gt;</code>; it was <code>maxof&lt;int&gt;</code> and truncated <code>big</code>), and any other
   disagreement (<code>maxof(1.5, (float)2.5)</code>) is a located error in both compilers.</li>
+<li>
+<p><strong>Constant operands are checked through their folded value.</strong> Integer division or
+  remainder by zero, the most negative value divided by <code>-1</code>, a shift count out of range,
+  a floating constant cast to an integer type that cannot hold it and a constant index
+  out of bounds are errors when the operand folds through a <code>const</code> name, a fixed-size
+  <code>sizeof</code>, a cast or arithmetic (<code>5 / Z</code> with <code>const int Z = 0</code>, <code>x / (int)0.5</code>,
+  <code>1 &lt;&lt; sizeof(int64) * 8</code>, <code>(int)D</code> with <code>const double D = 1e10</code>, <code>M / -1</code> with <code>M</code> the
+  most negative <code>int</code>, <code>a[sizeof(int)]</code> on an <code>int[4]</code>). Only the literal forms were
+  checked; the others emitted poison. Both compilers; tests <code>errors/const_*</code>,
+  <code>errors/float_cast_*</code>, <code>errors/index_oob_sizeof</code>, <code>const_fold_checked</code>.</p>
+</li>
+<li>
+<p><strong>String and char escapes follow C.</strong> An octal escape <code>\NNN</code> (one to three digits)
+  is the byte it denotes (<code>"\101"</code> is <code>A</code>, <code>"\012"</code> a newline; <code>"\012"</code> was NUL then
+  <code>12</code>), <code>\a</code>, <code>\b</code> and <code>\?</code> are recognized, and any other escape (<code>\q</code>), an octal
+  escape above <code>\377</code> and a <code>\x</code> with no hex digit are lexer errors located at the
+  backslash (an unknown escape used to be the character itself). Both compilers and
+  the <code>#if</code> evaluator; tests <code>escape_octal</code>, <code>errors/escape_unknown</code>,
+  <code>errors/escape_octal_range</code>, <code>errors/escape_hex_empty</code>.</p>
+</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -466,7 +488,7 @@ more and a third about 60, fixed the same way.</p>
   the C++ compiler), finds the stdlib through <code>$ESKIU_ROOT</code>, and reports a missing import as
   an error.</li>
 <li>VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
-  version comes from <code>package.json</code> (extension 0.0.26).</li>
+  version comes from <code>package.json</code> (extension 0.0.27, which also highlights octal and <code>\a</code> <code>\b</code> <code>\?</code> escapes).</li>
 </ul>
 <h4 id="standard-library-memory-safety">Standard library: memory safety</h4>
 <ul>
@@ -847,6 +869,21 @@ more and a third about 60, fixed the same way.</p>
 </ul>
 <h4 id="eighth-audit-round">Eighth audit round</h4>
 <ul>
+<li>Returning the address of a local through a pointer cast or a <code>?:</code> arm
+  (<code>return (*void)&amp;x;</code>, <code>return c ? &amp;x : &amp;y;</code>) is the dangling-pointer error, like
+  <code>return &amp;x;</code>. Both compilers; tests <code>errors/dangling_cast</code>, <code>errors/dangling_ternary</code>.</li>
+<li>A struct that holds itself by value through an alias of a generic instance
+  (<code>type RA = W&lt;RB&gt;; struct RB { RA a; }</code>) is rejected; C++ gave it a wrong layout. Both
+  compilers; test <code>errors/struct_cycle_generic_alias</code>.</li>
+<li>The self-host declares a prototype that the program never defines, so its object links
+  with the one that does (separate compilation failed). <code>driver_parity.sh</code>
+  <code>separate/prototype</code>.</li>
+<li>The self-host rejects assigning an array literal (<code>a = {4, 5, 6};</code>) and casting a
+  function name to a non-pointer (<code>(int64)f</code>), as C++ does. Tests
+  <code>errors/assign_array_literal</code>, <code>errors/cast_fn_name_to_int</code>.</li>
+<li>The self-host driver accepts <code>-O 2</code> (a separate value), like <code>eskiuc</code>.</li>
+<li>A leading UTF-8 byte order mark is skipped instead of rejected, in both compilers.
+  Test <code>utf8_bom</code>.</li>
 <li>The HTTP/2 engine bounds a request's decoded header list: over
   <code>H2_MAX_HEADER_LIST</code> (64 KiB, as <code>SETTINGS_MAX_HEADER_LIST_SIZE</code> counts it, now
   advertised) or past what <code>s.max_buffered</code> leaves is 431, without keeping the
@@ -868,6 +905,68 @@ more and a third about 60, fixed the same way.</p>
   (6 raw bytes per body byte) is no longer 413 below <code>HTTP_SERVE_MAX_BODY</code> and the
   buffer stays small. Test <code>http_chunk_tiny_chunks</code>.</li>
 <li>The spec's <code>#define</code> continuation example declares <code>printf</code>.</li>
+<li>A multidimensional array type in generic code keeps C order: <code>T[2][3]</code> in a generic
+  function or struct was re-spelled <code>int[3][2]</code> on substitution, so a non-square local
+  crashed C++ codegen, a field was laid out with swapped dimensions (writes out of
+  bounds) and an in-range constant index was rejected. Test <code>generic_multidim</code>.</li>
+<li>A generic struct instance keeps its bitfields and packing: <code>struct G&lt;T&gt; { T v;
+  uint8 f : 3; }</code> had full-width fields in both compilers, and the self-host ignored
+  <code>packed</code> / <code>#pragma pack</code> on a generic struct. The instance is laid out like the plain
+  struct of its concrete field types. Test <code>generic_struct_layout</code> (+ <code>.c</code>).</li>
+<li>The self-host's <code>sizeof(x)</code> of an async function's local or parameter, and of an
+  enclosing local used only by <code>sizeof</code> inside a lambda, is the variable's size (it was
+  4). Test <code>sizeof_var_frame</code>.</li>
+<li>A dot-call through a leading-star pointer to an alias (<code>*Counter pc; pc.bump(1)</code>,
+  <code>type Counter = Cnt</code>) resolves the aliased struct's methods in C++, as the
+  trailing-star form did. Test <code>alias_ptr_dotcall</code>.</li>
+<li>An array or slice type argument (<code>Box&lt;int[3]&gt;</code>, <code>Box&lt;int[]&gt;</code>) instantiates a generic
+  struct in C++ ("unknown type 'Box_int'"). Test <code>generic_array_targ</code>.</li>
+<li>The self-host accepts returning a slice of a slice parameter (<code>return s[1..s.len];</code>)
+  and the address of an element of a slice parameter or slice field (<code>&amp;s[1]</code>,
+  <code>&amp;p.sl[2]</code>); they were rejected as dangling. Test <code>slice_return_nonlocal</code>.</li>
+<li>An <code>await</code> inside a <code>match</code> arm is an error located at the await with an accurate
+  message in both compilers. Test <code>run_cmd/await_in_match</code> (<code>run.sh</code>, <code>cg_parity.sh</code>).</li>
+<li>A struct literal accepts a trailing comma (<code>P{ x: 5, y: 6, }</code>), like an array
+  literal. Test <code>struct_lit_trailing_comma</code>.</li>
+</ul>
+<h3 id="known-issues">Known issues</h3>
+<p>These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
+without a diagnostic, except where the entry says so.</p>
+<ul>
+<li><strong>The stdlib HTTP servers have no read or idle timeouts.</strong> A client that opens a
+  connection and sends nothing (or one byte at a time) keeps a worker (<code>http_serve</code>) or a
+  file descriptor (the async and HTTP/2 servers) until it disconnects. Run them behind a
+  reverse proxy (nginx, Caddy) when they face untrusted clients.</li>
+<li>A local read that is uninitialized on only some paths is accepted, as in C (the check
+  only catches a read with no assignment on any path).</li>
+<li>The C++ compiler does not treat a type alias inside a composite type as its target, so
+  <code>Box&lt;F&gt;</code> and <code>Box&lt;int&gt;</code> (with <code>type F = int</code>) are different types there and a valid
+  assignment between them is rejected. Spell the target type.</li>
+<li><code>sizeof(*p)</code> is parsed as a type; use <code>sizeof(T)</code>. <code>sizeof</code> of a struct or a pointer is
+  not folded by the type checker, so the constant-expression checks do not see it.</li>
+<li>A bitfield write, and the initializing store, through a <code>volatile</code> variable are not
+  volatile accesses.</li>
+<li>A declaration directly after <code>case N:</code> needs braces (<code>case 1: { int y = 2; ... }</code>).</li>
+<li>A <code>T[]</code> parameter does not infer <code>T</code> from a slice argument, and a generic variant infers
+  its type arguments only from its payload (<code>Opt&lt;int64&gt; a = Some(5)</code> needs
+  <code>Some&lt;int64&gt;(5)</code>); write the type arguments.</li>
+<li>Enum member values must be integer literals.</li>
+<li>A function-like macro whose name is followed by a newline before <code>(</code> is not expanded,
+  and a <code>#undef</code> line inside a multi-line string literal is read as a directive.</li>
+<li><code>await</code> is rejected inside <code>try</code>, a <code>match</code> arm, a <code>switch</code> subject, a range bound and a
+  compound assignment; bind the awaited value to a local first.</li>
+<li>There is no spelling for a pointer to a nullable pointer, inline <code>asm</code> has no output
+  operands, and <code>null</code> does not convert to an interface value.</li>
+<li>A method that mutates a captured value inside a lambda acts on the closure's copy.</li>
+<li>A nullary variant written with parentheses (<code>B()</code>) is accepted.</li>
+<li>The <code>&lt;json&gt;</code> methods named <code>int</code> and <code>bool</code> cannot be called with dot syntax.</li>
+<li>Types nested about a thousand levels deep and very long ternary or member chains compile
+  slowly.</li>
+<li>The C ABI lowering of <code>extern</code> struct and union arguments is not implemented for 32-bit
+  x86 (not a supported C ABI target).</li>
+<li>Regex does not support <code>\Q..\E</code>, <code>(?:...)</code>, <code>(?i)</code>, <code>\p{...}</code> or code points above one
+  byte.</li>
+<li>A few diagnostics report a different column in the two compilers.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>

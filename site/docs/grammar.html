@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -157,8 +157,9 @@ FLOAT_LIT  = [0-9]+ '.' [0-9]+ EXP?  |  [0-9]+ EXP
 EXP        = ('e' | 'E') ('+' | '-')? [0-9]+
 STRING_LIT = '&quot;' ( escape | not('&quot;') )* '&quot;'        // adjacent literals concatenate: &quot;a&quot; &quot;b&quot; == &quot;ab&quot;
 CHAR_LIT   = &quot;'&quot; ( escape | not(&quot;'&quot;) ) &quot;'&quot;
-escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '&quot;' | &quot;'&quot; | '0'    // string and char share the set
-                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits
+escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | 'a' | 'b' | '\' | '&quot;' | &quot;'&quot; | '?'  // string and char share the set
+                 | OCT OCT? OCT?                                         // raw byte, 1-3 octal digits (&lt;= \377)
+                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits; any other escape is an error
 </code></pre>
 <p>Comments: <code>// … end-of-line</code> and <code>/* … */</code> (block comments do not nest).</p>
 <h3 id="keywords-reserved">Keywords (reserved)</h3>
