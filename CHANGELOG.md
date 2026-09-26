@@ -672,6 +672,9 @@ more and a third about 60, fixed the same way.
   keeps it). Test `http_response_header_inject`.
 - `http_chunked_step` spun forever on a chunk size near `INT64_MAX` when the limit
   allowed it (`size + 2` overflowed in the room check). Test `http_chunk_size_max`.
+- `&e` evaluates its operand once in C++: `&buf[i++]`, `&A[f()]`, `&getp().x`, `&*gp()`
+  and a `for-in` over a List element `ls[f()]` ran the side effect twice. Test
+  `addr_of_once`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

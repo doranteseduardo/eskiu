@@ -583,6 +583,12 @@ void CodeGen::visit(UnaryExpr* node) {
         return;
     }
 
+    // Address-of: the operand's lvalue, evaluated once (not also as an rvalue).
+    if (node->op == "&") {
+        exprValueStack.push(evaluateLValue(node->operand));
+        return;
+    }
+
     llvm::Value* val = evaluateExpr(node->operand);
 
     if (!val) {
@@ -611,9 +617,6 @@ void CodeGen::visit(UnaryExpr* node) {
     } else if (node->op == "!") {
         // Logical NOT: convert to bool
         result = builder->CreateNot(emitTruthy(val));
-    } else if (node->op == "&") {
-        // Address-of: return the lvalue (alloca/GEP pointer), not the loaded value
-        result = evaluateLValue(node->operand);
     } else if (node->op == "*") {
         // Dereference: use Eskiu type info to load the correct element type
         std::string ptrEskiuType = getExprEskiuType(node->operand);
