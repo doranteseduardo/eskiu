@@ -166,7 +166,16 @@ more and a third about 60, fixed the same way.
 - A bare nullary variant of a generic enum needs its type arguments (`None<int>()`), and
   a variant constructor's payload is checked against the declared instance.
 - `?*T` narrowing ends at any call or `await` for a global, and an address-taken
-  variable is never narrowed.
+  variable is never narrowed. A call in a condition (also in a `&&` right operand, a
+  ternary condition or an early-exit guard) or in the branch that falls through ends a
+  global's narrowing from that point on.
+- A lambda that captures a non-`escaping` closure parameter and outlives the call
+  (returned, stored, passed to an `escaping` parameter or to `thread_create`) needs the
+  parameter marked `escaping`.
+- A pointer to a sum type converts only to and from a pointer to the same sum type (or
+  `*void`), and a pointer to an array or slice (`&arr`) is not a pointer to a struct.
+- A `\`-newline inside a string or char literal on a directive line splices the next
+  line, as in C, so a `#define` body's literal may span lines.
 - `?` needs an integer or `bool` `ok` field; a union literal names one member; an inline
   method can't declare a parameter named `self`, and an operator overload must have the
   operator's arity.
@@ -420,6 +429,21 @@ more and a third about 60, fixed the same way.
 - Regex: an invalid bracket range (`[z-a]`, `[a-\d]`, `[\d-z]`) is a compile error as in
   RE2, and `\D` `\W` `\S` inside a bracket class are the complemented shorthands (they
   were read as the letters).
+- A cast in a constant expression truncates and sign-extends as in C, so `case (int8)259:`
+  and `case 3:` are duplicate labels and `a[(int8)257]` is `a[1]`.
+- `fmt` keeps a line after a `\` continuation byte for byte (it re-indented it, changing a
+  spliced macro body).
+- A variant constructor's integer literal argument must fit its payload type
+  (`A(300)` for `A(int8)`), and `null[0]` is a type error (it was a codegen error or
+  segfault).
+- An interface arm and a struct-pointer arm of `?:` meet as the interface in both
+  compilers (C++ codegen crashed, the self-host rejected it).
+- Self-host: rejects `match` on a pointer or a struct, casts to and from a sum type, a
+  struct literal of an enum, calling an enum member, an array or a non-closure field, a
+  method used as a value, a variadic function assigned to a number, a payload variant
+  without arguments, `sizeof` of a function, variant or later global, `++` on an enum, a
+  by-value cycle through a type alias, an array size naming a later `const`, and an
+  uninitialized read in a generic instance, as the C++ compiler does.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
