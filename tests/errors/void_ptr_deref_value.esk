@@ -1,2 +1,2 @@
-// EXPECT-ERROR: expected int, got void
+// EXPECT-ERROR: cannot dereference '*void'
 int main() { int x = 1; *void p = (*void)&x; return *p; }
