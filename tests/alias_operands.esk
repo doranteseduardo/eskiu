@@ -1,0 +1,27 @@
+// An operand typed by an alias (a field, element, return or pointee declared with it)
+// operates as the aliased type.
+extern int printf(string fmt, ...);
+type u8 = uint8;
+type fl = double;
+type pi = *int;
+type Int = int;
+struct S { u8 a; fl d; pi p; u8[2] arr; }
+struct F { u8 b : 3; }
+Int get() { return 4; }
+int main() {
+  int z = 5;
+  let s: S; s.a = 1; s.d = 1.5; s.p = &z; s.arr[0] = 3;
+  s.a += 1; int n = -s.a; int m = ~s.a; int sh = s.a << 2;
+  s.d += 1.0; *s.p += 1; s.p++; s.p--; s.arr[0]++;
+  bool b = s.a > 1 && s.d < 9.0;
+  if (s.a) { n += 100; }
+  switch (s.a) { case 2: n += 1000; break; }
+  printf("%d %d %d %.1f %d %d %d\n", n, m, sh, s.d, z, s.arr[0], b);
+  let f: F; f.b = 1; f.b++;
+  int k = get() + 1;
+  Int x = 3;
+  *Int q = &x;
+  int w = *q * 2 + s.arr[0] + 1;
+  printf("%d %d %d\n", f.b, k, w);
+  return 0;
+}

@@ -21,6 +21,12 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
     // so strip a leading `?` from either operand before inference.
     std::string leftType  = (!leftIn.empty()  && leftIn[0]  == '?') ? leftIn.substr(1)  : leftIn;
     std::string rightType = (!rightIn.empty() && rightIn[0] == '?') ? rightIn.substr(1) : rightIn;
+    if (op != "=") {
+        leftType = dealiasOperand(leftType);
+        rightType = dealiasOperand(rightType);
+        if (!leftType.empty() && leftType[0] == '?') leftType = leftType.substr(1);
+        if (!rightType.empty() && rightType[0] == '?') rightType = rightType.substr(1);
+    }
     if (op == "=") {
         return isValidAssignment(leftType, rightType) ? leftType : "error";
     }
@@ -81,10 +87,26 @@ std::string TypeChecker::plainEnumAsInt(const std::string& type) {
     return plainEnumDecls.count(tyq::strip(type)) ? std::string("int") : type;
 }
 
+std::string TypeChecker::dealiasOperand(const std::string& type) {
+    std::string cur = tyq::strip(type);
+    bool changed = false;
+    for (int guard = 0; guard < 64; ++guard) {
+        auto it = typeAliases.find(cur);
+        if (it == typeAliases.end()) break;
+        cur = tyq::strip(it->second);
+        changed = true;
+    }
+    return changed ? cur : type;
+}
+
 std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::string& operandIn) {
     // A `?*T` derefs like `*T` (deref-safety is enforced separately by checkNullableDeref).
     std::string operandType = (!operandIn.empty() && operandIn[0] == '?') ? operandIn.substr(1) : operandIn;
-    if (op != "&") operandType = plainEnumAsInt(operandType);
+    if (op != "&") {
+        operandType = dealiasOperand(operandType);
+        if (!operandType.empty() && operandType[0] == '?') operandType = operandType.substr(1);
+        operandType = plainEnumAsInt(operandType);
+    }
     if (op == "!") {
         // Logical not of a scalar (number, bool, pointer). A struct operand is not a
         // truth value: "error" here lets a user `operator !(V)` resolve instead.

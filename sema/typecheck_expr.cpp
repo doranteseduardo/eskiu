@@ -592,7 +592,8 @@ void TypeChecker::visit(IncDecExpr* node) {
         errorAt(node, "cannot modify read-only location '" + cname + "'");
     checkCapturedWrite(node, op);
     std::string t = getExpressionType(op);
-    if (t != "unknown" && !isIntType(t) && !isPointerType(t))
+    std::string td = dealiasOperand(t);
+    if (t != "unknown" && !isIntType(td) && !isPointerType(td))
         errorAt(node, "'++'/'--' requires an integer or pointer, got '" + t + "'");
     expressionTypes[node] = t;
 }

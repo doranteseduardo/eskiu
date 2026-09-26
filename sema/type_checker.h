@@ -413,6 +413,9 @@ private:
     std::string nullableAliasTarget(const std::string& t);
     bool pointeesCompatible(const std::string& lhs, const std::string& rhs);
     std::string plainEnumAsInt(const std::string& type);
+    // An operand whose type is spelled by an alias (`u8`, a field or return declared
+    // with it) operates as the aliased type.
+    std::string dealiasOperand(const std::string& type);
     std::string getPointeeType(const std::string& pointerType);
 
     // Type promotion
