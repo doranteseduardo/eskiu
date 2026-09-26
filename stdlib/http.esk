@@ -266,7 +266,7 @@ int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
         q += 2;
         if (size == 0) { p = q; break; }
         if (size > max - out.len) { return -2; }
-        if (n - q < size + 2) {
+        if (n - q - 2 < size) {                  // not size + 2: it overflows near INT64_MAX
             if (n - q > size && b[q + size] != '\r') { return -1; }
             return 0;
         }

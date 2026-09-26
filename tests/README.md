@@ -394,6 +394,7 @@ when you add a test.
 | `iface_payload_lambda` | a struct pointer boxed into an interface as a variant payload (generic or not) and as a lambda's return value |
 | `index_result_member` | a member of an overloaded `[]` result (`w[2].v`), `.len` of an element of an array of slices |
 | `c_abi_union` | unions by value across `extern` (+ `.c`): x86-64 SysV eightbytes as wide as the widest member |
+| `http_chunk_size_max` | `http_chunked_step` with a chunk size near `INT64_MAX` under a limit that allows it waits for more input (the `size + 2` room check overflowed and the decoder spun) |
 
 ### `smoke` tests (compile + link + exit 0)
 
