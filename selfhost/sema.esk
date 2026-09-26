@@ -850,7 +850,7 @@ int64 sema_const_layout(Sema* s, string t0, int64* al, int depth) {
     }
     if (ob > 0 && (int)t[n - 1] == 93) {
         int cb = sema_dim_close(t, ob);
-        string rest = str_concat(sema_sub_str(t, 0, ob), sema_sub_str(t, cb + 1, n));
+        string rest = sema_cat(sema_sub_str(t, 0, ob), sema_sub_str(t, cb + 1, n));
         if (cb == ob + 1) {                                                       // `T[]`: {ptr, i64}
             int64 sal = (int64)s.i64al; if (ps > sal) { sal = ps; }
             al[0] = sal;
