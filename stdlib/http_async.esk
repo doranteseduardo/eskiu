@@ -24,27 +24,28 @@ import <net>;
 import <http>;
 import <string>;
 
-// One connection, handled to completion, then a completion signal on `done`.
+// One connection, read until its request is complete (a request split over
+// several segments is waited for; a bad one is answered 400 / 413 / 501 / 505
+// without calling the handler), answered, then a completion signal on `done`.
 // Detached via `spawn`, so many run concurrently over the one event loop.
 async void http_conn_async(EventLoop* lp, int c,
                            escaping fn(HttpRequest*, HttpResponse*)->void handler,
                            Chan<int>* done) {
-    *uint8 buf = alloc<uint8>(8192);
-    int n = await net_read_async(lp, c, buf, 8192);
-    if (n > 0) {
-        let req: HttpRequest;  req.init();
-        let res: HttpResponse;  res.init(200);
-        if (req.parse(buf, n) == 1) { handler(&req, &res); }
-        else { res.status = 400; }                  // malformed: the handler never sees it
-        let out: String;  out.init(256);
-        res.render(&out);
-        net_send(c, (*void)out.cstr(), out.len);
-        out.free();
-        res.free();
-        req.free();
+    let b: HttpConnBuf;  b.init();
+    let req: HttpRequest;  req.init();
+    int st = -1;
+    while (st == -1) {
+        int n = await net_read_async(lp, c, b.data + b.len, b.cap - b.len);
+        if (n <= 0) { st = b.len == 0 ? -2 : 400; }   // closed: nothing sent, or a cut request
+        else {
+            b.len += n;
+            st = b.feed(&req);
+        }
     }
+    if (st != -2) { _http_conn_answer(c, &req, st, handler); }
+    req.free();
     net_close(c);
-    free((*void)buf);
+    b.free();
     Chan_send<int>(done, 1);            // wait-group: this connection is done
 }
 

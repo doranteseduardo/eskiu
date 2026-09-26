@@ -1,6 +1,6 @@
 // A Host value must be uri-host [ ":" port ] (RFC 9110 §7.2): whitespace
 // inside it, a list of two hosts, a bad port or an unclosed IP-literal is 400
-// in http_recv and HttpRequest_parse alike. They used to be accepted.
+// in http_recv and HttpRequest_parse_status alike. They used to be accepted.
 import <http>;
 import <string>;
 extern int printf(string fmt, ...);
@@ -23,7 +23,7 @@ void t(string host) {
     HttpReq_free(&r);
     close(sv[1]);
     let q: HttpRequest;  q.init();
-    const int pst = q.parse((*uint8)raw.cstr(), (int)raw.len) == 1 ? 0 : 400;
+    const int pst = q.parse_status((*uint8)raw.cstr(), (int)raw.len, 1000);
     q.free();
     printf("[%s] recv=%d parse=%d\n", host, st, pst);
     raw.free();

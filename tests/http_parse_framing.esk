@@ -1,0 +1,85 @@
+// HttpRequest_parse (the parser behind http_serve / http_serve_async) frames a
+// request by RFC 9112 like http_recv: the body is exactly Content-Length bytes,
+// an invalid, listed-and-differing or repeated-and-differing Content-Length is
+// 400, and a request cut short (no blank line after the head, a body shorter
+// than its Content-Length) is incomplete, not accepted. It used to take every
+// byte after the head as the body and accept a head with no final blank line.
+// HttpConnBuf_feed, the server's read step, waits for the whole request when
+// it arrives a few bytes at a time.
+import <http>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+
+void t(string label, string raw) {
+    let r: HttpRequest;  r.init();
+    const int st = r.parse_status((*uint8)raw, (int)strlen(raw), 1000);
+    const int ok = r.parse((*uint8)raw, (int)strlen(raw));
+    printf("%s: status=%d parse=%d body=[%s]\n", label, st, ok, st == 0 ? r.body.cstr() : "");
+    r.free();
+}
+
+// Feed `raw` to a HttpConnBuf `step` bytes at a time, as a server reads it.
+void split(string label, string raw, int step) {
+    let b: HttpConnBuf;  b.init();
+    let r: HttpRequest;  r.init();
+    const int n = (int)strlen(raw);
+    int st = -1;
+    int reads = 0;
+    int off = 0;
+    while (st == -1 && off < n) {
+        int k = n - off < step ? n - off : step;
+        if (k > b.cap - b.len) { k = b.cap - b.len; }
+        for (i in 0..k) { b.data[b.len + i] = (uint8)raw[off + i]; }
+        b.len += k;
+        off += k;
+        reads++;
+        st = b.feed(&r);
+    }
+    printf("%s: status=%d reads=%d method=%s body=[%s]\n", label, st, reads, r.method.cstr(), st == 0 ? r.body.cstr() : "");
+    r.free();
+    b.free();
+}
+
+int main() {
+    t("CL shorter than data", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 3\r\n\r\nabcdef");
+    t("CL list differs", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 3, 5\r\n\r\nabcdef");
+    t("CL list same", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 3, 3\r\n\r\nabc");
+    t("CL not a number", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: zz\r\n\r\nab");
+    t("CL twice differing", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nab");
+    t("CL above max", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 1001\r\n\r\nab");
+    t("body cut short", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 10\r\n\r\nab");
+    t("no CL: no body", "GET / HTTP/1.1\r\nHost: a\r\n\r\nextra");
+    t("head without blank line", "GET / HTTP/1.1\r\nHost: a\r\n");
+    t("head cut in a line", "GET / HTTP/1.1\r\nHost: a\r\nX-User: adm");
+    t("chunked", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n");
+    t("chunked cut", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n");
+    t("chunked above max", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3e9\r\nabc\r\n");
+    t("gzip coding", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n");
+    t("HTTP/2.0 line", "GET / HTTP/2.0\r\nHost: a\r\n\r\n");
+    split("split 1 byte", "POST /up HTTP/1.1\r\nHost: a\r\nContent-Length: 5\r\n\r\nhello", 1);
+    split("split 7 bytes", "POST /up HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n3\r\n!!!\r\n0\r\n\r\n", 7);
+    split("split bad", "GET / HTTP/1.1\r\nHost: a\r\nContent-Length: x\r\n\r\n", 5);
+
+    // A body larger than the first 8 KiB buffer: the buffer grows to fit it.
+    let big: String;  big.init(20000);
+    big.append("POST /big HTTP/1.1\r\nHost: a\r\nContent-Length: 20000\r\n\r\n");
+    for (i in 0..20000) { big.push('x'); }
+    let b: HttpConnBuf;  b.init();
+    let r: HttpRequest;  r.init();
+    int st = -1;
+    int off = 0;
+    while (st == -1 && off < big.len) {
+        int k = big.len - off < 1500 ? big.len - off : 1500;
+        if (k > b.cap - b.len) { k = b.cap - b.len; }
+        for (i in 0..k) { b.data[b.len + i] = (uint8)big.data[off + i]; }
+        b.len += k;
+        off += k;
+        st = b.feed(&r);
+    }
+    printf("big: status=%d body_len=%lld cap>=%d\n", st, r.body.len, b.cap >= 20000 ? 1 : 0);
+    r.free();
+    b.free();
+    big.free();
+    return 0;
+}

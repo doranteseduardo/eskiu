@@ -305,54 +305,83 @@ int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
     return -1;
 }
 
-// Parse a raw request from `buf` (len bytes). Returns 1 on success, 0 if the
-// request is malformed or not acceptable: a method that is not a token, an
-// empty path, a request line not ended by CRLF or without a valid
-// HTTP-version, a bare CR or LF inside a header line (RFC 9112 §2.2: a line
-// break is CRLF, and a lone LF must not start a new header line, which would
-// let a client smuggle a header past a proxy that reads the line differently),
-// a malformed field line (whitespace before the colon, an obsolete line fold),
-// a missing or repeated Host in HTTP/1.1, or conflicting framing headers
-// (Transfer-Encoding with Content-Length, a coding other than chunked). A
-// chunked body is decoded; it must be complete in `buf`.
-int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
-    int pos = 0;
-    for (; pos < len && _http_is_tchar(buf[pos]) == 1; pos++) { self.method.push((char)buf[pos]); }
-    if (pos >= len || buf[pos] != ' ' || self.method.len == 0) { return 0; }
-    pos++;
-    for (; pos < len && buf[pos] != ' ' && buf[pos] != 0 && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.path.push((char)buf[pos]); }
-    if (pos >= len || buf[pos] != ' ' || self.path.len == 0) { return 0; }
-    pos++;
-    const int vstart = pos;
-    for (; pos < len && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.version.push((char)buf[pos]); }
-    const int version = _http_parse_version(buf, vstart, pos);
-    if (version < 0) { return 0; }
-    if (_http_crlf_at(buf, pos, len) == 0) { return 0; }
-    pos += 2;
+// The message-body framing of a request whose head is parsed (RFC 9112 §6):
+// 0 for a Content-Length body, with its length in *clen (0 when there is no
+// Content-Length), 1 for a chunked body, or the error status: 400 for an
+// invalid, repeated-and-differing or combined framing header, a bad Host or
+// field line, 413 for a Content-Length above `max_body`, 501 for a coding
+// other than chunked, 505 for an HTTP major version other than 1. Shared by
+// http_recv and HttpRequest_parse_status.
+int _http_body_framing(String* headers, int version, int64 max_body, *int64 clen) {
+    *clen = 0;
+    const int framing = _http_check_head(headers, version);
+    if (framing != 0) { return framing; }
+    const int64 cl = http_content_length(headers);
+    if (cl == -1) { return 400; }
+    if (cl > max_body) { return 413; }
+    if (cl > 0) { *clen = cl; }
+    return 0;
+}
 
-    // Header lines until the blank line; store as "Key: Value\n".
-    while (pos < len) {
-        if (_http_crlf_at(buf, pos, len) == 1) { pos += 2; break; }
-        for (; pos < len && _http_is_crlf_byte(buf[pos]) == 0; pos++) { self.headers.push((char)buf[pos]); }
-        self.headers.push('\n');
-        if (pos >= len) { break; }                             // request cut short
-        if (_http_crlf_at(buf, pos, len) == 0) { return 0; }   // a bare CR or LF
-        pos += 2;
-    }
-    const int framing = _http_check_head(&self.headers, version);
-    if (framing > 1) { return 0; }
+// Parse the request in buf[0..len) into self (its fields are cleared first).
+// *need is set to the total byte count the request needs once its head and
+// Content-Length are known (else 0), so a reader can wait for that much
+// before calling again. Returns 0 when the request is complete, -1 when more
+// bytes are needed (the head has no blank line yet, or the body is short), or
+// the error status (400, 413, 501, 505; see _http_body_framing). Bytes past
+// the end of the request are ignored.
+int _http_request_parse(HttpRequest* self, *uint8 buf, int len, int64 max_body, *int64 need) {
+    *need = 0;
+    self.method.clear();
+    self.path.clear();
+    self.version.clear();
+    self.headers.clear();
+    self.body.clear();
+    const int hend = http_idx_header_end(buf, len);
+    if (hend < 0) { return -1; }
+    int version = 0;
+    if (_http_parse_head_into(&self.method, &self.path, &self.version, &self.headers, buf, hend, &version) == 0) { return 400; }
+    int64 clen = 0;
+    const int framing = _http_body_framing(&self.headers, version, max_body, &clen);
+    if (framing > 1) { return framing; }
     if (framing == 1) {
         let out: HttpChunkOut;
         out.data = null;  out.len = 0;  out.cap = 0;
-        int64 bpos = pos;
-        const int st = http_chunked_step(buf, len, &bpos, &out, len);
+        int64 bpos = hend;
+        const int st = http_chunked_step(buf, len, &bpos, &out, max_body);
         if (st == 1) { for (i in 0..out.len) { self.body.push((char)out.data[i]); } }
         if (out.data != null) { free(out.data); }
-        return st == 1 ? 1 : 0;
+        if (st == 1) { return 0; }
+        if (st == 0) { return -1; }
+        return st == -2 ? 413 : 400;
     }
-    // Remaining bytes are the body.
-    for (; pos < len; pos++) { self.body.push((char)buf[pos]); }
-    return 1;
+    *need = (int64)hend + clen;
+    if ((int64)len < *need) { return -1; }
+    for (int64 i = 0; i < clen; i++) { self.body.push((char)buf[hend + i]); }
+    return 0;
+}
+
+// Parse the request in buf[0..len) into self, framed by RFC 9112 like
+// http_recv: returns 0 when it is complete, -1 when more bytes are needed
+// (the head has no blank line yet, a body is shorter than its Content-Length
+// or a chunked body has no last chunk), or the HTTP error status: 400 for a
+// malformed request (a method that is not a token, an empty path, a line
+// break that is not CRLF, a malformed field line, a missing, repeated or
+// invalid Host, an invalid or conflicting Content-Length, Transfer-Encoding
+// with Content-Length, a malformed chunked body), 413 for a body above
+// `max_body`, 501 for a transfer coding other than chunked, 505 for an HTTP
+// major version other than 1. The body is exactly the Content-Length bytes or
+// the decoded chunks.
+int HttpRequest_parse_status(HttpRequest* self, *uint8 buf, int len, int64 max_body) {
+    int64 need = 0;
+    return _http_request_parse(self, buf, len, max_body, &need);
+}
+
+// Parse a raw request from `buf` (len bytes): 1 if it holds one complete,
+// well-formed request (HttpRequest_parse_status returns 0), else 0 (a
+// malformed request, or one cut short).
+int HttpRequest_parse(HttpRequest* self, *uint8 buf, int len) {
+    return HttpRequest_parse_status(self, buf, len, len) == 0 ? 1 : 0;
 }
 
 // Drop trailing optional whitespace (SP / HTAB, plus a stray CR) from a header
@@ -459,10 +488,13 @@ string http_reason(int s) {
         case 413: return "Payload Too Large";
         case 422: return "Unprocessable Entity";
         case 429: return "Too Many Requests";
+        case 431: return "Request Header Fields Too Large";
         case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
         case 502: return "Bad Gateway";
         case 503: return "Service Unavailable";
         case 504: return "Gateway Timeout";
+        case 505: return "HTTP Version Not Supported";
     }
     if (s >= 100 && s < 200) { return "Informational"; }
     if (s >= 200 && s < 300) { return "Success"; }
@@ -515,32 +547,92 @@ void HttpResponse_render(HttpResponse* self, String* out) {
 
 // ── Worker pool ──────────────────────────────────────────────────────────────
 
+// Limits of the http_serve / http_serve_async servers: a request head
+// longer than HTTP_SERVE_MAX_HEAD bytes is answered 400, a body longer than
+// HTTP_SERVE_MAX_BODY bytes 413.
+const int HTTP_SERVE_MAX_HEAD = 65536;
+const int HTTP_SERVE_MAX_BODY = 1048576;
+
+// The bytes of one request as a server reads them from a connection.
+struct HttpConnBuf {
+    *uint8 data;
+    int    len;
+    int    cap;
+    int64  need;     // bytes the request needs in total, once known (else 0)
+}
+
+void HttpConnBuf_init(HttpConnBuf* self) {
+    self.cap = 8192;
+    self.data = alloc<uint8>(self.cap);
+    self.len = 0;
+    self.need = 0;
+}
+
+void HttpConnBuf_free(HttpConnBuf* self) {
+    if (self.data != null) { free(self.data); self.data = null; }
+}
+
+// After more bytes were added to b.len: -1 if the request is still incomplete
+// (the buffer then has room for the next read at b.data + b.len, cap - len
+// bytes), 0 when `req` holds the complete request, or the status to answer
+// (400, 413, 501, 505, as HttpRequest_parse_status; 400 also for a head
+// longer than HTTP_SERVE_MAX_HEAD). A request split over any number of reads
+// is parsed once its bytes are all in.
+int HttpConnBuf_feed(HttpConnBuf* b, HttpRequest* req) {
+    int st = -1;
+    if ((int64)b.len >= b.need) {
+        st = _http_request_parse(req, b.data, b.len, HTTP_SERVE_MAX_BODY, &b.need);
+        if (st != -1) { return st; }
+        if (b.need == 0 && b.len > HTTP_SERVE_MAX_HEAD && http_idx_header_end(b.data, b.len) < 0) { return 400; }
+    }
+    if (b.len < b.cap) { return -1; }
+    // A chunked body takes more raw bytes than it decodes to: allow for its framing.
+    const int limit = HTTP_SERVE_MAX_HEAD + 2 * HTTP_SERVE_MAX_BODY;
+    if (b.cap >= limit) { return 413; }
+    int nc = b.cap * 2;
+    if ((int64)nc < b.need) { nc = (int)b.need; }
+    if (nc > limit) { nc = limit; }
+    b.data = http_buf_grow(b.data, b.len, nc);
+    b.cap = nc;
+    return -1;
+}
+
+// Answer a request read by a server: `st` is HttpConnBuf_feed's result, 0 to
+// call `handler`, else the error status sent
+// without calling it.
+void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler) {
+    let res: HttpResponse;  res.init(200);
+    if (st == 0) { handler(req, &res); }
+    else { res.status = st; }                   // malformed: the handler never sees it
+    let out: String;  out.init(256);
+    res.render(&out);
+    net_send(c, out.cstr(), out.len);
+    out.free();
+    res.free();
+}
+
 // A handler reads the request and fills the response.
 //
-// Accept-and-serve loop for one worker. Each connection is read, parsed, handed
-// to `handler`, and answered. Runs forever.
+// Accept-and-serve loop for one worker. Each connection is read until its
+// request is complete (or known to be bad), parsed, handed to `handler`, and
+// answered. Runs forever.
 void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
-    *uint8 buf = alloc<uint8>(8192);
-    defer free(buf);
     while (true) {
         const int c = net_accept(fd);
         if (c < 0) { continue; }
-        const int64 n = net_recv(c, buf, 8192);
-        if (n <= 0) { net_close(c); continue; }
-
+        let b: HttpConnBuf;  b.init();
         let req: HttpRequest;  req.init();
-        let res: HttpResponse;  res.init(200);
-        if (req.parse(buf, (int)n) == 1) { handler(&req, &res); }
-        else { res.status = 400; }                  // malformed: the handler never sees it
-
-        let out: String;  out.init(256);
-        res.render(&out);
-        net_send(c, out.cstr(), out.len);
+        int st = -1;
+        while (st == -1) {
+            const int64 got = net_recv(c, b.data + b.len, b.cap - b.len);
+            if (got <= 0) { st = b.len == 0 ? -2 : 400; break; }   // closed: nothing sent, or a cut request
+            b.len += (int)got;
+            st = b.feed(&req);
+        }
+        if (st != -2) { _http_conn_answer(c, &req, st, handler); }
         net_close(c);
-
-        out.free();
-        res.free();
         req.free();
+        b.free();
     }
 }
 
@@ -616,33 +708,42 @@ int http_idx_header_end(*uint8 b, int n) {
     return nb;
 }
 
-// Parse request line + headers from buf[0..hend) into r (`hend` is just past
-// the blank line), storing the HTTP-version as major * 10 + minor in *version.
-// Returns 1, or 0 if the head is malformed: a method that is not a token, an
-// empty path, a missing or invalid HTTP-version, a line break that is not CRLF
-// (a bare LF must not start a new header line, RFC 9112 §2.2), or a line that
-// is not a field line (whitespace before the colon, an obsolete line fold).
-int _http_parse_head_v(HttpReq* r, *uint8 buf, int hend, *int version) {
+// Parse request line + headers from buf[0..hend) (`hend` is just past the
+// blank line) into the method, path, version text (`ver`, may be null) and
+// "Key: Value\n" header block, storing the HTTP-version as major * 10 + minor
+// in *version. Returns 1, or 0 if the head is malformed: a method that is not
+// a token, an empty path, a missing or invalid HTTP-version, a line break that
+// is not CRLF (a bare LF must not start a new header line, RFC 9112 §2.2), or
+// a line that is not a field line (whitespace before the colon, an obsolete
+// line fold).
+int _http_parse_head_into(String* method, String* path, String* ver, String* headers, *uint8 buf, int hend, *int version) {
     int pos = 0;
-    for (; pos < hend && _http_is_tchar(buf[pos]) == 1; pos++) { r.method.push((char)buf[pos]); }
-    if (pos >= hend || buf[pos] != ' ' || r.method.len == 0) { return 0; }
+    for (; pos < hend && _http_is_tchar(buf[pos]) == 1; pos++) { method.push((char)buf[pos]); }
+    if (pos >= hend || buf[pos] != ' ' || method.len == 0) { return 0; }
     pos++;
-    for (; pos < hend && buf[pos] != ' ' && buf[pos] != 0 && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.path.push((char)buf[pos]); }
-    if (pos >= hend || buf[pos] != ' ' || r.path.len == 0) { return 0; }
+    for (; pos < hend && buf[pos] != ' ' && buf[pos] != 0 && _http_is_crlf_byte(buf[pos]) == 0; pos++) { path.push((char)buf[pos]); }
+    if (pos >= hend || buf[pos] != ' ' || path.len == 0) { return 0; }
     pos++;
     const int vstart = pos;
     while (pos < hend && _http_is_crlf_byte(buf[pos]) == 0) { pos++; }
     *version = _http_parse_version(buf, vstart, pos);
     if (*version < 0) { return 0; }
+    if (ver != null) { for (i in vstart..pos) { ver.push((char)buf[i]); } }
     if (_http_crlf_at(buf, pos, hend) == 0) { return 0; }
     pos += 2;
     while (pos < hend && _http_crlf_at(buf, pos, hend) == 0) {
-        for (; pos < hend && _http_is_crlf_byte(buf[pos]) == 0; pos++) { r.headers.push((char)buf[pos]); }
-        r.headers.push('\n');
+        for (; pos < hend && _http_is_crlf_byte(buf[pos]) == 0; pos++) { headers.push((char)buf[pos]); }
+        headers.push('\n');
         if (_http_crlf_at(buf, pos, hend) == 0) { return 0; }   // a bare CR or LF
         pos += 2;
     }
-    return _http_headers_valid(&r.headers);
+    return _http_headers_valid(headers);
+}
+
+// Parse request line + headers from buf[0..hend) into r (see
+// _http_parse_head_into), storing the HTTP-version in *version.
+int _http_parse_head_v(HttpReq* r, *uint8 buf, int hend, *int version) {
+    return _http_parse_head_into(&r.method, &r.path, null, &r.headers, buf, hend, version);
 }
 
 // Parse request line + headers from buf[0..hend) into r; 1, or 0 if the head
@@ -774,14 +875,10 @@ int http_recv(int fd, HttpReq* r, int64 max_body) {
     }
     int version = 0;
     if (_http_parse_head_v(r, buf, hend, &version) == 0) { return 400; }
-    const int framing = _http_check_head(&r.headers, version);
+    int64 clen = 0;
+    const int framing = _http_body_framing(&r.headers, version, max_body, &clen);
     if (framing > 1) { return framing; }
     if (framing == 1) { return _http_recv_chunked(fd, r, max_body, buf + hend, n - hend); }
-
-    int64 clen = http_content_length(&r.headers);
-    if (clen == -1) { return 400; }           // malformed / overflowing / conflicting Content-Length
-    if (clen < 0) { clen = 0; }               // none: no body
-    if (clen > max_body) { return 413; }
 
     const int have = n - hend;
     if (clen <= 0) { r.body = null; r.body_len = 0; return 0; }
