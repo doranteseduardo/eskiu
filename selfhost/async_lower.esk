@@ -34,6 +34,9 @@ string al_frp = "__fr";
 string al_fst = "st";
 string al_fret = "ret";
 string al_fawt = "awaiting";
+// The frame fields of the function being lowered (name + declared type), so a
+// `sizeof(local)` can be rewritten to the local's type once the local is a frame field.
+List<Param>* al_cur_fields = null;
 *ExprNode al_fr(string field) { return al_member(mk_ident(al_frp), field); }
 // The lowered function's type-parameter list spelled `<T, U>` ("" when it is not generic):
 // a generic async function lowers to a generic frame, resume function, and constructor.
@@ -169,6 +172,17 @@ void al_rewrite(*ExprNode e, List<string>* vars) {
     if (e == null) { return; }
     if (e.kind == EK_IDENT) {
         if (al_in(vars, e.sval) == 1) { e.kind = EK_MEMBER; e.a = mk_ident(al_frp); }   // x -> fr.x
+        return;
+    }
+    if (e.kind == EK_SIZEOF) {                     // sizeof(x) of a frame local: x's declared type
+        if (al_in(vars, e.sval) == 1 && al_cur_fields != null) {
+            int fi = 0;
+            while (fi < List_len<Param>(al_cur_fields)) {
+                Param f = List_get<Param>(al_cur_fields, fi);
+                if (str_eq(f.name, e.sval) == 1) { e.sval = f.ty; return; }
+                fi = fi + 1;
+            }
+        }
         return;
     }
     List<*ExprNode> ch; List_init<*ExprNode>(&ch, 4); al_children(e, &ch);
@@ -1131,7 +1145,7 @@ void al_ren_pop(AlRen* r, int mark) {
 void al_ren_stmt(AlRen* r, *StmtNode s);
 void al_ren_expr(AlRen* r, *ExprNode e) {
     if (e == null) { return; }
-    if (e.kind == EK_IDENT) { e.sval = al_ren_lookup(r, e.sval); return; }
+    if (e.kind == EK_IDENT || e.kind == EK_SIZEOF) { e.sval = al_ren_lookup(r, e.sval); return; }
     if (e.kind == EK_LAMBDA) {                           // body follows renames; params shadow
         int lmark = List_len<string>(&r.keys);
         List<string> lps; List_init<string>(&lps, 2); al_lambda_params(e.sval, &lps);
@@ -1268,6 +1282,7 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     c.prog = prog; c.resumeN = resumeN; c.awcount = 0; c.tmpn = 0; c.curfn = d;
     List_init<string>(&c.vars, 8);
     List_init<Param>(&c.fields, 8);
+    al_cur_fields = &c.fields;
     List_init<List<*StmtNode>>(&c.states, 4);
     List_init<int>(&c.brk, 4);
     List_init<int>(&c.cont, 4);

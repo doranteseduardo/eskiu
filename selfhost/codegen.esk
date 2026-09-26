@@ -1515,6 +1515,7 @@ string cg_emit_callish(Codegen* g, string callty, string target, string args, in
 void cg_collect_idents_e(*ExprNode e, List<string>* out) {
     if (e == null) { return; }
     if (e.kind == EK_IDENT) { List_push<string>(out, e.sval); return; }
+    if (e.kind == EK_SIZEOF) { List_push<string>(out, e.sval); return; }   // sizeof(var) uses var's type
     // Recurse only into the sub-expr fields each kind populates (an unset field is now null,
     // not garbage, but reading a child a kind never sets is still a wrong-subtree bug).
     if (e.kind == EK_BINARY || e.kind == EK_INDEX) { cg_collect_idents_e(e.a, out); cg_collect_idents_e(e.b, out); }
