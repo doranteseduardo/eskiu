@@ -413,6 +413,7 @@ more and a third about 60, fixed the same way.
   repeat count above 1000 is an error, HTTP/2 rejects CR, LF and NUL in header fields,
   RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
   `http_reply` accepts a `null` body.
+
 #### Fourth audit round
 - A `finally` runs when a `catch` handler throws (directly or from a call); the new
   exception then propagates.
@@ -431,8 +432,6 @@ more and a third about 60, fixed the same way.
   reading or assigning an inline method as if it were a field (`p.sum`), a string slice
   into a non-`char` slice, and `alloc_with` with a non-integer count or an allocator
   without `alloc` (each emitted invalid IR or garbage before).
-
-#### Fourth audit round
 - Async: dropping a `select2`, `join2`, `select2v` or `join2v` future before it resolves
   drops its inputs (their producers are cancelled and their wakers unhooked). A later
   completion of an input used to write into the freed combinator, for example when an
