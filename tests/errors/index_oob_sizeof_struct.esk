@@ -1,0 +1,4 @@
+// EXPECT-ERROR: array index 16 is out of bounds for array of size 16
+// `sizeof` of a struct folds in the type checker, laid out as the target does.
+struct P { int32 a; int64 b; }
+int main() { int[16] a; return a[sizeof(P)]; }

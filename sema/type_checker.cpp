@@ -93,6 +93,7 @@ bool TypeChecker::check(Program* program) {
             StructInfo info;
             info.name = structDecl->name;
             info.fields = structDecl->fields;
+            info.packAlign = structDecl->isPacked ? 1 : structDecl->packAlign;
             structs[structDecl->name] = info;
 
             // Register methods as mangled functions: StructName_methodName(self, ...)

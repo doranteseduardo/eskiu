@@ -714,6 +714,9 @@ public:
 class SizeofExpr : public Expr {
 public:
     std::string typeName;
+    // `sizeof(expr)` (typeName empty): the size of the operand's type. The operand is
+    // type-checked but never evaluated.
+    ExprPtr operand;
     explicit SizeofExpr(std::string t) : typeName(std::move(t)) {}
     void accept(class ASTVisitor* visitor) override;
 };

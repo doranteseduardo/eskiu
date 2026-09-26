@@ -831,6 +831,12 @@ input. What is still open is listed under Known issues.
   `errors/case_decl_redefined`, `errors/case_decl_out_of_scope`.
 - A `T[]` parameter infers `T` from a slice argument (`sum(a[0..4])`). Test
   `generic_slice_infer`.
+- `sizeof(expr)` is the size of the expression's type, not evaluated (`sizeof(*p)`,
+  `sizeof(a[0])`, `sizeof(s.f)`); `sizeof(*p)` used to measure a pointer. The type
+  checker folds `sizeof` of a pointer, array, struct or union with the target's layout,
+  so the constant checks (zero divisor, index out of bounds, duplicate `case`) see it.
+  Tests `sizeof_expr`, `errors/index_oob_sizeof_struct`, `errors/switch_dup_sizeof_ptr`,
+  `errors/const_div_zero_sizeof_expr`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -841,8 +847,6 @@ without a diagnostic, except where the entry says so.
 - The C++ compiler does not treat a type alias inside a composite type as its target, so
   `Box<F>` and `Box<int>` (with `type F = int`) are different types there and a valid
   assignment between them is rejected. Spell the target type.
-- `sizeof(*p)` is parsed as a type; use `sizeof(T)`. `sizeof` of a struct or a pointer is
-  not folded by the type checker, so the constant-expression checks do not see it.
 - A bitfield write, and the initializing store, through a `volatile` variable are not
   volatile accesses.
 - A generic variant infers its type arguments only from its payload

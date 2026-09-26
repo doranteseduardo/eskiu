@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../sema/type_checker.h"
 #include "../ast/type_qual.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
@@ -96,6 +97,27 @@ static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
     return std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(triple, cpu, cg.targetFeatures, opt,
                                     parseRelocModel(cg.relocModel), std::nullopt, level));
+}
+
+TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
+    initCodegenTargets(/*withAsm=*/false);
+    std::string tripleStr = tripleIn.empty() ? llvm::sys::getDefaultTargetTriple() : tripleIn;
+    llvm::Triple triple(tripleStr);
+    CodeGen probe;
+    probe.targetTriple = tripleIn;
+    llvm::DataLayout dl("");
+    if (auto tm = makeTargetMachine(probe, triple, tripleStr)) dl = tm->createDataLayout();
+    llvm::LLVMContext ctx;
+    auto al = [&](llvm::Type* t) { return (unsigned)dl.getABITypeAlign(t).value(); };
+    TargetLayoutInfo info;
+    info.ptrSize  = (unsigned)dl.getPointerSize();
+    info.ptrAlign = al(llvm::PointerType::get(ctx, 0));
+    info.i16Align = al(llvm::Type::getInt16Ty(ctx));
+    info.i32Align = al(llvm::Type::getInt32Ty(ctx));
+    info.i64Align = al(llvm::Type::getInt64Ty(ctx));
+    info.f32Align = al(llvm::Type::getFloatTy(ctx));
+    info.f64Align = al(llvm::Type::getDoubleTy(ctx));
+    return info;
 }
 
 CodeGen::CodeGen()

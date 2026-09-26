@@ -1515,6 +1515,7 @@ string cg_emit_callish(Codegen* g, string callty, string target, string args, in
 void cg_collect_idents_e(*ExprNode e, List<string>* out) {
     if (e == null) { return; }
     if (e.kind == EK_IDENT) { List_push<string>(out, e.sval); return; }
+    if (e.kind == EK_SIZEOF && e.a != null) { cg_collect_idents_e(e.a, out); return; }   // sizeof(expr)
     if (e.kind == EK_SIZEOF) { List_push<string>(out, e.sval); return; }   // sizeof(var) uses var's type
     // Recurse only into the sub-expr fields each kind populates (an unset field is now null,
     // not garbage, but reading a child a kind never sets is still a wrong-subtree bug).
@@ -2173,6 +2174,12 @@ string cg_sizeof_ty(Codegen* g, string t) {
     if (gv.slot[0] != 0 && gv.ety[0] != 0) { return gv.ety; }
     return t;
 }
+// The type `sizeof` measures, with the active substitution applied: the operand's type
+// for `sizeof(expr)` (never evaluated), else the named type or variable's type.
+string cg_sizeof_operand(Codegen* g, *ExprNode e) {
+    if (e.a != null) { return cg_apply_sub(g, cg_etype(g, e.a)); }
+    return cg_apply_sub(g, cg_sizeof_ty(g, e.sval));
+}
 
 // Constant initializer text for a global of LLVM type `llty`. Literal scalars fold to a
 // constant; everything else (incl. a missing/non-constant init) is zeroinitializer —
@@ -2699,7 +2706,7 @@ CgK cg_cfold(Codegen* g, *ExprNode e) {
         }
         return cg_k_none();
     }
-    if (e.kind == EK_SIZEOF) { return cg_k_mk((int64)cg_size(g, cg_apply_sub(g, e.sval)), 64, 0); }
+    if (e.kind == EK_SIZEOF) { return cg_k_mk((int64)cg_size(g, cg_sizeof_operand(g, e)), 64, 0); }
     if (e.kind == EK_CAST) {
         CgK k = cg_cfold(g, e.a);
         if (k.ok == 0) { return k; }
@@ -2895,7 +2902,7 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         return "zeroinitializer";
     }
     if (e.kind == EK_SIZEOF) {
-        return cg_itoa(cg_size(g, cg_apply_sub(g, cg_sizeof_ty(g, e.sval))));   // static byte size
+        return cg_itoa(cg_size(g, cg_sizeof_operand(g, e)));   // static byte size
     }
     if (e.kind == EK_UNARY) {
         // `-` reaches here rarely (negatives are single literal tokens); `~`/`!` need folding.
@@ -4654,7 +4661,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_SIZEOF) {
         // sizeof(T) without hardcoded sizes: ptrtoint of `gep T, null, 1`.
-        string llty = cg_lltype(g, cg_sizeof_ty(g, e.sval));   // applies the active sub
+        string llty = cg_lltype(g, cg_sizeof_operand(g, e));   // applies the active sub
         string g1 = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, g1); cg_emit(g, " = getelementptr ");
         cg_emit(g, llty); cg_emit(g, ", ptr null, i32 1\n");

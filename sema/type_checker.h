@@ -16,6 +16,14 @@ bool stmtCanCompleteNormally(Stmt* s);
 
 // `sizeof(t)` for a scalar whose size is the same on every target (0 otherwise).
 long long fixedScalarSize(const std::string& t);
+
+// The scalar sizes and ABI alignments of a target's data layout (codegen_module.cpp),
+// so the type checker folds `sizeof` of a struct or pointer as codegen lays it out.
+struct TargetLayoutInfo {
+    unsigned ptrSize = 8, ptrAlign = 8;
+    unsigned i16Align = 2, i32Align = 4, i64Align = 8, f32Align = 4, f64Align = 8;
+};
+TargetLayoutInfo targetLayoutInfo(const std::string& triple);
 // Does the floating value v, truncated toward zero, fit the integer type t?
 bool floatConstFitsInt(double v, const std::string& t);
 
@@ -93,6 +101,7 @@ public:
 
     // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
     std::string sourceFile = "unknown";   // the primary input (fallback for diagnostics)
+    std::string targetTriple;             // --target (empty = host): sizeof folds to its layout
     // The file of the top-level declaration being checked: diagnostics name it, so
     // an error in an imported module or a second input points at that file.
     std::string curFile;
@@ -151,6 +160,7 @@ private:
         std::string name;
         std::vector<StructDecl::Field> fields;
         bool isUnion = false;
+        int packAlign = 0;       // 1 = packed, N = `#pragma pack(N)`, 0 = natural
     };
 
     // Scope management
@@ -352,6 +362,15 @@ private:
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool foldConstInt(Expr* e, long long& out);
+    // Size and ABI alignment of a concrete type as the target lays it out (the same rules
+    // as codegen's DataLayout: C struct layout, `packed`/`pack(N)`, C unions). False for a
+    // type whose layout only codegen knows here: a generic instance, a sum type, a
+    // bitfield struct, `va_list`, an unknown name.
+    bool constLayout(const std::string& t, unsigned long long& size, unsigned long long& align, int depth = 0);
+    // `sizeof(t)` when constLayout knows it, else 0.
+    long long constSizeof(const std::string& t);
+    bool haveLayoutInfo = false;
+    TargetLayoutInfo layoutInfo;
     // Fold an arithmetic constant expression that may involve floating values (C rules:
     // integer operands stay integer); isInt says which of i / d holds the value.
     bool foldConstNum(Expr* e, bool& isInt, long long& i, double& d);

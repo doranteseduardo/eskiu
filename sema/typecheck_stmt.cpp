@@ -765,9 +765,15 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
         return true;
     }
     if (auto* z = dynamic_cast<SizeofExpr*>(e)) {
-        // Only a scalar whose size does not depend on the target folds here.
-        if (inInstance) return false;
-        out = fixedScalarSize(tyq::strip(normalizeType(z->typeName)));
+        // A type whose target layout is known here (scalars, pointers, arrays, structs
+        // and unions of those) folds; the rest is left to codegen.
+        if (inInstance || z->operand) return false;
+        std::string zt = z->typeName;
+        if (!isPrimitiveType(zt) && !structs.count(zt) && !typeAliases.count(zt) && !enumTypes.count(zt)) {
+            std::string vt = lookupSymbol(zt);
+            if (!vt.empty() && vt != "unknown" && vt != "struct:" + zt) zt = tyq::strip(vt);
+        }
+        out = constSizeof(zt);
         return out != 0;
     }
     return false;

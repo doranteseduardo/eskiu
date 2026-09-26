@@ -479,6 +479,11 @@ void print_expr(*ExprNode e, int d) {
     }
     if (e.kind == EK_SIZEOF) {
         pind(d);
+        if (e.a != null) {                 // sizeof(expr)
+            printf("SizeofExpr: sizeof(<expr>)\n");
+            print_expr(e.a, d + 1);
+            return;
+        }
         printf("SizeofExpr: sizeof(%s)\n", e.sval);
         return;
     }

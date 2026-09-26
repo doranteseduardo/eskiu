@@ -38,6 +38,8 @@ struct EVar { string en; string variant; string val; int plain; }   // val = mem
 
 struct Sema {
     int fold_depth;          // recursion guard for sema_fold_int through const initializers
+    int ptrsz;               // the target's pointer size and int64/double alignment, so
+    int i64al;               // sizeof folds to its layout (sema_set_target)
     List<Sym> syms;
     List<string> gaddr;      // names whose address is taken anywhere (a global among them is never narrowed)
     List<FnSig> fns;
@@ -353,7 +355,30 @@ void sema_error(Sema* s, string msg) {
     dprintf(2, "error: %s:%d:%d: %s\n", s.filename, s.line, s.col, msg);
 }
 
+int sema_has_sub(string t, string sub) {
+    int i = 0;
+    while (t[i] != 0) { if (ast_has_prefix((string)((*uint8)t + i), sub) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+// The layout facts of the --target triple (mirrors cg_set_target): 4-byte pointers on
+// 32-bit x86 and ARM, and int64/double aligned to 4 by the SysV i386 ABI.
+void sema_set_target(Sema* s, string triple) {
+    if (triple == null || triple[0] == 0) { return; }
+    s.ptrsz = 8; s.i64al = 8;
+    int win = sema_has_sub(triple, "windows") | sema_has_sub(triple, "win32") | sema_has_sub(triple, "mingw");
+    if (ast_has_prefix(triple, "aarch64") == 1 || ast_has_prefix(triple, "arm64") == 1
+        || ast_has_prefix(triple, "x86_64") == 1 || ast_has_prefix(triple, "amd64") == 1) { return; }
+    if (ast_has_prefix(triple, "i386") == 1 || ast_has_prefix(triple, "i486") == 1
+        || ast_has_prefix(triple, "i586") == 1 || ast_has_prefix(triple, "i686") == 1) {
+        s.ptrsz = 4;
+        if (win == 0) { s.i64al = 4; }
+        return;
+    }
+    if (ast_has_prefix(triple, "arm") == 1 || ast_has_prefix(triple, "thumb") == 1) { s.ptrsz = 4; }
+}
+
 void sema_init(Sema* s, string filename) {
+    s.ptrsz = 8; s.i64al = 8;
     List_init<Sym>(&s.syms, 64);
     List_init<FnSig>(&s.fns, 32);
     List_init<string>(&s.types, 32);
@@ -720,9 +745,109 @@ int64 sema_fixed_scalar_size(string t) {
     if (sema_streq(t, "int64") == 1 || sema_streq(t, "uint64") == 1 || sema_streq(t, "double") == 1) { return (int64)8; }
     return (int64)0;
 }
+string sema_dealias(Sema* s, string t0);
+int sema_is_plain_enum_decl(*DeclNode d);
+int64 sema_const_layout(Sema* s, string t0, int64* al, int depth);
+// A name in a dimension that sema_const_layout folds: a classic enum member, a `const`
+// int, or `sizeof(T)` of a type whose layout is known.
+int sema_layout_dim_name(Sema* s, string nm, int64* out) {
+    if (ast_has_prefix(nm, "sizeof(") == 1) {
+        int64 zal = (int64)1;
+        *out = sema_const_layout(s, sema_sub_str(nm, 7, sema_slen(nm) - 1), &zal, 1);
+        return (int)(*out > (int64)0);
+    }
+    int64 ev = sema_dim_value(s, nm);
+    if (ev >= (int64)0) { *out = ev; return 1; }
+    int si = sema_sym_index(s, nm);
+    if (si < 0) { return 0; }
+    Sym sy = List_get<Sym>(&s.syms, si);
+    if (sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, out) == 1) { return 1; }
+    return 0;
+}
+// Size (and ABI alignment in *al) of a concrete type as the target lays it out, mirroring
+// the C++ TypeChecker::constLayout and the codegen layout (cg_size): scalars, pointers,
+// closures, interfaces, slices, fixed arrays, and structs and unions of those (C layout,
+// `packed`). 0 for a layout only codegen knows here: a generic instance, a sum type, a
+// bitfield struct, `#pragma pack(N)` with N >= 2, `va_list`, a type parameter.
+int64 sema_const_layout(Sema* s, string t0, int64* al, int depth) {
+    al[0] = (int64)1;
+    if (depth > 64 || t0 == null) { return (int64)0; }
+    string t = sema_strip_const(sema_dealias(s, sema_strip_const(t0)));
+    if ((int)t[0] == 63) { t = sema_sub_str(t, 1, sema_slen(t)); }                 // '?'
+    int n = sema_slen(t);
+    if (n == 0) { return (int64)0; }
+    int64 ps = (int64)s.ptrsz;
+    // The outermost array or slice is the first `[...]` outside any `<...>` or `(...)`.
+    int k = 0; int dep = 0; int ob = 0 - 1;
+    while (k < n && ob < 0) {
+        int c = (int)t[k];
+        if (c == 60 || c == 40) { dep = dep + 1; }
+        else if ((c == 62 && k > 0 && (int)t[k - 1] != 45) || c == 41) { dep = dep - 1; }
+        else if (c == 91 && dep == 0) { ob = k; }
+        k = k + 1;
+    }
+    if (ob > 0 && (int)t[n - 1] == 93) {
+        int cb = sema_dim_close(t, ob);
+        string rest = str_concat(sema_sub_str(t, 0, ob), sema_sub_str(t, cb + 1, n));
+        if (cb == ob + 1) {                                                       // `T[]`: {ptr, i64}
+            int64 sal = (int64)s.i64al; if (ps > sal) { sal = ps; }
+            al[0] = sal;
+            int64 off = ((ps + (int64)s.i64al - (int64)1) / (int64)s.i64al) * (int64)s.i64al + (int64)8;
+            return ((off + sal - (int64)1) / sal) * sal;
+        }
+        string dim = sema_trim_sub(t, ob + 1, cb);
+        int64 dv = (int64)0;
+        int known = 0;
+        if (sema_all_digits(dim) == 1) { dv = sema_parse_int(dim); known = 1; }
+        else { known = ast_fold_dim(dim, int(string nm, *int64 out) { return sema_layout_dim_name(s, nm, out); }, &dv); }
+        if (known == 0 || dv <= (int64)0) { return (int64)0; }
+        int64 eal = (int64)1;
+        int64 esz = sema_const_layout(s, rest, &eal, depth + 1);
+        al[0] = eal;
+        return esz * dv;
+    }
+    if ((int)t[0] == 42 || (int)t[n - 1] == 42 || sema_streq(t, "string") == 1) { al[0] = ps; return ps; }
+    if (sema_is_fn_type(t) == 1) { al[0] = ps; return ps * (int64)2; }
+    int64 fx = sema_fixed_scalar_size(t);
+    if (fx > (int64)0) {
+        al[0] = fx;
+        if (fx == (int64)8) { al[0] = (int64)s.i64al; }
+        return fx;
+    }
+    int i = 0; while (i < n) { if ((int)t[i] == 60) { return (int64)0; } i = i + 1; }  // a generic instance
+    if (sema_in_list(&s.tparams, t) == 1) { return (int64)0; }
+    *DeclNode d = sema_find_tdecl(s, t);
+    if (d == null) { return (int64)0; }
+    if (d.kind == DK_ENUM) {
+        if (sema_is_plain_enum_decl(d) == 0) { return (int64)0; }
+        al[0] = (int64)4; return (int64)4;
+    }
+    if (d.kind == DK_INTERFACE) { al[0] = ps; return ps * (int64)2; }
+    if (d.kind != DK_STRUCT && d.kind != DK_UNION) { return (int64)0; }
+    if (List_len<TypeParam>(&d.type_params) > 0 || d.pack_align >= 2) { return (int64)0; }
+    int64 off = (int64)0; int64 maxal = (int64)1;
+    int fi = 0;
+    while (fi < List_len<Param>(&d.params)) {
+        if (fi < List_len<int>(&d.field_bits) && List_get<int>(&d.field_bits, fi) != 0) { return (int64)0; }
+        int64 fal = (int64)1;
+        int64 fsz = sema_const_layout(s, List_get<Param>(&d.params, fi).ty, &fal, depth + 1);
+        if (fsz == (int64)0) { return (int64)0; }
+        if (d.is_packed == 1) { fal = (int64)1; }
+        if (fal > maxal) { maxal = fal; }
+        if (d.kind == DK_UNION) { if (fsz > off) { off = fsz; } }
+        else { off = ((off + fal - (int64)1) / fal) * fal + fsz; }
+        fi = fi + 1;
+    }
+    al[0] = maxal;
+    return ((off + maxal - (int64)1) / maxal) * maxal;
+}
+int64 sema_const_sizeof(Sema* s, string t) {
+    int64 al = (int64)1;
+    return sema_const_layout(s, t, &al, 0);
+}
 // Does dimension text `dim` have a `sizeof(T)` whose size is target layout? Its value is
 // then left to codegen.
-int sema_dim_sized_later(string dim) {
+int sema_dim_sized_later(Sema* s, string dim) {
     int n = 0; while (dim[n] != 0) { n = n + 1; }
     int i = 0;
     while (i + 7 <= n) {
@@ -732,7 +857,7 @@ int sema_dim_sized_later(string dim) {
                 if (dim[j] == '(') { depth = depth + 1; } else if (dim[j] == ')') { depth = depth - 1; }
                 j = j + 1;
             }
-            if (sema_fixed_scalar_size(sema_trim_sub(dim, i + 7, j - 1)) == (int64)0) { return 1; }
+            if (sema_const_sizeof(s, sema_trim_sub(dim, i + 7, j - 1)) == (int64)0) { return 1; }
         }
         i = i + 1;
     }
@@ -750,8 +875,10 @@ int sema_dim_name(Sema* s, string nm, int64* out) {
         if (s.had_error == 0 && sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, t))) == 1) {
             sema_error(s, "sizeof of 'void': a void value has no size");
         }
+        int fine = 1 - s.had_error;
         if (e0 == 1) { s.had_error = 1; }
-        *out = sema_fixed_scalar_size(t);
+        *out = (int64)0;
+        if (fine == 1) { *out = sema_const_sizeof(s, t); }
         if (*out == (int64)0) { *out = (int64)8; }
         return 1;
     }
@@ -791,7 +918,7 @@ void sema_check_dims(Sema* s, string t) {
                     known = ast_fold_dim(dim, int(string nm, *int64 out) { return sema_dim_name(s, nm, out); }, &v);
                 }
             }
-            if (known == 1 && v <= (int64)0 && sema_dim_sized_later(dim) == 0) {
+            if (known == 1 && v <= (int64)0 && sema_dim_sized_later(s, dim) == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: array size must be positive, got %lld\n", s.filename, s.line, s.col, v);
             }
@@ -3561,13 +3688,14 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
         return 1;
     }
     if (e.kind == EK_SIZEOF) {
-        // Only a scalar whose size does not depend on the target folds here.
+        // A type whose target layout is known here (scalars, pointers, arrays, structs and
+        // unions of those) folds; the rest is left to codegen (mirrors the C++).
         if (s.in_inst == 1) { return 0; }
         string zt = e.sval;
-        if (sema_known_type(s, zt) == 0 && sema_lookup(s, zt) == 1) { zt = sema_lookup_type(s, zt); }
-        *DeclNode zd = sema_find_tdecl(s, sema_strip_const(zt));
-        if (zd != null && zd.kind == DK_ENUM && sema_is_plain_enum_decl(zd) == 0) { return 0; }
-        out[0] = sema_fixed_scalar_size(sema_strip_const(sema_resolve_scalar(s, zt)));
+        if (e.a != null) { zt = sema_infer_type(s, e.a); }
+        else if (sema_known_type(s, zt) == 0 && sema_lookup(s, zt) == 1) { zt = sema_lookup_type(s, zt); }
+        if (zt == null || zt[0] == 0) { return 0; }
+        out[0] = sema_const_sizeof(s, zt);
         if (out[0] == (int64)0) { return 0; }
         return 1;
     }
@@ -4036,6 +4164,15 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_in_list(&s.wlocals, e.sval) == 1 && sema_streq(e.sval, s.callee_ctx) == 0
             && sema_in_list(&s.wlocals_esc, e.sval) == 0) {
             List_push<string>(&s.wlocals_esc, e.sval);
+        }
+        return;
+    }
+    if (k == EK_SIZEOF && e.a != null) {   // sizeof(expr): checked, never evaluated
+        sema_expr(s, e.a);
+        string zt = sema_infer_type(s, e.a);
+        if (sema_is_void_value(sema_resolve_scalar(s, zt)) == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: sizeof of 'void': a void value has no size\n", s.filename, s.line, s.col);
         }
         return;
     }

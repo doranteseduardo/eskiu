@@ -270,6 +270,88 @@ long long fixedScalarSize(const std::string& t) {
     return 0;
 }
 
+bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
+                              unsigned long long& align, int depth) {
+    if (depth > 64) return false;
+    if (!haveLayoutInfo) { layoutInfo = targetLayoutInfo(targetTriple); haveLayoutInfo = true; }
+    const TargetLayoutInfo& L = layoutInfo;
+    auto up = [](unsigned long long x, unsigned long long a) { return a ? (x + a - 1) / a * a : x; };
+    std::string t = tyq::strip(normalizeType(t0));
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    ty::Type pt = ty::Type::parse(t);
+    using K = ty::Type::Kind;
+    switch (pt.kind) {
+        case K::Bool: case K::Char: size = 1; align = 1; return true;
+        case K::Int: case K::Float: {
+            long long s = fixedScalarSize(pt.name);
+            if (s == 0) return false;
+            size = (unsigned long long)s;
+            align = s == 1 ? 1 : s == 2 ? L.i16Align
+                  : s == 4 ? (pt.kind == K::Float ? L.f32Align : L.i32Align)
+                  : (pt.kind == K::Float ? L.f64Align : L.i64Align);
+            return true;
+        }
+        case K::String: case K::Pointer: case K::Null:
+            size = L.ptrSize; align = L.ptrAlign; return true;
+        case K::Fn: case K::Interface:           // {fn, env} / {data, vtable}
+            size = 2ull * L.ptrSize; align = L.ptrAlign; return true;
+        case K::Slice:                           // {ptr, i64}
+            align = std::max(L.ptrAlign, L.i64Align);
+            size = up(up(L.ptrSize, L.i64Align) + 8, align);
+            return true;
+        case K::Array: {
+            if (!pt.elem) return false;
+            long long n = 0;
+            bool known = false;
+            if (!pt.dim.empty() && std::all_of(pt.dim.begin(), pt.dim.end(), [](unsigned char c) { return std::isdigit(c); })) {
+                try { n = std::stoll(pt.dim); known = true; } catch (...) {}
+            } else {
+                known = ty::foldDim(pt.dim, [&](const std::string& nm, long long& r) {
+                    if (auto ec = enumConstants.find(nm); ec != enumConstants.end()) { r = ec->second; return true; }
+                    if (nm.rfind("sizeof(", 0) == 0) { r = constSizeof(nm.substr(7, nm.size() - 8)); return r > 0; }
+                    const Symbol* cs = findSymbol(nm);
+                    return cs && cs->isConst && cs->constInit && foldConstInt(cs->constInit, r);
+                }, n);
+            }
+            if (!known || n <= 0) return false;
+            unsigned long long es = 0, ea = 1;
+            if (!constLayout(pt.elem->str(), es, ea, depth + 1)) return false;
+            size = es * (unsigned long long)n; align = ea;
+            return true;
+        }
+        case K::Struct: case K::Named: {
+            std::string nm = pt.name;
+            if (nm.rfind("struct:", 0) == 0) nm = nm.substr(7);
+            if (templateInstanceArgs.count(nm) || adtEnums.count(nm) || enumDecls.count(nm)) return false;
+            auto it = structs.find(nm);
+            if (it == structs.end()) return false;
+            const StructInfo& si = it->second;
+            if (si.packAlign >= 2) return false;
+            unsigned long long off = 0, maxAl = 1;
+            for (const auto& f : si.fields) {
+                if (f.bitWidth != 0) return false;
+                unsigned long long fs = 0, fa = 1;
+                if (!constLayout(f.type, fs, fa, depth + 1)) return false;
+                if (si.packAlign == 1) fa = 1;
+                maxAl = std::max(maxAl, fa);
+                if (si.isUnion) off = std::max(off, fs);
+                else off = up(off, fa) + fs;
+            }
+            align = maxAl;
+            size = up(off, maxAl);
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
+long long TypeChecker::constSizeof(const std::string& t) {
+    unsigned long long s = 0, a = 1;
+    if (!constLayout(t, s, a)) return 0;
+    return (long long)s;
+}
+
 void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
     long long v = 0;
     bool known = false;
@@ -293,7 +375,7 @@ void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
                 validateStructType(normalizeType(t), at);
                 if (errors.size() == before && isVoidValueType(t))
                     errorAt(at, "sizeof of 'void': a void value has no size");
-                r = fixedScalarSize(t);
+                r = errors.size() == before ? constSizeof(t) : 0;
                 if (r == 0) { r = 8; sizedLater = true; }
                 return true;
             }

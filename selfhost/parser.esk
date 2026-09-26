@@ -954,12 +954,38 @@ int lambda_ahead(Parser* p) {
     }
     if (t == CHAR_LIT) { Token tok = p_adv(p); return mk_lit(LIT_CHAR, tok_char_value(p.src, tok)); }
     if (t == SIZEOF) {
+        // sizeof(T) or sizeof(expr) (mirrors the C++ parser): a type when the operand reads
+        // as one up to the `)` and is a bare name or a composite over a known type; any
+        // other operand (`*p`, `a[0]`, `p.x`) is an expression, measured by its type.
         p_adv(p);                              // 'sizeof'
         p_expect(p, LPAREN, "Expected '('");
+        int save = p.pos;
+        int savegt = p.pending_gt;
+        p.spec = p.spec + 1;
         string ty = parse_type(p);
-        p_expect(p, RPAREN, "Expected ')'");
+        p.spec = p.spec - 1;
+        int as_type = 0;
+        if (p.failed == 0 && p_at(p) == RPAREN) {
+            int composite = 0;
+            int ci = 0;
+            while (ty[ci] != 0) {
+                int ch = (int)ty[ci];
+                if (ch == 42 || ch == 91 || ch == 63) { composite = 1; }   // '*' '[' '?'
+                ci = ci + 1;
+            }
+            if (composite == 0 || type_arg_evident(p, ty) == 1) { as_type = 1; }
+        }
         *ExprNode e = ast_new_expr();
-        e.kind = EK_SIZEOF; e.sval = ty;
+        e.kind = EK_SIZEOF;
+        if (as_type == 0) {
+            p.failed = 0; p.pos = save; p.pending_gt = savegt;
+            e.a = parse_expr(p);               // sval "" marks the expression form
+            e.sval = "";
+            p_expect(p, RPAREN, "Expected ')'");
+            return e;
+        }
+        p_expect(p, RPAREN, "Expected ')'");
+        e.sval = ty;
         return e;
     }
     if (t == ALLOC_WITH) {

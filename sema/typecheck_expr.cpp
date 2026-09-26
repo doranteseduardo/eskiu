@@ -1710,6 +1710,21 @@ void TypeChecker::visit(LambdaExpr* node) {
 }
 
 void TypeChecker::visit(SizeofExpr* node) {
+    if (node->operand) {
+        // `sizeof(expr)`: the size of the operand's type; the operand is checked, never
+        // evaluated. Outside a generic body the node becomes `sizeof(<that type>)`, so
+        // the later phases (and the async lowering) see a plain type operand.
+        node->operand->accept(this);
+        std::string t = getExpressionType(node->operand.get());
+        if (t == "void" || isVoidValueType(t))
+            errorAt(node, "sizeof of 'void': a void value has no size");
+        if (!inInstance && t != "unknown" && !t.empty()) {
+            node->typeName = tyq::strip(t);
+            node->operand = nullptr;
+        }
+        expressionTypes[node] = "int64";
+        return;
+    }
     // `sizeof(x)` of a variable measures the variable's type (C semantics). The parser
     // reads the operand as a type spelling, so resolve a bare name that is a variable
     // (not a type) here and rewrite the operand to that variable's type for codegen.

@@ -275,7 +275,8 @@ primary =
   | IDENT '<' type (',' type)* '>' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
   | '(' expr ')'
   | lambda
-  | 'sizeof' '(' type ')'
+  | 'sizeof' '(' type ')'           // a bare name, or a spelling over a known type (`*Node`)
+  | 'sizeof' '(' expr ')'           // any other operand (`*p`, `a[0]`): its type, not evaluated
   | 'alloc_with' '(' expr ',' type ',' expr ')'
   | 'free_closure' '(' expr ')'
   | 'thread_create' '(' expr ')'

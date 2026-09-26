@@ -564,6 +564,13 @@ void ASTPrinter::visit(DeferStmt* node) {
 }
 
 void ASTPrinter::visit(SizeofExpr* node) {
+    if (node->operand) {
+        println("SizeofExpr: sizeof(<expr>)");
+        indentLevel++;
+        node->operand->accept(this);
+        indentLevel--;
+        return;
+    }
     println("SizeofExpr: sizeof(" + node->typeName + ")");
 }
 

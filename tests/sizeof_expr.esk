@@ -1,0 +1,29 @@
+// sizeof(expr) is the size of the expression's type; the operand is not evaluated.
+extern int printf(string fmt, ...);
+
+struct Big { int64 a; int64 b; int64 c; }
+struct Pair { int x; double y; }
+
+int calls = 0;
+int bump() { calls = calls + 1; return calls; }
+
+int64 inGeneric<T>(*T p) { return sizeof(*p); }
+
+int main() {
+    Big b;
+    *Big p = &b;
+    int[5] arr;
+    Pair pr;
+    *Pair pp = &pr;
+    printf("%lld %lld\n", sizeof(*p), sizeof(p));
+    printf("%lld %lld\n", sizeof(arr[0]), sizeof(arr));
+    printf("%lld %lld\n", sizeof(pr.y), sizeof(pp.x));
+    printf("%lld\n", sizeof(bump() + 1));
+    printf("calls=%d\n", calls);
+    printf("%lld %lld\n", inGeneric(p), inGeneric(pp));
+    printf("%lld\n", sizeof(*Big));
+    int64 k = 0;
+    fn()->void f = void() { printf("in lambda %lld\n", sizeof(*p)); };
+    f();
+    return (int)k;
+}

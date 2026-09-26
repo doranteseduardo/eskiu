@@ -478,6 +478,7 @@ int esk_main(int argc, string* argv) {
     {
         let sm: Sema;
         sema_init(&sm, infile);
+        sema_set_target(&sm, triple);  // sizeof folds to the target's layout
         int ok = sema_check(&sm, prog);
         if (cg_streq(mode, "--test-typechecker") == 1) {
             printf("========================================================\n");

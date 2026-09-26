@@ -1,0 +1,4 @@
+// EXPECT-ERROR: division by zero
+// `sizeof(*p)` measures the pointee's type, which folds.
+struct Q { int8 a; int8 b; }
+int main() { Q q; *Q p = &q; int x = 5; return x / (int)(sizeof(*p) - 2); }

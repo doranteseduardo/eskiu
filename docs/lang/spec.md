@@ -435,7 +435,7 @@ Statically-known mistakes are also compile errors:
 - An **integer literal that does not fit** its target type: `int8 x = 300;` (300 is
   outside `int8`'s range). A literal that fits is fine: `uint8 c = 255;`.
 - **Integer division or remainder by zero**, or of the most negative value by `-1`, when
-  the operands are constant: a literal (`x / 0`), a `const` name, a fixed-size `sizeof`,
+  the operands are constant: a literal (`x / 0`), a `const` name, a `sizeof` (§5.8),
   a cast (`x / (int)0.5`) or an expression of those. `M / -1` with `const int M =
   -2147483647 - 1` does not fit an `int`.
 - A **floating constant converted to an integer type that cannot hold it**, written as a
@@ -727,6 +727,10 @@ sizeof(Grid)   // 12  (3 float fields)
 ```
 
 `sizeof` is resolved entirely at compile time and produces no runtime code. As in C, `sizeof(x)` where `x` names a variable (or a parameter or global) gives the size of that variable's type; a name that is neither a type nor a variable is an error.
+
+The operand may also be an expression: `sizeof(*p)`, `sizeof(a[0])`, `sizeof(s.field)` give the size of the expression's type, and the expression is not evaluated (`sizeof(f())` does not call `f`). The operand is read as a type when it is a bare name or a spelling built over a primitive or an already declared type (`sizeof(*Node)`, `sizeof(int[4])`); otherwise it is an expression.
+
+The type checker folds `sizeof` of a scalar, a pointer, a closure, an interface, a slice, a fixed array, and a struct or union of those, using the target's layout (`--target`), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate `case`) and `enum` member values see it. The size of a generic instance, a sum type, a bitfield struct or a `#pragma pack(N)` struct with `N > 1` is known only to code generation, which still folds it to a constant.
 
 ### 5.9 Conditional (ternary)
 

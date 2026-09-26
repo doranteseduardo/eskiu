@@ -212,7 +212,7 @@ static int testTypeChecker(const std::string& filename) {
 
     try {
         // Type check
-        TypeChecker typeChecker;
+        TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = filename;
         typeChecker.warnAll = Wall;
         typeChecker.warnExtra = Wextra;
@@ -246,7 +246,7 @@ static int testCodegen(const std::string& filename) {
     try {
         // Type-check first: the async transform relies on resolved await types,
         // and codegen on the type checker's struct/enum registration.
-        TypeChecker tc;
+        TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
         tc.sourceFile = filename;
         if (!tc.check(program.get())) {
             std::cerr << "Type checking failed!" << std::endl;
@@ -254,7 +254,7 @@ static int testCodegen(const std::string& filename) {
         }
         AsyncTransform().run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.sourceFile = filename;
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = filename;
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;
@@ -425,7 +425,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
             std::string type = tc.getTypeAtPosition(line, col);
@@ -444,7 +444,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
             std::string loc = tc.getDefinitionAt(line, col);
@@ -472,7 +472,7 @@ static int compilerMain(int argc, char** argv) {
         }
         const std::vector<std::string>& pragmaLibs = program->linkLibs;
 
-        TypeChecker typeChecker;
+        TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = std::string(InputFilename);
         typeChecker.warnAll = Wall;
         typeChecker.warnExtra = Wextra;
@@ -482,7 +482,7 @@ static int compilerMain(int argc, char** argv) {
 
         AsyncTransform().run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.sourceFile = std::string(InputFilename);
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = std::string(InputFilename);
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;

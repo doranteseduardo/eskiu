@@ -44,8 +44,9 @@ inline void forEachChildExpr(Expr* e, const std::function<void(ExprPtr&)>& f) {
     else if (auto* aw = dynamic_cast<AllocWithExpr*>(e))    { f(aw->allocator); f(aw->count); }
     else if (auto* fc = dynamic_cast<FreeClosureExpr*>(e))  { f(fc->closure); }
     else if (auto* tcr = dynamic_cast<ThreadCreateExpr*>(e)) { f(tcr->worker); }
+    else if (auto* sz = dynamic_cast<SizeofExpr*>(e)) { if (sz->operand) f(sz->operand); }
     // Leaves / scope boundaries (no child-expr to descend for these purposes):
-    // LiteralExpr, IdentExpr, SizeofExpr, LambdaExpr.
+    // LiteralExpr, IdentExpr, SizeofExpr of a type, LambdaExpr.
 }
 
 // Like forEachChildExpr, but a long left-leaning operator chain (`a + b + c ...`, as
@@ -74,7 +75,7 @@ inline void collectNames(Stmt* s, std::set<std::string>& out);
 inline void collectNames(Expr* e, std::set<std::string>& out) {
     if (!e) return;
     if (auto* id = dynamic_cast<IdentExpr*>(e)) { out.insert(id->name); return; }
-    if (auto* sz = dynamic_cast<SizeofExpr*>(e)) { out.insert(sz->typeName); return; }
+    if (auto* sz = dynamic_cast<SizeofExpr*>(e); sz && !sz->operand) { out.insert(sz->typeName); return; }
     if (auto* m = dynamic_cast<MemberExpr*>(e)) out.insert(m->member);
     if (auto* lam = dynamic_cast<LambdaExpr*>(e)) {
         for (const auto& p : lam->params) out.insert(p.second);
@@ -179,7 +180,7 @@ inline void collectAddressTaken(Stmt* s, std::set<std::string>& out) {
 inline bool referencesName(Expr* e, const std::string& name) {
     if (!e) return false;
     if (auto* id = dynamic_cast<IdentExpr*>(e)) return id->name == name;
-    if (auto* sz = dynamic_cast<SizeofExpr*>(e)) return sz->typeName == name;
+    if (auto* sz = dynamic_cast<SizeofExpr*>(e); sz && !sz->operand) return sz->typeName == name;
     if (auto* lam = dynamic_cast<LambdaExpr*>(e)) {
         std::set<std::string> names;
         collectNames(lam->body.get(), names);

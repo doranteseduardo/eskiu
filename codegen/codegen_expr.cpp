@@ -1236,7 +1236,8 @@ void CodeGen::visit(SizeofExpr* node) {
     // Sema rewrites `sizeof(var)` to the variable's type, except in a generic body
     // (its nodes are shared by the instances): resolve the variable here, per instance.
     std::string tn = node->typeName;
-    if (!typeParamOverride.count(tn) && !structTypes.count(tn) && !typeAliases.count(tn) &&
+    if (node->operand) tn = getExprEskiuType(node->operand);   // a generic body: never evaluated
+    else if (!typeParamOverride.count(tn) && !structTypes.count(tn) && !typeAliases.count(tn) &&
         !enumTypes.count(tn)) {
         std::string vt = lookupVarType(tn);
         if (!vt.empty()) tn = vt;

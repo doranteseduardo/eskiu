@@ -459,10 +459,33 @@ ExprPtr Parser::parsePrimary() {
     }
 
 
-    // sizeof(T) -> int64
+    // sizeof(T) or sizeof(expr) -> int64. The operand is a type when it reads as one
+    // up to the `)`: a bare name (a type or a variable, told apart by sema) or a
+    // composite spelling over a known type (`*Node`, `int[4]`). Anything else
+    // (`*p`, `a[0]`, `p.x`, `x + 1`) is an expression, measured by its type and not
+    // evaluated.
     if (match(TokenType::SIZEOF)) {
         consume(TokenType::LPAREN, "Expected '(' after sizeof");
-        std::string typeName = parseType();
+        size_t save = current;
+        std::string typeName;
+        bool asType = false;
+        try {
+            typeName = parseType();
+            asType = check(TokenType::RPAREN) &&
+                     (typeName.find_first_of("*[?") == std::string::npos || typeArgIsEvident(typeName));
+        } catch (const NestingError&) {
+            throw;
+        } catch (...) {
+            asType = false;
+        }
+        if (!asType) {
+            rewindTo(save);
+            ExprPtr operand = parseExpression();
+            consume(TokenType::RPAREN, "Expected ')'");
+            auto sz = withPos(std::make_shared<SizeofExpr>(""), tok);
+            sz->operand = operand;
+            return sz;
+        }
         consume(TokenType::RPAREN, "Expected ')'");
         return withPos(std::make_shared<SizeofExpr>(typeName), tok);
     }
