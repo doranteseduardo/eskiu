@@ -412,6 +412,8 @@ private:
     // An `extern` parameter of fn type is a C function pointer (a bare `ptr`), per
     // extern: which parameters are. Functions the program defines are never lowered.
     std::map<std::string, std::vector<bool>> externFnPtrParams;
+    std::map<std::string, std::vector<bool>> externVaListParams;
+    llvm::Value* evalCVaList(const ExprPtr& arg);
     std::set<std::string> definedFunctionNames;
     // The C function pointer passed for `arg` (a named top-level function or null).
     llvm::Value* evalCFnPointer(const ExprPtr& arg);

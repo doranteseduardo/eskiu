@@ -3799,8 +3799,33 @@ void cg_hint_iface(Codegen* g, *ExprNode x, string tety) {
     }
 }
 
+// A va_list argument of a C function (C++ CodeGen::evalCVaList): by address on x86-64
+// System V and AArch64 outside Darwin and Windows (an array/struct `va_list`), else the
+// `char*` that llvm.va_start stored at offset 0 of the storage.
+CgVal cg_c_va_list(Codegen* g, *ExprNode ax) {
+    let v: CgVal; v.ty = "ptr"; v.ety = "*void";
+    int byaddr = 0;
+    if (g.abi == 3 || (g.abi == 2 && g.wintgt == 0)) { byaddr = 1; }
+    int named = 0;
+    if (ax.kind == EK_IDENT && (cg_find_local(g, ax.sval).slot[0] != 0 || cg_find_global(g, ax.sval).slot[0] != 0)) { named = 1; }
+    string addr = "";
+    if (named == 1) { addr = cg_addr(g, ax).op; }
+    else {
+        CgVal val = cg_expr(g, ax);
+        addr = cg_entry_alloca(g, "%__va_list");
+        cg_emit(g, "  store %__va_list "); cg_emit(g, val.op); cg_emit(g, ", ptr "); cg_emit(g, addr); cg_emit(g, "\n");
+    }
+    if (byaddr == 1) { v.op = addr; return v; }
+    v.op = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, v.op); cg_emit(g, " = load ptr, ptr "); cg_emit(g, addr); cg_emit(g, "\n");
+    return v;
+}
+
 CgVal cg_call_arg(Codegen* g, CgFn* f, int i, *ExprNode ax) {
     cg_hint_iface(g, ax, cg_pety(f, i));
+    if (cg_streq(cg_pty(f, i), "ptr") == 1 && cg_streq(cg_dealias(g, cg_pety(f, i)), "va_list") == 1) {
+        return cg_c_va_list(g, ax);
+    }
     if (cg_streq(cg_pty(f, i), "ptr") == 1 && cg_is_fnty(cg_dealias(g, cg_pety(f, i))) == 1
         && ax.kind == EK_IDENT && cg_find_local(g, ax.sval).slot[0] == 0
         && cg_find_global(g, ax.sval).slot[0] == 0 && cg_is_fn(g, ax.sval) == 1) {
@@ -7211,6 +7236,7 @@ string cg_cabi_declare(Codegen* g, *DeclNode d) {
         if (cg_streq(pm.ty, "...") == 1) { variadic = 1; i = i + 1; continue; }
         string cety = pm.ty;
         if (cg_is_fnty(cg_dealias(g, pm.ty)) == 1) { cety = "*void"; }   // a C function pointer
+        if (cg_streq(cg_dealias(g, pm.ty), "va_list") == 1) { cety = "*void"; }   // a C va_list (cg_c_va_list)
         CgAbi a = cg_abi_classify(g, cety, 0, &fint, &fsse);
         List_push<CgAbi>(&c.params, a);
         string lty = cg_lltype(g, cety);
@@ -7799,6 +7825,9 @@ void cg_program(Codegen* g, *Program prog) {
                     // A C function's fn-typed parameter is a C function pointer (`ptr`).
                     if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0
                         && cg_is_fnty(cg_dealias(g, pm.ty)) == 1) { plt = "ptr"; }
+                    // A C function's va_list parameter is passed the C way (cg_c_va_list).
+                    if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0
+                        && cg_streq(cg_dealias(g, pm.ty), "va_list") == 1) { plt = "ptr"; }
                     List_push<string>(&f.ptys, plt);
                     List_push<string>(&f.petys, pm.ty);
                     if (first == 0) { fixed = cg_cat(fixed, ", "); fixedx = cg_cat(fixedx, ", "); }

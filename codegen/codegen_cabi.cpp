@@ -446,6 +446,28 @@ llvm::Function* CodeGen::cabiCallbackThunk(llvm::Function* target) {
     return thunk;
 }
 
+// A `va_list` argument of a C function (vprintf, vsnprintf, ...), passed the way C passes
+// its `va_list`: on x86-64 System V and AArch64 outside Darwin (and Windows) it is an
+// array/struct type that goes by address; elsewhere (Darwin AArch64, Windows x64, 32-bit
+// ARM) it is a `char*`, the pointer `llvm.va_start` stores at offset 0 of the storage.
+llvm::Value* CodeGen::evalCVaList(const ExprPtr& arg) {
+    llvm::Triple t(module->getTargetTriple());
+    bool byAddr = !t.isOSWindows() && (t.getArch() == llvm::Triple::x86_64
+                                      || (t.isAArch64() && !t.isOSDarwin()));
+    llvm::Type* vaTy = getTypeFromString("va_list");
+    if (byAddr) {
+        if (auto* id = dynamic_cast<IdentExpr*>(arg.get()))
+            if (lookupSymbol(id->name)) return evaluateLValue(arg);
+        llvm::AllocaInst* copy = entryAlloca(vaTy, nullptr, "va.arg");
+        builder->CreateStore(evaluateExpr(arg), copy);
+        return copy;
+    }
+    if (auto* id = dynamic_cast<IdentExpr*>(arg.get()))
+        if (lookupSymbol(id->name))
+            return builder->CreateLoad(llvm::PointerType::get(*context, 0), evaluateLValue(arg));
+    return builder->CreateExtractValue(evaluateExpr(arg), {0});
+}
+
 // An argument for a C function pointer parameter (an extern's fn-typed parameter): the
 // C address of the named top-level function (through its C-ABI thunk when needed), or
 // null. The type checker rejects anything else (a closure value has an environment).

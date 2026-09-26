@@ -675,17 +675,23 @@ void CodeGen::visit(ExternDecl* node) {
     // A fn-typed parameter of a C function is a C function pointer, not an Eskiu
     // closure: it is declared `ptr` and each call passes a function's C address.
     std::vector<bool> fnPtr;
+    std::vector<bool> vaList;
 
     for (auto& param : node->params) {
         if (param.first == "...") {
             hasVarargs = true;
             break;
         }
-        bool isFn = ty::Type::parse(expandAlias(param.first)).isFn();
+        ty::Type pt = ty::Type::parse(expandAlias(param.first));
+        bool isFn = pt.isFn();
+        // A va_list goes to C the way the target's C `va_list` does (see evalCVaList).
+        bool isVa = pt.kind == ty::Type::Kind::VaList;
         fnPtr.push_back(isFn);
-        paramTypes.push_back(isFn ? llvm::PointerType::get(*context, 0) : getTypeFromString(param.first));
+        vaList.push_back(isVa);
+        paramTypes.push_back(isFn || isVa ? llvm::PointerType::get(*context, 0) : getTypeFromString(param.first));
     }
     if (std::find(fnPtr.begin(), fnPtr.end(), true) != fnPtr.end()) externFnPtrParams[node->name] = fnPtr;
+    if (std::find(vaList.begin(), vaList.end(), true) != vaList.end()) externVaListParams[node->name] = vaList;
 
     // Create function type
     llvm::Type* returnType = getTypeFromString(node->returnType);

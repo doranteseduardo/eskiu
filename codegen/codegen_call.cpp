@@ -547,12 +547,17 @@ void CodeGen::visit(CallExpr* node) {
     auto isCFnParam = [&](size_t i) {
         return fpIt != externFnPtrParams.end() && i < fpIt->second.size() && fpIt->second[i];
     };
+    auto vaIt = externVaListParams.find(func->getName().str());
+    auto isCVaParam = [&](size_t i) {
+        return vaIt != externVaListParams.end() && i < vaIt->second.size() && vaIt->second[i];
+    };
     auto abiIt = externAbi.find(func->getName().str());
     if (abiIt != externAbi.end()) {
         auto lparams = abiIt->second.logical->params();
         std::vector<llvm::Value*> cargs;
         for (size_t i = 0; i < node->args.size(); ++i) {
-            llvm::Value* v = isCFnParam(i) ? evalCFnPointer(node->args[i]) : evaluateExpr(node->args[i]);
+            llvm::Value* v = isCFnParam(i) ? evalCFnPointer(node->args[i])
+                           : isCVaParam(i) ? evalCVaList(node->args[i]) : evaluateExpr(node->args[i]);
             bool uns = eskiuUnsigned(getExprEskiuType(node->args[i]));
             if (i < lparams.size()) {
                 if (v->getType() != lparams[i]) v = coerceValue(v, lparams[i], uns);
@@ -576,6 +581,8 @@ void CodeGen::visit(CallExpr* node) {
         // A param that expects an interface boxes a struct pointer argument.
         if (isCFnParam(i))
             args.push_back(evalCFnPointer(node->args[i]));
+        else if (isCVaParam(i))
+            args.push_back(evalCVaList(node->args[i]));
         else if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size())
             args.push_back(evalForType(node->args[i], ptIt->second[i]));
         else
