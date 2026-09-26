@@ -197,6 +197,27 @@ more and a third about 60, fixed the same way.
   statement, compile and run.
 - `await` inside a `try` statement of an `async` function is a located error (it was
   invalid IR in the self-host and "expected at least one `await`" in C++).
+- A user operator (`s + s`, `s[i]`, `-s`, `s += s`, an overloaded `==` in a condition)
+  is a call, so it ends a global's `?*T` narrowing like a plain call. A lambda body does
+  not see a global's narrowing from where the lambda is written (it runs later), and a
+  `static` local follows the global rule (a call or a lambda may null it).
+- `alloc_with` needs a pointer to the allocator (`alloc_with(b, T, n)` with a by-value
+  `b` allocated from a copy), an alloc method of the shape `*void T_alloc(*T self, int64
+  size)` (another return type or parameter list emitted invalid IR), and a known, sized
+  element type (an unknown type or `void` crashed the C++ compiler).
+- `*T[N]` is an array of N pointers in the type checker too, as codegen always lowered
+  it: `*int[3] p = &arr` and `*p` of such an array are type errors (they compiled to
+  invalid IR). The address of an array is typed `T[N]*`.
+- The handle `thread_create` returns is a `*void` in the self-host too, so `int t =
+  thread_create(...)` is an error in both compilers. Like any `*void` it converts to
+  another pointer, `string` included (a `string` is a byte pointer).
+- The arms of a `?:` of two unrelated pointers have no common type in the self-host
+  either (`*A p = c ? &a : &b`); it accepted any two pointers.
+- `va_arg<T>` of a type the default argument promotions widen is an error that names
+  the type to read: `float` arrives as `double`, and `bool`, `char`, `int8`, `int16`,
+  `uint8` and `uint16` as `int` (it read the wrong bytes).
+- Without `-o`, `eskiuc-esk` writes the object `FILE.o` like `eskiuc` (it printed the
+  IR); `--test-codegen` prints the IR.
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -515,6 +536,21 @@ more and a third about 60, fixed the same way.
   was emitted non-variadic (garbage arguments); an array of closures as a global or
   `static` gave its lambdas the array as their return type (invalid IR); a union constant
   whose member is a struct or an array was rejected without a location.
+- A struct field, a pointee or an array of structs typed through an alias of an array
+  (`type AI = int[3]`) compiles in C++ (`q.b[2]` and `(*p)[2]` with `*AI p` were codegen
+  errors, a field alias of a struct array crashed), and `*AI` is a pointer to the array in
+  the self-host (it lowered as an array of pointers). A struct holding itself through
+  such an alias (`type AR = R[2]; struct R { AR a; }`) is rejected by C++ as by the
+  self-host (it compiled with a 4-byte field).
+- When the target is an interface, each arm of a `?:` is boxed with its own struct's
+  vtable, so `I i = c ? &a : &b` with different conforming structs works in declarations,
+  assignments, returns and arguments (C++ rejected it, and the self-host called the first
+  struct's method on the second).
+- An array dimension is an integer constant expression folded like a `const`: casts
+  truncate as in C (`int[(uint8)258]` has 2 elements), and arithmetic over numbers,
+  `const` ints and enum members works (`int[N + 1]`). Both compilers rejected anything but
+  a number or a single name. The self-host resolves an enum member as a struct field's
+  dimension (`int[B] a`, it was invalid IR).
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

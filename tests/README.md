@@ -366,6 +366,11 @@ when you add a test.
 | `void_expr_stmt` | `return f();` of a `void` call in a `void` function or lambda (with a `defer`), `void` ternaries as statements |
 | `bitfield_promote` | a bitfield whose values fit an `int` reads as `int` (C, clang output); a postfix `f++` keeps the declared type |
 | `ptr_sub_same` | `p - q` across `const`, `?` and alias spellings of the same pointer type |
+| `array_of_pointers` | `*T[N]` is an array of N pointers: brace init, `*ps[i]`, element stores, as a parameter |
+| `alias_array_codegen` | an alias of an array as a field, through `*Alias` (`(*p)[2]`, `p[0][1]`) and as an array of structs |
+| `thread_handle_ptr` | the `*void` handle of `thread_create` converts to another pointer and joins back |
+| `iface_ternary_box` | `?:` arms of different conforming structs boxed into an interface (declaration, assignment, return, argument, nested) |
+| `array_dim_const_expr` | array dimensions as constant expressions: C-truncating casts, `const` and enum members, hex and shifts |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -621,6 +626,25 @@ when you add a test.
 | `errors/alloc_with_count_string` | `alloc_with` with a string count |
 | `errors/alloc_with_no_alloc` | `alloc_with` on an `int` allocator ("has no alloc method") |
 | `errors/ptr_sub_mismatch` | `*int - *char` ("pointer subtraction needs pointers to the same type") |
+| `errors/nullable_global_operator` | a user operator call ends a global's `?*T` narrowing |
+| `errors/nullable_global_operator_cond` | an overloaded `==` after the null test in the same condition |
+| `errors/nullable_global_lambda` | a global narrowed where a lambda is written is not narrowed in its body |
+| `errors/nullable_static_call` | a call ends a `static` local's narrowing (recursive call nulls it) |
+| `errors/nullable_static_lambda` | a closure call ends a `static` local's narrowing |
+| `errors/alloc_with_by_value` | `alloc_with` of a by-value allocator |
+| `errors/alloc_with_unknown_elem` | `alloc_with` of an unknown element type |
+| `errors/alloc_with_void_elem` | `alloc_with` of `void` |
+| `errors/alloc_with_bad_ret` | an `_alloc` returning `int` |
+| `errors/alloc_with_bad_params` | an `_alloc` without the size parameter |
+| `errors/ptr_array_from_addr` | `*int[3] p = &arr` (an array of pointers from an array's address) |
+| `errors/ptr_array_deref` | `*p` of a `*int[3]` |
+| `errors/struct_cycle_array_alias` | a struct holding itself through an alias of an array of it |
+| `errors/thread_handle_to_int` | `int t = thread_create(...)` |
+| `errors/ternary_unrelated_ptrs` | `?:` of pointers to two unrelated structs into a `*A` |
+| `errors/iface_ternary_nonconforming` | `?:` into an interface with an arm that does not satisfy it |
+| `errors/va_arg_float` | `va_arg<float>` (promoted to `double`) |
+| `errors/va_arg_narrow_int` | `va_arg` of an alias of `int8` (promoted to `int`) |
+| `errors/array_dim_cast_zero` | `int[(uint8)256]` folds to 0 |
 | `errors/async_await_in_try` | `await` inside a `try` in an `async` function |
 | `errors/void_logical_operand` | a `void` call as an operand of `&&` |
 | `errors/void_compare` | comparing two `void` calls |

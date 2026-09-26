@@ -234,7 +234,10 @@ for a global the address counts anywhere in the program. A global's narrowing al
 every call and `await`, since the callee may assign it: a test of a global earlier in a
 condition does not hold after a later operand that calls (`gp != null && f() && gp.v`),
 nor in a branch or ternary arm guarded by such a condition, nor after an early-exit guard
-whose condition or fall-through branch calls something.
+whose condition or fall-through branch calls something. A user operator (`a + b` on a
+struct with an `operator +`) is a call too. A lambda body never sees a global's narrowing
+from where the lambda is written, since it runs later. A `static` local is one cell shared
+by every call and closure, so it follows the rule for globals.
 
 ### 3.3 Array Types
 
@@ -255,9 +258,11 @@ int main() {
 
 When a leading `*` meets a trailing `[N]`, the **array binds outermost**: `*T[N]` is an
 *array of N pointers* (each element a `*T`), i.e. it reads as `(*T)[N]`. For example
-`*Node[7]` is seven `Node` pointers. There is no spelling for a pointer to a whole array
-(`T[N]*` does not parse); point at the first element instead, `*Node p = &arr[0];`, and
-index through it (`p[i]`).
+`*Node[7]` is seven `Node` pointers, so `*p` of one is an error (index it first, `*p[0]`).
+There is no source spelling for a pointer to a whole array (`T[N]*` does not parse, and
+`&arr` is not a `*T[N]`); point at the first element instead, `*Node p = &arr[0];`, and
+index through it (`p[i]`), or name the array with an alias: with `type Row = int[3]`, a
+`*Row` points at a whole `int[3]` (`(*p)[2]`).
 
 The same rule applies to a function type: `fn(int)->int[2]` is an *array of 2 function
 values*, not a function returning an array (a function cannot return an array), so
@@ -507,7 +512,7 @@ int main() {
 }
 ```
 
-Array dimensions accept a decimal literal, an `enum` member, or a `const int`. `const` bindings are block-scoped like any other variable.
+An array dimension is an integer constant expression: literals, `enum` members and `const` ints, combined with the integer operators, `?:`, parentheses and casts to an integer type, which truncate as in C (`int[(uint8)258]` has 2 elements, `int[CAP * 2]` 8). It must be positive. `const` bindings are block-scoped like any other variable.
 
 **`const` works on any type** (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a `const` value:
 
@@ -711,6 +716,9 @@ arms (so side effects in the unused arm never run). The condition may be a bool,
 integer, or pointer (non-zero / non-null is true). The two arms must share a common
 type: identical types pass through, two numerics promote to the wider (C-style, e.g.
 `int` and `double` yield `double`), and otherwise the arms must be mutually assignable.
+When the value goes to an interface (a declaration, assignment, return or argument of
+that type), each arm converts to it on its own, so the arms may point at different
+structs that satisfy it: `Shape s = round ? &c : &sq;`.
 The operator is right-associative, so `a ? b : c ? d : e` parses as `a ? b : (c ? d : e)`.
 
 ```eskiu
@@ -867,7 +875,8 @@ arrive as `int`. There is no automatic count of the arguments: pass it explicitl
 builtins takes exactly one `va_list` operand (a `va_list` may also be passed to another
 function, which then reads it with `va_arg`). `T` in `va_arg<T>` must be a scalar: an
 integer, a floating-point type or a pointer; a struct, union, sum type or array is a
-compile error.
+compile error. So is a type the promotions widen (`va_arg<float>`, `va_arg<char>`,
+`va_arg<int8>`, ...): read the promoted `double` or `int` and convert it.
 
 ### 6.4 Extern Declarations
 
@@ -2044,7 +2053,7 @@ void  esk_free(*void ptr)  { buddy_free(ptr); }
 
 Freestanding mode does not remove any other language features. The standard library modules (`stdlib/result.esk`, etc.) remain available but must not import libc functions that are absent from the target.
 
-**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator, so allocation strategy is a plain value, not a global. When `n * sizeof(T)` does not fit a signed 64-bit size (or the allocator's narrower size parameter), or `n` is negative, `alloc_with` yields `null` without calling the allocator. `n` must be an integer, and the allocator's type must have the `alloc` method (a free `<Type>_alloc` or an inline `alloc`); otherwise it is a compile error.
+**Custom allocators (`alloc_with`).** `alloc_with(&allocator, T, n)` is the explicit-allocator form of `alloc`: instead of going to `malloc`/`esk_alloc`, it calls `<Type>_alloc(&allocator, n * sizeof(T))` and returns a `*T`. Any struct that exposes a method `*void <Type>_alloc(<Type>* self, int64 nbytes)` is a valid allocator, so allocation strategy is a plain value, not a global. When `n * sizeof(T)` does not fit a signed 64-bit size (or the allocator's narrower size parameter), or `n` is negative, `alloc_with` yields `null` without calling the allocator. `n` must be an integer, the allocator must be a pointer to it (`&a`, or a `*Type` value), its type must have the `alloc` method (a free `<Type>_alloc` or an inline `alloc`) of that shape (the allocator, then an integer size, returning a pointer), and `T` must be a known type with a size (not `void`); otherwise it is a compile error.
 
 ```eskiu
 import <alloc>;
