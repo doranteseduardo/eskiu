@@ -1103,6 +1103,11 @@ void AsyncTransform::run(Program* program) {
         // env at the call site and the frame would hold a dangling pointer (a UAF that
         // surfaced as an intermittent SIGILL calling a garbage closure on Linux).
         ctorFn->paramEscaping = fn->paramEscaping;
+        // Every closure param is retained by the frame (the resume calls it after the
+        // call returns), so it escapes even when the async fn only calls it.
+        ctorFn->paramEscaping.resize(fn->params.size(), false);
+        for (size_t i = 0; i < fn->params.size(); ++i)
+            if (ty::Type::parse(fn->params[i].first).isFn()) ctorFn->paramEscaping[i] = true;
         ctorFn->typeParams = tps;
         ctorFn->constraints = fn->constraints;
         ctorFn->sourceFile = fn->sourceFile;

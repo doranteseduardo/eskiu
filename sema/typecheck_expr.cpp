@@ -1100,7 +1100,9 @@ void TypeChecker::visit(CallExpr* node) {
         // enforced by the soundness check), so its env can stay on the stack.
         if (auto* lam = dynamic_cast<LambdaExpr*>(node->args[i].get())) {
             bool paramEscapes = escVec && i < escVec->size() && (*escVec)[i];
-            if (!paramEscapes && !inInstance) lam->escapes = false;
+            // Set both ways: the check after the async lowering sees an async fn's closure
+            // params as escaping (the frame keeps them), overriding the first check.
+            if (!inInstance) lam->escapes = paramEscapes;
         }
         if (i < fixedCount) {
             std::string argType = getExpressionType(node->args[i].get());
