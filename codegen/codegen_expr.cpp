@@ -525,7 +525,9 @@ void CodeGen::visit(TernaryExpr* node) {
     std::string ifaceTy = !interfaceName(thenTy).empty() ? thenTy
                         : !interfaceName(elseTy).empty() ? elseTy : "";
     if (!ifaceTy.empty()) resTy = getTypeFromString(ifaceTy);
+    const bool isVoid = resTy->isVoidTy();          // `c ? f() : g()` with void arms: a statement
     auto arm = [&](const ExprPtr& e, const std::string& srcEskiu) -> llvm::Value* {
+        if (isVoid) return evaluateExpr(e);
         if (!ifaceTy.empty()) return evalForType(e, ifaceTy);
         return coerceValue(evaluateExpr(e), resTy, eskiuUnsigned(srcEskiu));
     };
@@ -554,6 +556,7 @@ void CodeGen::visit(TernaryExpr* node) {
     builder->CreateBr(contBB);
 
     builder->SetInsertPoint(contBB);
+    if (isVoid) { exprValueStack.push(ev); return; }   // no value to merge
     llvm::PHINode* phi = builder->CreatePHI(resTy, 2);
     phi->addIncoming(tv, thenEnd);
     phi->addIncoming(ev, elseEnd);

@@ -4455,7 +4455,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         while (i < k) {
             *ExprNode n = List_get<*ExprNode>(&chain, i);
             string rty = cg_lltype(g, List_get<string>(&etys, i));
-            string res = cg_entry_alloca(g, rty);
+            string res = "";                               // void arms (a statement): no slot
+            if (cg_streq(rty, "void") == 0) { res = cg_entry_alloca(g, rty); }
             CgVal c = cg_cond(g, n.a);
             string lthen = cg_lbl(g);
             string lelse = cg_lbl(g);
@@ -4465,9 +4466,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             g.terminated = 1;
             cg_label(g, lthen);
             CgVal tv = cg_expr(g, n.b);
-            string top = cg_coerce(g, tv, rty);
-            if (cg_is_iface(g, cg_dealias(g, List_get<string>(&etys, i))) == 1) { top = cg_iface_conv(g, List_get<string>(&etys, i), tv, n.b); }
-            cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, top); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+            if (res[0] != 0) {
+                string top = cg_coerce(g, tv, rty);
+                if (cg_is_iface(g, cg_dealias(g, List_get<string>(&etys, i))) == 1) { top = cg_iface_conv(g, List_get<string>(&etys, i), tv, n.b); }
+                cg_emit(g, "  store "); cg_emit(g, rty); cg_emit(g, " "); cg_emit(g, top); cg_emit(g, ", ptr "); cg_emit(g, res); cg_emit(g, "\n");
+            }
             cg_br(g, lend);
             cg_label(g, lelse);
             List_push<string>(&rtys, rty); List_push<string>(&ress, res); List_push<string>(&lends, lend);
@@ -4480,6 +4483,13 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
             string rty = List_get<string>(&rtys, i);
             string res = List_get<string>(&ress, i);
             string lend = List_get<string>(&lends, i);
+            if (res[0] == 0) {                             // void: nothing to merge
+                cg_br(g, lend);
+                cg_label(g, lend);
+                ev.op = ""; ev.ty = "void"; ev.ety = "void";
+                i = i - 1;
+                continue;
+            }
             string eop = cg_coerce(g, ev, rty);
             if (cg_is_iface(g, cg_dealias(g, List_get<string>(&etys, i))) == 1) {
                 *ExprNode ex = List_get<*ExprNode>(&last.kids, 0);

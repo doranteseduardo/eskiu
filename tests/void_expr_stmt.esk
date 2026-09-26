@@ -1,0 +1,14 @@
+extern int printf(string f, ...);
+void hi() { printf("hi\n"); }
+void lo() { printf("lo\n"); }
+void wrap(int k) { defer printf("d%d\n", k); if (k > 1) { return hi(); } return lo(); }
+int main(int argc, string* argv) {
+    wrap(2);
+    wrap(0);
+    argc > 0 ? hi() : lo();
+    argc > 5 ? hi() : argc > 3 ? hi() : lo();
+    true ? lo() : hi();
+    fn()->void g = void() { return hi(); };
+    g();
+    return 0;
+}

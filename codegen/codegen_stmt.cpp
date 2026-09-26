@@ -424,6 +424,11 @@ void CodeGen::visit(ReturnStmt* node) {
         }
         runCleanupsToDepth(0, /*errorPath=*/false);          // run pending defers/finally before leaving
         if (!blockTerminated()) builder->CreateRetVoid();
+    } else if (node->value && currentFunction && currentFunction->getReturnType()->isVoidTy()) {
+        // `return f();` with f void, in a void function: evaluate the call, return nothing.
+        evaluateExpr(node->value);
+        runCleanupsToDepth(0, /*errorPath=*/false);
+        if (!blockTerminated()) builder->CreateRetVoid();
     } else if (node->value) {
         // Evaluate the return value first, THEN run cleanups (C defer order), then ret.
         llvm::Value* retValue = coerceRetVal(evalForType(node->value, retEsk));
