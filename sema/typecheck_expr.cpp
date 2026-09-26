@@ -1725,16 +1725,43 @@ void TypeChecker::visit(AllocWithExpr* node) {
     std::string countType = getExpressionType(node->count.get());
     if (countType != "unknown" && !isIntType(dealiasOperand(countType)))
         errorAt(node,"alloc_with count must be integer, got " + countType);
-    // The allocator's type names its alloc method, `<Type>_alloc`.
+    // The element type needs a size: a known, non-void type.
+    size_t unknownBefore = errors.size();
+    validateStructType(normalizeType(node->elemType), node);
+    if (errors.size() == unknownBefore && isVoidValueType(node->elemType))
+        errorAt(node, "alloc_with of 'void': a void element has no size");
+    // The allocator is passed as `self`, so it must be a pointer to the allocator; its
+    // type names its alloc method, `*void <Type>_alloc(*<Type> self, int64 size)`.
     std::string at = getExpressionType(node->allocator.get());
     if (at != "unknown") {
-        at = normalizeType(at);
-        if (!at.empty() && at[0] == '?') at = at.substr(1);
+        std::string raw = normalizeType(at);
+        if (!raw.empty() && raw[0] == '?') raw = raw.substr(1);
+        at = raw;
         while (!at.empty() && at.front() == '*') at = at.substr(1);
         while (!at.empty() && at.back()  == '*') at.pop_back();
         if (at.rfind("struct:", 0) == 0) at = at.substr(7);
-        if (!functionSignatures.count(at + "_alloc"))
+        bool onePtr = isPointerType(raw) && !isPointerType(getPointeeType(raw));
+        auto sig = functionSignatures.find(at + "_alloc");
+        if (!onePtr) {
+            std::string shown = tyq::strip(getExpressionType(node->allocator.get()));
+            for (size_t p; (p = shown.find("struct:")) != std::string::npos;) shown.erase(p, 7);
+            errorAt(node, "alloc_with: the allocator must be a pointer to it, got '" + shown +
+                          "' (pass its address, as in alloc_with(&a, T, n))");
+        } else if (sig == functionSignatures.end()) {
             errorAt(node, "alloc_with: allocator type '" + at + "' has no alloc method (" + at + "_alloc)");
+        } else {
+            const auto& ps = sig->second.second;
+            bool ok = ps.size() == 2 && isPointerType(normalizeType(ps[0])) &&
+                      isIntType(dealiasOperand(ps[1])) && isPointerType(normalizeType(sig->second.first));
+            if (ok) {
+                std::string self = normalizeType(getPointeeType(normalizeType(ps[0])));
+                if (self.rfind("struct:", 0) == 0) self = self.substr(7);
+                ok = self == at;
+            }
+            if (!ok)
+                errorAt(node, "alloc_with: '" + at + "_alloc' must have the shape '*void " + at + "_alloc(*" + at +
+                              " self, int64 size)'");
+        }
     }
     expressionTypes[node] = "*" + node->elemType;
 }

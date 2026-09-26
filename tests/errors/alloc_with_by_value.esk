@@ -1,0 +1,5 @@
+// EXPECT-ERROR: alloc_with: the allocator must be a pointer to it, got 'Bump'
+// The allocator is passed as `self`: a by-value allocator would alloc from a copy.
+struct Bump { *uint8 base; int64 off; }
+*void Bump_alloc(Bump* self, int64 n) { return null; }
+int main() { Bump b; *int p = alloc_with(b, int, 2); return 0; }

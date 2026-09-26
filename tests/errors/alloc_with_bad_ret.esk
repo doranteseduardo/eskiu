@@ -1,0 +1,5 @@
+// EXPECT-ERROR: alloc_with: 'A2_alloc' must have the shape '*void A2_alloc(*A2 self, int64 size)'
+// The alloc method must return the memory as a pointer.
+struct A2 { int z; }
+int A2_alloc(A2* self, int64 n) { return 0; }
+int main() { A2 b; *int p = alloc_with(&b, int, 2); return 0; }

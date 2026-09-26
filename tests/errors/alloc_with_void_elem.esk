@@ -1,0 +1,4 @@
+// EXPECT-ERROR: alloc_with of 'void': a void element has no size
+struct Bump { *uint8 base; int64 off; }
+*void Bump_alloc(Bump* self, int64 n) { return null; }
+int main() { Bump b; *void p = alloc_with(&b, void, 2); return 0; }

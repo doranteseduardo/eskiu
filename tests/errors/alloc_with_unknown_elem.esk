@@ -1,0 +1,4 @@
+// EXPECT-ERROR: unknown type 'Nope'
+struct Bump { *uint8 base; int64 off; }
+*void Bump_alloc(Bump* self, int64 n) { return null; }
+int main() { Bump b; *int p = alloc_with(&b, Nope, 2); return 0; }

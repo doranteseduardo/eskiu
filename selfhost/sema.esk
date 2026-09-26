@@ -3955,26 +3955,62 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: alloc_with count must be integer, got %s\n", s.filename, s.line, s.col, awc);
         }
+        // The element type needs a size: a known, non-void type.
+        if (sema_known_type(s, e.sval) == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
+        } else if (sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, e.sval))) == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: alloc_with of 'void': a void element has no size\n", s.filename, s.line, s.col);
+        }
+        // The allocator is passed as `self`, so it must be a pointer to the allocator; its type
+        // names its alloc method, `*void <Type>_alloc(*<Type> self, int64 size)`.
         string awa = sema_infer_type(s, e.a);
         if (awa[0] != 0) {
-            string ab = sema_strip_nullable(sema_canon(s, awa));
+            string araw = sema_strip_nullable(sema_canon(s, awa));
+            string ab = araw;
             int a0 = 0; while ((int)ab[a0] == 42) { a0 = a0 + 1; }
             int a1 = sema_slen(ab); while (a1 > a0 && (int)ab[a1 - 1] == 42) { a1 = a1 - 1; }
             ab = sema_sub_str(ab, a0, a1);
             string afn = sema_cat(ab, "_alloc");
             int has = 0;
-            if (sema_find_fn(s, afn) >= 0) { has = 1; }
+            *DeclNode afd = null;       // the alloc function (null: an inline method)
+            int ashape = 1;
+            if (sema_find_fn(s, afn) >= 0) {
+                has = 1;
+                afd = sema_find_fndecl(s, afn);
+                if (afd != null) {
+                    if (List_len<Param>(&afd.params) != 2) { ashape = 0; }
+                    else {
+                        string sp = sema_canon(s, List_get<Param>(&afd.params, 0).ty);
+                        if (sema_has_star(sp) == 0 || sema_streq(sema_strip_const(sema_pointee(sp)), ab) == 0) { ashape = 0; }
+                        if (sema_is_int_ty(sema_canon(s, List_get<Param>(&afd.params, 1).ty)) == 0) { ashape = 0; }
+                    }
+                    if (sema_has_star(sema_canon(s, afd.ret_type)) == 0) { ashape = 0; }
+                }
+            }
             *DeclNode asd = sema_find_struct(s, ab);           // or an inline `alloc` method
             if (asd != null) {
                 int mi = 0;
                 while (mi < List_len<*DeclNode>(&asd.methods)) {
-                    if (sema_streq(List_get<*DeclNode>(&asd.methods, mi).name, "alloc") == 1) { has = 1; }
+                    *DeclNode am = List_get<*DeclNode>(&asd.methods, mi);
+                    if (sema_streq(am.name, "alloc") == 1) {
+                        has = 1;
+                        if (List_len<Param>(&am.params) != 1 || sema_is_int_ty(sema_canon(s, List_get<Param>(&am.params, 0).ty)) == 0
+                            || sema_has_star(sema_canon(s, am.ret_type)) == 0) { ashape = 0; }
+                    }
                     mi = mi + 1;
                 }
             }
-            if (has == 0) {
+            if (sema_has_star(araw) == 0 || sema_has_star(sema_pointee(araw)) == 1) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: alloc_with: the allocator must be a pointer to it, got '%s' (pass its address, as in alloc_with(&a, T, n))\n", s.filename, s.line, s.col, sema_strip_const(awa));
+            } else if (has == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: alloc_with: allocator type '%s' has no alloc method (%s)\n", s.filename, s.line, s.col, ab, afn);
+            } else if (ashape == 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: alloc_with: '%s' must have the shape '*void %s(*%s self, int64 size)'\n", s.filename, s.line, s.col, afn, afn, ab);
             }
         }
     }
