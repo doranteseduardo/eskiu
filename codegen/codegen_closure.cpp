@@ -363,7 +363,10 @@ void CodeGen::visit(TryStmt* node) {
     llvm::Function* strcmpFn  = getOrDeclareFunc("strcmp", i32, {ptrTy, ptrTy});
 
     for (auto& c : node->catches) {
-        auto* cTypeStr  = builder->CreateGlobalString(exceptionTypeName(c.type), ".catch.t");
+        // A generic body's catch type names the type params: match per instance.
+        const std::string cType = typeParamOverride.empty() ? c.type
+                                                             : substType(c.type, typeParamOverride);
+        auto* cTypeStr  = builder->CreateGlobalString(exceptionTypeName(cType), ".catch.t");
         llvm::Value* cmp   = builder->CreateCall(strcmpFn, {exType, cTypeStr}, "tcmp");
         llvm::Value* match = builder->CreateICmpEQ(cmp,
             llvm::ConstantInt::get(i32, 0), "tmatch");
@@ -377,14 +380,14 @@ void CodeGen::visit(TryStmt* node) {
 
         // Load the payload (offset 16) by the catch type, which the name match made
         // the thrown value's own type.
-        llvm::Type*  catchTy = getTypeFromString(c.type);
+        llvm::Type*  catchTy = getTypeFromString(cType);
         auto* paySlot = builder->CreateConstGEP1_64(
             llvm::Type::getInt8Ty(*context), exData, 16, "ex.pay");
         llvm::Value* catchVal = builder->CreateLoad(catchTy, paySlot, "ex.val");
         auto* catchAlloca = entryAlloca(catchTy, nullptr, c.name);
         builder->CreateStore(catchVal, catchAlloca);
         defineSymbol(c.name, catchAlloca);
-        defineVarType(c.name, c.type);
+        defineVarType(c.name, cType);
         // The payload is copied out, so the exception object can be released before the
         // handler runs; then an early exit (return/break/continue) from the handler has
         // nothing left to end.
