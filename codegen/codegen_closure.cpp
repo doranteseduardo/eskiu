@@ -391,8 +391,13 @@ void CodeGen::visit(TryStmt* node) {
         builder->CreateCall(endCatch, {});
 
         // `finally` also runs when the handler leaves early (return/break/continue).
+        // A throw out of the handler runs it too (then the new exception propagates): the
+        // handler's calls unwind to a pad that runs the pending cleanups, as after a defer.
         cleanupScopes.emplace_back();
-        if (node->finally) cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
+        if (node->finally) {
+            cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
+            emitDeferPad();
+        }
         if (c.body) c.body->accept(this);
         popCleanupFrame();
         popScope();

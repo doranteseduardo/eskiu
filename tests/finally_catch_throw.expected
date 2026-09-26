@@ -1,0 +1,9 @@
+finally direct
+caught 2
+catch defer
+finally call
+fn defer
+caught 3
+inner finally
+outer finally
+nested 11

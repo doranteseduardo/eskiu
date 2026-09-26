@@ -5937,7 +5937,8 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             cg_emit(g, "  call void @__cxa_end_catch()\n");
             // `finally` also runs when the handler leaves early (return/break/continue).
             int cmark = List_len<*StmtNode>(&g.cleanups);
-            if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); }
+            // A throw out of the handler runs it too (then the new exception propagates).
+            if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); cg_defer_pad(g); }
             cg_stmt(g, c.s1);                             // handler body
             cg_cleanups_trunc(g, cmark);
             cg_br(g, ldone);
