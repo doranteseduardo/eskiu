@@ -1,0 +1,23 @@
+// An array dimension may use `<`, `<<`, `>` and `?:` like any constant expression (the
+// type-spelling scanners skip over the dimension).
+extern int printf(string fmt, ...);
+const int K = 3;
+int[K < 4 ? 2 : 1] gg;
+struct S { int[K << 1] a; int8[(K < 4) + 1] b; }
+struct Box<T> { T v; int[K > 2 ? 2 : 1] w; }
+int sum(int[K << 1] a) { int t = 0; for (x in a) { t = t + x; } return t; }
+int first(int[K <= 3 ? 4 : 1] p) { return p[0]; }
+int main() {
+    int[K << 1] b;
+    int[K > 2 ? 4 : 1] c;
+    int[(K < 4) + 1] d;
+    S s; s.a[5] = 2;
+    Box<int> bx; bx.w[1] = 4;
+    int i = 0;
+    while (i < 6) { b[i] = i; i = i + 1; }
+    int[K <= 3 ? 4 : 1] e = {7, 8, 9, 10};
+    printf("%d %d %d %d %d\n", (int)sizeof(b), (int)sizeof(c), (int)sizeof(d), (int)sizeof(gg), (int)sizeof(S));
+    printf("%d %d %d %d\n", sum(b), s.a[5], bx.w[1], first(e));
+    printf("%d\n", (int)sizeof(int[K << 2]));
+    return 0;
+}
