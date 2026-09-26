@@ -260,6 +260,8 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
 }
 
 void TypeChecker::visit(QuestionExpr* node) {
+    if (finallyDepth > 0)
+        errorAt(node, "'?' is not allowed inside a finally block (it would return from the function)");
     node->operand->accept(this);
     std::string opType = normalizeType(getExpressionType(node->operand.get()));
     std::string s = opType;

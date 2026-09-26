@@ -4026,6 +4026,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_QUESTION) {            // `expr?` propagates an Err into the enclosing function
+        if (s.fin_depth > 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: '?' is not allowed inside a finally block (it would return from the function)\n", s.filename, s.line, s.col);
+        }
         sema_expr(s, e.a);
         // The enclosing function must return the SAME Result-like type as the operand
         // (a struct with `ok`/`value` fields; the type name, not a literal "Result"). The
