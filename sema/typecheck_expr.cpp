@@ -771,6 +771,8 @@ void TypeChecker::visit(CallExpr* node) {
                     if (argType != "unknown" && !isValidAssignment(paramTypes[pi], argType)) {
                         errorAt(node,"argument " + std::to_string(i + 1) + " type mismatch");
                     }
+                } else if (isVariadic) {
+                    checkVariadicArg(node, node->args[i].get(), i);
                 }
             }
             expressionTypes[node] = sig.first;
@@ -993,6 +995,8 @@ void TypeChecker::visit(CallExpr* node) {
             if (!e.empty())
                 errorAt(node,"argument " + std::to_string(i + 1) + " type mismatch: expected " +
                             expectedParamTypes[i] + ", got " + argType + " (" + e + ")");
+        } else if (isVariadic) {
+            checkVariadicArg(node, node->args[i].get(), i);
         }
     }
 
@@ -1064,6 +1068,12 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     return true;
 }
 
+// An argument passed through `...` must have a value: a `void` call has none.
+void TypeChecker::checkVariadicArg(Expr* call, Expr* arg, size_t i) {
+    if (normalizeType(getExpressionType(arg)) == "void")
+        errorAt(call, "argument " + std::to_string(i + 1) + " has type 'void' (a void call has no value)");
+}
+
 void TypeChecker::checkCallArgs(CallExpr* node, const std::string& what,
                                 const std::vector<std::string>& paramTypes) {
     bool variadic = !paramTypes.empty() && paramTypes.back() == "...";
@@ -1080,6 +1090,8 @@ void TypeChecker::checkCallArgs(CallExpr* node, const std::string& what,
             errorAt(node, "argument " + std::to_string(i + 1) + " type mismatch: expected " +
                           paramTypes[i] + ", got " + at + " (" + e + ")");
     }
+    if (variadic)
+        for (size_t i = fixed; i < node->args.size(); ++i) checkVariadicArg(node, node->args[i].get(), i);
 }
 
 std::string TypeChecker::checkFnValueCall(CallExpr* node, const std::string& what, const std::string& fnType) {
@@ -1644,7 +1656,10 @@ void TypeChecker::visit(TemplateCallExpr* node) {
     if (variadic ? node->args.size() < fixed : node->args.size() != fixed)
         errorAt(node, "function '" + node->templateName + "' expects " + (variadic ? "at least " : "") +
                       std::to_string(fixed) + " argument(s), got " + std::to_string(node->args.size()));
-    for (size_t i = fixed; i < node->args.size(); ++i) node->args[i]->accept(this);
+    for (size_t i = fixed; i < node->args.size(); ++i) {
+        node->args[i]->accept(this);
+        checkVariadicArg(node, node->args[i].get(), i);
+    }
 
     checkConstraints(node, fd->constraints, subs);
 

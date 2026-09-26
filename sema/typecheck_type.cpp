@@ -41,6 +41,7 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
         std::string l = normalizeType(leftType), r = normalizeType(rightType);
         if (l == "error" || r == "error" || l == "unknown" || r == "unknown")
             return "bool";                       // do not cascade a prior error
+        if (l == "void" || r == "void") return "error";   // a void call has no value
         auto ptrish = [&](const std::string& t) { return isPointerType(t) || t == "null"; };
         // Aggregates (structs, unions, sum types, interface values, arrays, slices,
         // closures) have no built-in comparison (only a user `operator ==`).
@@ -53,6 +54,7 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
     if (op == "&&" || op == "||") {
         // The operands are truth values: a scalar (number, bool, pointer), not an aggregate.
         if (isAggregateValue(normalizeType(leftType)) || isAggregateValue(normalizeType(rightType))) return "error";
+        if (normalizeType(leftType) == "void" || normalizeType(rightType) == "void") return "error";
         return "bool";
     }
     // Bitwise and shift operators work on integers

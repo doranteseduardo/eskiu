@@ -1,0 +1,3 @@
+// EXPECT-ERROR: invalid operands for operator: bool and void
+void hi() { }
+int main() { bool b = true && hi(); return 0; }

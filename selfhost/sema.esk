@@ -1999,6 +1999,19 @@ void sema_fn_params(string t, List<string>* out) {
     }
 }
 
+// The arguments of `e` from index `from` on pass through `...`: each must have a value
+// (a `void` call has none).
+void sema_check_variadic_extras(Sema* s, *ExprNode e, int from) {
+    int i = from;
+    while (i < List_len<*ExprNode>(&e.kids)) {
+        if (sema_streq(sema_canon(s, sema_infer_type(s, List_get<*ExprNode>(&e.kids, i))), "void") == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: argument %d has type 'void' (a void call has no value)\n", s.filename, s.line, s.col, i + 1);
+        }
+        i = i + 1;
+    }
+}
+
 // Check a call's arguments (`e.kids`) against parameter types `pts` (a trailing "..."
 // means variadic): count, then conservative per-argument assignability.
 void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) {
@@ -2021,6 +2034,7 @@ void sema_check_call_args(Sema* s, *ExprNode e, string what, List<string>* pts) 
         }
         i = i + 1;
     }
+    if (variadic == 1) { sema_check_variadic_extras(s, e, np); }
 }
 
 // Index of the '(' opening a lambda signature's parameter list "R(T1 a, T2 b)" (the
@@ -3283,7 +3297,11 @@ int sema_is_agg(Sema* s, string c) {
 int sema_binop_verdict(Sema* s, string op, string lt0, string rt0) {
     string l = sema_canon(s, lt0); string r = sema_canon(s, rt0);
     if (sema_judgeable(s, l) == 0 || sema_judgeable(s, r) == 0) { return -1; }
+    // A `void` call has no value to compare or test.
+    int has_void = 0;
+    if (sema_streq(l, "void") == 1 || sema_streq(r, "void") == 1) { has_void = 1; }
     if (sema_is_cmp_op(op) == 1) {
+        if (has_void == 1) { return 0; }
         int lp = sema_c_ptr(l); if (sema_streq(l, "null") == 1) { lp = 1; }
         int rp = sema_c_ptr(r); if (sema_streq(r, "null") == 1) { rp = 1; }
         if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) { return 1; }
@@ -3292,7 +3310,7 @@ int sema_binop_verdict(Sema* s, string op, string lt0, string rt0) {
         if (sema_streq(l, r) == 1 && sema_is_agg(s, l) == 0) { return 1; }
         return 0;
     }
-    if (sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1) { return 1; }
+    if (sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1) { return 1 - has_void; }
     if (sema_streq(op, "&") == 1 || sema_streq(op, "|") == 1 || sema_streq(op, "^") == 1
         || sema_streq(op, "<<") == 1 || sema_streq(op, ">>") == 1) {
         if (sema_is_int_ty(l) == 1 && sema_is_int_ty(r) == 1) { return 1; }
@@ -4166,7 +4184,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                         s.had_error = 1;
                         dprintf(2, "error: %s:%d:%d: function '%s' expects at least %d arguments, got %d\n",
                                s.filename, s.line, s.col, e.a.sval, sig.fixed, argc);
-                    }
+                    } else { sema_check_variadic_extras(s, e, sig.fixed); }
                 } else if (argc != sig.fixed) {
                     s.had_error = 1;
                     dprintf(2, "error: %s:%d:%d: function '%s' expects %d arguments, got %d\n",
@@ -4373,7 +4391,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 int ai = 0; int an = List_len<*ExprNode>(&e.kids);
                 while (ai < an && ai < List_len<Param>(&fd.params)) {
                     string pty = sema_subst_params(List_get<Param>(&fd.params, ai).ty, &fd.type_params, &ctargs);
-                    if (sema_streq(pty, "...") == 1) { ai = an; }
+                    if (sema_streq(pty, "...") == 1) { sema_check_variadic_extras(s, e, ai); ai = an; }
                     else {
                         *ExprNode aexp = List_get<*ExprNode>(&e.kids, ai);
                         string aerr = sema_assign_err(s, pty, aexp);
