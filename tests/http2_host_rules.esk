@@ -1,0 +1,75 @@
+// HTTP/2 requests follow the HTTP/1.1 Host rules: at most one host field, a
+// valid uri-host [":" port] (400 otherwise), and a host that differs from
+// :authority is malformed (RST_STREAM PROTOCOL_ERROR, RFC 9113 §8.3.1).
+// Without a host field the handler sees :authority as its Host header. The
+// engine dropped :authority and accepted any number of host fields with any
+// value, so a handler routing on Host could be pointed anywhere.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    let v: String;  v.init(16);
+    const int got = req.header("host", &v);
+    printf("  handler: host=%d [%s]\n", got, v.cstr());
+    v.free();
+}
+
+void dump(H2Server* s, HpackDecoder* d) {
+    let hs: HpackHeader[8];
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame;  h2_read_header(s.out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) { printf("  status %.*s\n", hs[i].vlen, hs[i].value); }
+            }
+        }
+        if (f.type == H2_RST_STREAM) { printf("  rst %lld\n", h2_get_u32(s.out + o + 9, 0)); }
+        o += 9 + f.length;
+    }
+    s.outlen = 0;
+}
+
+int field(*uint8 p, int off, string name, string value) {
+    return hpack_encode_header(p, off, (*uint8)name, strlen(name), (*uint8)value, strlen(value));
+}
+
+// GET / on stream `sid` with an optional :authority and up to two host fields
+// ("" leaves one out).
+void get(H2Server* s, HpackDecoder* d, *uint8 p, int sid, string what, string auth, string h1, string h2) {
+    printf("%s:\n", what);
+    int off = 0;
+    off = field(p, off, ":method", "GET");
+    off = field(p, off, ":scheme", "http");
+    off = field(p, off, ":path", "/");
+    if (strlen(auth) > 0) { off = field(p, off, ":authority", auth); }
+    if (strlen(h1) > 0) { off = field(p, off, "host", h1); }
+    if (strlen(h2) > 0) { off = field(p, off, "host", h2); }
+    let h: H2Frame;  h.type = H2_HEADERS;  h.flags = 5;  h.stream_id = sid;  h.length = off;
+    H2Server_step(s, &h, p, handler);
+    dump(s, d);
+}
+
+int main() {
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    let d: HpackDecoder;  d.init(4096);
+    *uint8 p = alloc<uint8>(16384);
+    let h: H2Frame;  h.type = H2_SETTINGS;  h.flags = 0;  h.stream_id = 0;  h.length = 0;
+    H2Server_step(s, &h, p, handler);
+    s.outlen = 0;
+    get(s, &d, p, 1, ":authority only", "good.example:8080", "", "");
+    get(s, &d, p, 3, "host only", "", "good.example", "");
+    get(s, &d, p, 5, "host equal to :authority but for case", "Good.Example", "good.example", "");
+    get(s, &d, p, 7, "neither", "", "", "");
+    get(s, &d, p, 9, "host differs from :authority", "good.example", "admin.internal", "");
+    get(s, &d, p, 11, "two host fields", "", "good.example", "other");
+    get(s, &d, p, 13, "a list in host", "", "admin.internal, x y", "");
+    get(s, &d, p, 15, "userinfo in :authority", "user@good.example", "", "");
+    H2Server_free(s);
+    free((*void)s);
+    d.free();
+    free((*void)p);
+    return 0;
+}
