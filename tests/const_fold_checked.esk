@@ -1,0 +1,17 @@
+// Constant operands that fold through names, `sizeof` and floating casts are checked
+// only when the operation is undefined; these are all defined and must still compile.
+extern int printf(string fmt, ...);
+const int M = -2147483647 - 1;
+const double H = 2.5;
+int main() {
+    int one = 1;
+    int a = 10 / (int)H;
+    int b = one << sizeof(int);
+    int c = 7 % (int)(sizeof(int64) - 5);
+    int d = M / 1;
+    int e = (int)(1e5 * 10.0);
+    uint8 f = (uint8)(0.0 + 255.0);
+    int g = 9 / (int)(float)1.5;
+    printf("%d %d %d %d %d %d %d\n", a, b, c, d, e, f, g);
+    return 0;
+}

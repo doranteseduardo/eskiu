@@ -1,0 +1,2 @@
+// EXPECT-ERROR: shift count 40 is out of range
+int main() { int a = 1; return a << (int)40.0; }

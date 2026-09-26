@@ -726,11 +726,85 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
         return true;
     }
     if (auto* c = dynamic_cast<CastExpr*>(e)) {
-        if (!foldConstInt(c->expr.get(), out)) return false;
-        out = truncConstInt(normalizeType(c->targetType), out);
+        std::string to = tyq::strip(normalizeType(c->targetType));
+        bool isInt = true; long long i = 0; double d = 0;
+        if (!foldConstNum(c->expr.get(), isInt, i, d)) return false;
+        if (!isInt) {
+            // A floating value converts toward zero; out of range it has no value (C).
+            if (!isIntType(to) || (to != "bool" && !floatConstFitsInt(d, to))) return false;
+            if (to == "bool") i = d != 0;
+            else i = d >= 9223372036854775808.0 ? (long long)(unsigned long long)d : (long long)d;
+        }
+        out = truncConstInt(to, i);
         return true;
     }
+    if (auto* z = dynamic_cast<SizeofExpr*>(e)) {
+        // Only a scalar whose size does not depend on the target folds here.
+        if (inInstance) return false;
+        out = fixedScalarSize(tyq::strip(normalizeType(z->typeName)));
+        return out != 0;
+    }
     return false;
+}
+
+bool TypeChecker::foldConstNum(Expr* e, bool& isInt, long long& i, double& d) {
+    auto toFloat = [](const std::string& t, double v) { return t == "float" ? (double)(float)v : v; };
+    if (auto* l = dynamic_cast<LiteralExpr*>(e); l && l->kind == LiteralExpr::Kind::FLOAT) {
+        isInt = false; d = std::strtod(l->value.c_str(), nullptr);
+        return true;
+    }
+    if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+        const Symbol* sym = findSymbol(id->name);
+        std::string t = sym ? tyq::strip(normalizeType(sym->type)) : "";
+        if (sym && sym->isConst && sym->constInit && (t == "float" || t == "double")) {
+            if (foldDepth > 64) return false;
+            ++foldDepth;
+            bool ok = foldConstNum(sym->constInit, isInt, i, d);
+            --foldDepth;
+            if (!ok) return false;
+            if (isInt) d = (double)i;
+            isInt = false; d = toFloat(t, d);
+            return true;
+        }
+    }
+    if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "-") {
+        if (!foldConstNum(u->operand.get(), isInt, i, d)) return false;
+        if (isInt) i = (long long)(0ULL - (unsigned long long)i); else d = -d;
+        return true;
+    }
+    if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
+        std::vector<BinaryExpr*> spine{b};
+        while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) spine.push_back(l);
+        if (!foldConstNum(spine.back()->left.get(), isInt, i, d)) return false;
+        for (size_t k = spine.size(); k-- > 0;) {
+            bool yInt = true; long long yi = 0; double yd = 0;
+            const std::string& op = spine[k]->op;
+            if (!foldConstNum(spine[k]->right.get(), yInt, yi, yd)) return false;
+            if (isInt && yInt) {
+                if (!foldConstBinaryOp(op, i, yi, i)) return false;
+                continue;
+            }
+            double x = isInt ? (double)i : d, y = yInt ? (double)yi : yd;
+            if (op == "+") d = x + y;
+            else if (op == "-") d = x - y;
+            else if (op == "*") d = x * y;
+            else if (op == "/") d = x / y;
+            else return false;
+            isInt = false;
+        }
+        return true;
+    }
+    if (auto* c = dynamic_cast<CastExpr*>(e)) {
+        std::string to = tyq::strip(normalizeType(c->targetType));
+        if (to == "float" || to == "double") {
+            if (!foldConstNum(c->expr.get(), isInt, i, d)) return false;
+            if (isInt) d = (double)i;
+            isInt = false; d = toFloat(to, d);
+            return true;
+        }
+    }
+    isInt = true;
+    return foldConstInt(e, i);
 }
 
 // `v` converted to the integer type `raw` (C: truncate, then sign- or zero-extend);

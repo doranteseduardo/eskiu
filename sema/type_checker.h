@@ -14,6 +14,11 @@
 // typecheck_decl.cpp; also drives null-narrowing after an early-exit guard.)
 bool stmtCanCompleteNormally(Stmt* s);
 
+// `sizeof(t)` for a scalar whose size is the same on every target (0 otherwise).
+long long fixedScalarSize(const std::string& t);
+// Does the floating value v, truncated toward zero, fit the integer type t?
+bool floatConstFitsInt(double v, const std::string& t);
+
 class TypeChecker : public ASTVisitor {
 public:
     TypeChecker();
@@ -347,6 +352,9 @@ private:
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool foldConstInt(Expr* e, long long& out);
+    // Fold an arithmetic constant expression that may involve floating values (C rules:
+    // integer operands stay integer); isInt says which of i / d holds the value.
+    bool foldConstNum(Expr* e, bool& isInt, long long& i, double& d);
     static long long truncConstInt(const std::string& raw, long long v);
     static bool foldConstBinaryOp(const std::string& op, long long x, long long y, long long& out);
     int foldDepth = 0;

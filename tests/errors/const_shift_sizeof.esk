@@ -1,0 +1,2 @@
+// EXPECT-ERROR: shift count 64 is out of range
+int main() { int a = 1; return a << sizeof(int64) * 8; }

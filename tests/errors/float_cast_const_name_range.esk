@@ -1,0 +1,4 @@
+// EXPECT-ERROR: floating constant expression (value 1e+10) is out of range
+// A floating constant reached through a `const` name must fit the integer type.
+const double D = 1e10;
+int main() { return (int)D; }

@@ -262,7 +262,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
 // A fixed array's dimension (a number, an enum member, or a `const` int) must be
 // positive, as in C: a zero or negative size has no layout.
 // `sizeof(t)` for a scalar whose size is the same on every target (0 otherwise).
-static long long fixedScalarSize(const std::string& t) {
+long long fixedScalarSize(const std::string& t) {
     if (t == "int8" || t == "uint8" || t == "char" || t == "bool") return 1;
     if (t == "int16" || t == "uint16") return 2;
     if (t == "int" || t == "int32" || t == "uint" || t == "uint32" || t == "float") return 4;

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: array index 4 is out of bounds for array of size 4
+int main() { int[4] a = {1, 2, 3, 4}; return a[sizeof(int)]; }

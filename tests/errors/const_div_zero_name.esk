@@ -1,0 +1,4 @@
+// EXPECT-ERROR: division by zero
+// A divisor that folds to 0 through a `const` name is caught like a literal 0.
+const int Z = 0;
+int main() { int a = 5; return a / Z; }

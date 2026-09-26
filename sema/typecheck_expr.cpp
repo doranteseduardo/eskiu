@@ -8,13 +8,15 @@
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
 #include "../template_utils.h"
+#include <climits>
+#include <cstdint>
 #include "../ast/type_qual.h"
 #include "../ast/ast_walk.h"
 
 // Does the floating value v, truncated toward zero, fit the integer type t (as a C
 // conversion requires)? The bounds are powers of two, exact in a double; for 64 bits no
 // double lies strictly between -2^63-1 and -2^63, so `>=` is exact there.
-static bool floatConstFitsInt(double v, const std::string& t) {
+bool floatConstFitsInt(double v, const std::string& t) {
     int bits = 32;
     bool uns = t.size() > 4 && t.compare(0, 4, "uint") == 0;
     if (t == "int8" || t == "uint8" || t == "char") bits = 8;
@@ -193,11 +195,13 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
 
     // Division or remainder by a literal zero is a guaranteed runtime trap; reject
     // it at compile time (the value is statically known).
+    bool litZero = false;
     if ((node->op == "/" || node->op == "%")) {
         if (auto* l = dynamic_cast<LiteralExpr*>(node->right.get());
             l && l->kind == LiteralExpr::Kind::INT) {
             bool zero = true;
             for (char c : l->value) if (c != '0' && c != '-' && c != '+') { zero = false; break; }
+            litZero = zero;
             if (zero) errorAt(node, std::string(node->op == "/" ? "division" : "remainder") +
                                     " by zero");
         }
@@ -226,6 +230,24 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
     if ((node->op == "+" || node->op == "-") && !leftType.empty() && leftType[0] == '?' &&
         isPointerType(resultType) && resultType[0] != '?')
         resultType = "?" + resultType;
+
+    // An integer division whose operands are constant expressions (names, `sizeof`,
+    // casts) is checked like a literal one: by zero, or the most negative value by -1,
+    // is undefined in C.
+    if ((node->op == "/" || node->op == "%") && isIntType(resultType)) {
+        std::string what = node->op == "/" ? "division" : "remainder";
+        long long x = 0, y = 0;
+        bool haveY = foldConstInt(node->right.get(), y);
+        bool wide = resultType == "int64" || resultType == "uint64";
+        if (haveY && !wide) y = truncConstInt(resultType, y);
+        if (haveY && y == 0 && !litZero)
+            errorAt(node, what + " by zero");
+        else if (haveY && y == -1 && (resultType == "int" || resultType == "int32" || resultType == "int64") &&
+                 foldConstInt(node->left.get(), x) &&
+                 (wide ? x == LLONG_MIN : truncConstInt(resultType, x) == INT32_MIN))
+            errorAt(node, what + " overflows: " + std::to_string(wide ? x : truncConstInt(resultType, x)) +
+                          " " + node->op + " -1 does not fit '" + resultType + "'");
+    }
 
     // A constant shift count must be less than the (promoted) left operand's width and
     // not negative; anything else is undefined behavior in C.
@@ -1450,12 +1472,18 @@ void TypeChecker::visit(CastExpr* node) {
         bool neg = false;
         if (auto* u = dynamic_cast<const UnaryExpr*>(src); u && u->op == "-") { neg = true; src = u->operand.get(); }
         auto* lit = dynamic_cast<const LiteralExpr*>(src);
-        if (ok && lit && lit->kind == LiteralExpr::Kind::FLOAT && isIntType(to) && to != "bool") {
-            double v = std::strtod(lit->value.c_str(), nullptr);
-            if (neg) v = -v;
-            if (!floatConstFitsInt(v, to))
+        bool isInt = true; long long iv = 0; double v = 0;
+        if (ok && isIntType(to) && to != "bool" && foldConstNum(node->expr.get(), isInt, iv, v) &&
+            !isInt && !floatConstFitsInt(v, to)) {
+            if (lit && lit->kind == LiteralExpr::Kind::FLOAT)
                 errorAt(node, "floating constant " + std::string(neg ? "-" : "") + lit->value +
                               " is out of range for '" + node->targetType + "'");
+            else {
+                char buf[64];
+                std::snprintf(buf, sizeof buf, "%g", v);
+                errorAt(node, "floating constant expression (value " + std::string(buf) +
+                              ") is out of range for '" + node->targetType + "'");
+            }
         }
     }
     expressionTypes[node] = normalizedType;
