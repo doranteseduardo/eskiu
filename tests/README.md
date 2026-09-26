@@ -414,6 +414,13 @@ when you add a test.
 | `http_recv_trailers` | `http_recv` drops the chunked trailer lines it has read (it rescanned the whole trailer section from the last chunk on every read: quadratic CPU); a trailer section over `HTTP_CHUNK_TRAILER_MAX` is 400 |
 | `http_chunk_tiny_chunks` | `HttpConnBuf_feed` drops decoded chunked input, so a 1 MiB body in 1-byte chunks is accepted (the raw-byte limit made it 413) and 1-byte chunks with long extensions keep the buffer small; a trailer section over `HTTP_CHUNK_TRAILER_MAX` is 400 |
 | `http2_header_list_limit` | The HTTP/2 engine answers 431 to a decoded header list over `H2_MAX_HEADER_LIST` (advertised as `SETTINGS_MAX_HEADER_LIST_SIZE`) or past what `s.max_buffered` leaves, without keeping its fields (only the field count was limited: a large dynamic-table entry referenced many times turned 13 KB of HPACK into 34 MB) |
+| `case_decl` | a declaration directly after `case N:`/`default:` is visible in the later cases (one switch scope, C), shadows an outer variable, and may be `static` or generic |
+| `async_case_decl` | case declarations in an async fn, with and without an await in the switch, shadowing and `static` |
+| `generic_slice_infer` | a `T[]` parameter infers `T` from a slice argument |
+| `sizeof_expr` | `sizeof(expr)` measures the expression's type without evaluating it (`*p`, `a[0]`, `p.x`, a call, in a generic and a lambda) |
+| `enum_value_expr` | enum member values as constant expressions over literals, earlier members, `const` ints and `sizeof`, used as array dims, case labels and in `match` |
+| `volatile_bitfield` | a bitfield through a `volatile` variable and a volatile variable's initializing store are volatile (IR count checked in `run.sh` and `cg_parity.sh`) |
+| `macro_call_newline` | a function-like macro whose `(` starts a later line (past blank lines and comments) is expanded |
 | `http2_host_rules` | HTTP/2 requests follow the HTTP/1.1 Host rules: two host fields or a host that differs from `:authority` is RST_STREAM PROTOCOL_ERROR, an invalid host or `:authority` 400, and without a host field the handler sees `:authority` as Host (it was dropped, and any host fields were accepted) |
 
 ### `smoke` tests (compile + link + exit 0)
@@ -715,6 +722,14 @@ when you add a test.
 | `errors/void_logical_operand` | a `void` call as an operand of `&&` |
 | `errors/void_compare` | comparing two `void` calls |
 | `errors/void_variadic_arg` | a `void` call passed through `...` (`printf("%d", hi())`) |
+| `errors/case_decl_redefined` | two cases of one switch declaring the same name (one scope) |
+| `errors/case_decl_out_of_scope` | a case's declaration used after the switch |
+| `errors/index_oob_sizeof_struct` | an index `sizeof(P)` out of bounds (a struct's size folds) |
+| `errors/switch_dup_sizeof_ptr` | two case labels equal once `sizeof` of a pointer and of a struct fold |
+| `errors/const_div_zero_sizeof_expr` | a divisor `sizeof(*p) - 2` that folds to zero |
+| `errors/enum_value_not_const` | an enum member value that reads a non-`const` global |
+| `errors/enum_value_expr_range` | a folded enum member value that does not fit an `int` |
+| `errors/variant_nullary_parens` | a payload-free variant written with parentheses (`B()`) |
 
 ### `lint` tests (-Wall)
 
