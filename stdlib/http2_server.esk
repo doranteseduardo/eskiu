@@ -140,7 +140,9 @@ int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
 }
 
 // HPACK-encode the handler's response headers (the "Key: Value\r\n" block) into
-// `block` at *off, lowercasing each key (HTTP/2 requires lowercase names).
+// `block` at *off, lowercasing each key (HTTP/2 requires lowercase names). A
+// connection-specific field (§8.2.2) is dropped, and so is a content-length:
+// h2_build_headers sends the real one.
 void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     *char data = res.headers.cstr();
     const int len = res.headers.len();
@@ -164,7 +166,9 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
                 if (c >= 'A' && c <= 'Z') { c += 32; }              // to lowercase
                 key[j] = (uint8)c;
             }
-            *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs);
+            const int skip = h2_is_conn_field(key, klen) != 0 ||
+                             (klen == 14 && memcmp((*void)key, (*void)"content-length", 14) == 0);
+            if (skip == 0) { *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs); }
             free((*void)key);
         }
     }
@@ -194,8 +198,12 @@ int h2_headers_bufsize(HttpResponse* res) {
 // handler's headers) into `out` as a HEADERS frame, followed by CONTINUATION
 // frames when the block exceeds the default MAX_FRAME_SIZE (§6.10); the last
 // fragment carries END_HEADERS, and END_STREAM is never set (a body follows).
+// A 1xx or 204 response has no content (RFC 9110 §8.6): its body is dropped
+// and it gets no content-length.
 // `out` must hold h2_headers_bufsize(res) bytes. Returns the byte count.
 int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
+    const int nocontent = http_status_no_content(res.status);
+    if (nocontent != 0) { res.body.clear(); }
     *uint8 block = alloc<uint8>(h2_header_block_bound(res));
     int off = 0;
 
@@ -204,10 +212,12 @@ int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
                               (*uint8)st.cstr(), st.len());
     st.free();
 
-    let cl: String;  cl.init(16);  cl.from_int(res.body.len());
-    off = hpack_encode_header(block, off, (*uint8)"content-length", 14,
-                              (*uint8)cl.cstr(), cl.len());
-    cl.free();
+    if (nocontent == 0) {
+        let cl: String;  cl.init(16);  cl.from_int(res.body.len());
+        off = hpack_encode_header(block, off, (*uint8)"content-length", 14,
+                                  (*uint8)cl.cstr(), cl.len());
+        cl.free();
+    }
 
     h2_encode_resp_headers(block, &off, res);
     const int first = off > 16384 ? 16384 : off;
