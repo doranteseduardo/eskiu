@@ -2634,7 +2634,9 @@ int sema_is_const_init(Sema* s, *ExprNode e) {
         if (i >= 0) {
             Sym sy = List_get<Sym>(&s.syms, i);
             if (sy.depth == 0 && sy.is_const == 1) { return 1; }
+            if (sy.depth > 0) { return sema_is_enum_member(s, e.sval); }
         }
+        if (sema_find_fn(s, e.sval) >= 0) { return 1; }   // a function name: a constant closure
         return sema_is_enum_member(s, e.sval);
     }
     if (e.kind == EK_UNARY) {

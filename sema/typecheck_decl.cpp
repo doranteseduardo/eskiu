@@ -538,6 +538,8 @@ bool TypeChecker::isConstInit(const ExprPtr& e) const {
         if (enumConstants.count(id->name)) return true;
         // Only a global `const` (scopes[0]) folds; a local const may be a runtime value.
         int si = scopeOf(id->name);
+        // A top-level function name decays to a constant closure (`Op g = add;`).
+        if (si < 0) return functionSignatures.count(id->name) > 0;
         return si == 0 && scopes[0].find(id->name)->second.isConst;
     }
     if (auto* u = dynamic_cast<UnaryExpr*>(e.get())) {

@@ -1,0 +1,29 @@
+extern int printf(string fmt, ...);
+// A top-level function name is a constant initializer (C): it decays to a closure.
+type Op = fn(int, int)->int;
+int add(int a, int b) { return a + b; }
+int mul(int a, int b) { return a * b; }
+Op g = add;
+fn(int, int)->int h = mul;
+extern int abs(int x);
+fn(int)->int ab = abs;
+Op[2] tbl = {add, mul};
+struct Ops { int k; fn(int, int)->int op; }
+Ops rec = Ops{7, mul};
+int count() {
+    static Op s = add;
+    int r = s(1, 2);
+    s = mul;
+    return r;
+}
+int main() {
+    printf("%d %d %d\n", g(1, 2), h(3, 4), ab(-9));
+    printf("%d %d\n", tbl[0](5, 6), tbl[1](5, 6));
+    printf("%d %d\n", rec.k, rec.op(2, 3));
+    int a = count();
+    int b = count();
+    printf("%d %d\n", a, b);
+    g = mul;
+    printf("%d\n", g(4, 5));
+    return 0;
+}

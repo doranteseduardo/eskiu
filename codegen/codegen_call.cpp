@@ -737,13 +737,11 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
         if (prev) builder->SetInsertPoint(prev);
     }
 
-    // Build fat pointer {wrapper, null} — same shape lambdas produce.
+    // The fat pointer {wrapper, null}, the shape lambdas produce. It is a constant, so a
+    // global initializer can hold a function name (`Op g = add;`), as in C.
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(getTypeFromString("fn()->void"));
-    llvm::Value* fatAlloca = entryAlloca(fatTy, nullptr, "fnptr.fat");
-    builder->CreateStore(wrapper, builder->CreateStructGEP(fatTy, fatAlloca, 0));
-    builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
-                         builder->CreateStructGEP(fatTy, fatAlloca, 1));
-    return builder->CreateLoad(fatTy, fatAlloca, "fnptr.fat.val");
+    return llvm::ConstantStruct::get(fatTy,
+        {wrapper, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy))});
 }
 
 llvm::Function* CodeGen::instantiateFnTemplate(FunctionDecl* fd, const std::string& mangledName,
