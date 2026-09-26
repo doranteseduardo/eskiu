@@ -1,0 +1,40 @@
+// A cast to, or a call returning, an alias of an unsigned type zero-extends (the
+// self-host sign-extended it).
+extern int printf(string fmt, ...);
+type u8 = uint8;
+type u16 = uint16;
+type i8 = int8;
+type u32 = uint32;
+type i64 = int64;
+type f32 = float;
+u8 f() { return (u8)250; }
+struct S { u8 b; }
+int take(u8 x) { return x + 0; }
+u8 idu(u8 x) { return x; }
+int main() {
+  int h1 = (uint8)-1;
+  int h2 = (u8)-1;
+  int x = -1;
+  int h4 = (u8)x;
+  int h5 = (u16)-1;
+  int h6 = (i8)200;
+  int h7 = (u8)-x;
+  printf("%d %d %d %d %d %d\n", h1, h2, h4, h5, h6, h7);
+  u8 a = 200; int b = a + 100;
+  int c = f() + 10;
+  S s = S{255}; int d = s.b;
+  int64 h = (u32)-1;
+  double dd = (u8)200;
+  bool gt = (u8)200 > 100;
+  bool gt2 = (u32)3000000000 > 1;
+  printf("%d %d %d %lld %f %d %d\n", b, c, d, h, dd, gt, gt2);
+  int k = (u8)200 / 3;
+  int k2 = (u8)200 >> 1;
+  int i = idu(250) + 0;
+  int t = take(250);
+  int y = 7;
+  i64 big = (i64)y * 1000000000;
+  double q = (f32)y / 2;
+  printf("%d %d %d %d %lld %f\n", k, k2, i, t, big, q);
+  return 0;
+}

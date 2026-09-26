@@ -675,6 +675,9 @@ more and a third about 60, fixed the same way.
 - `&e` evaluates its operand once in C++: `&buf[i++]`, `&A[f()]`, `&getp().x`, `&*gp()`
   and a `for-in` over a List element `ls[f()]` ran the side effect twice. Test
   `addr_of_once`.
+- A cast to an alias of an unsigned type (`(u8)-1`) or a call returning one zero-extends
+  in the self-host (it sign-extended, so `(u8)-1` was -1 and `f() + 10` with `f` returning
+  `u8` 250 was 4). Test `alias_unsigned`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

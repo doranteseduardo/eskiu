@@ -4105,7 +4105,15 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
     return l;                                       // unhandled binary (S1) → left
 }
 
+// An expression's Eskiu type never names an alias (like cg_etype), so every signedness
+// and shape check on a value sees the target type (`(u8)x`, a call returning `u8`).
+CgVal cg_expr_i(Codegen* g, *ExprNode e);
 CgVal cg_expr(Codegen* g, *ExprNode e) {
+    CgVal v = cg_expr_i(g, e);
+    if (List_len<CgSub>(&g.aliases) > 0 && v.ety != null && v.ety[0] != 0) { v.ety = cg_dealias(g, v.ety); }
+    return v;
+}
+CgVal cg_expr_i(Codegen* g, *ExprNode e) {
     let v: CgVal;
     v.ety = "";
     if (e == null) { v.op = "0"; v.ty = "i32"; return v; }
