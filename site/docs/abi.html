@@ -304,7 +304,7 @@ converts to and from it, so it links against C compiled by clang/gcc:</p>
 </tr>
 <tr>
 <td>x86-64 System V (Linux, macOS)</td>
-<td>each eightbyte classified INTEGER/SSE → one or two register values (<code>i64</code>, <code>i32</code>, <code>double</code>, <code>&lt;2 x float&gt;</code>, <code>ptr</code>, ...); &gt; 16 bytes, a misaligned field, or no free registers left → <code>byval</code></td>
+<td>each eightbyte classified INTEGER/SSE → one or two register values (<code>i64</code>, <code>i32</code>, <code>double</code>, <code>&lt;2 x float&gt;</code>, <code>ptr</code>, ...), as wide as the data in it (a union's widest member decides: <code>union { int; double; }</code> is <code>i64</code>, <code>union { float; double; }</code> is <code>double</code>); &gt; 16 bytes, a misaligned field, or no free registers left → <code>byval</code></td>
 <td>the same classes as a <code>{ lo, hi }</code> pair or one value; &gt; 16 bytes → <code>sret</code></td>
 </tr>
 <tr>

@@ -363,7 +363,8 @@ let buf: *uint8 = null;
 fine). <code>null</code> converts to any pointer, a <code>*void</code> converts to and from any pointer, and
 the byte pointers <code>string</code>, <code>*char</code>, <code>*int8</code> and <code>*uint8</code> interconvert. Any other change
 of pointee, such as <code>*int</code> to <code>*Big</code> or <code>**int</code> to <code>*int</code>, needs an explicit cast
-(<code>(*Big)p</code>).</p>
+(<code>(*Big)p</code>). A <code>*void</code> points at no type, so it cannot be dereferenced (<code>*p</code> is a compile
+error); cast it to a typed pointer first.</p>
 <h4 id="checked-nullable-pointers-t">Checked nullable pointers (<code>?*T</code>)</h4>
 <p>A plain <code>*T</code> may hold <code>null</code> (as in C), and dereferencing a null one is undefined. For
 opt-in null safety, write <code>?*T</code>, a <strong>checked nullable pointer</strong>. The compiler will not let
@@ -383,14 +384,16 @@ representation as <code>*T</code> (a bare pointer); the checking is entirely at 
 <code>if (x == null)</code>), <code>if (x)</code>, <code>!(x == null)</code>, the right operand of <code>x != null &amp;&amp; ...</code> and of
 <code>x == null || ...</code>, either arm of a <code>?:</code> on such a condition, the body of
 <code>while (x != null)</code> or <code>for (...; x != null; ...)</code>, and the rest of a block after an early
-exit such as <code>if (x == null) { return 0; }</code>. While narrowed, <code>x</code> can be passed or assigned
+exit such as <code>if (x == null) { return 0; }</code> (unless the branch that falls through assigns
+<code>x</code>). While narrowed, <code>x</code> can be passed or assigned
 where a <code>*T</code> is expected. Narrowing applies to the variable itself: assigning to it (other
 than storing an address <code>&amp;y</code>), taking its address, or reassigning it anywhere in an
 enclosing loop ends it, and a shadowing declaration of the same name is not narrowed. A
 variable whose address has been taken (<code>&amp;x</code>, before the check or anywhere in an enclosing
 loop) is not narrowed, since a write through that pointer can store null behind the check;
 for a global the address counts anywhere in the program. A global's narrowing also ends at
-every call and <code>await</code>, since the callee may assign it: a test of a global earlier in a
+every call and <code>await</code>, and at <code>alloc_with</code> (a call to the alloc method), <code>thread_create</code>
+and <code>thread_join</code>, since the code they run may assign it: a test of a global earlier in a
 condition does not hold after a later operand that calls (<code>gp != null &amp;&amp; f() &amp;&amp; gp.v</code>),
 nor in a branch or ternary arm guarded by such a condition, nor after an early-exit guard
 whose condition or fall-through branch calls something. A user operator (<code>a + b</code> on a
@@ -398,7 +401,7 @@ struct with an <code>operator +</code>) is a call too. A lambda body never sees 
 from where the lambda is written, since it runs later. A <code>static</code> local is one cell shared
 by every call and closure, so it follows the rule for globals.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
-<p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
+<p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a positive integer constant expression, as in C: numbers, <code>enum</code> members and <code>const int</code>s (see §4.6), casts to an integer type, the integer operators including comparisons and <code>?:</code> (<code>int[K &lt;&lt; 1]</code>, <code>int[K &gt; 2 ? 4 : 1]</code>), and <code>sizeof(T)</code> (<code>uint8[sizeof(Header)]</code>), whose value is the target's layout size. An array of an array alias puts the new dimension outermost: with <code>type Row = int[3]</code>, <code>Row[2]</code> is <code>int[2][3]</code>. Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
     uint8[858] left;
     uint8[858] right;
@@ -665,7 +668,7 @@ next();   // 2
 next();   // 3
 </code></pre>
 <p>A <code>static</code> local's initializer must be a <strong>compile-time constant</strong>; a runtime expression is rejected. An uninitialised <code>static</code> local is zero-initialised. Two <code>static</code> locals in different functions never alias, even if they share a name. <code>static</code> on a global is rejected, since a global already has static storage. A closure that uses a <code>static</code> local refers to that one cell, like a global, rather than capturing a copy.</p>
-<p>The same constant rule applies to a <strong>global</strong> variable's initializer, as in C: it may be a literal, an enum member, a top-level <code>const</code>, <code>sizeof</code>, the address of a global (<code>&amp;g</code>), a non-capturing lambda, any unary, binary, ternary or cast expression over those (<code>int C = 3 + 1;</code>, <code>double q = 1.0 / 4.0;</code>), or an array or struct literal built from them. A call or a read of a non-<code>const</code> variable is a compile error ("initializer of global 'X' is not a compile-time constant"), since no code runs before <code>main</code> to compute it.</p>
+<p>The same constant rule applies to a <strong>global</strong> variable's initializer, as in C: it may be a literal, an enum member, a top-level <code>const</code>, <code>sizeof</code>, the address of a global (<code>&amp;g</code>), a non-capturing lambda, any unary, binary, ternary or cast expression over those (<code>int C = 3 + 1;</code>, <code>double q = 1.0 / 4.0;</code>), or an array or struct literal built from them. A top-level function name is a constant too (<code>Op g = add;</code>, as in C): it decays to a closure with no environment. A call or a read of a non-<code>const</code> variable is a compile error ("initializer of global 'X' is not a compile-time constant"), since no code runs before <code>main</code> to compute it.</p>
 <hr>
 <h2 id="5-operators">5. Operators</h2>
 <h3 id="51-arithmetic">5.1 Arithmetic</h3>
@@ -1131,7 +1134,7 @@ int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 let add: fn(int)-&gt;int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 </code></pre>
-<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (<code>p.set(5)</code>, where <code>set</code> takes <code>*P self</code>) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (<code>*P pp = &amp;p;</code> outside the lambda, <code>pp.set(5)</code> inside) to modify the original.</p>
+<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. Taking the address of a captured variable's storage (<code>&amp;base</code>, <code>&amp;p.a</code>, <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error for the same reason ("cannot take the address of captured variable"). To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (<code>p.set(5)</code>, where <code>set</code> takes <code>*P self</code>) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (<code>*P pp = &amp;p;</code> outside the lambda, <code>pp.set(5)</code> inside) to modify the original.</p>
 <p>Under the hood, <code>fn(T)-&gt;R</code> is a two-word fat pointer <code>{fn_ptr, env_ptr}</code>. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in <code>env_ptr</code>. Lambdas that capture nothing have <code>env_ptr = null</code> and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains <code>fn(T)-&gt;R</code> in both cases.</p>
 <p><strong>Escape analysis and closure lifetime.</strong> Where the environment lives depends on whether the closure <em>escapes</em> its creating function:</p>
 <ul>
@@ -1214,7 +1217,9 @@ thread_join(t);
 (<code>if</code>/<code>while</code>/C-style <code>for</code>/<code>switch</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>) are
 supported; a pending future is cancelled with <code>future_drop</code>. An <code>await</code> inside a <code>try</code>
 statement (its body, a <code>catch</code> or the <code>finally</code>) is a compile error, as are labeled
-<code>break</code>/<code>continue</code> and an <code>await</code> inside a <code>defer</code>.</p>
+<code>break</code>/<code>continue</code>, an <code>await</code> inside a <code>defer</code>, and an <code>await</code> in a <code>switch</code> subject, a
+<code>for-in</code> iterable or a range bound (<code>for (i in 0..await n())</code>): bind the value first with
+<code>let v = await ...;</code>.</p>
 <p>An <code>async</code> function is declared with the <code>async</code> modifier before the return type. Its
 <em>declared</em> return type is the value it ultimately produces, but a <strong>call</strong> to it
 yields a <code>*Future&lt;T&gt;</code>, a handle to the eventual result, rather than <code>T</code> directly:</p>
@@ -1271,6 +1276,7 @@ a combinator before it resolves drops its inputs with it), and
 </code></pre>
 <h4 id="finally">finally</h4>
 <p>The <code>finally</code> block executes unconditionally after the <code>try</code> body and any <code>catch</code> clause, regardless of whether an exception was raised. It also runs when the body or a <code>catch</code> handler leaves early with <code>return</code>, <code>break</code>, <code>continue</code> or <code>?</code>, and when a <code>catch</code> handler throws (directly or from a call); the new exception then propagates after the <code>finally</code> body.</p>
+<p>A <code>finally</code> block may not leave the function: a <code>return</code> or a <code>?</code> inside it is a compile error, since it would discard the pending exit (a return value, or an exception being unwound). A <code>break</code> or <code>continue</code> inside it is allowed, and a lambda written there is its own function.</p>
 <pre><code class="language-eskiu">try {
     throw &quot;error&quot;;
 } catch (string e) {
@@ -1682,7 +1688,7 @@ laid out as <code>{ tag, payload }</code>, where the payload area is sized to th
 variant. (A <code>match</code> subject is parsed without a trailing struct literal, like the
 condition of an <code>if</code>; wrap it in parens if you need one.)</p>
 <h3 id="88-type-aliases">8.8 Type Aliases</h3>
-<p><code>type Name = ExistingType;</code> introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers and templates.</p>
+<p><code>type Name = ExistingType;</code> introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers, arrays, slices, fn types, interfaces, enums and templates: a value of an alias type derefs, indexes, calls, boxes, matches and dispatches methods and operators exactly as a value of the target type. An alias of an array or slice given more dimensions keeps them outer (<code>type IS = int[]; IS[2]</code> is two slices).</p>
 <pre><code class="language-eskiu">type u8      = uint8;
 type Bytes   = *uint8;
 type IntList = List&lt;int&gt;;
@@ -2203,7 +2209,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/http.esk</code></td>
-<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_parse_status</code>/<code>_header</code> (RFC 9112 framing, the same as <code>http_recv</code>: <code>_parse_status</code> is 0 for a complete request, -1 when more bytes are needed, else the HTTP error status), <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>/<code>_render_head</code> (a HEAD response: Content-Length, no body; a 1xx, 204 or 304 has neither), and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>; it reads each request until complete (<code>HttpConnBuf_feed</code>), answering a bad one 400, 413, 501 or 505 without the handler. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, or decodes a chunked body, into a <code>*uint8</code> body; RFC 9112 framing: <code>Transfer-Encoding</code> with <code>Content-Length</code>, a missing, repeated or invalid <code>Host</code> (not uri-host [":" port]), whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than <code>chunked</code> 501), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
+<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_parse_status</code>/<code>_header</code> (RFC 9112 framing, the same as <code>http_recv</code>: <code>_parse_status</code> is 0 for a complete request, -1 when more bytes are needed, else the HTTP error status), <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>/<code>_render_head</code> (a HEAD response: Content-Length, no body; a 1xx, 204 or 304 has neither; <code>HttpResponse_header</code> returns 1, or 0 and adds nothing for a name that is not a token or a value with a CR or LF, which would inject a header line; a Content-Length the handler sets is not sent next to the automatic one, only a 1xx, 204 or 304 keeps it), and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>; it reads each request until complete (<code>HttpConnBuf_feed</code>, incremental: the head is parsed once and a chunked body decoded as it arrives), answering a bad one 400, 413, 501 or 505 without the handler (limits: a head over <code>HTTP_SERVE_MAX_HEAD</code>, 64 KiB, is 400, a body over <code>HTTP_SERVE_MAX_BODY</code>, 1 MiB, 413). <code>http_chunked_step</code> decodes a chunked body incrementally; a chunk-size or trailer line longer than <code>HTTP_CHUNK_LINE_MAX</code> (8192 bytes) is malformed. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, or decodes a chunked body, into a <code>*uint8</code> body; RFC 9112 framing: <code>Transfer-Encoding</code> with <code>Content-Length</code>, a missing, repeated or invalid <code>Host</code> (not uri-host [":" port]), whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than <code>chunked</code> 501), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
 </tr>
 <tr>
 <td><code>stdlib/multipart.esk</code></td>
@@ -2263,7 +2269,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/http_async.esk</code></td>
-<td>Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: <code>http_serve_async</code>, with the same <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code> handler interface as <code>&lt;http&gt;</code></td>
+<td>Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: <code>http_serve_async</code>, with the same <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code> handler interface as <code>&lt;http&gt;</code>. Each connection socket is non-blocking and the answer is written with <code>net_write_async</code>, so a client that does not read parks only its own connection</td>
 </tr>
 <tr>
 <td><code>stdlib/http2.esk</code></td>
@@ -2279,7 +2285,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/http2_server.esk</code></td>
-<td>HTTP/2 (h2c, cleartext) server over the async event loop, <code>http2_serve_async</code>. The protocol is the transport-agnostic <code>H2Server</code> engine (also used by <code>&lt;tls&gt;</code>): multiplexed streams, flow control in both directions, padding, CONTINUATION, and RFC 9113 connection/stream errors; a completed request is HPACK-decoded into an <code>HttpRequest</code> and the <code>HttpResponse</code> goes back as a HEADERS frame plus flow-controlled DATA frames</td>
+<td>HTTP/2 (h2c, cleartext) server over the async event loop, <code>http2_serve_async</code>. The protocol is the transport-agnostic <code>H2Server</code> engine (also used by <code>&lt;tls&gt;</code>): multiplexed streams, flow control in both directions, padding, CONTINUATION, and RFC 9113 connection/stream errors; a completed request is HPACK-decoded into an <code>HttpRequest</code> and the <code>HttpResponse</code> goes back as a HEADERS frame plus flow-controlled DATA frames. Request bodies are bounded: at most <code>s.max_body</code> bytes per stream (default <code>HTTP_SERVE_MAX_BODY</code>, 1 MiB) and <code>s.max_buffered</code> across a connection's streams (default <code>H2_MAX_BUFFERED</code>, 4 MiB), both settable after <code>H2Server_init</code>; a request past either, or with a content-length past <code>max_body</code>, is answered 413 without the handler and its stream reset with NO_ERROR. A response header line with a non-token name or an LF or NUL in its value is not sent</td>
 </tr>
 <tr>
 <td><code>stdlib/tls.esk</code></td>

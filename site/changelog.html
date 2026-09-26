@@ -314,6 +314,27 @@ more and a third about 60, fixed the same way.</p>
   <code>uint8</code> and <code>uint16</code> as <code>int</code> (it read the wrong bytes).</li>
 <li>Without <code>-o</code>, <code>eskiuc-esk</code> writes the object <code>FILE.o</code> like <code>eskiuc</code> (it printed the
   IR); <code>--test-codegen</code> prints the IR.</li>
+<li>
+<p>A <code>return</code> or a <code>?</code> inside a <code>finally</code> block is an error, in both compilers: it would
+  discard the pending exit, including an exception being unwound (C++ hung compiling it,
+  the self-host crashed). <code>break</code> and <code>continue</code> inside a <code>finally</code> keep working, and a
+  lambda written there is its own function.</p>
+</li>
+<li>
+<p><code>!</code> of a void value (<code>!v()</code>, also through a method or interface call), <code>throw v()</code> of a
+  void call and dereferencing a <code>*void</code> (<code>*p</code>, <code>*p = v()</code>) are type errors in both
+  compilers; they compiled (the self-host emitted invalid IR for <code>*p;</code>).</p>
+</li>
+<li>Inside a lambda, taking the address of a captured variable's storage (<code>&amp;n</code>, <code>&amp;p.a</code>,
+  <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error, like assigning to
+  it: the address is the closure's copy, so a write through it was silently lost.</li>
+<li>An <code>await</code> in a <code>switch</code> subject, a <code>for-in</code> iterable or a range bound
+  (<code>for (i in 0..await f())</code>) is a located type error in both compilers. The self-host
+  miscompiled the first two, and C++ failed in the async lowering without a location.</li>
+<li><code>alloc_with</code> (a call to the alloc method), <code>thread_create</code> and <code>thread_join</code> end a
+  global's <code>?*T</code> narrowing like a call, and the rest of a block after an early-exit guard
+  is not narrowed when the branch that falls through assigns the variable
+  (<code>if (p == null) { return 0; } else { p = null; } return p.v;</code> was accepted).</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -684,6 +705,84 @@ more and a third about 60, fixed the same way.</p>
   names) are supported; they were read as a set of letters and a stray <code>]</code>. A <code>{</code> that
   does not start a <code>{n}</code>, <code>{n,}</code> or <code>{n,m}</code> repeat is a literal (<code>{</code>, <code>a{</code>, <code>a{,2}</code>), as
   in RE2; it was an error.</li>
+<li><code>sizeof(T)</code> in an array dimension is an integer constant, as in C
+  (<code>uint8[sizeof(Header)]</code>, <code>int[sizeof(S) / 4]</code>): a fixed-size scalar folds in the type
+  checker, any other type's size comes from the target layout in codegen. Both compilers
+  rejected it.</li>
+<li>The self-host accepts <code>&lt;</code>, <code>&lt;&lt;</code>, <code>&lt;=</code>, <code>&gt;</code> and <code>?:</code> in an array dimension
+  (<code>int[K &lt;&lt; 1]</code>, <code>int[K &lt; 4 ? 2 : 1]</code>); its type-spelling scanners read the <code>&lt;</code> as a
+  generic argument list ("unknown type").</li>
+<li>An array of an array alias (<code>type Arr = int[3]; type Mat = Arr[2];</code>) is 2 arrays of 3
+  in the self-host (it laid out 3 arrays of 2), and C++ indexes three levels of such
+  aliases (<code>Cube c; c[3][1][2]</code> was a codegen error).</li>
+<li>A nested brace initializer whose rows are an array alias (<code>type A = int[2];
+  A[2] m = {{1, 2}, {3, 4}};</code>, also a global) compiles in C++; it was rejected.</li>
+<li><code>alloc_with</code> over an instance of a generic allocator works in both compilers, through
+  its inline <code>alloc</code> method or a top-level <code>G_int_alloc(*G&lt;int&gt; self, int64 n)</code>: C++
+  failed in codegen without a location, and the self-host rejected both.</li>
+<li>The self-host lays out 32-bit x86 targets (<code>--target i686-...</code>): 4-byte pointers, and
+  4-byte alignment of <code>int64</code> and <code>double</code> on SysV (8 on Windows). It used the 64-bit
+  layout, so <code>sizeof</code> and struct sizes differed from C++. <code>cabi_parity.sh</code> compares the
+  sizes of <code>tests/target_sizes.esk</code> per target.</li>
+<li>C++ iterates <code>for (x in *p)</code> with <code>p: *A4</code> (<code>type A4 = int[4]</code>); it was rejected.</li>
+<li>The self-host rejects a cast of a void value (<code>(int)v()</code>), of a <code>{...}</code> literal
+  (<code>((S){1}).a</code>) and, in a generic instance, of an int to a struct type argument
+  (<code>(T)0</code> with T = S), and a type argument that makes a parameter <code>void</code>
+  (<code>id&lt;void&gt;(v())</code>), as C++ does.</li>
+<li>x86-64 SysV C ABI: an eightbyte holding a union is as wide as its widest member, as in
+  clang. <code>union { int; double; }</code> passed or returned by value is an <code>i64</code> (it was an
+  <code>i32</code>, losing the high half), <code>union { char; int; }</code> an <code>i32</code>, <code>union { float; double; }</code>
+  a <code>double</code>, and <code>struct { float; union { int; float; double; } }</code> is <code>{ float, i64 }</code>.
+  Both compilers; test <code>c_abi_union</code> (+ <code>.c</code>), also in <code>cabi_parity.sh</code>.</li>
+<li>A type alias is its target for every shape check, in both compilers: the expression
+  types the type checkers and codegens reason about never name an alias (C++
+  <code>getExpressionType</code> and <code>getExprEskiuType</code>, self-host <code>sema_infer_type</code> and <code>cg_etype</code>).
+  An alias of an interface boxes (<code>type Sh = Shape; Sh s = &amp;q;</code> was a bus error in C++, an
+  <code>Sh</code> parameter a codegen error) and dispatches (<code>s.area()</code>, <code>mk().area()</code>); an alias of
+  a pointer derefs (<code>PSq[2] ps; ps[0].s</code>) and dot-calls (<code>pq.area()</code>, also on generic
+  instances <code>BI</code>/<code>PB</code>); a field or return typed by an alias of a fn type calls
+  (<code>s.f(1)</code>, <code>getf(5)(1)</code>; invalid IR or a crash in the self-host); a <code>match</code> on an alias
+  of a classic enum is accepted and checked for exhaustiveness (C++ rejected it, the
+  self-host accepted a missing arm); an operator over alias operands (<code>operator +(VV,
+  VV)</code>) and a <code>*VV self</code> receiver resolve in the self-host; <code>.len</code> of an element of <code>IS[2]</code>
+  (<code>type IS = int[]</code>) works, and <code>IS[2]</code> / <code>*IS</code> keep the slice as their element in the
+  self-host (they collapsed to <code>int[2]</code> / <code>int*</code>). Test <code>alias_shapes</code>.</li>
+<li>A struct pointer boxes into an interface as a variant payload (<code>Som&lt;Shape&gt;(&amp;a)</code>,
+  <code>W(&amp;b)</code> for <code>enum Wr { W(Shape) }</code>; C++ segfaulted, the self-host emitted invalid IR)
+  and as a lambda's return value (<code>Shape() { return &amp;g; }</code>, a C++ verifier error). Test
+  <code>iface_payload_lambda</code>.</li>
+<li>A member of an overloaded <code>[]</code> result (<code>w[2].v</code>) is read from the call's value (a C++
+  codegen error, invalid IR in the self-host). Test <code>index_result_member</code>.</li>
+<li>A global (or <code>static</code>) initialized with a function name (<code>Op g = add;</code>, also in an
+  array or struct literal) is a constant closure, as in C; both compilers rejected it as
+  not a compile-time constant. Test <code>global_fn_value</code>.</li>
+</ul>
+<h4 id="seventh-audit-round">Seventh audit round</h4>
+<ul>
+<li>HTTP/2: request bodies were buffered without limit (every DATA frame appended while
+  WINDOW_UPDATE gave the credit back, 400 MB over 128 streams). The <code>H2Server</code> engine
+  now buffers at most <code>s.max_body</code> bytes per request (default 1 MiB, as HTTP/1.1) and
+  <code>s.max_buffered</code> across a connection (default <code>H2_MAX_BUFFERED</code>, 4 MiB); a request past
+  either, or with a content-length past <code>max_body</code>, is answered 413 without the handler
+  and its stream reset with NO_ERROR. Test <code>http2_body_limit</code>.</li>
+<li><code>http_serve_async</code> sent each answer with a blocking <code>net_send</code>, so a client that asked
+  for a large body and did not read it stalled the event loop and every other client.
+  The connection socket is now non-blocking and the answer goes out through
+  <code>net_write_async</code>. <code>net_set_nonblocking</code> (and the executor's self-pipe setup) did
+  nothing on arm64 macOS: <code>fcntl</code> is variadic and was declared with a fixed third
+  parameter. Test <code>http_async_slow_reader</code>.</li>
+<li><code>HttpConnBuf_feed</code> reparsed the request from its first byte on every read, so a
+  chunked request fed in small pieces cost time quadratic in its size. It now parses the
+  head once and decodes the chunked body as it arrives; a chunk-size or trailer line over
+  <code>HTTP_CHUNK_LINE_MAX</code> (8192 bytes) is 400. Test <code>http_conn_feed_incremental</code>.</li>
+<li>Response header injection: <code>HttpResponse_header</code> accepted a CR or LF in a value (and
+  any bytes in a name), so a handler echoing input could add a header line. It now
+  returns 0 and adds nothing for such a pair (1 otherwise), and the HTTP/2 encoder drops
+  a hand-written line with a non-token name or an LF or NUL. A Content-Length the
+  handler sets is no longer sent next to the automatic one in HTTP/1 (a 1xx, 204 or 304
+  keeps it). Test <code>http_response_header_inject</code>.</li>
+<li><code>http_chunked_step</code> spun forever on a chunk size near <code>INT64_MAX</code> when the limit
+  allowed it (<code>size + 2</code> overflowed in the room check). Test <code>http_chunk_size_max</code>.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
