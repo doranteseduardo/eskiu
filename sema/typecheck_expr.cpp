@@ -1179,7 +1179,10 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     std::string recvAsSelf = recvT;
     if (selfPtr && !recvPtr) recvAsSelf = "*" + recvT;
     else if (!selfPtr && recvPtr) recvAsSelf = tyq::pointee(recvT);
-    if (selfPtr && recvPtr) recvAsSelf = "*" + dealiasOperand(tyq::pointee(recvT));   // `*Alias`
+    if (selfPtr && recvPtr) {                                  // `*Alias` receiver
+        std::string pe = tyq::pointee(recvT), de = dealiasOperand(pe);
+        if (de != pe) recvAsSelf = "*" + de;
+    }
 
     std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
     std::map<std::string, std::string> subs;
