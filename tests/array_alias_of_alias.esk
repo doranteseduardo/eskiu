@@ -1,0 +1,17 @@
+// An array of an array alias: `type Arr = int[3]; type Mat = Arr[2];` is 2 arrays of 3
+// (the outer dimension is the leftmost, as for `int[2][3]`).
+extern int printf(string fmt, ...);
+type Arr = int[3];
+type Mat = Arr[2];
+type Cube = Mat[4];
+int main() {
+    Mat m;
+    m[1][2] = 7;
+    Cube c;
+    c[3][1][2] = 5;
+    Arr[2] n;
+    n[1][2] = 1;
+    printf("%d %d %d\n", m[1][2], c[3][1][2], n[1][2]);
+    printf("%d %d %d\n", (int)sizeof(Mat), (int)sizeof(Cube), (int)sizeof(n));
+    return 0;
+}

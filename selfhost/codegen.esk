@@ -515,6 +515,24 @@ string cg_dealias_d(Codegen* g, string t, int depth) {
                 while (s - stars > 0 && (int)t[s - stars - 1] == 42) { stars = stars + 1; }
                 out.len = out.len - (int64)stars;
                 out.data[out.len] = (char)0;
+                // An array of an array alias (`type Arr = int[3]; Arr[2]`) is 2 arrays of 3:
+                // the outer dimensions go in front of the alias's (leftmost is outermost).
+                if (stars == 0 && i < n && (int)t[i] == 91) {
+                    int e = i;
+                    while (e < n && (int)t[e] == 91) {
+                        int dd = 0;
+                        while (e < n) {
+                            if ((int)t[e] == 91) { dd = dd + 1; }
+                            else if ((int)t[e] == 93) { dd = dd - 1; if (dd == 0) { e = e + 1; break; } }
+                            e = e + 1;
+                        }
+                    }
+                    int rb = cg_arr_open(rep);
+                    if (rb > 0) {
+                        rep = cg_cat(cg_cat(cg_sub_str(rep, 0, rb), cg_sub_str(t, i, e)), cg_sub_str(rep, rb, rn));
+                        i = e;
+                    }
+                }
             }
             String_append(&out, rep);
             while (stars > 0) { String_push(&out, '*'); stars = stars - 1; }

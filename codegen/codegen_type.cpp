@@ -475,7 +475,8 @@ std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
         else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) elem = bt.elem->str();
         else if (!base.empty() && base.front() == '*') elem = base.substr(1);
         else if (!base.empty() && base.back()  == '*') elem = base.substr(0, base.size() - 1);
-        if (!elem.empty()) return index->highIndex ? (elem + "[]") : elem;   // slice vs element
+        if (!elem.empty() && !index->highIndex) return expandAlias(elem);   // `Mat[4]`: a row is an array
+        if (!elem.empty()) return elem + "[]";                                // a slice
     }
     // A ternary's static type is the common type of its arms (the type checker's
     // resolver table usually supplies it; this is the structural fallback).

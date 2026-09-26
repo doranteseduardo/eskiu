@@ -1761,7 +1761,17 @@ string sema_canon_d(Sema* s, string t, int d) {
         return sema_cat(sema_cat(out, ")->"), sema_canon_d(s, sema_fn_ret(t), d + 1));
     }
     int br = sema_arr_bracket(t);
-    if (br > 0) { return sema_cat(sema_canon_d(s, sema_sub_str(t, 0, br), d + 1), sema_sub_str(t, br, n)); }
+    if (br > 0) {
+        // An array of an array alias (`type Arr = int[3]; Arr[2]`) is 2 arrays of 3: the
+        // outer dimension goes in front of the element's (C order, leftmost is outermost).
+        string ce = sema_canon_d(s, sema_sub_str(t, 0, br), d + 1);
+        int cen = sema_slen(ce);
+        int eb = sema_arr_bracket(ce);
+        if (eb > 0 && cen > 0 && (int)ce[cen - 1] == 93) {
+            return sema_cat(sema_cat(sema_sub_str(ce, 0, eb), sema_sub_str(t, br, n)), sema_sub_str(ce, eb, cen));
+        }
+        return sema_cat(ce, sema_sub_str(t, br, n));
+    }
     int a = 0; while ((int)t[a] == 42) { a = a + 1; }
     int b = n; while (b > a && (int)t[b - 1] == 42) { b = b - 1; }
     int stars = a + (n - b);
