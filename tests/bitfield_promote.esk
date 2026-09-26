@@ -1,0 +1,35 @@
+extern int printf(string f, ...);
+// A bitfield whose values all fit an int reads as int (C promotion); a wider one keeps
+// its declared type. Expected output matches clang on the same C program.
+struct B { uint32 u : 3; int32 s : 5; uint64 w : 40; uint8 c : 7; }
+struct W { uint64 a : 20; int64 b : 32; uint32 c : 32; int64 d : 33; uint64 e : 31; }
+int main() {
+    B b; b.u = 0; b.s = 0; b.w = 0; b.c = 0;
+    int r1 = b.u - 1 < 0 ? 1 : 0;
+    int64 r2 = (int64)(b.u - 1);
+    b.w = 1; int r3 = b.w - 2 < 0 ? 1 : 0;
+    b.c = 0; int r4 = b.c - 1 < 0 ? 1 : 0;
+    b.s = 3; b.s *= -5; int r5 = (int)b.s;
+    b.u = 5; b.u *= 3; int r6 = (int)b.u;
+    b.s = -16; b.s /= -1; int r7 = (int)b.s;
+    b.w = 0xFFFFFFFFFF; b.w += 2; int64 r8 = (int64)b.w;
+    b.u = 7; int r9 = ~b.u < 0 ? 1 : 0;
+    printf("%d %lld %d %d %d %d %d %lld %d\n", r1, r2, r3, r4, r5, r6, r7, r8, r9);
+    W x; x.a = 0; x.b = 0; x.c = 0; x.d = 0; x.e = 0;
+    int q1 = x.a - 1 < 0 ? 1 : 0;
+    int q2 = x.c - 1 < 0 ? 1 : 0;
+    int q3 = x.e - 1 < 0 ? 1 : 0;
+    x.b = 2147483647; int64 q4 = (int64)x.b + 1;
+    b.u = 0; int q5 = b.u++ - 1 < 0 ? 1 : 0;
+    b.u = 5; b.u /= -1; int q6 = (int)b.u;
+    printf("%d %d %d %lld %d %d\n", q1, q2, q3, q4, q5, q6);
+    int p1 = (b.u = 0) - 1 < 0 ? 1 : 0;
+    int p2 = (b.u += 0) - 1 < 0 ? 1 : 0;
+    int p3 = ++b.u - 2 < 0 ? 1 : 0;
+    int p4 = b.u++ - 5 < 0 ? 1 : 0;
+    int p5 = (x.a = 0) - 1 < 0 ? 1 : 0;
+    int p6 = x.a++ - 5 < 0 ? 1 : 0;
+    int p7 = (true ? b.u : b.u) - 9 < 0 ? 1 : 0;
+    printf("%d %d %d %d %d %d %d\n", p1, p2, p3, p4, p5, p6, p7);
+    return 0;
+}

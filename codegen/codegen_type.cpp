@@ -289,6 +289,30 @@ static std::string builtinBinaryType(const std::string& l, const std::string& op
     return w == 64 ? (u ? "uint64" : "int64") : (u ? "uint" : "int");
 }
 
+// The type a field of struct `key` is read as: a bitfield whose values all fit an int
+// reads as `int` (C promotion), any other field as its declared type.
+std::string CodeGen::bitfieldReadEskiu(const std::string& key, const std::string& member,
+                                       const std::string& declType) const {
+    auto lit = structLayout.find(key);
+    if (lit == structLayout.end()) return declType;
+    auto sit = lit->second.find(member);
+    if (sit == lit->second.end() || !sit->second.isBitfield) return declType;
+    return tyq::bitfieldReadType(expandAlias(declType), (int)sit->second.bitWidth) == "int" ? "int" : declType;
+}
+
+// A bitfield value loaded in its storage type, converted to the type it is read as.
+llvm::Value* CodeGen::bitfieldReadValue(llvm::Value* v, const std::string& key, const std::string& member) {
+    auto fit = structFields.find(key);
+    if (fit == structFields.end()) return v;
+    for (const auto& f : fit->second) {
+        if (f.name != member) continue;
+        if (bitfieldReadEskiu(key, member, tyq::strip(f.type)) != "int") return v;
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        return v->getType() == i32 ? v : builder->CreateTrunc(v, i32);   // the value fits
+    }
+    return v;
+}
+
 std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
     std::string t = getExprEskiuTypeRaw(expr);
     return promotedResultType(expr, expandAlias(t)) == "int" ? "int" : t;
@@ -381,7 +405,7 @@ std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
         auto it = structFields.find(base);
         if (it != structFields.end()) {
             for (const auto& f : it->second) {
-                if (f.name == member->member) return tyq::strip(f.type);
+                if (f.name == member->member) return bitfieldReadEskiu(base, f.name, tyq::strip(f.type));
             }
         }
     }

@@ -73,4 +73,14 @@ inline bool dropsConst(const std::string& lhs, const std::string& rhs) {
     return baseConst(pointee(rhs)) && !baseConst(pointee(lhs));
 }
 
+// The type a bitfield of declared (dealiased) integer type `t` and `width` bits is read
+// as: `int` when every value fits an int (C promotion, so `u - 1` of a `uint32 u : 3` is
+// negative), else `t`. Types narrower than int keep their spelling (they promote anyway).
+inline std::string bitfieldReadType(const std::string& t, int width) {
+    if (width <= 0) return t;
+    if ((t == "uint" || t == "uint32" || t == "uint64") && width < 32) return "int";
+    if (t == "int64" && width <= 32) return "int";
+    return t;
+}
+
 } // namespace tyq

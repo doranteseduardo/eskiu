@@ -657,7 +657,11 @@ void CodeGen::visit(IncDecExpr* node) {
                 llvm::Value* nw = node->decrement ? builder->CreateSub(old, one)
                                                   : builder->CreateAdd(old, one);
                 storeBitfieldInto(gep, *slot, nw);
-                exprValueStack.push(node->prefix ? loadBitfieldFrom(gep, *slot) : old);
+                // Prefix: the stored value, read as the field reads; postfix: the old value
+                // in the declared type (C, as clang).
+                exprValueStack.push(node->prefix ? bitfieldReadValue(loadBitfieldFrom(gep, *slot),
+                                                                     structBaseTypeOf(mem->base), mem->member)
+                                                 : old);
                 return;
             }
         }
@@ -901,7 +905,7 @@ void CodeGen::visit(MemberExpr* node) {
             exprValueStack.push(builder->CreateLoad(slot.storageType, gep, node->member));
             return;
         }
-        exprValueStack.push(loadBitfieldFrom(gep, slot));
+        exprValueStack.push(bitfieldReadValue(loadBitfieldFrom(gep, slot), baseType, node->member));
         return;
     }
 

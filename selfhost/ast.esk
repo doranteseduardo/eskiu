@@ -117,6 +117,16 @@ string ast_ty_mangle(string tin) {
     }
     return (string)String_cstr(&out);
 }
+// The type a bitfield of declared (dealiased) integer type `t` and `w` bits is read as:
+// `int` when every value fits an int (C promotion), else `t` (mirrors tyq::bitfieldReadType).
+string ast_bf_read_type(string t, int w) {
+    if (w <= 0) { return t; }
+    int u32 = 0;
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1 || ast_streq(t, "uint64") == 1) { u32 = 1; }
+    if (u32 == 1 && w < 32) { return "int"; }
+    if (ast_streq(t, "int64") == 1 && w <= 32) { return "int"; }
+    return t;
+}
 string ast_op_name(string op, List<string>* tys) {
     string w = ast_op_word(op);
     if (w[0] == 0) { return ""; }

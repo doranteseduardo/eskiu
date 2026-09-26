@@ -1392,7 +1392,14 @@ string sema_infer_type(Sema* s, *ExprNode e) {
                 int mi = 0; int mn = List_len<Param>(&msd.params);
                 while (mi < mn) {
                     Param mf = List_get<Param>(&msd.params, mi);
-                    if (sema_streq(mf.name, e.sval) == 1) { return sema_subst_params(mf.ty, &msd.type_params, &mtargs); }
+                    if (sema_streq(mf.name, e.sval) == 1) {
+                        // A bitfield whose values all fit an int reads as `int` (C promotion).
+                        if (mi < List_len<int>(&msd.field_bits) && List_get<int>(&msd.field_bits, mi) > 0
+                            && sema_streq(ast_bf_read_type(sema_canon(s, sema_strip_const(mf.ty)), List_get<int>(&msd.field_bits, mi)), "int") == 1) {
+                            return "int";
+                        }
+                        return sema_subst_params(mf.ty, &msd.type_params, &mtargs);
+                    }
                     mi = mi + 1;
                 }
             }
@@ -1445,7 +1452,21 @@ string sema_infer_type(Sema* s, *ExprNode e) {
     }
     if (e.kind == EK_AWAIT) { return sema_future_inner(s, sema_infer_type(s, e.a)); }
     if (e.kind == EK_LAMBDA) { return sema_isub(s, sema_lambda_fn_type(e.sval)); }
-    if (e.kind == EK_INCDEC) { return sema_infer_type(s, e.a); }
+    if (e.kind == EK_INCDEC) {
+        // `b.f++` of a bitfield: the old value in its declared type (as clang).
+        if ((int)e.sval[1] != 114 && e.a != null && e.a.kind == EK_MEMBER) {
+            *DeclNode isd = sema_find_struct(s, sema_struct_of_type(sema_infer_type(s, e.a.a)));
+            if (isd != null) {
+                int ii = 0;
+                while (ii < List_len<Param>(&isd.params)) {
+                    if (sema_streq(List_get<Param>(&isd.params, ii).name, e.a.sval) == 1 && ii < List_len<int>(&isd.field_bits)
+                        && List_get<int>(&isd.field_bits, ii) > 0) { return List_get<Param>(&isd.params, ii).ty; }
+                    ii = ii + 1;
+                }
+            }
+        }
+        return sema_infer_type(s, e.a);
+    }
     if (e.kind == EK_ALLOCWITH) { return sema_cat("*", e.sval); }
     return "";
 }

@@ -613,6 +613,16 @@ void TypeChecker::visit(IncDecExpr* node) {
     std::string td = dealiasOperand(t);
     if (t != "unknown" && !isIntType(td) && !isPointerType(td))
         errorAt(node, "'++'/'--' requires an integer or pointer, got '" + t + "'");
+    // `b.f++` of a bitfield yields the old value in the field's declared type, unpromoted
+    // (as clang does); every other read of a narrow bitfield is an int.
+    if (!node->prefix)
+        if (auto* m = dynamic_cast<MemberExpr*>(op)) {
+            std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
+            auto sit = structs.find(bt);
+            if (sit != structs.end())
+                for (const auto& f : sit->second.fields)
+                    if (f.name == m->member && f.bitWidth > 0) t = f.type;
+        }
     expressionTypes[node] = t;
 }
 
@@ -1248,8 +1258,11 @@ void TypeChecker::visit(MemberExpr* node) {
         const auto& structInfo = it->second;
         for (const auto& field : structInfo.fields) {
             if (field.name == node->member) {
-                // Found the member, return its type
+                // Found the member, return its type (a narrow bitfield reads as `int`, C)
                 expressionTypes[node] = field.type;
+                if (field.bitWidth > 0 &&
+                    tyq::bitfieldReadType(dealiasOperand(tyq::strip(field.type)), field.bitWidth) == "int")
+                    expressionTypes[node] = "int";
                 return;
             }
         }

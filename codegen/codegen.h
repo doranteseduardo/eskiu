@@ -430,6 +430,9 @@ private:
 
     // Resolve the Eskiu type string of an expression (for struct/array access)
     std::string getExprEskiuType(const ExprPtr& expr) const;
+    std::string bitfieldReadEskiu(const std::string& key, const std::string& member,
+                                  const std::string& declType) const;
+    llvm::Value* bitfieldReadValue(llvm::Value* v, const std::string& key, const std::string& member);
     std::string getExprEskiuTypeRaw(const ExprPtr& expr) const;   // before C promotion
     // The structural fallback: derive an expression's Eskiu type from the AST when
     // the single-resolver table has no entry. Split out so getExprEskiuType can,

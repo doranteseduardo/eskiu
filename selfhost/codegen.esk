@@ -1505,6 +1505,7 @@ string cg_box_iface(Codegen* g, string ifaceName, string structName, string data
 CgVal cg_dispatch_iface(Codegen* g, string ifaceName, string fatop, string method, *ExprNode e);  // vtable dispatch
 string cg_member_baseptr(Codegen* g, *ExprNode ea, *string out_sname);  // struct ptr + name
 CgBF cg_bf(Codegen* g, string sname, string fname);
+string cg_bf_read_ety(Codegen* g, CgBF slot);   // fwd
 string cg_bf_wordptr(Codegen* g, string baseptr, string sname, CgBF slot);   // fwd
 string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e);      // infer `name<args>` from arg types
 void cg_collect_idents_e(*ExprNode e, List<string>* out);
@@ -3278,7 +3279,11 @@ string cg_etype(Codegen* g, *ExprNode e) {
         if (cg_is_ptr_ty(bet) == 1) { sname = cg_strip_ptr(bet); }
         CgStruct s = cg_find_struct(g, sname);
         int idx = cg_field_idx(&s, e.sval);
-        if (idx >= 0) { return List_get<string>(&s.fetys, idx); }
+        if (idx >= 0) {
+            CgBF bslot = cg_bf(g, sname, e.sval);
+            if (bslot.bw > 0) { return cg_bf_read_ety(g, bslot); }   // a narrow bitfield reads as int
+            return List_get<string>(&s.fetys, idx);
+        }
         return "";
     }
     if (e.kind == EK_INDEX) {
@@ -3402,7 +3407,16 @@ string cg_etype(Codegen* g, *ExprNode e) {
     }
     if (e.kind == EK_STRUCTINIT) { return cg_apply_sub(g, e.sval); }
     if (e.kind == EK_SIZEOF) { return "int64"; }
-    if (e.kind == EK_INCDEC) { return cg_etype(g, e.a); }
+    if (e.kind == EK_INCDEC) {
+        // `b.f++` of a bitfield: the old value in its declared type (as clang).
+        if ((int)e.sval[1] != 114 && e.a != null && e.a.kind == EK_MEMBER) {
+            string ibt = cg_etype(g, e.a.a);
+            string isn = ibt; if (cg_is_ptr_ty(ibt) == 1) { isn = cg_strip_ptr(ibt); }
+            CgBF islot = cg_bf(g, isn, e.a.sval);
+            if (islot.bw > 0) { return islot.fety; }
+        }
+        return cg_etype(g, e.a);
+    }
     if (e.kind == EK_LAMBDA) { return cg_lambda_ety(e); }
     if (e.kind == EK_ALLOCWITH) { return cg_cat("*", cg_apply_sub(g, e.sval)); }
     if (e.kind == EK_THREADCREATE) { return "*void"; }
@@ -4014,8 +4028,8 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
                 if ((int)e.sval[L0 - 1] == 45) { cg_emit(g, "sub "); } else { cg_emit(g, "add "); }
                 cg_emit(g, bslot.sty); cg_emit(g, " "); cg_emit(g, bold.op); cg_emit(g, ", 1\n");
                 cg_bf_store(g, wa, bslot, bnw);
-                if ((int)e.sval[1] == 114) { return cg_bf_load(g, wa, bslot); }   // prefix: the stored (wrapped) value
-                return bold;
+                if ((int)e.sval[1] == 114) { return cg_bf_promote(g, cg_bf_load(g, wa, bslot), bslot); }   // prefix: the stored (wrapped) value
+                return bold;                              // postfix: the declared type, unpromoted (as clang)
             }
         }
         CgVal lv = cg_lval(g, e.a);
@@ -5270,8 +5284,27 @@ void cg_bf_store(Codegen* g, string wa, CgBF slot, string rhsop) {
     cg_emit(g, "  store "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, nw); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
 }
 
+// The type a bitfield is read as: `int` when all its values fit an int (C promotion),
+// else its declared type (mirrors CodeGen::bitfieldReadEskiu).
+string cg_bf_read_ety(Codegen* g, CgBF slot) {
+    if (cg_streq(ast_bf_read_type(cg_dealias(g, slot.fety), slot.bw), "int") == 1) { return "int"; }
+    return slot.fety;
+}
+
+// A bitfield value in its storage type, converted to the type it is read as.
+CgVal cg_bf_promote(Codegen* g, CgVal v, CgBF slot) {
+    if (cg_streq(cg_bf_read_ety(g, slot), "int") == 0) { return v; }
+    if (cg_streq(v.ty, "i32") == 0) {
+        string t = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = trunc "); cg_emit(g, v.ty); cg_emit(g, " "); cg_emit(g, v.op); cg_emit(g, " to i32\n");
+        v.op = t; v.ty = "i32";
+    }
+    v.ety = "int";
+    return v;
+}
+
 CgVal cg_bf_read(Codegen* g, string baseptr, string sname, CgBF slot) {
-    return cg_bf_load(g, cg_bf_wordptr(g, baseptr, sname, slot), slot);
+    return cg_bf_promote(g, cg_bf_load(g, cg_bf_wordptr(g, baseptr, sname, slot), slot), slot);
 }
 
 void cg_bf_write(Codegen* g, string baseptr, string sname, CgBF slot, string rhsop) {
