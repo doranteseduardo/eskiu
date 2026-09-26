@@ -1,0 +1,4 @@
+0 trailer lines: st=0 body=5 [hello]
+600 trailer lines: st=0 body=5 [hello]
+700 trailer lines: st=400 body=0
+20000 trailer lines: st=400 body=0

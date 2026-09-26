@@ -239,6 +239,10 @@ struct HttpChunkOut {
 // each time more input arrives.
 const int HTTP_CHUNK_LINE_MAX = 8192;
 
+// Largest trailer section (after the last chunk) a reader that drops consumed
+// input (_http_chunked_feed) takes; a longer one is malformed.
+const int HTTP_CHUNK_TRAILER_MAX = 65536;
+
 // 0 (wait for more input) while the unfinished line starting at `from` in
 // b[..n) is within HTTP_CHUNK_LINE_MAX, else -1. A complete line is held to
 // the same limit (CRLF included), so the verdict does not depend on how the
@@ -261,7 +265,8 @@ int http_chunked_step(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
 // http_chunked_step, plus: with a non-null `trailer` (start it at 0), *pos
 // also advances past the last chunk and each complete trailer line, and
 // *trailer becomes 1 in the trailer section, so a caller that feeds more
-// input never rescans what was consumed.
+// input never rescans what was consumed. On reaching the trailer section it
+// returns 2 (call again), so the caller sees where that section starts.
 int _http_chunked_run(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 max, *int trailer) {
     int64 p = *pos;
     while (trailer == null || *trailer == 0) {
@@ -289,7 +294,7 @@ int _http_chunked_run(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
         if (q - p > HTTP_CHUNK_LINE_MAX) { return -1; }
         if (size == 0) {
             p = q;
-            if (trailer != null) { *trailer = 1;  *pos = p; }
+            if (trailer != null) { *trailer = 1;  *pos = p;  return 2; }
             break;
         }
         if (size > max - out.len) { return -2; }
@@ -332,6 +337,30 @@ int _http_chunked_run(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
         if (trailer != null) { *pos = p; }
     }
     return -1;
+}
+
+// _http_chunked_run on b[..*n) for a reader that keeps the buffer small: when
+// more input is needed, the consumed bytes b[base..*pos) are dropped (the rest
+// moves down to `base`, *n and *pos follow), so the buffer holds only the
+// unfinished line or chunk however many chunks and trailer lines went by.
+// *tbytes (start it at 0) counts the trailer bytes consumed; past
+// HTTP_CHUNK_TRAILER_MAX the body is malformed (-1). Same results otherwise.
+int _http_chunked_feed(*uint8 b, *int64 n, *int64 pos, int64 base, HttpChunkOut* out, int64 max, *int trailer, *int64 tbytes) {
+    int st = 2;
+    while (st == 2) {
+        const int64 p0 = *pos;
+        const int t0 = *trailer;
+        st = _http_chunked_run(b, *n, pos, out, max, trailer);
+        if (t0 == 1) { *tbytes += *pos - p0; }
+    }
+    if (st >= 0 && *tbytes > HTTP_CHUNK_TRAILER_MAX) { return -1; }
+    if (st != 0) { return st; }
+    if (*pos > base) {
+        memmove(b + base, b + *pos, *n - *pos);
+        *n -= *pos - base;
+        *pos = base;
+    }
+    return 0;
 }
 
 // The message-body framing of a request whose head is parsed (RFC 9112 §6):
@@ -659,7 +688,8 @@ struct HttpConnBuf {
     int    scan;     // bytes already searched for the blank line
     int    chunked;  // 1 if the body is chunked
     int    trailer;  // chunked decoder state (see _http_chunked_run)
-    int64  bpos;     // chunked: raw bytes consumed so far
+    int64  bpos;     // chunked: where the undecoded input starts
+    int64  tbytes;   // chunked: trailer bytes consumed
     HttpChunkOut out;   // chunked: the body decoded so far
 }
 
@@ -673,6 +703,7 @@ void HttpConnBuf_init(HttpConnBuf* self) {
     self.chunked = 0;
     self.trailer = 0;
     self.bpos = 0;
+    self.tbytes = 0;
     self.out.data = null;  self.out.len = 0;  self.out.cap = 0;
 }
 
@@ -708,7 +739,11 @@ int HttpConnBuf_feed(HttpConnBuf* b, HttpRequest* req) {
     }
     if (b.hend > 0) {
         if (b.chunked == 1) {
-            const int st = _http_chunked_run(b.data, b.len, &b.bpos, &b.out, HTTP_SERVE_MAX_BODY, &b.trailer);
+            // Decoded input is dropped, so tiny chunks (many framing bytes
+            // per body byte) do not run into the buffer limit below.
+            int64 n = b.len;
+            const int st = _http_chunked_feed(b.data, &n, &b.bpos, b.hend, &b.out, HTTP_SERVE_MAX_BODY, &b.trailer, &b.tbytes);
+            b.len = (int)n;
             if (st == 1) {
                 for (i in 0..b.out.len) { req.body.push((char)b.out.data[i]); }
                 return 0;
@@ -720,7 +755,8 @@ int HttpConnBuf_feed(HttpConnBuf* b, HttpRequest* req) {
         }
     }
     if (b.len < b.cap) { return -1; }
-    // A chunked body takes more raw bytes than it decodes to: allow for its framing.
+    // A Content-Length request needs at most HEAD + MAX_BODY bytes; a chunked
+    // one holds its head and one unfinished chunk (at most MAX_BODY) or line.
     const int limit = HTTP_SERVE_MAX_HEAD + 2 * HTTP_SERVE_MAX_BODY;
     if (b.cap >= limit) { return 413; }
     int nc = b.cap * 2;
@@ -966,15 +1002,17 @@ int _http_recv_chunked(int fd, HttpReq* r, int64 max_body, *uint8 head, int have
     int64 n = have;
     if (have > 0) { memcpy(raw, head, have); }
     int64 pos = 0;
+    int trailer = 0;
+    int64 tbytes = 0;
     let out: HttpChunkOut;
     out.data = null;  out.len = 0;  out.cap = 0;
     int status = 0;
     while (true) {
-        const int st = http_chunked_step(raw, n, &pos, &out, max_body);
+        // Decoded chunks and trailer lines are dropped: what is left is one
+        // partial chunk or line, never rescanned from the last chunk.
+        const int st = _http_chunked_feed(raw, &n, &pos, 0, &out, max_body, &trailer, &tbytes);
         if (st == 1) { break; }
         if (st < 0) { status = st == -2 ? 413 : 400; break; }
-        // Drop the chunks already decoded; what is left is one partial chunk.
-        if (pos > 0) { memmove(raw, raw + pos, n - pos); n -= pos; pos = 0; }
         if (n >= cap) {
             if (cap > max_body + 65536) { status = 413; break; }
             *uint8 nr = alloc<uint8>(cap * 2);
@@ -1003,7 +1041,8 @@ int _http_recv_chunked(int fd, HttpReq* r, int64 max_body, *uint8 head, int have
 // Transfer-Encoding together with Content-Length, whitespace before a header
 // colon, an obsolete line fold), 413 too large, 501 a transfer coding other than
 // chunked, 505 an HTTP major version other than 1. A chunked body is decoded
-// (trailers are discarded). A peer that closes before the whole body arrives
+// (trailers are discarded; a trailer section over HTTP_CHUNK_TRAILER_MAX
+// bytes is 400). A peer that closes before the whole body arrives
 // gets 400 (never a short body reported as success).
 int http_recv(int fd, HttpReq* r, int64 max_body) {
     int cap = 8192;
