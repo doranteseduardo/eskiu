@@ -322,6 +322,13 @@ converts to and from it, so it links against C compiled by clang/gcc:</p>
 <p>The coerced types match what clang emits for the same C signature. Other
 targets keep the first-class lowering. Fat values (closures, slices) and
 <code>va_list</code> are not C aggregates and keep their own layout.</p>
+<p><strong>Narrow integers.</strong> Like clang, an <code>extern</code>'s <code>int8</code>/<code>int16</code>/<code>uint8</code>/<code>uint16</code>/
+<code>bool</code>/<code>char</code> parameters and results are declared <code>signext</code> or <code>zeroext</code> (by the
+type's signedness; <code>char</code> follows the target's C <code>char</code>, unsigned on AArch64 and
+32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
+32 bits. Every Eskiu function returning one extends its result (<code>define signext
+i8 @f</code>), since a C caller (a callback, or C calling it by name) relies on that on
+AArch64 Darwin and x86-64.</p>
 <p><strong>Callbacks from C.</strong> An Eskiu function handed to C as a raw function pointer
 (<code>(*void)f</code>, the cast of a top-level function name to a pointer type) is called
 with the C convention. When it takes or returns an aggregate by value, the cast
@@ -339,7 +346,13 @@ other argument there, since a closure's environment cannot cross into C.</p>
 <code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
 both; <code>va_start</code>/<code>va_arg&lt;T&gt;</code>/<code>va_end</code> lower to the corresponding LLVM
-intrinsics/instruction. Variadic arguments follow C default promotions:
+intrinsics/instruction. An <code>extern</code> parameter of type <code>va_list</code> (<code>vprintf</code>,
+<code>vsnprintf</code>) is declared <code>ptr</code> and gets what C passes for its <code>va_list</code>: the
+address of the storage on x86-64 System V and AArch64 outside Darwin and Windows
+(an array/struct type there), and the <code>char*</code> that <code>llvm.va_start</code> stored at
+offset 0 on Darwin AArch64, Windows x64 and 32-bit ARM (<code>evalCVaList</code> /
+<code>cg_c_va_list</code>). Between Eskiu functions a <code>va_list</code> stays a first-class value.
+Variadic arguments follow C default promotions:
 integers narrower than 32 bits widen to <code>i32</code> (sign- or zero-extended), <code>bool</code>
 zero-extends, and <code>float</code> widens to <code>double</code>.</p>
 <hr>

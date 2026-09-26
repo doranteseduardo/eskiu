@@ -335,6 +335,11 @@ more and a third about 60, fixed the same way.</p>
   global's <code>?*T</code> narrowing like a call, and the rest of a block after an early-exit guard
   is not narrowed when the branch that falls through assigns the variable
   (<code>if (p == null) { return 0; } else { p = null; } return p.v;</code> was accepted).</li>
+<li><strong>Inferred type arguments no longer come from the first argument alone.</strong> A binding
+  from a composite parameter (<code>*T</code>, <code>List&lt;T&gt;*</code>) wins; by-value <code>T a, T b</code> arguments that
+  deduce different integer types meet at their common type (<code>maxof(1, big)</code> with <code>int64
+  big</code> is <code>maxof&lt;int64&gt;</code>; it was <code>maxof&lt;int&gt;</code> and truncated <code>big</code>), and any other
+  disagreement (<code>maxof(1.5, (float)2.5)</code>) is a located error in both compilers.</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -783,6 +788,86 @@ more and a third about 60, fixed the same way.</p>
   keeps it). Test <code>http_response_header_inject</code>.</li>
 <li><code>http_chunked_step</code> spun forever on a chunk size near <code>INT64_MAX</code> when the limit
   allowed it (<code>size + 2</code> overflowed in the room check). Test <code>http_chunk_size_max</code>.</li>
+<li><code>&amp;e</code> evaluates its operand once in C++: <code>&amp;buf[i++]</code>, <code>&amp;A[f()]</code>, <code>&amp;getp().x</code>, <code>&amp;*gp()</code>
+  and a <code>for-in</code> over a List element <code>ls[f()]</code> ran the side effect twice. Test
+  <code>addr_of_once</code>.</li>
+<li>A cast to an alias of an unsigned type (<code>(u8)-1</code>) or a call returning one zero-extends
+  in the self-host (it sign-extended, so <code>(u8)-1</code> was -1 and <code>f() + 10</code> with <code>f</code> returning
+  <code>u8</code> 250 was 4). Test <code>alias_unsigned</code>.</li>
+<li>The self-host checks every argument of an inferred generic call against the
+  instantiated parameter types, as C++ does: only a bare <code>T</code> parameter was checked, so
+  <code>swp(&amp;i64, &amp;s.a)</code> against <code>*T</code> corrupted memory and <code>List_push(&amp;l, 1.5)</code> on a
+  <code>List&lt;int&gt;</code> compiled. Tests <code>errors/generic_ptr_arg_mismatch</code>,
+  <code>errors/generic_struct_param_arg</code>, <code>generic_infer_common</code>,
+  <code>errors/generic_deduce_conflict</code>.</li>
+<li><code>fmt</code> follows the preprocessor's view of strings and comments, in both drivers: a
+  stray <code>"</code> in a skipped <code>#if 0</code> branch or inside a <code>/* */</code> opened on a <code>#define</code> line
+  made it think a string was open and reindent a later multi-line string, changing the
+  program. Each branch of a conditional starts from the string state at its <code>#if</code>, a <code>#</code>
+  line is a directive even inside a multi-line string, and a directive that leaves a
+  comment open opens it for the following lines. Test <code>fmt_cases/pp_string_state</code>.</li>
+<li>A field or element of a temporary (<code>mk().x</code>, <code>arr()[0]</code>, <code>mp().v</code>) is not storage:
+  taking its address or assigning to it is a located type error, and slicing a
+  temporary array (<code>mp().v[0..2]</code>) is "cannot slice a temporary array" in both
+  compilers (C++ failed in codegen without a location, the self-host accepted
+  <code>&amp;mp().x</code>). Tests <code>errors/slice_temporary_array</code>, <code>errors/addr_of_rvalue_member</code>,
+  <code>errors/assign_rvalue_element</code>.</li>
+<li>The self-host rejects a binary operator on a struct operand when no overload accepts
+  the operand types (a pointer argument converts only through <code>*void</code>), as C++ does:
+  <code>v + &amp;g.a</code> for <code>operator +(V, *int64)</code> compiled to invalid IR. Test
+  <code>errors/operator_ptr_arg_mismatch</code>.</li>
+<li>Narrow integers cross the C boundary extended, as clang does: an <code>extern</code>'s <code>int8</code>,
+  <code>int16</code>, <code>uint8</code>, <code>uint16</code>, <code>bool</code> and <code>char</code> params and results carry <code>signext</code> /
+  <code>zeroext</code>, and an Eskiu function returning one (a callback, or a function C calls by
+  name) extends its result. AArch64 Darwin and x86-64 C code relies on it; a C callee
+  read garbage high bits. <code>char</code> follows the target's C <code>char</code>. Both compilers; test
+  <code>c_abi_narrow</code> (+ <code>.c</code>), also in <code>cabi_parity.sh</code>.</li>
+<li>A <code>va_list</code> passed to a C function (<code>vprintf</code>, <code>vsnprintf</code>) goes the way the target's
+  C <code>va_list</code> does: by address on x86-64 System V and AArch64 Linux, as its <code>char*</code> on
+  Darwin AArch64, Windows x64 and 32-bit ARM. It was passed as a 32-byte aggregate (a
+  crash on x86-64). Both compilers; test <code>va_list_c</code>.</li>
+<li>Every load and store through a <code>volatile</code> variable is volatile: <code>*p</code>, <code>p[i]</code>, <code>p.f</code>,
+  <code>++</code>/<code>--</code> and compound assignment, for locals and globals. C++ marked only the
+  variable's own loads (a volatile global not even those), the self-host ignored
+  <code>volatile</code>. Test <code>volatile_access</code> (IR checked in <code>run.sh</code> and <code>cg_parity.sh</code>).</li>
+<li>The self-host emits inline assembly (it dropped <code>asm(...)</code> statements), with inputs
+  and clobbers like C++. Test <code>inline_asm_ext</code>.</li>
+<li>An async function whose <code>match</code> arms or <code>try</code>/<code>catch</code>/<code>finally</code> bodies declare locals
+  compiles: the lowering hoists them to frame fields (C++ failed with "has no member",
+  the self-host emitted invalid IR). Test <code>async_arm_locals</code>.</li>
+<li>The self-host instantiates a generic enum with an alias type argument (<code>Opt&lt;F&gt;</code>,
+  <code>type F = int</code>) as the target's instance (invalid IR). Test <code>generic_enum_alias_arg</code>.</li>
+<li>The self-host dot-calls through a pointer to an alias (<code>IL* l; l.len()</code> with
+  <code>type IL = List&lt;int&gt;</code>), as C++ does. Test <code>alias_ptr_dotcall</code>.</li>
+<li>A closure param of an async function is retained by the coroutine frame, so the
+  call's lambda gets a heap environment even when the body only calls it. C++ rejected
+  the program with an internal error. Test <code>async_closure_param</code>.</li>
+<li>An <code>await</code> the async lowering can't place (<code>r += await f()</code>) is an error located at
+  that await, in both compilers (C++ reported "expected at least one <code>await</code>").</li>
+</ul>
+<h4 id="eighth-audit-round">Eighth audit round</h4>
+<ul>
+<li>The HTTP/2 engine bounds a request's decoded header list: over
+  <code>H2_MAX_HEADER_LIST</code> (64 KiB, as <code>SETTINGS_MAX_HEADER_LIST_SIZE</code> counts it, now
+  advertised) or past what <code>s.max_buffered</code> leaves is 431, without keeping the
+  fields, and open streams' header lists count toward <code>max_buffered</code>. Only the field
+  count was limited, so a large dynamic-table entry referenced many times turned
+  13 KB of HPACK into 34 MB. Test <code>http2_header_list_limit</code>.</li>
+<li>HTTP/2 requests follow the HTTP/1.1 Host rules: an invalid host or <code>:authority</code> is
+  400, two host fields or a host that differs from <code>:authority</code> is a stream error,
+  and without a host field the handler sees <code>:authority</code> as Host (it was dropped,
+  and any host fields with any value were accepted). Test <code>http2_host_rules</code>.</li>
+<li><code>http_recv</code> reads a chunked trailer section incrementally: it rescanned it from the
+  last chunk on every read and kept it all (quadratic CPU). A trailer section over
+  <code>HTTP_CHUNK_TRAILER_MAX</code> (64 KiB) is 400 there and in the servers. Test
+  <code>http_recv_trailers</code>.</li>
+<li><code>HTTP_CHUNK_LINE_MAX</code> also holds for a complete chunk-size or trailer line, so the
+  verdict no longer depends on how the request was split into reads (a 9000-byte
+  chunk extension was accepted in one read). Test <code>http_chunk_line_split</code>.</li>
+<li><code>HttpConnBuf_feed</code> drops chunked input it has decoded, so a body in tiny chunks
+  (6 raw bytes per body byte) is no longer 413 below <code>HTTP_SERVE_MAX_BODY</code> and the
+  buffer stays small. Test <code>http_chunk_tiny_chunks</code>.</li>
+<li>The spec's <code>#define</code> continuation example declares <code>printf</code>.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
