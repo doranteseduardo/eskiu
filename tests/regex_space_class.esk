@@ -1,5 +1,5 @@
 // \s is [\t\n\f\r ] as in RE2: it used to match a vertical tab (\v) too, and
-// \S and [^\s] missed it.
+// \S and [^\s] missed it. A POSIX [[:space:]] does include \v.
 import <regex>;
 extern int printf(string fmt, ...);
 
@@ -21,5 +21,6 @@ int main() {
     show("[\\S] on VT", "[\\S]", "\v");
     show("\\s+ on tab LF FF CR SP", "\\s+", "x\t\n\f\r y");
     show("\\S+ skips them", "\\S+", "\t\n\f\r yz");
+    show("[[:space:]] on VT", "[[:space:]]", "\v");
     return 0;
 }

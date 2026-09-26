@@ -205,39 +205,93 @@ void re_range(ReComp* c, int id, int lo, int hi) {
     re.classes[id].count++;
 }
 
+// The POSIX class names of a bracket expression ([:alpha:]), in the order of
+// their kinds RE_POSIX + 0 .. RE_POSIX + 13.
+const int RE_POSIX = 256;
+const int RE_NPOSIX = 14;
+const string[14] RE_POSIX_NAMES = {"alnum", "alpha", "ascii", "blank", "cntrl", "digit", "graph",
+                                   "lower", "print", "punct", "space", "upper", "word", "xdigit"};
+
+// 1 if byte `i` is in the class `kind`: 'd' 'w' 's' (the Perl shorthands; \s
+// is [\t\n\f\r ] as in RE2, without \v) or RE_POSIX + k for the POSIX class
+// RE_POSIX_NAMES[k] (ASCII only, as in RE2).
+int re_class_has(int kind, int i) {
+    const bool digit = i >= '0' && i <= '9';
+    const bool upper = i >= 'A' && i <= 'Z';
+    const bool lower = i >= 'a' && i <= 'z';
+    const bool alpha = upper || lower;
+    const bool punct = (i >= '!' && i <= '/') || (i >= ':' && i <= '@') || (i >= '[' && i <= '`') || (i >= '{' && i <= '~');
+    bool r = false;
+    switch (kind) {
+        case 'd': r = digit; break;
+        case 'w': r = digit || alpha || i == '_'; break;
+        case 's': r = i == '\t' || i == '\n' || i == '\f' || i == '\r' || i == ' '; break;
+        case RE_POSIX + 0: r = digit || alpha; break;
+        case RE_POSIX + 1: r = alpha; break;
+        case RE_POSIX + 2: r = i < 128; break;
+        case RE_POSIX + 3: r = i == '\t' || i == ' '; break;
+        case RE_POSIX + 4: r = i < 32 || i == 127; break;
+        case RE_POSIX + 5: r = digit; break;
+        case RE_POSIX + 6: r = i >= '!' && i <= '~'; break;
+        case RE_POSIX + 7: r = lower; break;
+        case RE_POSIX + 8: r = i >= ' ' && i <= '~'; break;
+        case RE_POSIX + 9: r = punct; break;
+        case RE_POSIX + 10: r = (i >= '\t' && i <= '\r') || i == ' '; break;
+        case RE_POSIX + 11: r = upper; break;
+        case RE_POSIX + 12: r = digit || alpha || i == '_'; break;
+        case RE_POSIX + 13: r = digit || (i >= 'A' && i <= 'F') || (i >= 'a' && i <= 'f'); break;
+    }
+    return r ? 1 : 0;
+}
+
+// Add to class `id` the bytes 0..255 of class `kind` (re_class_has), or the
+// bytes outside it when `negate` is set, as runs of ranges.
+void re_class_add(ReComp* c, int id, int kind, bool negate) {
+    const int want = negate ? 0 : 1;
+    int i = 0;
+    while (i < 256) {
+        if (re_class_has(kind, i) != want) { i++; continue; }
+        const int lo = i;
+        while (i < 256 && re_class_has(kind, i) == want) { i++; }
+        re_range(c, id, lo, i - 1);
+    }
+}
+
 // Add the ranges for a \d \w \s shorthand to class `id`.
 void re_shorthand(ReComp* c, int id, int kind) {
-    if (kind == 'd') {
-        re_range(c, id, '0', '9');
-    } else if (kind == 'w') {
-        re_range(c, id, '0', '9');
-        re_range(c, id, 'A', 'Z');
-        re_range(c, id, 'a', 'z');
-        re_range(c, id, '_', '_');
-    } else if (kind == 's') {
-        re_range(c, id, '\t', '\n');           // \t \n \f \r and space, as in RE2 (not \v)
-        re_range(c, id, '\f', '\r');
-        re_range(c, id, ' ', ' ');
-    }
+    re_class_add(c, id, kind, false);
 }
 
 // Add the complement (over bytes 0..255) of a \d \w \s shorthand to class
 // `id`: \D \W \S inside a bracket class.
 void re_shorthand_neg(ReComp* c, int id, int kind) {
-    bool[256] in_set;
-    for (i in 0..256) {
-        const bool digit = i >= '0' && i <= '9';
-        const bool word = digit || (i >= 'A' && i <= 'Z') || (i >= 'a' && i <= 'z') || i == '_';
-        const bool space = i == '\t' || i == '\n' || i == '\f' || i == '\r' || i == ' ';
-        in_set[i] = kind == 'd' ? digit : (kind == 'w' ? word : space);
+    re_class_add(c, id, kind, true);
+}
+
+// At a '[' inside a bracket class: a POSIX class [:name:] or [:^name:] is
+// added to class `id` and consumed, returning 1. Returns 0 (nothing consumed)
+// if no ":]" follows, so the '[' is a literal member, as in RE2; an unknown
+// name is an error (-1 with c.err set).
+int re_posix_class(ReComp* c, int id) {
+    if (re_peek_at(c, 1) != ':') { return 0; }
+    int e = c.pos + 2;
+    while (e + 1 < c.len && !(c.pat[e] == ':' && c.pat[e + 1] == ']')) { e++; }
+    if (e + 1 >= c.len) { return 0; }
+    int s = c.pos + 2;
+    const bool negate = s < e && c.pat[s] == '^';
+    if (negate) { s++; }
+    for (k in 0..RE_NPOSIX) {
+        const string name = RE_POSIX_NAMES[k];
+        int j = 0;
+        while (s + j < e && name[j] != 0 && c.pat[s + j] == name[j]) { j++; }
+        if (s + j == e && name[j] == 0) {
+            re_class_add(c, id, RE_POSIX + k, negate);
+            c.pos = e + 2;
+            return 1;
+        }
     }
-    int i = 0;
-    while (i < 256) {
-        if (in_set[i]) { i++; continue; }
-        const int lo = i;
-        while (i < 256 && !in_set[i]) { i++; }
-        re_range(c, id, lo, i - 1);
-    }
+    if (c.err == null) { c.err = "invalid character class range"; }
+    return -1;
 }
 
 // 1 if `e` names a class shorthand (\d \w \s \D \W \S).
@@ -338,6 +392,10 @@ Node* re_parse_class(ReComp* c) {
             if (e == -1) { continue; }             // reported as unterminated
             lo = re_escape_char(c, e);
             if (lo < 0) { return re_node(c, N_CLASS); }
+        } else if (re_peek(c) == '[' && re_posix_class(c, id) != 0) {
+            // A '-' after a POSIX class is the next member, as after \d.
+            if (c.err != null) { return re_node(c, N_CLASS); }
+            continue;
         } else {
             lo = re_peek(c);
             c.pos++;
@@ -440,7 +498,7 @@ Node* re_parse_atom(ReComp* c) {
     if (pk == '^') { c.pos++; return re_node(c, N_BOL); }
     if (pk == '$') { c.pos++; return re_node(c, N_EOL); }
     if (pk == '\\') { return re_parse_escape(c); }
-    if (pk == '*' || pk == '+' || pk == '?' || pk == '{') {
+    if (pk == '*' || pk == '+' || pk == '?' || (pk == '{' && re_repeat_ahead(c) == 1)) {
         if (c.err == null) { c.err = "nothing to repeat"; }
         return re_node(c, N_EMPTY);
     }
@@ -468,6 +526,20 @@ int re_read_int(ReComp* c) {
     return v > RE_MAX_REPEAT ? -2 : v;
 }
 
+// 1 if the '{' at c.pos starts a repeat: {n}, {n,} or {n,m}. Any other '{'
+// ('{', 'a{', 'a{,2}', 'a{x}') is a literal, as in RE2.
+int re_repeat_ahead(ReComp* c) {
+    int p = c.pos + 1;
+    const int s = p;
+    while (p < c.len && c.pat[p] >= '0' && c.pat[p] <= '9') { p++; }
+    if (p == s) { return 0; }
+    if (p < c.len && c.pat[p] == ',') {
+        p++;
+        while (p < c.len && c.pat[p] >= '0' && c.pat[p] <= '9') { p++; }
+    }
+    return p < c.len && c.pat[p] == '}' ? 1 : 0;
+}
+
 Node* re_parse_repeat(ReComp* c) {
     Node* a = re_parse_atom(c);
     if (c.err != null) { return a; }
@@ -477,7 +549,7 @@ Node* re_parse_repeat(ReComp* c) {
     if (pk == '*') { c.pos++; rmin = 0; rmax = -1; }
     else if (pk == '+') { c.pos++; rmin = 1; rmax = -1; }
     else if (pk == '?') { c.pos++; rmin = 0; rmax = 1; }
-    else if (pk == '{') {
+    else if (pk == '{' && re_repeat_ahead(c) == 1) {
         c.pos++;
         const int m1 = re_read_int(c);
         if (m1 == -2) {

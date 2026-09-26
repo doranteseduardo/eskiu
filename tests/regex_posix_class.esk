@@ -1,0 +1,52 @@
+// POSIX classes inside brackets, as in RE2: [[:alpha:]], the negated
+// [[:^alpha:]], and every RE2 name (alnum alpha ascii blank cntrl digit graph
+// lower print punct space upper word xdigit). They used to be read as the
+// members '[', ':', 'a', ... followed by a stray ']'. An unknown name is an
+// error; a "[:" with no ":]" after it is a literal '['. A '{' that does not
+// start a {n}, {n,} or {n,m} repeat is a literal, as in RE2 ('{', 'a{',
+// 'a{,2}', 'a{x}'); it used to be an error.
+import <regex>;
+extern int printf(string fmt, ...);
+
+void show(string p, string s) {
+    Regex re = regex_compile(p);
+    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); Regex_free(&re); return; }
+    let m: Match;
+    if (Regex_search(&re, s, &m) == 1) { printf("%s on \"%s\": %d,%d\n", p, s, m.cap[0], m.cap[1]); }
+    else { printf("%s on \"%s\": no match\n", p, s); }
+    Match_free(&m);
+    Regex_free(&re);
+}
+
+int main() {
+    show("[[:alpha:]]+", "12abc3");
+    show("[[:^alpha:]]+", "ab12c");
+    show("[[:alnum:]]+", "--a1B--");
+    show("[[:digit:]-z]+", "a1-z");
+    show("[^[:alnum:]]+", "ab#$c");
+    show("[[:upper:][:lower:]]+", "1aBc2");
+    show("[[:word:][:punct:]]+", " a_!b ");
+    show("[[:xdigit:]]+", "zz0fAg");
+    show("[[:blank:]]+", "a \t b");
+    show("[[:graph:]]+", " ab c");
+    show("[[:print:]]+", "\x01ab c\x7f");
+    show("[[:cntrl:]]", "a\x01");
+    show("[[:ascii:]]+", "abc");
+    show("[[:space:]]+", "x \t\v y");
+    show("[[:^space:]]+", "  ab ");
+    show("[a[:digit:]]+", "xa1b");
+    show("[[:foo:]]", "a");
+    show("[[:^:]]", "a");
+    show("[[:alpha]", ":");
+    show("[[]", "[");
+    show("{", "a{b");
+    show("a{", "a{");
+    show("a{,2}", "a{,2}");
+    show("a{x}", "a{x}");
+    show("a{1,", "a{1,");
+    show("^{$", "{");
+    show("a{2}{", "aa{");
+    show("a{2}", "aa");
+    show("{2}", "a");
+    return 0;
+}
