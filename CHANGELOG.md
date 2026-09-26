@@ -188,6 +188,15 @@ more and a third about 60, fixed the same way.
   (`int x : 0`), as in C. `p - q` needs pointers to the same type.
 - An enum bitfield whose enum has no negative member reads back unsigned, as in clang
   and GCC (MS layout keeps it signed): `Col col : 2` holding `B = 2` read back as -2.
+- A bitfield whose values all fit an `int` reads as `int`, as in C: `u - 1` of a
+  `uint32 u : 3` holding 0 is -1 (it was 4294967295), and `uint64 a : 20` promotes too.
+  A postfix `b.f++` keeps the declared type, as in clang.
+- A `void` call is not an operand of `&&`, `||` or a comparison, nor an argument passed
+  through `...` (`printf("%d", f())`); these were codegen crashes or invalid IR. `return
+  f();` of a `void` `f` in a `void` function, and `c ? f() : g()` with `void` arms as a
+  statement, compile and run.
+- `await` inside a `try` statement of an `async` function is a located error (it was
+  invalid IR in the self-host and "expected at least one `await`" in C++).
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -494,6 +503,18 @@ more and a third about 60, fixed the same way.
   letter or digit (`\q`, `\1`, `\Z`, `[\b]`) is a compile error; they all matched the
   literal letter. In a class, a `-` after a shorthand is a literal (`[\d-z]` is digits,
   `-` and `z`, as in RE2); the fourth round made it an error, wrongly citing RE2.
+- `sizeof(var)` in a generic body measured the variable as an `int` (4 bytes) whatever
+  its type (`T[4] loc`, `B<T> b`, a lambda's local); `catch (T e)` and `catch (Err<T> e)`
+  in a generic body never matched, so the exception terminated the program.
+- A slice or array of a struct with an `operator []` indexed through that operator in the
+  self-host (`s[i]` on a `V[]`, and `for (v in s)`): the operator's mangled name dropped
+  the brackets, so `V[]` named like `V`. Brackets are now part of the name in both
+  compilers.
+- Self-host: a lambda whose type names a type parameter was rejected in a generic instance
+  (`return T() {...}`, `fn(T)->T d = T(T x) {...}`); a call to a generic variadic function
+  was emitted non-variadic (garbage arguments); an array of closures as a global or
+  `static` gave its lambdas the array as their return type (invalid IR); a union constant
+  whose member is a struct or an array was rejected without a location.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

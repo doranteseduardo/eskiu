@@ -356,6 +356,15 @@ when you add a test.
 | `thread_handles` | `thread_create` of a lambda, a function and a closure value; `thread_join` of a field or `?*void` |
 | `async_await_struct` | awaiting futures of a struct, a generic instance and a `join2v` pair |
 | `alloc_with_method` | `alloc_with` over an inline `alloc` method, through a pointer, with an alias count; a string slices to `char[]` |
+| `generic_sizeof_var` | `sizeof(var)` in a generic body (and a lambda in one) measures the variable's instance type (`T`, `T[4]`, `B<T>`) |
+| `generic_catch` | `catch (T e)` / `catch (Err<T> e)` in a generic body matches the instance's thrown type |
+| `slice_op_index` | indexing a slice or array of a struct with an `operator []` reaches the element, not the operator; `for (v in s)` over it |
+| `generic_lambda_tparam` | a lambda typed by a type parameter (`T() {...}`, `fn(T)->T`) in a generic function or inline method |
+| `generic_variadic` | a generic variadic function is called variadic (`va<int>(1, 7)`, `sum<double>(2, 1.5, 2.0)`) |
+| `closure_array_global` | arrays of closures as a global, a `static` and a struct field |
+| `union_aggregate_init` | global and `static` union constants whose member is a struct or an array |
+| `void_expr_stmt` | `return f();` of a `void` call in a `void` function or lambda (with a `defer`), `void` ternaries as statements |
+| `bitfield_promote` | a bitfield whose values fit an `int` reads as `int` (C, clang output); a postfix `f++` keeps the declared type |
 | `ptr_sub_same` | `p - q` across `const`, `?` and alias spellings of the same pointer type |
 
 ### `smoke` tests (compile + link + exit 0)
@@ -612,6 +621,10 @@ when you add a test.
 | `errors/alloc_with_count_string` | `alloc_with` with a string count |
 | `errors/alloc_with_no_alloc` | `alloc_with` on an `int` allocator ("has no alloc method") |
 | `errors/ptr_sub_mismatch` | `*int - *char` ("pointer subtraction needs pointers to the same type") |
+| `errors/async_await_in_try` | `await` inside a `try` in an `async` function |
+| `errors/void_logical_operand` | a `void` call as an operand of `&&` |
+| `errors/void_compare` | comparing two `void` calls |
+| `errors/void_variadic_arg` | a `void` call passed through `...` (`printf("%d", hi())`) |
 
 ### `lint` tests (-Wall)
 

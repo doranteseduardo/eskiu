@@ -826,7 +826,9 @@ void log_event(string msg) {
 }
 ```
 
-A `void` function may use `return;` with no operand or allow control to fall off the end of the body.
+A `void` function may use `return;` with no operand or allow control to fall off the end of the body. It may also `return f();` where `f` is itself `void` (the call runs, nothing is returned).
+
+A call to a `void` function has no value: it can be a statement, the operand of `return` in a `void` function, or both arms of a `?:` used as a statement (`c ? f() : g();`), but not an operand of an operator (`&&`, `||`, a comparison, arithmetic), a condition, an initializer, or an argument (also not one passed through `...`, as in `printf("%d", f())`).
 
 The one function that may not be `void` is `main`: its return value is the process exit
 code, so it must return `int` (`int main()` or `int main(int argc, string* argv)`). A
@@ -1031,7 +1033,9 @@ An `async` function lowers to a resumable state machine and executes over the
 `<eventloop>`/`<executor>` runtime. Single and multiple awaits, `return await`,
 `x = await E`, `async void`, and every control-flow construct containing an await
 (`if`/`while`/C-style `for`/`switch`/`for-in`, with `break`/`continue`) are
-supported; a pending future is cancelled with `future_drop`.
+supported; a pending future is cancelled with `future_drop`. An `await` inside a `try`
+statement (its body, a `catch` or the `finally`) is a compile error, as are labeled
+`break`/`continue` and an `await` inside a `defer`.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it
@@ -1318,7 +1322,7 @@ switch (x) {
 
 ### 7.5 return
 
-Returns a value from the current function. A `void` function uses `return;` with no operand.
+Returns a value from the current function. A `void` function uses `return;` with no operand, or `return f();` with a `void` call.
 
 ```eskiu
 int sign(int x) {
@@ -1438,7 +1442,7 @@ struct Rect {
 
 Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.
 
-An integer field may declare a **bit width** with `: N`, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so `uint8 a : 4; uint32 w : 12;` is 4 bytes), and in a `packed` struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A `bool` bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (`int x : 0` is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).
+An integer field may declare a **bit width** with `: N`, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so `uint8 a : 4; uint32 w : 12;` is 4 bytes), and in a `packed` struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend); a bitfield whose values all fit an `int` (fewer than 32 bits, or at most 32 for a signed one) is read as an `int`, as C promotes it, so `u - 1` of a `uint32 u : 3` holding 0 is -1 (a postfix `f++` keeps the declared type, as in clang). Writes (including compound assignment and `++`/`--`, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A `bool` bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (`int x : 0` is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).
 
 ```eskiu
 struct Flags {
