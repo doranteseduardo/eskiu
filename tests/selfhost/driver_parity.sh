@@ -98,6 +98,8 @@ flagcheck() { # name expect(ok|reject) flags...
 }
 flagcheck object   ok     -c "$ARGS_ESK" -o "$WORK/f.o"
 flagcheck opt      ok     -O2 "$ARGS_ESK" -o "$WORK/f.o2"
+flagcheck optsep   ok     -O 2 "$ARGS_ESK" -o "$WORK/f.o2s"
+flagcheck badoptsep reject -O 9 "$ARGS_ESK" -o "$WORK/f.o9s"
 flagcheck unknown  reject --no-such-flag "$ARGS_ESK" -o "$WORK/f.u"
 flagcheck linklib  ok     -lm "$ARGS_ESK" -o "$WORK/f.lm"
 flagcheck badopt   reject -O9 "$ARGS_ESK" -o "$WORK/f.o9"

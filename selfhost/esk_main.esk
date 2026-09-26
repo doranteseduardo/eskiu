@@ -89,6 +89,7 @@ void push_words(List<string>* args, string cmd) {
 // driver implements -o/--target/--mcpu/--link-arg/-l/-L; the rest are C++-only.
 int is_value_opt(string o) {
     if (cg_streq(o, "-o") == 1 || cg_streq(o, "-l") == 1 || cg_streq(o, "-L") == 1) { return 1; }
+    if (cg_streq(o, "-O") == 1) { return 1; }                          // `-O 2`, like `-O2`
     if (cg_streq(o, "--target") == 1 || cg_streq(o, "-target") == 1) { return 1; }
     if (cg_streq(o, "--mcpu") == 1 || cg_streq(o, "-mcpu") == 1) { return 1; }
     if (cg_streq(o, "--link-arg") == 1 || cg_streq(o, "-link-arg") == 1) { return 1; }
@@ -316,6 +317,7 @@ int esk_main(int argc, string* argv) {
         }
         else if ((int)a[0] == 45 && (int)a[1] == 76 && a[2] != 0) { List_push<string>(&linkx, a); }    // -Lpath
         else if ((int)a[0] == 45 && (int)a[1] == 79) {                                                 // -O<n>
+            if (cg_streq(opt, "-O") == 1) { a = cg_cat("-O", val); }
             if (a[2] == 0 || a[3] != 0 || (int)a[2] < 48 || (int)a[2] > 51) {
                 eprint("error: invalid optimization level '"); eprint(a); eprint("' (use -O0, -O1, -O2 or -O3)\n");
                 return 1;
