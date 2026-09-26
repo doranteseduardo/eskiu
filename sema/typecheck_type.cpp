@@ -113,7 +113,7 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         // Logical not of a scalar (number, bool, pointer). A struct operand is not a
         // truth value: "error" here lets a user `operator !(V)` resolve instead.
         std::string n = normalizeType(operandType);
-        if (isAggregateValue(n)) return "error";
+        if (isAggregateValue(n) || isVoidValueType(n)) return "error";   // `!v()` of a void call
         return "bool";
     }
     if (op == "-" || op == "+") {

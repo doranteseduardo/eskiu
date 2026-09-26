@@ -95,7 +95,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          nullable_global_alloc_with nullable_global_thread_join nullable_global_thread_create
          nullable_guard_else_assign nullable_guard_then_assign
          array_dim_sizeof_zero
-         await_in_switch_subject await_in_range_bound await_in_forin_iterable"
+         await_in_switch_subject await_in_range_bound await_in_forin_iterable
+         not_void_call"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

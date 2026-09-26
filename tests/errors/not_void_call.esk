@@ -1,0 +1,10 @@
+// EXPECT-ERROR: invalid operand for unary operator: void
+// A void call has no value to negate (also through a method or an interface call).
+interface I { void m(); }
+struct A { int x; void m() { } }
+int main() {
+    A a; a.x = 1;
+    I i = &a;
+    bool b = !i.m();
+    return 0;
+}

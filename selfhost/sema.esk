@@ -4046,7 +4046,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "+") == 1) { ok = sema_is_numeric_ty(uc); }
                 else if (sema_streq(e.sval, "~") == 1) { ok = sema_is_int_ty(uc); }
                 else if (sema_streq(e.sval, "*") == 1) { ok = sema_c_ptr(uc); }
-                else if (sema_streq(e.sval, "!") == 1 && sema_is_aggregate(s, ut) == 1) { ok = 0; }
+                else if (sema_streq(e.sval, "!") == 1 && (sema_is_aggregate(s, ut) == 1 || sema_is_void_value(uc) == 1)) { ok = 0; }
                 if (ok == 0 && sema_streq(e.sval, "*") == 0 && sema_streq(e.sval, "+") == 0) {
                     string uop = e.sval; if (sema_streq(uop, "-") == 1) { uop = "u-"; }
                     List<string> utys; List_init<string>(&utys, 1); List_push<string>(&utys, ut);
