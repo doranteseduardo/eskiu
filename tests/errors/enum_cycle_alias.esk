@@ -1,0 +1,4 @@
+// EXPECT-ERROR: enum 'L' contains itself by value
+type LL = L;
+enum L { Cons(int, LL), Nil }
+int main() { L n = Nil; return 0; }

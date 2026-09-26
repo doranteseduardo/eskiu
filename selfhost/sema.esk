@@ -478,6 +478,31 @@ int sema_local_bound(Sema* s, string name) {
     return 0;
 }
 
+// Is `name` a member of a classic (payload-free, non-generic) enum?
+int sema_plain_member(Sema* s, string name) {
+    int i = 0; int n = List_len<EVar>(&s.evars);
+    while (i < n) {
+        EVar ev = List_get<EVar>(&s.evars, i);
+        if (ev.plain == 1 && sema_streq(ev.variant, name) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// The declared type of field `name` of struct/union `sn`, or null when it has no such
+// field (a method is not a field).
+string sema_field_type(Sema* s, string sn, string name) {
+    *DeclNode d = sema_find_tdecl(s, sn);
+    if (d == null || (d.kind != DK_STRUCT && d.kind != DK_UNION)) { return null; }
+    int i = 0; int n = List_len<Param>(&d.params);
+    while (i < n) {
+        Param f = List_get<Param>(&d.params, i);
+        if (sema_streq(f.name, name) == 1) { return f.ty; }
+        i = i + 1;
+    }
+    return null;
+}
+
 // Is `name` a function declared `must_use`? (Discarding its result is an error.)
 int sema_fn_must_use(Sema* s, string name) {
     int i = 0; int n = List_len<*DeclNode>(&s.fndecls);
@@ -655,7 +680,9 @@ void sema_check_dims(Sema* s, string t) {
                 int si = sema_sym_index(s, dim);
                 if (known == 0 && si >= 0) {
                     Sym sy = List_get<Sym>(&s.syms, si);
-                    if (sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, &v) == 1) { known = 1; }
+                    int later = 0;                    // a global declared further down is not in scope yet
+                    if (sy.depth == 0 && sema_in_list(&s.late_globals, dim) == 1) { later = 1; }
+                    if (later == 0 && sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, &v) == 1) { known = 1; }
                 }
             }
             if (known == 1 && v <= (int64)0) {
@@ -710,6 +737,17 @@ string sema_value_struct(Sema* s, string ft) {
     int n = 0; while (b0[n] != 0 && (int)b0[n] != 91) { n = n + 1; }
     string b = sema_base_name(sema_sub_str(b0, 0, n));
     *DeclNode d = sema_find_tdecl(s, b);
+    int hops = 0;                          // through type aliases (`type SS = S;`)
+    while (d != null && d.kind == DK_TYPEALIAS && hops < 32) {
+        string at = d.ret_type;
+        if (sema_has_star(at) == 1 || sema_is_fn_type(at) == 1) { return ""; }
+        int k = 0; while (at[k] != 0) { if ((int)at[k] == 91 && (int)at[k + 1] == 93) { return ""; } k = k + 1; }
+        string a0 = sema_strip_const(at);
+        int an = 0; while (a0[an] != 0 && (int)a0[an] != 91) { an = an + 1; }
+        b = sema_base_name(sema_sub_str(a0, 0, an));
+        d = sema_find_tdecl(s, b);
+        hops = hops + 1;
+    }
     if (d == null || (d.kind != DK_STRUCT && d.kind != DK_UNION && d.kind != DK_ENUM)) { return ""; }
     if (List_len<TypeParam>(&d.type_params) > 0) { return ""; }
     return b;
@@ -1804,6 +1842,11 @@ string sema_assign_err(Sema* s, string ta0, *ExprNode e) {
     if (sptr == 1 && sema_is_struct(s, t) == 1) { return conv; }
     if ((tnum == 1 && sema_is_struct_value(s, src) == 1) || (snum == 1 && sema_is_struct_value(s, t) == 1)) { return conv; }
     if (sema_is_fn_type(t) == 1 && sema_is_fn_type(src) == 1 && sema_streq(sema_canon(s, t), sema_canon(s, src)) == 0) {
+        return sema_cat(sema_cat(sema_cat(sema_cat("incompatible function type '", src), "' for '"), t), "'");
+    }
+    // A function value (a variadic one too, whose `...` is not otherwise judged) into a
+    // value that is neither a closure nor a pointer.
+    if (sema_is_fn_type(src) == 1 && sema_is_fn_type(tc) == 0 && sema_c_ptr(tc) == 0 && sema_judgeable(s, tc) == 1) {
         return sema_cat(sema_cat(sema_cat(sema_cat("incompatible function type '", src), "' for '"), t), "'");
     }
     return sema_assign_strict(s, t0, src0);
@@ -3148,7 +3191,7 @@ int sema_cast_class(Sema* s, string t0) {
     if (t[0] == 0) { return 0; }
     if (sema_is_numeric_ty(t) == 1 || sema_is_enum(s, t) == 1) {
         *DeclNode ed = sema_find_tdecl(s, t);
-        if (ed != null && ed.kind == DK_ENUM && List_len<TypeParam>(&ed.type_params) > 0) { return 3; }
+        if (ed != null && ed.kind == DK_ENUM && sema_is_aggregate(s, t) == 1) { return 3; }   // a sum type
         return 1;
     }
     if (sema_is_fn_type(t) == 1) { return 3; }
@@ -3417,6 +3460,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 dprintf(2, "error: %s:%d:%d: variant '%s' of generic enum '%s' needs explicit type arguments, as in %s<int>()\n",
                         s.filename, s.line, s.col, e.sval, gve.name, e.sval);
             }
+            if (gve != null && List_len<TypeParam>(&gve.type_params) == 0 && gpl > 0
+                && sema_streq(e.sval, s.callee_ctx) == 0 && sema_find_fndecl(s, e.sval) == null) {
+                s.had_error = 1;                   // a payload variant is built by a call: `A(1)`
+                dprintf(2, "error: %s:%d:%d: variant '%s' needs %d argument(s)\n", s.filename, s.line, s.col, e.sval, gpl);
+            }
         }
         // Escape soundness: a non-escaping closure param used anywhere but as the
         // immediate callee of a call escapes.
@@ -3437,7 +3485,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             s.had_error = 1;                // a generic type has no size until instantiated
             dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, e.sval);
         }
-        if (sema_lookup(s, e.sval) == 0 && sema_known_type(s, e.sval) == 0) {
+        // A variable: a typed symbol, not a function, an enum member, or a later global.
+        int szvar = 0;
+        if (sema_lookup(s, e.sval) == 1 && (sema_local_bound(s, e.sval) == 1
+            || (sema_lookup_type(s, e.sval)[0] != 0 && sema_in_list(&s.late_globals, e.sval) == 0))) { szvar = 1; }
+        if (szvar == 0 && sema_known_type(s, e.sval) == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
         }
@@ -3509,7 +3561,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         } else {
             string it = sema_infer_type(s, e.a);         // integer or pointer only (C++ rule)
             string ic = sema_canon(s, it);
-            if (sema_judgeable(s, ic) == 1 && sema_is_int_ty(ic) == 0 && sema_c_ptr(ic) == 0) {
+            *DeclNode ied = sema_find_tdecl(s, sema_strip_const(it));   // an enum value is not an integer here
+            if ((ied != null && ied.kind == DK_ENUM)
+                || (sema_judgeable(s, ic) == 1 && sema_is_int_ty(ic) == 0 && sema_c_ptr(ic) == 0)) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: '++'/'--' requires an integer or pointer, got '%s'\n", s.filename, s.line, s.col, it);
             }
@@ -3586,8 +3640,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         // An array/slice base (`Box<int>[]`) is not its element struct (`s.len`).
         if (bt[0] != 0 && (int)bt[btn - 1] != 93) {   // base type known → validate the member
             string sn = sema_struct_of_type(bt);
-            if (sema_is_struct(s, sn) == 1 && sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0) {
-                s.had_error = 1;
+            if (sema_is_struct(s, sn) == 1 && (sema_has_member(s, sema_cat(sema_cat(sn, "."), e.sval)) == 0
+                                               || sema_field_type(s, sn, e.sval) == null)) {
+                s.had_error = 1;                   // (a method is only called, never a value)
                 dprintf(2, "error: %s:%d:%d: struct '%s' has no member '%s'\n", s.filename, s.line, s.col, sn, e.sval);
             }
         }
@@ -3912,7 +3967,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             int is_field = 0;
             if (inline_m == 0 && sema_has_member(s, sema_cat(sema_cat(sn, "."), mem.sval)) == 1) { is_field = 1; }
-            if (inline_m == 0 && ffn == null && is_field == 0) {
+            int nonfn_field = 0;                  // `s.v()` on a field that holds no fn pointer
+            if (is_field == 1) {
+                string fty = sema_field_type(s, sn, mem.sval);
+                if (fty != null && sema_is_fn_type(sema_canon(s, fty)) == 0 && sema_judgeable(s, sema_canon(s, fty)) == 1) { nonfn_field = 1; }
+            }
+            if (inline_m == 0 && ffn == null && (is_field == 0 || nonfn_field == 1)) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, sn);
             }
@@ -4054,11 +4114,17 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         // declared function), or any other callee expression (`mk()(1)`).
         if (e.a != null && e.a.kind == EK_IDENT && (sema_local_bound(s, e.a.sval) == 1 || sema_find_fn(s, e.a.sval) < 0)) {
             string vt = sema_lookup_type(s, e.a.sval);
+            string cvt = sema_canon(s, vt);
             if (sema_is_fn_type(vt) == 1) { sema_check_fn_value_call(s, e, sema_cat(sema_cat("'", e.a.sval), "'"), vt); }
-            else if (vt[0] != 0 && (sema_is_numeric_ty(sema_strip_const(vt)) == 1 || sema_streq(vt, "string") == 1)) {
+            else if (vt[0] != 0 && sema_is_fn_type(cvt) == 0
+                     && (sema_is_numeric_ty(sema_strip_const(vt)) == 1 || sema_streq(vt, "string") == 1 || sema_judgeable(s, cvt) == 1)) {
                 // a local or a global variable that is not callable (a global used to slip
                 // through to codegen, which crashed)
                 s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: undefined function '%s' ('%s' is a variable of type '%s')\n", s.filename, s.line, s.col, e.a.sval, e.a.sval, vt);
+            } else if (vt[0] == 0 && sema_local_bound(s, e.a.sval) == 0 && sema_find_fndecl(s, e.a.sval) == null
+                       && sema_plain_member(s, e.a.sval) == 1) {
+                s.had_error = 1;                   // a classic enum member is a constant
                 dprintf(2, "error: %s:%d:%d: undefined function '%s'\n", s.filename, s.line, s.col, e.a.sval);
             }
         } else if (e.a != null && e.a.kind != EK_IDENT) {
@@ -4118,7 +4184,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         *DeclNode sd0 = sema_find_tdecl(s, base);
         List<string> sitargs; List_init<string>(&sitargs, 2);
         sema_parse_targs(e.sval, &sitargs);
-        if (sema_is_type(s, base) == 0) {
+        if (sema_is_type(s, base) == 0 || (sd0 != null && sd0.kind != DK_STRUCT && sd0.kind != DK_UNION)) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: undefined struct '%s'\n", s.filename, s.line, s.col, base);
         } else if (sd0 != null && sd0.kind == DK_STRUCT && List_len<TypeParam>(&sd0.type_params) > 0
@@ -4884,8 +4950,21 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             List<string> seen_vals;                // values of the arms of a classic enum
             List_init<string>(&seen_vals, 8);
             string mraw = sema_infer_type(s, st.expr);
-            string msty = sema_struct_of_type(mraw);
-            if (mraw[0] != 0 && sema_is_enum(s, msty) == 0 && sema_find_tdecl(s, msty) == null) {
+            string mres = sema_strip_const(mraw);   // through type aliases
+            int mh = 0;
+            while (mh < 32) {
+                *DeclNode mad = sema_find_tdecl(s, sema_base_name(mres));
+                if (mad != null && mad.kind == DK_TYPEALIAS && sema_has_star(mres) == 0) { mres = sema_strip_const(mad.ret_type); }
+                else { mh = 32; }
+                mh = mh + 1;
+            }
+            string msty = sema_struct_of_type(mres);
+            // The subject is an enum value (not a pointer to one, nor a struct).
+            *DeclNode mdd = sema_find_tdecl(s, msty);
+            int menum = 0;
+            if (sema_has_star(mres) == 0 && (int)mres[0] != 63
+                && (sema_is_enum(s, msty) == 1 || (mdd != null && mdd.kind == DK_ENUM))) { menum = 1; }
+            if (mraw[0] != 0 && menum == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: match subject must be an enum, got %s\n", s.filename, s.line, s.col, mraw);
             }

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: undefined struct 'C'
+enum C { R, G }
+int main() { C c = C{}; return 0; }

@@ -84,7 +84,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          lambda_reconciled_return nullable_non_pointer await_non_future ptr_arith_to_int string_arith_to_int ternary_void_arms
          macro_unterminated_call closure_captured_field_write method_param_self operator_arity alias_nullable_deref nullable_global_call nullable_addr_taken enum_value_cycle enum_value_cycle_generic generic_variant_arg_type generic_variant_bare struct_lit_generic_bare struct_lit_not_generic cast_from_interface global_init_const_drop global_init_type constraint_self_param scalar_brace_init ptr_conv_unrelated union_two_members global_forward_ref fn_forward_global global_shift_range generic_void_field void_slice array_size_nonconst question_float_ok
          switch_dup_cast_trunc closure_param_captured_escaping closure_param_thread_capture closure_param_local_lambda_escapes
-         nullable_global_call_in_cond nullable_global_call_ternary nullable_global_call_guard nullable_global_call_branch"
+         nullable_global_call_in_cond nullable_global_call_ternary nullable_global_call_guard nullable_global_call_branch
+         match_on_enum_pointer match_on_struct cast_sum_to_int cast_int_to_sum struct_lit_of_enum struct_lit_of_sum call_enum_member method_as_value call_nonfn_field variadic_fn_to_int call_array_var variant_missing_args sizeof_function sizeof_variant sizeof_enum_member incdec_enum enum_cycle_alias struct_cycle_alias array_dim_later_const sizeof_later_global"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

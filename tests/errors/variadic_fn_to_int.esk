@@ -1,0 +1,3 @@
+// EXPECT-ERROR: incompatible function type
+extern int printf(string fmt, ...);
+int main() { int x = printf; return 0; }

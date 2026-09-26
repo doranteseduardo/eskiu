@@ -1,0 +1,3 @@
+// EXPECT-ERROR: undefined method 'v' on type 'S'
+struct S { int v; }
+int main() { S s = S{v: 1}; return s.v(); }

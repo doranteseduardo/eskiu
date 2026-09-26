@@ -1,0 +1,4 @@
+// EXPECT-ERROR: struct 'S' contains itself by value
+type SS = S;
+struct S { int a; SS s; }
+int main() { return 0; }

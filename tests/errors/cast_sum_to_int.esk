@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot cast 'E' to 'int'
+enum E { A(int), B }
+int main() { E e = A(1); return (int)e; }

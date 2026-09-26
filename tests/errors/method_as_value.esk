@@ -1,0 +1,3 @@
+// EXPECT-ERROR: struct 'S' has no member 'get'
+struct S { int v; int get() { return self.v; } }
+int main() { S s = S{v: 1}; fn()->int f = s.get; return 0; }
