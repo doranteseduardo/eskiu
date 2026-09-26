@@ -1,0 +1,3 @@
+long chunk ext: one read 400, 100-byte reads 400, parse_status 400
+long trailer: one read 400, 100-byte reads 400, parse_status 400
+short chunk ext: one read 0, 100-byte reads 0, parse_status 0

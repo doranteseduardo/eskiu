@@ -240,7 +240,9 @@ struct HttpChunkOut {
 const int HTTP_CHUNK_LINE_MAX = 8192;
 
 // 0 (wait for more input) while the unfinished line starting at `from` in
-// b[..n) is within HTTP_CHUNK_LINE_MAX, else -1.
+// b[..n) is within HTTP_CHUNK_LINE_MAX, else -1. A complete line is held to
+// the same limit (CRLF included), so the verdict does not depend on how the
+// input was split into reads.
 int _http_chunk_wait(int64 from, int64 n) {
     return n - from > HTTP_CHUNK_LINE_MAX ? -1 : 0;
 }
@@ -284,6 +286,7 @@ int _http_chunked_run(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
         if (q + 1 >= n) { return _http_chunk_wait(p, n); }
         if (b[q] != '\r' || b[q + 1] != '\n') { return -1; }
         q += 2;
+        if (q - p > HTTP_CHUNK_LINE_MAX) { return -1; }
         if (size == 0) {
             p = q;
             if (trailer != null) { *trailer = 1;  *pos = p; }
@@ -324,6 +327,7 @@ int _http_chunked_run(*uint8 b, int64 n, *int64 pos, HttpChunkOut* out, int64 ma
         while (q < n && _http_is_crlf_byte(b[q]) == 0) { q++; }
         if (q + 1 >= n) { return _http_chunk_wait(p, n); }
         if (b[q] != '\r' || b[q + 1] != '\n') { return -1; }
+        if (q + 2 - p > HTTP_CHUNK_LINE_MAX) { return -1; }
         p = q + 2;
         if (trailer != null) { *pos = p; }
     }

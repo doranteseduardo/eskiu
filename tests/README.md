@@ -407,6 +407,7 @@ when you add a test.
 | `async_closure_param` | an async fn's closure param outlives the caller (heap env), awaited after the caller returned |
 | `generic_enum_alias_arg` | a generic enum instantiated with an alias type argument (`Opt<F>`, a fn-type alias) |
 | `alias_ptr_dotcall` | a dot-call through a pointer to an alias of a generic instance and of a struct |
+| `http_chunk_line_split` | `HTTP_CHUNK_LINE_MAX` also holds for a complete chunk-size or trailer line: a 9000-byte chunk extension is 400 in one read, in small reads and in `HttpRequest_parse_status` (only an unfinished line was checked, so the verdict depended on the segmentation) |
 
 ### `smoke` tests (compile + link + exit 0)
 
