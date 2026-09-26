@@ -4,6 +4,7 @@
 //   * blank lines kept (every line keeps its number); only trailing ones are dropped
 //   * trailing whitespace stripped (except after a trailing `\`, where trimming would
 //     create a continuation), exactly one final newline per non-empty line
+//   * a line after one ending in `\` (a continuation) is kept byte for byte
 // Each line's content (operators, inner spacing, comments, every byte of a string or
 // char literal) is preserved verbatim; only a CRLF line ending's `\r` is taken off.
 // Braces inside strings, char literals and comments are ignored, so the transform is
@@ -76,6 +77,8 @@ String format_source(*uint8 src, int n) {
     let depth: int = 0;    // current `{` nesting
     let inBlock: int = 0;  // inside a /* … */ block comment
     let inStr: int = 0;    // a string literal continues onto the next line
+    int prevCont = 0;      // the previous line ends with `\`: this one continues it
+    int ppCont = 0;        // the continued line is a preprocessor line (no nesting)
     int pendingBlank = 0;  // blank lines buffered (dropped only at the end of the file)
     int crlf = 0;
     int fnl = 0;
@@ -101,6 +104,9 @@ String format_source(*uint8 src, int n) {
 
         int rlen = (int)String_len(&raw);
         *uint8 rb = (*uint8)String_cstr(&raw);
+        int cont = prevCont;
+        prevCont = 0;
+        if (rlen > 0 && rb[rlen - 1] == 92) { prevCont = 1; }
 
         if (inBlock == 1) {         // verbatim until the comment closes
             int a = 0;
@@ -128,6 +134,14 @@ String format_source(*uint8 src, int n) {
             continue;
         }
 
+        if (cont == 1) {            // a continuation line: bytes verbatim
+            int a = 0;
+            while (a < rlen) { String_push(&out, (char)rb[a]); a = a + 1; }
+            fmt_eol(&out, crlf);
+            if (ppCont == 0) { fmt_scan(rb, rlen, 0, &depth, &inBlock, &inStr); }
+            continue;
+        }
+
         // drop leading spaces and tabs into `t` (trailing ones go after the scan)
         int ts = 0;
         while (ts < rlen && (rb[ts] == 32 || rb[ts] == 9)) { ts = ts + 1; }
@@ -140,6 +154,8 @@ String format_source(*uint8 src, int n) {
 
         while (pendingBlank > 0) { fmt_eol(&out, crlf); pendingBlank = pendingBlank - 1; }   // keep every blank line
 
+        ppCont = 0;
+        if (tb[0] == 35) { ppCont = 1; }
         if (tb[0] == 35) {          // '#' preprocessor line: column 0, no nesting change
             tlen = fmt_rtrim(tb, 0, tlen);
             int a = 0;

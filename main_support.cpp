@@ -106,6 +106,7 @@ std::string dirOf(const std::string& path) {
 //   * blank lines kept, so every line keeps its number (`__LINE__`, diagnostics);
 //     only blank lines at the end of the file are dropped
 //   * exactly one final newline
+//   * a line after one ending in `\` (a continuation) is kept byte for byte
 // Each line's *content* (operators, inner spacing, comments, and every byte of a
 // string or char literal, including a stray `\r` and every line of a string that
 // spans lines) is preserved verbatim; only the
@@ -138,6 +139,8 @@ std::string formatSource(const std::string& src) {
     bool inBlock = false;     // inside a /* … */ block comment
     int pendingBlank = 0;     // blank lines buffered (dropped only at the end of the file)
     bool inStr = false;       // a string literal continues onto the next line
+    bool prevCont = false;    // the previous line ends with `\`: this one continues it
+    bool ppCont = false;      // the continued line is a preprocessor line (no nesting)
 
     // Update nesting from t[from..] (code state), skipping strings/chars/comments.
     // Strings are checked first, so a `/*` or `}` inside a literal is ignored. A
@@ -171,6 +174,8 @@ std::string formatSource(const std::string& src) {
     };
 
     for (const std::string& raw : lines) {
+        bool cont = prevCont;
+        prevCont = !raw.empty() && raw.back() == '\\';
         if (inBlock) {                       // verbatim until the comment closes
             out += raw; out += eol;
             for (size_t i = 0; i + 1 < raw.size(); ++i)
@@ -188,12 +193,18 @@ std::string formatSource(const std::string& src) {
             out += t; out += eol;
             continue;
         }
+        if (cont) {                          // a continuation line: bytes verbatim
+            out += raw; out += eol;
+            if (!ppCont) scanNesting(raw, 0);
+            continue;
+        }
         size_t a = raw.find_first_not_of(" \t");
         if (a == std::string::npos) { pendingBlank++; continue; }
         std::string t = raw.substr(a);
 
         for (; pendingBlank > 0; pendingBlank--) out += eol;   // keep every blank line
 
+        ppCont = t[0] == '#';
         if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
             out += rtrim(t); out += eol; continue;
         }

@@ -1,0 +1,10 @@
+int main() {
+    int ab = 9;
+#define Q a\
+b
+#define S "x {\
+   y }"
+    int c = 1 + \
+  2;
+    return Q + c;
+}
