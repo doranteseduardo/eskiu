@@ -1216,7 +1216,8 @@ from a leaf primitive (<code>&lt;net_async&gt;</code>) or from calling another a
 (<code>&lt;future&gt;</code>, <code>&lt;executor&gt;</code>, <code>&lt;net_async&gt;</code>); the generic combinators <code>spawn&lt;T&gt;</code> (detach
 a fire-and-forget task), <code>select2&lt;A,B&gt;</code> (first-of-two) and <code>join2&lt;A,B&gt;</code> (all-of-two)
 take typed futures with no cast at the call site, <code>&lt;timer&gt;</code> <code>timer_after(lp, ms)</code> is a
-leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a real timeout), and
+leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a real timeout; dropping
+a combinator before it resolves drops its inputs with it), and
 <code>&lt;http_async&gt;</code> is a non-blocking HTTP server built on the accept loop. See
 <code>docs/dev/async-design.md</code> for the runtime contract and the lowering design.</p>
 <h3 id="69-exception-handling">6.9 Exception Handling</h3>
@@ -2150,7 +2151,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/url.esk</code></td>
-<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (<code>+</code> decodes to a space)</td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (keys and values are decoded, <code>+</code> to a space)</td>
 </tr>
 <tr>
 <td><code>stdlib/uuid.esk</code></td>
@@ -2174,11 +2175,11 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/http.esk</code></td>
-<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_header</code>, <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>, and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, into a <code>*uint8</code> body), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
+<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_header</code>, <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>, and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, or decodes a chunked body, into a <code>*uint8</code> body; RFC 9112 framing: <code>Transfer-Encoding</code> with <code>Content-Length</code>, a missing <code>Host</code> in HTTP/1.1, whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than <code>chunked</code> 501), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
 </tr>
 <tr>
 <td><code>stdlib/multipart.esk</code></td>
-<td>Extract a named part from a <code>multipart/form-data</code> body over raw bytes: <code>multipart_boundary(ct, out)</code> and <code>multipart_part(body, len, boundary, name, *out_ptr, *out_len)</code> (returns a slice into the body)</td>
+<td>Extract a named part from a <code>multipart/form-data</code> body over raw bytes: <code>multipart_boundary(ct, out)</code> and <code>multipart_part(body, len, boundary, name, *out_ptr, *out_len)</code> (the part whose <code>Content-Disposition</code> <code>name</code> parameter is <code>name</code>; returns a slice into the body)</td>
 </tr>
 <tr>
 <td><code>stdlib/map.esk</code></td>
@@ -2368,7 +2369,7 @@ int main() {
 </tr>
 <tr>
 <td><code>net_send(fd, buf, n)</code> / <code>net_recv(fd, buf, n)</code></td>
-<td>Send / receive raw bytes (<code>int64</code> count)</td>
+<td>Send / receive raw bytes (<code>int64</code> count). A send to a closed peer returns <code>-1</code> (<code>EPIPE</code>); it never raises <code>SIGPIPE</code></td>
 </tr>
 <tr>
 <td><code>net_send_str(fd, s)</code></td>

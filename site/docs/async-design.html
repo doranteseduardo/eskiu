@@ -414,7 +414,10 @@ A future created but never awaited or dropped is a <em>preventable</em> bug, not
 leak: the transform inserts <code>future_drop</code> on scope-exit paths where a <code>Future</code> local
 was created and not consumed.</p>
 <p><strong>Cascade.</strong> Dropping a suspended coroutine drops <code>frame.awaiting</code> first, recursively,
-then frees the frame: a whole await-chain torn down by dropping its head.</p>
+then frees the frame: a whole await-chain torn down by dropping its head. The
+combinators take part: an unresolved <code>select2</code>/<code>join2</code> (and <code>select2v</code>/<code>join2v</code>) has an
+<code>on_drop</code> that drops both inputs (a finished <code>join2</code> input is just freed), so a
+cancelled awaiter never leaves an input whose completion would wake freed memory.</p>
 <p><strong>Accepted v1 semantic:</strong> dropping a <em>suspended</em> coroutine frees its frame <strong>without
 resuming it</strong>, so statements after the suspend point, including <code>finally</code> past an
 <code>await</code>, do not run (matches Rust async-drop). Guaranteed cleanup-on-cancel uses a

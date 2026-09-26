@@ -500,6 +500,32 @@ more and a third about 60, fixed the same way.</p>
   RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
   <code>http_reply</code> accepts a <code>null</code> body.</li>
 </ul>
+<h4 id="fourth-audit-round">Fourth audit round</h4>
+<ul>
+<li>Async: dropping a <code>select2</code>, <code>join2</code>, <code>select2v</code> or <code>join2v</code> future before it resolves
+  drops its inputs (their producers are cancelled and their wakers unhooked). A later
+  completion of an input used to write into the freed combinator, for example when an
+  outer timeout cancelled a task that was awaiting a <code>select2</code>.</li>
+<li>Sockets: a send to a peer that has closed returns an error (<code>EPIPE</code>) instead of raising
+  <code>SIGPIPE</code> and killing the process. <code>net_send</code> passes <code>MSG_NOSIGNAL</code> (Linux, macOS),
+  macOS sockets from <code>net_accept</code>/<code>net_tcp_connect</code>/<code>net_tcp_listen</code> get <code>SO_NOSIGPIPE</code>,
+  the async write path sends through <code>net_send</code>, and a TLS connection on Linux sets
+  <code>SIGPIPE</code> to ignored (OpenSSL writes with <code>write()</code>).</li>
+<li>HTTP/1.1 (<code>http_recv</code>, <code>HttpRequest_parse</code>) follows RFC 9112 framing: a chunked body is
+  decoded (it was left unread), <code>Transfer-Encoding</code> with <code>Content-Length</code> is 400, a coding
+  other than <code>chunked</code> is 501, and whitespace before a header colon, an obsolete line
+  fold, a missing or repeated <code>Host</code> in HTTP/1.1 and a request line without a valid
+  <code>HTTP/x.y</code> version are 400 (HTTP/2.0 on the HTTP/1 path is 505). A method must be a
+  token.</li>
+<li><code>multipart_part</code> finds the part by the <code>name</code> parameter of its <code>Content-Disposition</code>
+  header only (a <code>name=</code> in <code>Content-Type</code> matched before), and parameter and header names
+  are case-insensitive.</li>
+<li><code>url_query_get</code> decodes each key before comparing it, so <code>a%20b=1</code> and <code>a+b=1</code> match the
+  key <code>a b</code>.</li>
+<li>Regex: an invalid bracket range (<code>[z-a]</code>, <code>[a-\d]</code>, <code>[\d-z]</code>) is a compile error as in
+  RE2, and <code>\D</code> <code>\W</code> <code>\S</code> inside a bracket class are the complemented shorthands (they
+  were read as the letters).</li>
+</ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
 <p>A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
