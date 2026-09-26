@@ -232,6 +232,7 @@ when you add a test.
 | `map_hash_intmin` | A key whose djb2 hash is exactly 0x80000000 ("ovuga,m") must still land in a valid bucket: the signed `h = 0 - h` fold left INT_MIN negative, a negative... |
 | `multipart_delimiters` | multipart: the boundary is parsed as a real (case-insensitive, whole-name, quotable) Content-Type parameter, and a delimiter counts only at the body start or after CRLF with its line ending in -- or CRLF. |
 | `multipart_name_match` | multipart_part matches the `name` parameter only (not the tail of `filename="..."`), and a present-but-empty field is found with length 0. |
+| `multipart_disposition` | `multipart_part` matches only the Content-Disposition `name` parameter (not a `name=` in Content-Type), case-insensitive header and parameter names, token or quoted values, exact value match |
 | `nested_body_context` | A lambda body, or a generic first instantiated inside a `try`, is its own function: it never runs the enclosing function's defers, and never unwinds into... |
 | `net_write_async` | net_write_async completes with the byte count and frees its progress counter on completion (it used to leak one per call; only the cancel path freed it). |
 | `path_posix_edges` | POSIX dirname/basename edge cases: the root, empty paths, and repeated separators between the directory and the final component. |

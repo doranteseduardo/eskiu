@@ -98,7 +98,78 @@ int64 mp_next_delim(*uint8 body, int64 blen, int64 from, *uint8 dl, int64 dllen)
     return -1;
 }
 
-// Locate the form-data part with `name="<name>"`. On success returns 1 and sets
+// 1 if the parameter list in body[i..e) (the part of a Content-Disposition
+// value after its disposition type, starting at a ';') has a `name` parameter
+// whose value is exactly `name`. Parameter names are matched
+// case-insensitively and as a whole (so `filename=` is not `name=`), with
+// optional whitespace around ';' and '='; a value is a token or a
+// quoted-string with `\`-escapes (RFC 7578 §4.2, RFC 9110 §5.6.6).
+int mp_params_name_is(*uint8 body, int64 i, int64 e, string name) {
+    const int64 nlen = strlen(name);
+    while (i < e) {
+        if (body[i] != ';') { return 0; }
+        i++;
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+        const int64 ks = i;
+        while (i < e && body[i] != '=' && body[i] != ';' && body[i] != ' ' && body[i] != '\t') { i++; }
+        const int64 ke = i;
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+        bool is_name = ke - ks == 4 && mp_lc((char)body[ks]) == 'n' && mp_lc((char)body[ks + 1]) == 'a' &&
+                       mp_lc((char)body[ks + 2]) == 'm' && mp_lc((char)body[ks + 3]) == 'e';
+        if (i >= e || body[i] != '=') { continue; }       // a parameter without a value
+        i++;
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+        bool same = true;
+        int64 vl = 0;
+        if (i < e && body[i] == '"') {                     // quoted-string
+            i++;
+            while (i < e && body[i] != '"') {
+                if (body[i] == '\\' && i + 1 < e) { i++; }
+                if (vl >= nlen || body[i] != (uint8)name[vl]) { same = false; }
+                vl++;
+                i++;
+            }
+            if (i >= e) { return 0; }                      // unterminated
+            i++;
+        } else {                                           // token
+            while (i < e && body[i] != ';' && body[i] != ' ' && body[i] != '\t') {
+                if (vl >= nlen || body[i] != (uint8)name[vl]) { same = false; }
+                vl++;
+                i++;
+            }
+        }
+        if (is_name) { return same && vl == nlen ? 1 : 0; }
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+    }
+    return 0;
+}
+
+// 1 if the part headers in body[hs..he) (CRLF-separated lines) carry a
+// Content-Disposition header (name matched case-insensitively) whose `name`
+// parameter is exactly `name`. Other headers are ignored, so a `name=` in a
+// Content-Type parameter does not name the part.
+int mp_headers_name_is(*uint8 body, int64 hs, int64 he, string name) {
+    const string cd = "content-disposition";
+    int64 ls = hs;
+    while (ls < he) {
+        int64 le = ls;
+        while (le < he && !(body[le] == '\r' && le + 1 < he && body[le + 1] == '\n')) { le++; }
+        bool is_cd = le - ls > 19;
+        for (int64 j = 0; is_cd && j < 19; j++) {
+            if (mp_lc((char)body[ls + j]) != cd[j]) { is_cd = false; }
+        }
+        if (is_cd && body[ls + 19] == ':') {
+            int64 i = ls + 20;
+            while (i < le && body[i] != ';') { i++; }      // skip the disposition type
+            if (mp_params_name_is(body, i, le, name) == 1) { return 1; }
+        }
+        ls = le + 2;
+    }
+    return 0;
+}
+
+// Locate the form-data part whose Content-Disposition carries `name="<name>"`
+// (see mp_headers_name_is). On success returns 1 and sets
 // *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent. A delimiter
 // counts only at the start of the body or of a line ("\r\n--boundary"), and
 // only when the rest of its line is `--` or whitespace, so `--boundary` inside
@@ -112,16 +183,6 @@ int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
     defer free(dl);
     dl[0] = '\r';  dl[1] = '\n';  dl[2] = '-';  dl[3] = '-';
     for (i in 0..bl) { dl[4 + i] = (uint8)boundary.data[i]; }
-
-    // Build the "name=\"<name>\"" needle.
-    const int nlen = strlen(name);
-    const int needle_len = nlen + 7;                 // name="" → 6 chars + the name
-    *uint8 needle = alloc<uint8>(needle_len);
-    defer free(needle);
-    const string pre = "name=\"";
-    for (p in 0..6) { needle[p] = (uint8)pre[p]; }
-    for (q in 0..nlen) { needle[6 + q] = (uint8)name[q]; }
-    needle[6 + nlen] = '"';                          // closing quote
 
     const string crlf2 = "\r\n\r\n";
 
@@ -147,17 +208,7 @@ int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
             he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
         }
         if (he >= part_start - 2) {
-            // The needle must be the `name` parameter itself: preceded by ';' or
-            // whitespace, so `filename="photo"` does not match name "photo".
-            bool named = false;
-            int64 nh = he > part_start ? mp_find(body, he, part_start, needle, needle_len) : -1;
-            while (nh >= 0 && !named) {
-                if (nh > part_start) {
-                    const uint8 pc = body[nh - 1];
-                    named = pc == ';' || pc == ' ' || pc == '\t';
-                }
-                if (!named) { nh = mp_find(body, he, nh + 1, needle, needle_len); }
-            }
+            const bool named = he > part_start && mp_headers_name_is(body, part_start, he, name) == 1;
             const int64 cstart = he + 4;
             if (named && next >= cstart) {
                 out_ptr[0] = body + cstart;
