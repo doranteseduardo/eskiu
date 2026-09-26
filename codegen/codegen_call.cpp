@@ -644,6 +644,7 @@ void CodeGen::visit(AllocWithExpr* node) {
 
     std::string fnName = at + "_alloc";
     llvm::Function* af = module->getFunction(fnName);
+    if (!af) af = instantiateGenericMethod(at, "alloc");   // an inline method of a generic struct
     if (!af)
         throw std::runtime_error("alloc_with: allocator type '" + at +
                                  "' has no alloc method (" + fnName + ")");

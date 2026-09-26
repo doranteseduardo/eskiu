@@ -1,0 +1,27 @@
+// alloc_with over an instance of a generic allocator: through its inline `alloc` method,
+// or through a top-level `G_int_alloc(*G<int> self, int64 n)`.
+extern int printf(string fmt, ...);
+struct Arena<T> {
+    T tag;
+    uint8[64] buf;
+    int64 used;
+    *void alloc(int64 n) {
+        *void p = (*void)&self.buf[self.used];
+        self.used = self.used + n;
+        return p;
+    }
+}
+struct G<T> { T x; int64 calls; }
+*void G_int_alloc(*G<int> self, int64 n) { self.calls = self.calls + n; return null; }
+int main() {
+    Arena<int> a; a.used = 0;
+    *int p = alloc_with(&a, int, 3);
+    p[0] = 4; p[2] = 6;
+    *int64 q = alloc_with(&a, int64, 1);
+    *q = 9;
+    printf("%d %d %d %d\n", p[0], p[2], (int)*q, (int)a.used);
+    G<int> g; g.x = 1; g.calls = 0;
+    *int r = alloc_with(&g, int, 2);
+    printf("%d %d\n", (int)(r == null), (int)g.calls);
+    return 0;
+}

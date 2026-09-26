@@ -4660,6 +4660,11 @@ CgVal cg_expr(Codegen* g, *ExprNode e) {
         CgVal av = cg_expr(g, e.a);                       // allocator pointer
         string at = cg_strip_ptr(cg_etype(g, e.a));       // allocator struct name
         string fname = cg_cat(at, "_alloc");
+        if (cg_has_targs(cg_apply_sub(g, at)) == 1) {     // a generic instance: its inline method or `G_int_alloc`
+            string ml = cg_ensure_method_inst(g, at, "alloc");
+            if (ml[0] != 0) { fname = ml; }
+            else { fname = cg_cat(cg_ensure_struct_inst(g, cg_apply_sub(g, at)), "_alloc"); }
+        }
         CgFn f = cg_find_fn(g, fname);
         CgVal cnt = cg_expr(g, e.b);
         string n64 = cg_coerce(g, cnt, "i64");
