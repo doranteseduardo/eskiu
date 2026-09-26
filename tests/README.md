@@ -339,6 +339,7 @@ when you add a test.
 | `traits_primitive` | a primitive satisfies a constraint through a free function (`int cmp(int,int)`) |
 | `try_finally` | a catch-less `try`/`finally` runs the finally block and propagates to an outer catch |
 | `url` | `<url>` percent-encoding and query parsing |
+| `url_query_keys` | `url_query_get` decodes each key (`+` as space, %XX) before comparing it with the wanted key |
 | `uuid` | `<uuid>` RFC 4122 v4 from a fixed seed |
 
 ### `smoke` tests (compile + link + exit 0)

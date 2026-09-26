@@ -1,0 +1,8 @@
+[a%20b=1&c=2] [a b] -> 1 [1]
+[a+b=hi+there] [a b] -> 1 [hi there]
+[x=1&k%3Dv=2] [k=v] -> 1 [2]
+[%61=A] [a] -> 1 [A]
+[a%20b=1] [a%20b] -> 0 []
+[plain=ok&other=no] [plain] -> 1 [ok]
+[flag&x=1] [flag] -> 1 []
+[x=1] [y] -> 0 []

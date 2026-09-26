@@ -75,20 +75,27 @@ void url_decode(string s, String* out) {
     url_decode_range(s, 0, strlen(s), out, 0);
 }
 
-// Look up `key` in a query string like "a=1&msg=hi+there". On a hit, appends the
-// decoded value (with '+' as space) to `out` and returns 1; otherwise returns 0.
+// Look up `key` in a query string like "a=1&msg=hi+there". Each key in the
+// query is decoded the same way as its value ('+' as space, %XX escapes)
+// before it is compared with `key`, so "a%20b=1" and "a+b=1" both match the key
+// "a b". On a hit, appends the decoded value to `out` and returns 1; otherwise
+// returns 0.
 int url_query_get(string query, string key, String* out) {
     const int64 n = strlen(query);
     const int64 klen = strlen(key);
+    let dk: String;  String_init(&dk, 16);
+    defer String_free(&dk);
     int64 i = 0;
     while (i < n) {
         int64 j = i;
         while (j < n && query[j] != '&') { j++; }
         int64 eq = i;
         while (eq < j && query[eq] != '=') { eq++; }
-        bool hit = eq - i == klen;
+        String_clear(&dk);
+        url_decode_range(query, i, eq, &dk, 1);
+        bool hit = dk.len == klen;
         for (int64 k = 0; hit && k < klen; k++) {
-            if (query[i + k] != key[k]) { hit = false; }
+            if (dk.data[k] != key[k]) { hit = false; }
         }
         if (hit) {
             if (eq < j) { url_decode_range(query, eq + 1, j, out, 1); }
