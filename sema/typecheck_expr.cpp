@@ -1292,6 +1292,8 @@ void TypeChecker::visit(IndexExpr* node) {
             std::string cname;
             if (assignsToConst(node->base.get(), cname))
                 errorAt(node, "cannot slice read-only array '" + cname + "': a slice allows writing its elements");
+            else if (!isLvalueExpr(node->base.get()))
+                errorAt(node, "cannot slice a temporary array: store it in a variable first");
         }
         // Constant slice bounds `a[lo..hi]`: 0 <= lo <= hi on any base, and <= N into a fixed array.
         if (node->highIndex) {

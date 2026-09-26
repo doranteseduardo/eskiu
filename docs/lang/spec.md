@@ -646,7 +646,7 @@ Short-circuit evaluation applies: in `a && b`, `b` is not evaluated if `a` is fa
 
 The compound bitwise/shift operators are desugared by the parser: `x op= e` is equivalent to `x = x op e`.
 
-The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
+The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. A field or element of a temporary (`mk().x`, `arr()[0]`) is not an lvalue: it can be read, but not assigned, have its address taken, or (an array) be sliced. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
 
 Evaluation order: the address of the left-hand side is computed first (its index, pointer and call subexpressions run), then the right-hand side, then the store. So `a[f()] = g()` calls `f` before `g`, and `getp().x = g()` calls `getp` first. A compound assignment `x op= e` evaluates the address of `x` once, in the same order.
 

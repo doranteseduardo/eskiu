@@ -695,6 +695,12 @@ more and a third about 60, fixed the same way.
   program. Each branch of a conditional starts from the string state at its `#if`, a `#`
   line is a directive even inside a multi-line string, and a directive that leaves a
   comment open opens it for the following lines. Test `fmt_cases/pp_string_state`.
+- A field or element of a temporary (`mk().x`, `arr()[0]`, `mp().v`) is not storage:
+  taking its address or assigning to it is a located type error, and slicing a
+  temporary array (`mp().v[0..2]`) is "cannot slice a temporary array" in both
+  compilers (C++ failed in codegen without a location, the self-host accepted
+  `&mp().x`). Tests `errors/slice_temporary_array`, `errors/addr_of_rvalue_member`,
+  `errors/assign_rvalue_element`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

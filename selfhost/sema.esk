@@ -3366,6 +3366,7 @@ int sema_is_slice_len(Sema* s, *ExprNode e) {
 
 // An expression that denotes storage (a variable, field, element, or `*p`): it may be
 // assigned to or have its address taken. Mirrors the C++ isLvalueExpr.
+int sema_stored_base(Sema* s, *ExprNode base);
 int sema_is_lvalue(Sema* s, *ExprNode e) {
     if (e == null) { return 0; }
     if (e.kind == EK_IDENT) {
@@ -3374,15 +3375,32 @@ int sema_is_lvalue(Sema* s, *ExprNode e) {
         return 1;
     }
     if (e.kind == EK_UNARY) { return sema_streq(e.sval, "*"); }
-    if (e.kind == EK_MEMBER) { return 1 - sema_is_slice_len(s, e); }
+    if (e.kind == EK_MEMBER) {
+        if (sema_is_slice_len(s, e) == 1) { return 0; }
+        return sema_stored_base(s, e.a);
+    }
     if (e.kind == EK_INDEX) {
         if (List_len<*ExprNode>(&e.kids) > 0) { return 0; }
         // `v[i]` on a struct value calls its `operator []`, which returns a value.
         string bc = sema_canon(s, sema_infer_type(s, e.a));
         if (sema_judgeable(s, bc) == 1 && sema_is_struct(s, sema_base_name(bc)) == 1 && sema_arr_bracket(bc) < 0) { return 0; }
-        return 1;
+        return sema_stored_base(s, e.a);
     }
     return 0;
+}
+
+// A field or an array element is storage only when its struct or array is: through a
+// pointer (or a slice), or itself stored (`mk().x` and `arr()[0]` are temporaries).
+// Mirrors the C++ isLvalueExpr.
+int sema_stored_base(Sema* s, *ExprNode base) {
+    string bc = sema_canon(s, sema_strip_nullable(sema_infer_type(s, base)));
+    int n = sema_slen(bc);
+    if (n == 0) { return 1; }
+    if ((int)bc[n - 1] == 93 && !(n >= 2 && (int)bc[n - 2] == 91)) { return sema_is_lvalue(s, base); }   // T[N]
+    if ((int)bc[0] == 42 || (int)bc[n - 1] == 42) { return 1; }                                        // pointer
+    if ((int)bc[n - 1] == 93) { return 1; }                                                             // slice
+    if (sema_is_struct(s, sema_base_name(bc)) == 1) { return sema_is_lvalue(s, base); }
+    return 1;
 }
 
 // Parse an integer spelling (optional '-', decimal, 0x hex, leading-0 octal) as int64.
@@ -4319,6 +4337,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             if (sema_is_arr_ty(abt) == 1 && sema_is_readonly_lvalue(s, e.a) == 1) {
                 s.had_error = 1;             // a slice lets its elements be written
                 dprintf(2, "error: %s:%d:%d: cannot slice read-only array: a slice allows writing its elements\n", s.filename, s.line, s.col);
+            } else if (sema_is_arr_ty(abt) == 1 && sbr > 0 && (int)sbc[sbr + 1] != 93 && (int)sbc[0] != 42 && (int)sbc[sbn - 1] != 42
+                       && sema_is_lvalue(s, e.a) == 0) {
+                sema_error(s, "cannot slice a temporary array: store it in a variable first");
             }
             {
                 int64 dv = (int64)-1;   // lo <= hi on any base; the dimension only for a fixed array

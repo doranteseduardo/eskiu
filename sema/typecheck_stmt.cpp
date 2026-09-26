@@ -649,8 +649,18 @@ bool TypeChecker::isLvalueExpr(Expr* e) {
     if (auto* id = dynamic_cast<IdentExpr*>(e))
         return !lookupSymbol(id->name).empty() || !functionSignatures.count(id->name);
     if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->op == "*";
-    if (dynamic_cast<MemberExpr*>(e)) return !isSliceLen(e);
-    if (auto* ix = dynamic_cast<IndexExpr*>(e)) return !ix->highIndex && ix->opFunc.empty();
+    // A field or an array element is storage only when its struct or array is: through a
+    // pointer (or a slice), or itself stored (`mk().x` and `arr()[0]` are temporaries).
+    auto storedBase = [&](Expr* base) {
+        ty::Type bt = ty::Type::parse(normalizeType(dealiasOperand(getExpressionType(base))));
+        if (bt.kind != ty::Type::Kind::Array && bt.kind != ty::Type::Kind::Struct &&
+            bt.kind != ty::Type::Kind::Template && bt.kind != ty::Type::Kind::Named)
+            return true;
+        return isLvalueExpr(base);
+    };
+    if (auto* m = dynamic_cast<MemberExpr*>(e)) return !isSliceLen(e) && storedBase(m->base.get());
+    if (auto* ix = dynamic_cast<IndexExpr*>(e))
+        return !ix->highIndex && ix->opFunc.empty() && storedBase(ix->base.get());
     return false;
 }
 
