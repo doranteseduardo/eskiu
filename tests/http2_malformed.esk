@@ -1,0 +1,157 @@
+// RFC 9113 §8.1.1, §8.2.2, §8.3: a malformed request is a stream error. The
+// H2Server engine resets the stream with PROTOCOL_ERROR and does not call the
+// handler: an unknown or response pseudo-header, a pseudo-header after a
+// regular field or given twice, a missing :method/:scheme/:path (CONNECT needs
+// :authority and has neither :scheme nor :path), a connection-specific field,
+// `te` other than "trailers", a content-length the DATA frames do not add up
+// to, a pseudo-header in trailers. These used to reach the handler as a 200.
+// A reset block is still decoded, so the next request's HPACK references work.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int calls = 0;
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    calls++;
+    let v: String; String_init(&v, 8);
+    if (HttpRequest_header(req, "x-note", &v) != 0) { printf("  handler: x-note=%s\n", String_cstr(&v)); }
+    String_free(&v);
+    printf("  handler: %s %s body=%lld\n", String_cstr(&req.method), String_cstr(&req.path), req.body.len);
+    HttpResponse_set_body(res, "hi\n");
+}
+
+// Print the HEADERS :status and RST_STREAM codes queued in s.out, then clear it.
+void dump(H2Server* s, HpackDecoder* d) {
+    let hs: HpackHeader[8];
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame; h2_read_header(s.out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) {
+                    printf("  stream %d status ", f.stream_id);
+                    for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
+                    printf("\n");
+                }
+            }
+        }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        o += 9 + f.length;
+    }
+    s.outlen = 0;
+}
+
+// Encode the fields of `spec` ("name value|name value|...") into p. A name
+// starting with '+' is a literal with incremental indexing (§6.2.1, it joins
+// the dynamic table); "#N" is a reference to table entry N.
+int block(*uint8 p, string spec) {
+    int off = 0;
+    int i = 0;
+    while (spec[i] != 0) {
+        int ns = i;
+        while (spec[i] != 0 && spec[i] != ' ' && spec[i] != '|') { i++; }
+        const int ne = i;
+        if (spec[i] == ' ') { i++; }
+        const int vs = i;
+        while (spec[i] != 0 && spec[i] != '|') { i++; }
+        const int ve = i;
+        if (spec[i] == '|') { i++; }
+        if (spec[ns] == '#') {
+            int idx = 0;
+            for (k in ns + 1..ne) { idx = idx * 10 + ((int)spec[k] - '0'); }
+            p[off++] = (uint8)(128 | idx);
+        } else if (spec[ns] == '+') {
+            ns++;
+            p[off++] = 64;
+            off = hpack_encode_str(p, off, (*uint8)(spec + ns), ne - ns);
+            off = hpack_encode_str(p, off, (*uint8)(spec + vs), ve - vs);
+        } else {
+            off = hpack_encode_header(p, off, (*uint8)(spec + ns), ne - ns, (*uint8)(spec + vs), ve - vs);
+        }
+    }
+    return off;
+}
+
+void feed(H2Server* s, int type, int flags, int sid, *uint8 p, int len) {
+    let h: H2Frame; h.type = type; h.flags = flags; h.stream_id = sid; h.length = len;
+    H2Server_step(s, &h, p, hello);
+}
+
+const string BASE = ":method GET|:scheme http|:path /";
+
+// One request on `sid`: HEADERS (END_HEADERS, plus END_STREAM when `body` is
+// null), then `body` as one DATA frame with END_STREAM.
+void request(H2Server* s, HpackDecoder* d, *uint8 p, int sid, string tag, string spec, string body) {
+    printf("%s\n", tag);
+    const int n = block(p, spec);
+    feed(s, H2_HEADERS, body == null ? 5 : 4, sid, p, n);
+    if (body != null) {
+        const int bl = (int)strlen(body);
+        memcpy((*void)p, (*void)body, bl);
+        feed(s, H2_DATA, 1, sid, p, bl);
+    }
+    dump(s, d);
+}
+
+int main() {
+    *uint8 p = alloc<uint8>(4096);
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    let d: HpackDecoder; d.init(4096);
+    feed(s, H2_SETTINGS, 0, 0, p, 0);
+    s.outlen = 0;
+    request(s, &d, p, 1, "ok", ":method GET|:scheme http|:path /|:authority a|te trailers", null);
+    request(s, &d, p, 3, "unknown pseudo :foo", ":method GET|:scheme http|:path /|:foo x", null);
+    request(s, &d, p, 5, "pseudo after regular", ":method GET|:scheme http|x-a 1|:path /", null);
+    request(s, &d, p, 7, "duplicate :path", ":method GET|:scheme http|:path /|:path /x", null);
+    request(s, &d, p, 9, ":status in request", ":method GET|:scheme http|:path /|:status 200", null);
+    request(s, &d, p, 11, "missing :scheme", ":method GET|:path /", null);
+    request(s, &d, p, 13, "missing :path", ":method GET|:scheme http", null);
+    request(s, &d, p, 15, "missing :method", ":scheme http|:path /", null);
+    request(s, &d, p, 17, "empty :path", ":method GET|:scheme http|:path ", null);
+    request(s, &d, p, 19, "connection: close", ":method GET|:scheme http|:path /|connection close", null);
+    request(s, &d, p, 21, "keep-alive", ":method GET|:scheme http|:path /|keep-alive 5", null);
+    request(s, &d, p, 23, "proxy-connection", ":method GET|:scheme http|:path /|proxy-connection close", null);
+    request(s, &d, p, 25, "transfer-encoding", ":method GET|:scheme http|:path /|transfer-encoding chunked", null);
+    request(s, &d, p, 27, "upgrade", ":method GET|:scheme http|:path /|upgrade h2c", null);
+    request(s, &d, p, 29, "te: gzip", ":method GET|:scheme http|:path /|te gzip", null);
+    request(s, &d, p, 31, "content-length 5, no DATA", ":method POST|:scheme http|:path /|content-length 5", null);
+    request(s, &d, p, 33, "content-length 3, 2 bytes", ":method POST|:scheme http|:path /|content-length 3", "ab");
+    request(s, &d, p, 35, "content-length 2, 3 bytes", ":method POST|:scheme http|:path /|content-length 2", "abc");
+    request(s, &d, p, 37, "content-length x", ":method POST|:scheme http|:path /|content-length x", "ab");
+    request(s, &d, p, 39, "content-length 2, 2 bytes", ":method POST|:scheme http|:path /|content-length 2", "ab");
+    request(s, &d, p, 41, "CONNECT", ":method CONNECT|:authority a:443", null);
+    request(s, &d, p, 43, "CONNECT with :path", ":method CONNECT|:authority a:443|:path /", null);
+    request(s, &d, p, 45, "CONNECT without :authority", ":method CONNECT", null);
+
+    // A pseudo-header in trailers.
+    printf("pseudo-header in trailers\n");
+    int n = block(p, BASE);
+    feed(s, H2_HEADERS, 4, 47, p, n);
+    n = block(p, ":path /x");
+    feed(s, H2_HEADERS, 5, 47, p, n);
+    dump(s, &d);
+
+    // A reset request that adds to the HPACK table keeps the decoder in sync.
+    request(s, &d, p, 49, "indexed field on a reset stream", ":method GET|:scheme http|:path /|+x-note indexed|:foo x", null);
+    request(s, &d, p, 51, "reference to it", ":method GET|:scheme http|:path /|#62", null);
+
+    // DATA and trailers the peer sends on a stream we reset are ignored: no
+    // second RST_STREAM, no GOAWAY.
+    printf("frames after the reset\n");
+    n = block(p, ":method POST|:scheme http|:path /|:foo x");
+    feed(s, H2_HEADERS, 4, 53, p, n);
+    feed(s, H2_DATA, 0, 53, p, 2);
+    n = block(p, "x-t 1");
+    feed(s, H2_HEADERS, 5, 53, p, n);
+    dump(s, &d);
+    request(s, &d, p, 55, "next request", BASE, null);
+    printf("handler calls: %d\n", calls);
+    d.free();
+    H2Server_free(s);
+    free((*void)s);
+    free((*void)p);
+    return 0;
+}

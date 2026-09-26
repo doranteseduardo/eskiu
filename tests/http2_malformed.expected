@@ -1,0 +1,63 @@
+ok
+  handler: GET / body=0
+  stream 1 status 200
+unknown pseudo :foo
+  stream 3 rst 1
+pseudo after regular
+  stream 5 rst 1
+duplicate :path
+  stream 7 rst 1
+:status in request
+  stream 9 rst 1
+missing :scheme
+  stream 11 rst 1
+missing :path
+  stream 13 rst 1
+missing :method
+  stream 15 rst 1
+empty :path
+  stream 17 rst 1
+connection: close
+  stream 19 rst 1
+keep-alive
+  stream 21 rst 1
+proxy-connection
+  stream 23 rst 1
+transfer-encoding
+  stream 25 rst 1
+upgrade
+  stream 27 rst 1
+te: gzip
+  stream 29 rst 1
+content-length 5, no DATA
+  stream 31 rst 1
+content-length 3, 2 bytes
+  stream 33 rst 1
+content-length 2, 3 bytes
+  stream 35 rst 1
+content-length x
+  stream 37 rst 1
+content-length 2, 2 bytes
+  handler: POST / body=2
+  stream 39 status 200
+CONNECT
+  handler: CONNECT  body=0
+  stream 41 status 200
+CONNECT with :path
+  stream 43 rst 1
+CONNECT without :authority
+  stream 45 rst 1
+pseudo-header in trailers
+  stream 47 rst 1
+indexed field on a reset stream
+  stream 49 rst 1
+reference to it
+  handler: x-note=indexed
+  handler: GET / body=0
+  stream 51 status 200
+frames after the reset
+  stream 53 rst 1
+next request
+  handler: GET / body=0
+  stream 55 status 200
+handler calls: 5

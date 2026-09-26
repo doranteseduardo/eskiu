@@ -69,25 +69,72 @@ int h2_field_ok(HpackHeader* h) {
     return 1;
 }
 
+// 1 if a decoded value equals the cstring `v`.
+int h2_value_eq(HpackHeader* h, string v) {
+    const int n = strlen(v);
+    if (h.vlen != n) { return 0; }
+    return memcmp((*void)h.value, (*void)v, n) == 0;
+}
+
+// 1 for a connection-specific field, which HTTP/2 does not carry (RFC 9113
+// §8.2.2). `name` is lowercase (the caller compares exact bytes).
+int h2_is_conn_field(*uint8 name, int64 n) {
+    const string[5] names = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade"};
+    for (i in 0..5) {
+        const int64 k = strlen(names[i]);
+        if (n == k && memcmp((*void)name, (*void)names[i], k) == 0) { return 1; }
+    }
+    return 0;
+}
+
 // Populate an HttpRequest from decoded HPACK headers: the :method / :path
 // pseudo-headers map to the request fields; ordinary headers are appended to the
 // header block as "name: value\n" (pseudo-headers — names starting with ':' —
-// are not). The version is reported as HTTP/2.0. Returns 0, or -1 when a field
-// is malformed (h2_field_ok); the request is then left partly filled.
+// are not). The version is reported as HTTP/2.0. Returns 0; -1 when a field is
+// malformed (h2_field_ok), answered 400; or -2 when the request is malformed
+// under RFC 9113 §8.2.2 / §8.3, a stream error: a pseudo-header other than
+// :method, :scheme, :authority and :path (so also a response's :status), one
+// that repeats or follows a regular field, a connection-specific field, `te`
+// other than "trailers", or a missing :method, :scheme or :path (CONNECT
+// instead needs :authority and has neither :scheme nor :path). The request is
+// then left partly filled.
 int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
     req.version.from("HTTP/2.0");
+    int regular = 0;
+    int nmethod = 0;  int nscheme = 0;  int npath = 0;  int nauth = 0;
     for (int64 i = 0; i < n; i++) {
-        if (h2_field_ok(&hs[i]) == 0) { return -1; }
-        if (h2_name_eq(&hs[i], ":method") != 0) {
-            h2_str_set_bytes(&req.method, hs[i].value, hs[i].vlen);
-        } else if (h2_name_eq(&hs[i], ":path") != 0) {
-            h2_str_set_bytes(&req.path, hs[i].value, hs[i].vlen);
-        } else if (hs[i].nlen > 0 && hs[i].name[0] != ':') {
-            for (int64 j = 0; j < hs[i].nlen; j++) { req.headers.push((char)hs[i].name[j]); }
+        HpackHeader* h = &hs[i];
+        if (h2_field_ok(h) == 0) { return -1; }
+        if (h.name[0] == ':') {
+            if (regular != 0) { return -2; }
+            if (h2_name_eq(h, ":method") != 0) {
+                if (nmethod++ != 0) { return -2; }
+                h2_str_set_bytes(&req.method, h.value, h.vlen);
+            } else if (h2_name_eq(h, ":path") != 0) {
+                if (npath++ != 0) { return -2; }
+                h2_str_set_bytes(&req.path, h.value, h.vlen);
+            } else if (h2_name_eq(h, ":scheme") != 0) {
+                if (nscheme++ != 0) { return -2; }
+            } else if (h2_name_eq(h, ":authority") != 0) {
+                if (nauth++ != 0) { return -2; }
+            } else {
+                return -2;
+            }
+        } else {
+            regular = 1;
+            if (h2_is_conn_field(h.name, h.nlen) != 0) { return -2; }
+            if (h2_name_eq(h, "te") != 0 && h2_value_eq(h, "trailers") == 0) { return -2; }
+            for (int64 j = 0; j < h.nlen; j++) { req.headers.push((char)h.name[j]); }
             req.headers.append(": ");
-            for (int64 j = 0; j < hs[i].vlen; j++) { req.headers.push((char)hs[i].value[j]); }
+            for (int64 j = 0; j < h.vlen; j++) { req.headers.push((char)h.value[j]); }
             req.headers.push('\n');
         }
+    }
+    if (req.method.len == 0) { return -2; }
+    if (String_eq_cstr(&req.method, "CONNECT") != 0) {
+        if (nauth == 0 || nscheme != 0 || npath != 0) { return -2; }
+    } else if (nscheme == 0 || req.path.len == 0) {
+        return -2;
     }
     return 0;
 }
@@ -234,8 +281,12 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 //     2^31 - 1, bad SETTINGS values, and other protocol violations get the
 //     GOAWAY or RST_STREAM that RFC 9113 prescribes;
 //   - a header list longer than H2_MAX_HEADERS fields is answered with 431,
-//     and one without :method / :path, or with a malformed field (a CR, LF or
-//     NUL in a value, an uppercase name), with 400, without calling the handler.
+//     and one with a malformed field (a CR, LF or NUL in a value, an uppercase
+//     name) with 400, without calling the handler;
+//   - a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3: bad or missing
+//     pseudo-headers, a connection-specific field, a content-length that the
+//     DATA frames do not add up to, a pseudo-header in trailers) is a stream
+//     error: RST_STREAM PROTOCOL_ERROR, and the handler is not called.
 
 const int H2_MAX_HEADERS   = 64;          // header fields decoded per request
 const int H2_MAX_STREAMS   = 128;         // concurrent streams (advertised)
@@ -253,6 +304,8 @@ struct H2Slot {
     int   state;
     int   seq;              // arrival order: ready requests are answered first come, first served
     int   bad;              // non-zero: answer with this status and skip the handler
+    int64 clen;             // the request's content-length, or -1 if it has none
+    int64 received;         // request body bytes received (padding excluded)
     int64 recv_window;      // bytes the peer may still send on this stream
     int64 recv_unacked;     // bytes taken in but not yet credited back
     int64 send_window;      // bytes we may still send on this stream
@@ -279,6 +332,8 @@ struct H2Server {
     int    got_settings;    // the peer's first frame must be SETTINGS (§3.4)
     int    peer_goaway;     // the peer sent GOAWAY: finish what is open, then close
     int    closing;         // we sent GOAWAY: flush and close
+    int[16] reset_ids;      // streams we reset lately: their late frames are ignored (§5.4.2)
+    int    reset_n;
     *uint8 out;             // queued output for the transport
     int64  outlen;
     int64  outcap;
@@ -314,7 +369,7 @@ void H2Server_init(H2Server* s, int fd) {
     s.hbcap = 16384;
     s.hb = alloc<uint8>(s.hbcap);
     s.hblen = 0;  s.hb_sid = 0;  s.hb_end_stream = 0;  s.hb_selfdep = 0;
-    s.got_settings = 0;  s.peer_goaway = 0;  s.closing = 0;
+    s.got_settings = 0;  s.peer_goaway = 0;  s.closing = 0;  s.reset_n = 0;
     s.outcap = 4096;
     s.out = alloc<uint8>(s.outcap);
     s.outlen = 0;
@@ -348,6 +403,18 @@ void H2Server_goaway(H2Server* s, int code) {
 void H2Server_rst(H2Server* s, int sid, int code) {
     *uint8 b = H2Server_reserve(s, 13);
     s.outlen += h2_write_rst_stream(b, sid, code);
+    s.reset_ids[s.reset_n % 16] = sid;
+    s.reset_n++;
+}
+
+// 1 if we reset stream `sid` lately: the peer may still send frames it had in
+// flight, which are ignored rather than answered with another error (§5.4.2).
+int H2Server_was_reset(H2Server* s, int sid) {
+    const int n = s.reset_n < 16 ? s.reset_n : 16;
+    for (i in 0..n) {
+        if (s.reset_ids[i] == sid) { return 1; }
+    }
+    return 0;
 }
 
 void H2Server_window_update(H2Server* s, int sid, int64 inc) {
@@ -420,6 +487,23 @@ void H2Server_respond(H2Server* s, int i, escaping fn(HttpRequest*, HttpResponse
     s.outlen += h2_build_headers(b, sl.id, &sl.res);
 }
 
+// Reset the stream in slot `sl` with PROTOCOL_ERROR: its request is malformed.
+void H2Server_malformed(H2Server* s, H2Slot* sl) {
+    H2Server_rst(s, sl.id, H2_PROTOCOL_ERROR);
+    H2Server_slot_release(sl);
+}
+
+// The request in `sl` ended: 1 if it may be answered, or 0 after resetting it
+// because its body length differs from its content-length (§8.1.1).
+int H2Server_end_request(H2Server* s, H2Slot* sl) {
+    if (sl.bad == 0 && sl.clen >= 0 && sl.received != sl.clen) {
+        H2Server_malformed(s, sl);
+        return 0;
+    }
+    sl.state = H2S_READY;
+    return 1;
+}
+
 // A complete header block for stream `sid` is in s.hb: decode it (always, in
 // order, so the HPACK table stays in sync) and open or finish the stream.
 void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
@@ -449,10 +533,19 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
             H2Server_slot_release(&s.slots[at]);
             return;
         }
-        s.slots[at].state = H2S_READY;
+        for (i in 0..nh) {
+            if (s.harr[i].nlen > 0 && s.harr[i].name[0] == ':') {   // no pseudo-header in trailers (§8.1)
+                H2Server_malformed(s, &s.slots[at]);
+                return;
+            }
+        }
+        H2Server_end_request(s, &s.slots[at]);
         return;
     }
-    if (sid <= s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // a closed stream
+    if (sid <= s.conn.last_stream_id) {
+        if (H2Server_was_reset(s, sid) == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }   // a closed stream
+        return;
+    }
     s.conn.last_stream_id = sid;
     if (s.peer_goaway != 0) { H2Server_rst(s, sid, H2_REFUSED_STREAM); return; }
     int free_i = -1;
@@ -464,18 +557,27 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     sl.id = sid;
     sl.seq = s.seq++;
     sl.bad = 0;
+    sl.clen = -1;
+    sl.received = 0;
     sl.recv_window = H2_RECV_WINDOW;
     sl.recv_unacked = 0;
     sl.send_window = s.conn.remote.initial_window_size;
     sl.sent = 0;
     sl.req.init();
+    sl.state = H2S_RECEIVING;
     if (nh == -2) {
         sl.bad = 431;                                  // Request Header Fields Too Large
     } else {
-        const int filled = h2_fill_request(&sl.req, s.harr, nh);
-        if (filled != 0 || sl.req.method.len == 0 || sl.req.path.len == 0) { sl.bad = 400; }   // malformed (§8.2.1, §8.3.1)
+        int filled = h2_fill_request(&sl.req, s.harr, nh);
+        if (filled == 0) {
+            const int64 cl = http_content_length(&sl.req.headers);
+            if (cl == -1) { filled = -2; }             // an invalid content-length
+            else if (cl >= 0) { sl.clen = cl; }
+        }
+        if (filled == -2) { H2Server_malformed(s, sl); return; }   // §8.1.1, §8.2.2, §8.3
+        if (filled != 0) { sl.bad = 400; }             // a malformed field (§8.2.1)
     }
-    sl.state = end_stream != 0 ? H2S_READY : H2S_RECEIVING;
+    if (end_stream != 0) { H2Server_end_request(s, sl); }
 }
 
 // Append a header-block fragment; 0 ok, -1 if the block grew past H2_MAX_BLOCK.
@@ -516,6 +618,7 @@ void H2Server_on_data(H2Server* s, H2Frame* h, *uint8 p) {
     const int at = H2Server_find(s, h.stream_id);
     if (at < 0 || s.slots[at].state != H2S_RECEIVING) {
         if (at < 0 && h.stream_id > s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // idle stream
+        if (at < 0 && H2Server_was_reset(s, h.stream_id) != 0) { return; }
         H2Server_rst(s, h.stream_id, H2_STREAM_CLOSED);   // closed, or half-closed (remote): §5.1
         if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
         return;
@@ -527,11 +630,16 @@ void H2Server_on_data(H2Server* s, H2Frame* h, *uint8 p) {
         return;
     }
     sl.recv_window -= len;
+    sl.received += len - off - pad;
+    if (sl.bad == 0 && sl.clen >= 0 && sl.received > sl.clen) {   // more than content-length (§8.1.1)
+        H2Server_malformed(s, sl);
+        return;
+    }
     if (sl.bad == 0) {
         for (k in off..len - pad) { sl.req.body.push((char)p[k]); }
     }
     if ((h.flags & H2_FLAG_END_STREAM) != 0) {
-        sl.state = H2S_READY;                          // no more credit needed on this stream
+        H2Server_end_request(s, sl);                   // no more credit needed on this stream
         return;
     }
     sl.recv_unacked += len;

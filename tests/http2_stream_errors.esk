@@ -39,6 +39,7 @@ int reqblock(*uint8 b) {
     int off = 0;
     off = hpack_encode_header(b, off, (*uint8)":method", 7, (*uint8)"GET", 3);
     off = hpack_encode_header(b, off, (*uint8)":path", 5, (*uint8)"/", 1);
+    off = hpack_encode_header(b, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
     return off;
 }
 
