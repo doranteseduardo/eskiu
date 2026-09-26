@@ -102,7 +102,7 @@ void TypeChecker::visit(ForInStmt* node) {
 
     // Determine the element type the loop variable will bind.
     std::string elemType;
-    ty::Type itT = ty::Type::parse(itType);
+    ty::Type itT = ty::Type::parse(dealiasOperand(itType));   // through an alias (`*p`, p: *A4)
     if ((itT.kind == ty::Type::Kind::Array || itT.kind == ty::Type::Kind::Slice) && itT.elem) {
         // A fixed-size array (or slice): the element is one step in, so the rows of an
         // `int[2][3]` are `int[3]` (the leftmost bracket is the outer dimension).
