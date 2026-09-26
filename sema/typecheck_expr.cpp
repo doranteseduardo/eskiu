@@ -823,6 +823,8 @@ void TypeChecker::visit(CallExpr* node) {
         }
         // bare nominal: *Rect and Rect both resolve to Rect_method
         std::string baseType = ty::Type::parse(getExpressionType(member->base.get())).nominalName();
+        if (typeAliases.count(baseType))   // `*Alias` receiver: the aliased struct's methods
+            baseType = ty::Type::parse(normalizeType(baseType)).nominalName();
         {
             // A source-form instance receiver (`Box<int>`, e.g. a field's declared
             // type) names its mangled struct, instantiated so its inline methods exist.
@@ -1177,6 +1179,7 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     std::string recvAsSelf = recvT;
     if (selfPtr && !recvPtr) recvAsSelf = "*" + recvT;
     else if (!selfPtr && recvPtr) recvAsSelf = tyq::pointee(recvT);
+    if (selfPtr && recvPtr) recvAsSelf = "*" + dealiasOperand(tyq::pointee(recvT));   // `*Alias`
 
     std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
     std::map<std::string, std::string> subs;
