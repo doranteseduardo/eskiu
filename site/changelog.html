@@ -284,6 +284,36 @@ more and a third about 60, fixed the same way.</p>
   (<code>int x : 0</code>), as in C. <code>p - q</code> needs pointers to the same type.</li>
 <li>An enum bitfield whose enum has no negative member reads back unsigned, as in clang
   and GCC (MS layout keeps it signed): <code>Col col : 2</code> holding <code>B = 2</code> read back as -2.</li>
+<li>A bitfield whose values all fit an <code>int</code> reads as <code>int</code>, as in C: <code>u - 1</code> of a
+  <code>uint32 u : 3</code> holding 0 is -1 (it was 4294967295), and <code>uint64 a : 20</code> promotes too.
+  A postfix <code>b.f++</code> keeps the declared type, as in clang.</li>
+<li>A <code>void</code> call is not an operand of <code>&amp;&amp;</code>, <code>||</code> or a comparison, nor an argument passed
+  through <code>...</code> (<code>printf("%d", f())</code>); these were codegen crashes or invalid IR. <code>return
+  f();</code> of a <code>void</code> <code>f</code> in a <code>void</code> function, and <code>c ? f() : g()</code> with <code>void</code> arms as a
+  statement, compile and run.</li>
+<li><code>await</code> inside a <code>try</code> statement of an <code>async</code> function is a located error (it was
+  invalid IR in the self-host and "expected at least one <code>await</code>" in C++).</li>
+<li>A user operator (<code>s + s</code>, <code>s[i]</code>, <code>-s</code>, <code>s += s</code>, an overloaded <code>==</code> in a condition)
+  is a call, so it ends a global's <code>?*T</code> narrowing like a plain call. A lambda body does
+  not see a global's narrowing from where the lambda is written (it runs later), and a
+  <code>static</code> local follows the global rule (a call or a lambda may null it).</li>
+<li><code>alloc_with</code> needs a pointer to the allocator (<code>alloc_with(b, T, n)</code> with a by-value
+  <code>b</code> allocated from a copy), an alloc method of the shape <code>*void T_alloc(*T self, int64
+  size)</code> (another return type or parameter list emitted invalid IR), and a known, sized
+  element type (an unknown type or <code>void</code> crashed the C++ compiler).</li>
+<li><code>*T[N]</code> is an array of N pointers in the type checker too, as codegen always lowered
+  it: <code>*int[3] p = &amp;arr</code> and <code>*p</code> of such an array are type errors (they compiled to
+  invalid IR). The address of an array is typed <code>T[N]*</code>.</li>
+<li>The handle <code>thread_create</code> returns is a <code>*void</code> in the self-host too, so <code>int t =
+  thread_create(...)</code> is an error in both compilers. Like any <code>*void</code> it converts to
+  another pointer, <code>string</code> included (a <code>string</code> is a byte pointer).</li>
+<li>The arms of a <code>?:</code> of two unrelated pointers have no common type in the self-host
+  either (<code>*A p = c ? &amp;a : &amp;b</code>); it accepted any two pointers.</li>
+<li><code>va_arg&lt;T&gt;</code> of a type the default argument promotions widen is an error that names
+  the type to read: <code>float</code> arrives as <code>double</code>, and <code>bool</code>, <code>char</code>, <code>int8</code>, <code>int16</code>,
+  <code>uint8</code> and <code>uint16</code> as <code>int</code> (it read the wrong bytes).</li>
+<li>Without <code>-o</code>, <code>eskiuc-esk</code> writes the object <code>FILE.o</code> like <code>eskiuc</code> (it printed the
+  IR); <code>--test-codegen</code> prints the IR.</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -600,6 +630,60 @@ more and a third about 60, fixed the same way.</p>
   letter or digit (<code>\q</code>, <code>\1</code>, <code>\Z</code>, <code>[\b]</code>) is a compile error; they all matched the
   literal letter. In a class, a <code>-</code> after a shorthand is a literal (<code>[\d-z]</code> is digits,
   <code>-</code> and <code>z</code>, as in RE2); the fourth round made it an error, wrongly citing RE2.</li>
+<li><code>sizeof(var)</code> in a generic body measured the variable as an <code>int</code> (4 bytes) whatever
+  its type (<code>T[4] loc</code>, <code>B&lt;T&gt; b</code>, a lambda's local); <code>catch (T e)</code> and <code>catch (Err&lt;T&gt; e)</code>
+  in a generic body never matched, so the exception terminated the program.</li>
+<li>A slice or array of a struct with an <code>operator []</code> indexed through that operator in the
+  self-host (<code>s[i]</code> on a <code>V[]</code>, and <code>for (v in s)</code>): the operator's mangled name dropped
+  the brackets, so <code>V[]</code> named like <code>V</code>. Brackets are now part of the name in both
+  compilers.</li>
+<li>Self-host: a lambda whose type names a type parameter was rejected in a generic instance
+  (<code>return T() {...}</code>, <code>fn(T)-&gt;T d = T(T x) {...}</code>); a call to a generic variadic function
+  was emitted non-variadic (garbage arguments); an array of closures as a global or
+  <code>static</code> gave its lambdas the array as their return type (invalid IR); a union constant
+  whose member is a struct or an array was rejected without a location.</li>
+<li>A struct field, a pointee or an array of structs typed through an alias of an array
+  (<code>type AI = int[3]</code>) compiles in C++ (<code>q.b[2]</code> and <code>(*p)[2]</code> with <code>*AI p</code> were codegen
+  errors, a field alias of a struct array crashed), and <code>*AI</code> is a pointer to the array in
+  the self-host (it lowered as an array of pointers). A struct holding itself through
+  such an alias (<code>type AR = R[2]; struct R { AR a; }</code>) is rejected by C++ as by the
+  self-host (it compiled with a 4-byte field).</li>
+<li>When the target is an interface, each arm of a <code>?:</code> is boxed with its own struct's
+  vtable, so <code>I i = c ? &amp;a : &amp;b</code> with different conforming structs works in declarations,
+  assignments, returns and arguments (C++ rejected it, and the self-host called the first
+  struct's method on the second).</li>
+<li>An array dimension is an integer constant expression folded like a <code>const</code>: casts
+  truncate as in C (<code>int[(uint8)258]</code> has 2 elements), and arithmetic over numbers,
+  <code>const</code> ints and enum members works (<code>int[N + 1]</code>). Both compilers rejected anything but
+  a number or a single name. The self-host resolves an enum member as a struct field's
+  dimension (<code>int[B] a</code>, it was invalid IR).</li>
+</ul>
+<h4 id="sixth-audit-round">Sixth audit round</h4>
+<ul>
+<li>HTTP/2: <code>h2_fill_request</code> leaked 16 bytes per request (<code>String_from</code> on the already
+  allocated version String).</li>
+<li>HTTP/1: <code>HttpRequest_parse</code>, behind <code>http_serve</code> and <code>http_serve_async</code>, now frames a
+  request by RFC 9112 with the code <code>http_recv</code> uses: the body is exactly Content-Length
+  bytes (it was every byte after the head), an invalid, listed or repeated differing
+  Content-Length is rejected, and a request with no blank line after its head or a body
+  shorter than its Content-Length is incomplete instead of accepted. The new
+  <code>HttpRequest_parse_status</code> returns 0, -1 (more bytes needed) or the status (400, 413,
+  501, 505). Both servers read until the request is complete (<code>HttpConnBuf_feed</code>), so a
+  request split across TCP segments reaches the handler whole; a peer that closes early
+  gets 400, a head over 64 KiB 400 and a body over 1 MiB 413.</li>
+<li>A Host value must be uri-host [":" port] (RFC 9110 §7.2): <code>Host: a b</code>, <code>Host: a, b</code>, a
+  bad port or <code>%</code> escape is 400 in <code>http_recv</code> and <code>HttpRequest_parse</code>.</li>
+<li>A 304 response has no body and no Content-Length, and a HEAD response keeps the
+  Content-Length of its body but sends no body, in HTTP/1 (<code>HttpResponse_render_head</code>,
+  used by both servers) and HTTP/2; both sent the body.</li>
+<li>HTTP/2 trailers follow the header-field rules: an uppercase name, a CR, LF or NUL in a
+  value, a connection-specific field or <code>te</code> resets the stream with PROTOCOL_ERROR, as a
+  pseudo-header already did.</li>
+<li>Regex: <code>\s</code> is <code>[\t\n\f\r ]</code> as in RE2 (it also matched <code>\v</code>, and <code>\S</code> and <code>[^\s]</code>
+  missed it). POSIX classes in brackets (<code>[[:alpha:]]</code>, <code>[[:^digit:]]</code>, the 14 RE2
+  names) are supported; they were read as a set of letters and a stray <code>]</code>. A <code>{</code> that
+  does not start a <code>{n}</code>, <code>{n,}</code> or <code>{n,m}</code> repeat is a literal (<code>{</code>, <code>a{</code>, <code>a{,2}</code>), as
+  in RE2; it was an error.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>

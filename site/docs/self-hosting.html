@@ -112,7 +112,8 @@ pipeline is <strong>reimplemented in Eskiu</strong> under <code>selfhost/</code>
 <code>selfhost/PROMOTION_PLAN.md</code>) <code>esk_main</code> has grown into the full user-facing CLI: it
 dispatches every <code>--test-*</code> debug mode plus <code>--version</code>, takes multiple input files, and
 with <code>-o</code> assembles the IR and invokes <code>clang</code> to link a native binary (threading
-<code>--asan</code>/<code>--ubsan</code> into the link). It also owns the two subcommands: <code>run script.esk
+<code>--asan</code>/<code>--ubsan</code> into the link). Without <code>-o</code> it writes the object <code>FILE.o</code>, like the C++
+driver; <code>--test-codegen</code> prints the IR on stdout (the bootstrap pipes it to clang). It also owns the two subcommands: <code>run script.esk
 [args...]</code> compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
 <code>fmt [--check] file …</code> reindents in place via <code>fmt.esk</code>. It starts clang and the <code>run</code>
 program with <code>fork</code>/<code>execvp</code> (no shell, so any argument is passed through unchanged),

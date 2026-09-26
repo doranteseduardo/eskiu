@@ -393,7 +393,10 @@ for a global the address counts anywhere in the program. A global's narrowing al
 every call and <code>await</code>, since the callee may assign it: a test of a global earlier in a
 condition does not hold after a later operand that calls (<code>gp != null &amp;&amp; f() &amp;&amp; gp.v</code>),
 nor in a branch or ternary arm guarded by such a condition, nor after an early-exit guard
-whose condition or fall-through branch calls something.</p>
+whose condition or fall-through branch calls something. A user operator (<code>a + b</code> on a
+struct with an <code>operator +</code>) is a call too. A lambda body never sees a global's narrowing
+from where the lambda is written, since it runs later. A <code>static</code> local is one cell shared
+by every call and closure, so it follows the rule for globals.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
 <p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
@@ -409,9 +412,11 @@ int main() {
 </code></pre>
 <p>When a leading <code>*</code> meets a trailing <code>[N]</code>, the <strong>array binds outermost</strong>: <code>*T[N]</code> is an
 <em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. For example
-<code>*Node[7]</code> is seven <code>Node</code> pointers. There is no spelling for a pointer to a whole array
-(<code>T[N]*</code> does not parse); point at the first element instead, <code>*Node p = &amp;arr[0];</code>, and
-index through it (<code>p[i]</code>).</p>
+<code>*Node[7]</code> is seven <code>Node</code> pointers, so <code>*p</code> of one is an error (index it first, <code>*p[0]</code>).
+There is no source spelling for a pointer to a whole array (<code>T[N]*</code> does not parse, and
+<code>&amp;arr</code> is not a <code>*T[N]</code>); point at the first element instead, <code>*Node p = &amp;arr[0];</code>, and
+index through it (<code>p[i]</code>), or name the array with an alias: with <code>type Row = int[3]</code>, a
+<code>*Row</code> points at a whole <code>int[3]</code> (<code>(*p)[2]</code>).</p>
 <p>The same rule applies to a function type: <code>fn(int)-&gt;int[2]</code> is an <em>array of 2 function
 values</em>, not a function returning an array (a function cannot return an array), so
 <code>fs[1](41)</code> calls the second element.</p>
@@ -587,7 +592,7 @@ int main() {
     return sizeof(Ring);          // 16
 }
 </code></pre>
-<p>Array dimensions accept a decimal literal, an <code>enum</code> member, or a <code>const int</code>. <code>const</code> bindings are block-scoped like any other variable.</p>
+<p>An array dimension is an integer constant expression: literals, <code>enum</code> members and <code>const</code> ints, combined with the integer operators, <code>?:</code>, parentheses and casts to an integer type, which truncate as in C (<code>int[(uint8)258]</code> has 2 elements, <code>int[CAP * 2]</code> 8). It must be positive. <code>const</code> bindings are block-scoped like any other variable.</p>
 <p><strong><code>const</code> works on any type</strong> (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a <code>const</code> value:</p>
 <pre><code class="language-eskiu">const string name = &quot;Eskiu&quot;;   // any type may be const
 const let p: Point = Point { x: 1.0, y: 2.0 };
@@ -908,6 +913,9 @@ arms (so side effects in the unused arm never run). The condition may be a bool,
 integer, or pointer (non-zero / non-null is true). The two arms must share a common
 type: identical types pass through, two numerics promote to the wider (C-style, e.g.
 <code>int</code> and <code>double</code> yield <code>double</code>), and otherwise the arms must be mutually assignable.
+When the value goes to an interface (a declaration, assignment, return or argument of
+that type), each arm converts to it on its own, so the arms may point at different
+structs that satisfy it: <code>Shape s = round ? &amp;c : &amp;sq;</code>.
 The operator is right-associative, so <code>a ? b : c ? d : e</code> parses as <code>a ? b : (c ? d : e)</code>.</p>
 <pre><code class="language-eskiu">int m = a &gt; b ? a : b;                       // max
 char g = s &gt;= 90 ? 'A' : s &gt;= 80 ? 'B' : 'C';  // right-associative chain
@@ -1060,7 +1068,8 @@ consumed; only a bare call statement discards it.</p>
     printf(&quot;%s\n&quot;, msg);
 }
 </code></pre>
-<p>A <code>void</code> function may use <code>return;</code> with no operand or allow control to fall off the end of the body.</p>
+<p>A <code>void</code> function may use <code>return;</code> with no operand or allow control to fall off the end of the body. It may also <code>return f();</code> where <code>f</code> is itself <code>void</code> (the call runs, nothing is returned).</p>
+<p>A call to a <code>void</code> function has no value: it can be a statement, the operand of <code>return</code> in a <code>void</code> function, or both arms of a <code>?:</code> used as a statement (<code>c ? f() : g();</code>), but not an operand of an operator (<code>&amp;&amp;</code>, <code>||</code>, a comparison, arithmetic), a condition, an initializer, or an argument (also not one passed through <code>...</code>, as in <code>printf("%d", f())</code>).</p>
 <p>The one function that may not be <code>void</code> is <code>main</code>: its return value is the process exit
 code, so it must return <code>int</code> (<code>int main()</code> or <code>int main(int argc, string* argv)</code>). A
 <code>void main()</code> is a compile error.</p>
@@ -1089,7 +1098,8 @@ arrive as <code>int</code>. There is no automatic count of the arguments: pass i
 builtins takes exactly one <code>va_list</code> operand (a <code>va_list</code> may also be passed to another
 function, which then reads it with <code>va_arg</code>). <code>T</code> in <code>va_arg&lt;T&gt;</code> must be a scalar: an
 integer, a floating-point type or a pointer; a struct, union, sum type or array is a
-compile error.</p>
+compile error. So is a type the promotions widen (<code>va_arg&lt;float&gt;</code>, <code>va_arg&lt;char&gt;</code>,
+<code>va_arg&lt;int8&gt;</code>, ...): read the promoted <code>double</code> or <code>int</code> and convert it.</p>
 <h3 id="64-extern-declarations">6.4 Extern Declarations</h3>
 <p><code>extern</code> declares a C function or global variable available to Eskiu code. See §13 for details.</p>
 <h3 id="641-intrinsic-declarations">6.4.1 Intrinsic Declarations</h3>
@@ -1202,7 +1212,9 @@ thread_join(t);
 <code>&lt;eventloop&gt;</code>/<code>&lt;executor&gt;</code> runtime. Single and multiple awaits, <code>return await</code>,
 <code>x = await E</code>, <code>async void</code>, and every control-flow construct containing an await
 (<code>if</code>/<code>while</code>/C-style <code>for</code>/<code>switch</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>) are
-supported; a pending future is cancelled with <code>future_drop</code>.</p>
+supported; a pending future is cancelled with <code>future_drop</code>. An <code>await</code> inside a <code>try</code>
+statement (its body, a <code>catch</code> or the <code>finally</code>) is a compile error, as are labeled
+<code>break</code>/<code>continue</code> and an <code>await</code> inside a <code>defer</code>.</p>
 <p>An <code>async</code> function is declared with the <code>async</code> modifier before the return type. Its
 <em>declared</em> return type is the value it ultimately produces, but a <strong>call</strong> to it
 yields a <code>*Future&lt;T&gt;</code>, a handle to the eventual result, rather than <code>T</code> directly:</p>
@@ -1415,7 +1427,7 @@ first, before control leaves. A labeled jump may not escape a <code>defer</code>
 </code></pre>
 <p><code>switch</code> dispatches on an integer value. <code>break</code> exits the enclosing switch. If <code>break</code> is omitted, control falls through to the next case. The type checker validates that each <code>case</code> value is compatible with the type of the <code>switch</code> subject expression.</p>
 <h3 id="75-return">7.5 return</h3>
-<p>Returns a value from the current function. A <code>void</code> function uses <code>return;</code> with no operand.</p>
+<p>Returns a value from the current function. A <code>void</code> function uses <code>return;</code> with no operand, or <code>return f();</code> with a <code>void</code> call.</p>
 <pre><code class="language-eskiu">int sign(int x) {
     if (x &gt; 0) return 1;
     if (x &lt; 0) return -1;
@@ -1507,7 +1519,7 @@ struct Rect {
 }
 </code></pre>
 <p>Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.</p>
-<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A <code>bool</code> bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (<code>int x : 0</code> is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).</p>
+<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend); a bitfield whose values all fit an <code>int</code> (fewer than 32 bits, or at most 32 for a signed one) is read as an <code>int</code>, as C promotes it, so <code>u - 1</code> of a <code>uint32 u : 3</code> holding 0 is -1 (a postfix <code>f++</code> keeps the declared type, as in clang). Writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A <code>bool</code> bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (<code>int x : 0</code> is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).</p>
 <pre><code class="language-eskiu">struct Flags {
     uint32 ready  : 1;
     uint32 mode   : 3;
@@ -1954,7 +1966,7 @@ if (p != null) {
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 </code></pre>
 <p>Freestanding mode does not remove any other language features. The standard library modules (<code>stdlib/result.esk</code>, etc.) remain available but must not import libc functions that are absent from the target.</p>
-<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator. <code>n</code> must be an integer, and the allocator's type must have the <code>alloc</code> method (a free <code>&lt;Type&gt;_alloc</code> or an inline <code>alloc</code>); otherwise it is a compile error.</p>
+<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator. <code>n</code> must be an integer, the allocator must be a pointer to it (<code>&amp;a</code>, or a <code>*Type</code> value), its type must have the <code>alloc</code> method (a free <code>&lt;Type&gt;_alloc</code> or an inline <code>alloc</code>) of that shape (the allocator, then an integer size, returning a pointer), and <code>T</code> must be a known type with a size (not <code>void</code>); otherwise it is a compile error.</p>
 <pre><code class="language-eskiu">import &lt;alloc&gt;;
 
 *uint8 backing = alloc&lt;uint8&gt;(4096);   // one slab from the host (or a static buffer in freestanding)
@@ -2159,7 +2171,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/regex.esk</code></td>
-<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code>, <code>\d \w \s</code> (and negations), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>), <code>|</code>, groups, <code>^</code> / <code>$</code>, <code>\A</code> / <code>\z</code>, the word boundaries <code>\b</code> / <code>\B</code>, <code>\xHH</code> and octal escapes (RE2 syntax; any other escaped letter or digit is an error)</td>
+<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code> with POSIX names inside (<code>[[:alpha:]]</code>, <code>[[:^space:]]</code>), <code>\d \w \s</code> (and negations; <code>\s</code> is <code>[\t\n\f\r ]</code>), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>; any other <code>{</code> is a literal), <code>|</code>, groups, <code>^</code> / <code>$</code>, <code>\A</code> / <code>\z</code>, the word boundaries <code>\b</code> / <code>\B</code>, <code>\xHH</code> and octal escapes (RE2 syntax; any other escaped letter or digit is an error)</td>
 </tr>
 <tr>
 <td><code>stdlib/sort.esk</code></td>
@@ -2191,7 +2203,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/http.esk</code></td>
-<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_header</code>, <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>, and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, or decodes a chunked body, into a <code>*uint8</code> body; RFC 9112 framing: <code>Transfer-Encoding</code> with <code>Content-Length</code>, a missing <code>Host</code> in HTTP/1.1, whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than <code>chunked</code> 501), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
+<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_parse_status</code>/<code>_header</code> (RFC 9112 framing, the same as <code>http_recv</code>: <code>_parse_status</code> is 0 for a complete request, -1 when more bytes are needed, else the HTTP error status), <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>/<code>_render_head</code> (a HEAD response: Content-Length, no body; a 1xx, 204 or 304 has neither), and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>; it reads each request until complete (<code>HttpConnBuf_feed</code>), answering a bad one 400, 413, 501 or 505 without the handler. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, or decodes a chunked body, into a <code>*uint8</code> body; RFC 9112 framing: <code>Transfer-Encoding</code> with <code>Content-Length</code>, a missing, repeated or invalid <code>Host</code> (not uri-host [":" port]), whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than <code>chunked</code> 501), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
 </tr>
 <tr>
 <td><code>stdlib/multipart.esk</code></td>
