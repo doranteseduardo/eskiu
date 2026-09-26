@@ -13,6 +13,7 @@ int SSL_CTX_use_PrivateKey_file(void* c, const char* f, int t){ return 1; }
 void SSL_CTX_set_alpn_select_cb(void* c, void* cb, void* a){}
 void* SSL_new(void* c){ S* s = calloc(1, sizeof(S)); return s; }
 int SSL_set_fd(void* p, int fd){ ((S*)p)->fd = fd; return 1; }
+int SSL_get_fd(void* p){ return ((S*)p)->fd; }
 int SSL_accept(void* p){ return 1; }
 int SSL_read(void* p, void* b, int n){ S* s=p; ssize_t r = read(s->fd, b, n); if (r < 0) { s->err = (errno==EAGAIN)?2:5; return -1; } if (r==0){ s->err=6; return 0;} return (int)r; }
 int SSL_write(void* p, void* b, int n){ S* s=p; ssize_t r = write(s->fd, b, n); if (r < 0) { s->err = (errno==EAGAIN)?3:5; return -1; } return (int)r; }

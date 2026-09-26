@@ -26,6 +26,7 @@ int SSL_CTX_use_PrivateKey_file(*void c, string f, int t) { return 0; }
 void SSL_CTX_set_alpn_select_cb(*void c, *void cb, *void a) { }
 *void SSL_new(*void c) { return (*void)0; }
 int SSL_set_fd(*void s, int fd) { return 0; }
+int SSL_get_fd(*void s) { return -1; }
 int SSL_accept(*void s) { return 1; }
 int SSL_write(*void s, *void b, int n) { return n; }
 int SSL_shutdown(*void s) { return 0; }

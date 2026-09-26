@@ -23,6 +23,8 @@ import <http>;
 import <http2_server>;
 import <string>;
 import <channel>;
+import <net>;
+import <time>;
 
 // ── OpenSSL FFI (libssl, OpenSSL 1.1 / 3.x) ──────────────────────────────────
 extern *void TLS_server_method();
@@ -33,6 +35,7 @@ extern int   SSL_CTX_use_PrivateKey_file(*void ctx, string file, int type);
 extern void  SSL_CTX_set_alpn_select_cb(*void ctx, *void cb, *void arg);
 extern *void SSL_new(*void ctx);
 extern int   SSL_set_fd(*void ssl, int fd);
+extern int   SSL_get_fd(*void ssl);
 extern int   SSL_accept(*void ssl);
 extern int   SSL_read(*void ssl, *void buf, int n);
 extern int   SSL_write(*void ssl, *void buf, int n);
@@ -107,35 +110,71 @@ int tls_alpn_select(*void ssl, **uint8 out, *uint8 outlen, *uint8 protos, uint i
 }
 
 // Wrap an accepted socket in TLS and complete the handshake (ALPN runs here).
-// Returns the SSL* on success, null on handshake failure.
-*void tls_accept(*void ctx, int fd) {
+// Returns the SSL* on success, null on handshake failure. The handshake reads
+// give up after lim.header_ms and its writes after lim.write_ms (a peer that
+// stalls it fails it); the socket's timeouts are cleared again before returning.
+*void tls_accept_with(*void ctx, int fd, HttpLimits* lim) {
     *void ssl = SSL_new(ctx);
     if (ssl == null) { return null; }
     tls_nosigpipe(fd);
     SSL_set_fd(ssl, fd);
-    if (SSL_accept(ssl) <= 0) { SSL_free(ssl); return null; }
+    net_set_timeouts(fd, lim.header_ms, lim.write_ms);
+    const int r = SSL_accept(ssl);
+    net_set_timeouts(fd, 0, 0);
+    if (r <= 0) { SSL_free(ssl); return null; }
     return ssl;
+}
+
+// tls_accept_with under the default HttpLimits.
+*void tls_accept(*void ctx, int fd) {
+    let lim: HttpLimits;  lim.init();
+    return tls_accept_with(ctx, fd, &lim);
 }
 
 // Read exactly `n` bytes (blocking); returns the count (< n on close/error).
 int tls_read_full(*void ssl, *uint8 buf, int n) {
+    return tls_read_full_deadline(ssl, buf, n, 0);
+}
+
+// tls_read_full with a deadline (<net>'s net_deadline; 0 = none): the count,
+// or NET_TIMED_OUT once it passes. Each SSL_read waits (SO_RCVTIMEO on the
+// socket) only for what is left of the deadline.
+int tls_read_full_deadline(*void ssl, *uint8 buf, int n, int64 deadline) {
+    const int fd = deadline != 0 ? SSL_get_fd(ssl) : -1;
     int got = 0;
     while (got < n) {
+        if (deadline != 0) {
+            const int64 left = deadline - time_monotonic_ms();
+            if (left <= 0) { net_set_recv_timeout(fd, 0);  return NET_TIMED_OUT; }
+            net_set_recv_timeout(fd, left);
+        }
         const int r = SSL_read(ssl, (*void)(buf + got), n - got);
-        if (r <= 0) { return got; }
+        if (r <= 0) {
+            const int e = SSL_get_error(ssl, r);
+            if (deadline != 0 && (e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE)) { continue; }   // timed out: the check above decides
+            break;
+        }
         got += r;
     }
+    if (deadline != 0) { net_set_recv_timeout(fd, 0); }
     return got;
 }
 
 // Write all `n` bytes (blocking).
 void tls_write_all(*void ssl, *uint8 buf, int n) {
+    const int w = tls_write_all_n(ssl, buf, n);
+}
+
+// tls_write_all returning `n`, or -1 once a write fails (a closed peer, or one
+// past the socket's SO_SNDTIMEO).
+int tls_write_all_n(*void ssl, *uint8 buf, int n) {
     int sent = 0;
     while (sent < n) {
         const int w = SSL_write(ssl, (*void)(buf + sent), n - sent);
-        if (w <= 0) { return; }
+        if (w <= 0) { return -1; }
         sent += w;
     }
+    return sent;
 }
 
 void tls_close(*void ssl) { SSL_shutdown(ssl); SSL_free(ssl); }
@@ -148,11 +187,21 @@ const int TLS_H2_MAX_PAYLOAD = 16384;
 // TLS_H2_MAX_PAYLOAD + 9 bytes). Returns the payload length, -1 on close/error,
 // or -2 if the peer's frame exceeds the maximum frame size (FRAME_SIZE_ERROR).
 int tls_read_frame(*void ssl, *uint8 buf, H2Frame* hdr) {
-    if (tls_read_full(ssl, buf, 9) < 9) { return -1; }
+    return tls_read_frame_deadline(ssl, buf, hdr, 0);
+}
+
+// tls_read_frame with a deadline for the whole frame (0 = none): also
+// NET_TIMED_OUT.
+int tls_read_frame_deadline(*void ssl, *uint8 buf, H2Frame* hdr, int64 deadline) {
+    const int h = tls_read_full_deadline(ssl, buf, 9, deadline);
+    if (h == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+    if (h < 9) { return -1; }
     h2_read_header(buf, hdr);
     if (hdr.length > TLS_H2_MAX_PAYLOAD) { return -2; }
     if (hdr.length > 0) {
-        if (tls_read_full(ssl, buf + 9, hdr.length) < hdr.length) { return -1; }
+        const int p = tls_read_full_deadline(ssl, buf + 9, hdr.length, deadline);
+        if (p == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+        if (p < hdr.length) { return -1; }
     }
     return hdr.length;
 }
@@ -161,9 +210,21 @@ int tls_read_frame(*void ssl, *uint8 buf, H2Frame* hdr) {
 // through the <http2_server> H2Server engine (the same protocol handling as the
 // h2c server: flow control both ways, padding, CONTINUATION, PING, SETTINGS
 // validation) until either side ends it. Closes the TLS connection on return.
+// Under the default HttpLimits (see http2_tls_serve_conn_with).
 void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    http2_tls_serve_conn_with(ssl, handler, http_limits());
+}
+
+// http2_tls_serve_conn with the deadlines of `lim`, as the h2c server (see
+// H2Server_deadline in <http2_server>), counted from this call: the preface and
+// SETTINGS within header_ms, GOAWAY NO_ERROR and close after idle_ms with no
+// open stream, and a write the peer does not take within write_ms (SO_SNDTIMEO)
+// ends it.
+void http2_tls_serve_conn_with(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->void handler, HttpLimits lim) {
+    const int64 start = time_monotonic_ms();
+    net_set_send_timeout(SSL_get_fd(ssl), lim.write_ms);
     *uint8 pf = alloc<uint8>(24);
-    const int pn = tls_read_full(ssl, pf, 24);
+    const int pn = tls_read_full_deadline(ssl, pf, 24, _h2_dl_min(0, start, lim.header_ms));
     const bool ok = pn == 24 && h2_is_preface(pf) != 0;
     free((*void)pf);
     if (!ok) { tls_close(ssl); return; }
@@ -171,13 +232,20 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
     *uint8 fb = alloc<uint8>(TLS_H2_MAX_PAYLOAD + H2_FRAME_HEADER_LEN);
     H2Server* s = alloc<H2Server>(1);
     H2Server_init(s, -1);
+    s.start_ms = start;
     bool running = true;
     while (running) {
-        if (s.outlen > 0) { tls_write_all(ssl, s.out, (int)s.outlen); s.outlen = 0; }
+        if (s.outlen > 0) {
+            const int w = tls_write_all_n(ssl, s.out, (int)s.outlen);
+            s.outlen = 0;
+            if (w < 0) { break; }
+        }
         if (H2Server_done(s) != 0) { break; }
+        H2Server_tick(s, time_monotonic_ms());
         let fr: H2Frame;
-        const int fl = tls_read_frame(ssl, fb, &fr);
-        if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
+        const int fl = tls_read_frame_deadline(ssl, fb, &fr, H2Server_deadline(s, &lim));
+        if (fl == NET_TIMED_OUT) { running = H2Server_timed_out(s) != 0; }
+        else if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
         else if (fl < 0) { running = false; }
         else { H2Server_step(s, &fr, fb + H2_FRAME_HEADER_LEN, handler); }
     }
@@ -199,40 +267,64 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
     return ssl;
 }
 
+// Park until `fd` is ready for what SSL error `e` wants (WANT_READ: readable,
+// else writable), by `deadline` (0 = none): 0 when ready, NET_TIMED_OUT past it.
+Future<int>* _tls_wait_async(EventLoop* lp, int fd, int e, int64 deadline) {
+    return net_ready_deadline_async(lp, fd, e == SSL_ERROR_WANT_READ ? 0 : 1, deadline);
+}
+
 // Drive SSL_accept to completion over the loop. Returns 1 on success, -1 on error.
-async int tls_accept_async(EventLoop* lp, int fd, *void ssl) {
+Future<int>* tls_accept_async(EventLoop* lp, int fd, *void ssl) {
+    return tls_accept_deadline_async(lp, fd, ssl, 0);
+}
+
+// tls_accept_async with a deadline (<net>'s net_deadline; 0 = none): also
+// NET_TIMED_OUT when the handshake is not done by then.
+async int tls_accept_deadline_async(EventLoop* lp, int fd, *void ssl, int64 deadline) {
     int done = 0;
     while (done == 0) {
         int r = SSL_accept(ssl);
         if (r == 1) { return 1; }
         int e = SSL_get_error(ssl, r);
         if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
-        if (e == SSL_ERROR_WANT_READ)  { int x = await net_readable_async(lp, fd); }
-        if (e == SSL_ERROR_WANT_WRITE) { int x = await net_writable_async(lp, fd); }
+        int x = await _tls_wait_async(lp, fd, e, deadline);
+        if (x == NET_TIMED_OUT) { return NET_TIMED_OUT; }
     }
     return -1;
 }
 
 // Read once; retry across readiness on WANT_READ/WANT_WRITE. Returns bytes (>0),
 // or <= 0 on a clean close / error.
-async int tls_read_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+Future<int>* tls_read_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+    return tls_read_deadline_async(lp, fd, ssl, buf, n, 0);
+}
+
+// tls_read_async with a deadline (0 = none): also NET_TIMED_OUT.
+async int tls_read_deadline_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n, int64 deadline) {
     int done = 0;
     while (done == 0) {
         int r = SSL_read(ssl, (*void)buf, n);
         if (r > 0) { return r; }
         int e = SSL_get_error(ssl, r);
         if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
-        if (e == SSL_ERROR_WANT_READ)  { int x = await net_readable_async(lp, fd); }
-        if (e == SSL_ERROR_WANT_WRITE) { int x = await net_writable_async(lp, fd); }
+        int x = await _tls_wait_async(lp, fd, e, deadline);
+        if (x == NET_TIMED_OUT) { return NET_TIMED_OUT; }
     }
     return -1;
 }
 
 // Read exactly `n` bytes; a result < n means the peer closed.
-async int tls_read_full_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+Future<int>* tls_read_full_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+    return tls_read_full_deadline_async(lp, fd, ssl, buf, n, 0);
+}
+
+// tls_read_full_async with a deadline for all `n` bytes (0 = none): also
+// NET_TIMED_OUT.
+async int tls_read_full_deadline_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n, int64 deadline) {
     int got = 0;
     while (got < n) {
-        int r = await tls_read_async(lp, fd, ssl, buf + got, n - got);
+        int r = await tls_read_deadline_async(lp, fd, ssl, buf + got, n - got, deadline);
+        if (r == NET_TIMED_OUT) { return NET_TIMED_OUT; }
         if (r <= 0) { return got; }
         got += r;
     }
@@ -240,7 +332,13 @@ async int tls_read_full_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int 
 }
 
 // Write all `n` bytes (looping SSL_write, parking on readiness). Returns n or -1.
-async int tls_write_all_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+Future<int>* tls_write_all_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n) {
+    return tls_write_all_deadline_async(lp, fd, ssl, buf, n, 0);
+}
+
+// tls_write_all_async with a deadline (0 = none): also NET_TIMED_OUT (a peer
+// that stops reading).
+async int tls_write_all_deadline_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int n, int64 deadline) {
     int sent = 0;
     while (sent < n) {
         int w = SSL_write(ssl, (*void)(buf + sent), n - sent);
@@ -248,8 +346,8 @@ async int tls_write_all_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int 
         if (w <= 0) {
             int e = SSL_get_error(ssl, w);
             if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
-            if (e == SSL_ERROR_WANT_READ)  { int x = await net_readable_async(lp, fd); }
-            if (e == SSL_ERROR_WANT_WRITE) { int x = await net_writable_async(lp, fd); }
+            int x = await _tls_wait_async(lp, fd, e, deadline);
+            if (x == NET_TIMED_OUT) { return NET_TIMED_OUT; }
         }
     }
     return sent;
@@ -258,13 +356,21 @@ async int tls_write_all_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, int 
 // Read one whole frame over TLS into `buf` (TLS_H2_MAX_PAYLOAD + 9 bytes; header
 // into `hdr`). Returns the payload length, -1 on close/error, or -2 if the frame
 // exceeds the maximum frame size.
-async int tls_read_frame_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2Frame* hdr) {
-    int h = await tls_read_full_async(lp, fd, ssl, buf, 9);
+Future<int>* tls_read_frame_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2Frame* hdr) {
+    return tls_read_frame_deadline_async(lp, fd, ssl, buf, hdr, 0);
+}
+
+// tls_read_frame_async with a deadline for the whole frame (0 = none): also
+// NET_TIMED_OUT.
+async int tls_read_frame_deadline_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2Frame* hdr, int64 deadline) {
+    int h = await tls_read_full_deadline_async(lp, fd, ssl, buf, 9, deadline);
+    if (h == NET_TIMED_OUT) { return NET_TIMED_OUT; }
     if (h < 9) { return -1; }
     h2_read_header(buf, hdr);
     if (hdr.length > TLS_H2_MAX_PAYLOAD) { return -2; }
     if (hdr.length > 0) {
-        int p = await tls_read_full_async(lp, fd, ssl, buf + 9, hdr.length);
+        int p = await tls_read_full_deadline_async(lp, fd, ssl, buf + 9, hdr.length, deadline);
+        if (p == NET_TIMED_OUT) { return NET_TIMED_OUT; }
         if (p < hdr.length) { return -1; }
     }
     return hdr.length;
@@ -272,23 +378,37 @@ async int tls_read_frame_async(EventLoop* lp, int fd, *void ssl, *uint8 buf, H2F
 
 // The post-preface frame loop over TLS: frames through the H2Server engine
 // until either side ends the connection or the peer closes. `fb` holds
-// TLS_H2_MAX_PAYLOAD + 9 bytes.
-async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
-                                    escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+// TLS_H2_MAX_PAYLOAD + 9 bytes. Under the default HttpLimits, counted from now.
+Future<uint8>* http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
+                                        escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    return http2_tls_dispatch_async_with(lp, fd, ssl, fb, handler, http_limits(), time_monotonic_ms());
+}
+
+// http2_tls_dispatch_async with the deadlines of `lim` (see H2Server_deadline in
+// <http2_server>); `start` is when the connection began (the SETTINGS deadline
+// counts from it).
+async void http2_tls_dispatch_async_with(EventLoop* lp, int fd, *void ssl, *uint8 fb,
+                                         escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                         HttpLimits lim, int64 start) {
     H2Server* s = alloc<H2Server>(1);
     H2Server_init(s, fd);
+    s.start_ms = start;
     int running = 1;
     while (running != 0) {
         if (s.outlen > 0) {
-            int w = await tls_write_all_async(lp, fd, ssl, s.out, (int)s.outlen);
+            int64 wdl = net_deadline(lim.write_ms);
+            int w = await tls_write_all_deadline_async(lp, fd, ssl, s.out, (int)s.outlen, wdl);
             s.outlen = 0;
             if (w < 0) { running = 0; }
         }
         if (running != 0 && H2Server_done(s) != 0) { running = 0; }
         if (running != 0) {
+            H2Server_tick(s, time_monotonic_ms());
+            int64 dl = H2Server_deadline(s, &lim);
             let fr: H2Frame;
-            int fl = await tls_read_frame_async(lp, fd, ssl, fb, &fr);
-            if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
+            int fl = await tls_read_frame_deadline_async(lp, fd, ssl, fb, &fr, dl);
+            if (fl == NET_TIMED_OUT) { running = H2Server_timed_out(s); }
+            else if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
             else if (fl < 0) { running = 0; }
             else { H2Server_step(s, &fr, fb + H2_FRAME_HEADER_LEN, handler); }
         }
@@ -300,35 +420,64 @@ async void http2_tls_dispatch_async(EventLoop* lp, int fd, *void ssl, *uint8 fb,
 // Serve one h2-over-TLS connection asynchronously over the event loop: the SSL
 // handshake (ALPN -> h2), the client preface, then the frame loop. Detached per
 // connection by http2_tls_serve_async, so many TLS connections share one thread.
-async void http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
-                                escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                                Chan<int>* done) {
+// The handshake and the preface must be done within lim.header_ms of the
+// accept; then the h2c deadlines apply. `open` (may be null) is decremented on
+// the way out.
+async void http2_tls_conn_async_with(EventLoop* lp, int fd, *void ctx,
+                                     escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                     Chan<int>* done, HttpLimits lim, *int open) {
     net_set_nonblocking(fd);
+    int64 start = time_monotonic_ms();
+    int64 hdl = _h2_dl_min(0, start, lim.header_ms);
     *void ssl = tls_new(ctx, fd);
     int ok = 0;
-    if (ssl != null) { ok = await tls_accept_async(lp, fd, ssl); }
+    if (ssl != null) { ok = await tls_accept_deadline_async(lp, fd, ssl, hdl); }
     if (ok == 1) {
         *uint8 fb = alloc<uint8>(TLS_H2_MAX_PAYLOAD + H2_FRAME_HEADER_LEN);
-        int pn = await tls_read_full_async(lp, fd, ssl, fb, 24);
-        if (pn == 24 && h2_is_preface(fb) != 0) { await http2_tls_dispatch_async(lp, fd, ssl, fb, handler); }
+        int pn = await tls_read_full_deadline_async(lp, fd, ssl, fb, 24, hdl);
+        if (pn == 24 && h2_is_preface(fb) != 0) { await http2_tls_dispatch_async_with(lp, fd, ssl, fb, handler, lim, start); }
         free((*void)fb);
     }
     if (ssl != null) { tls_close(ssl); }
     net_close(fd);
+    if (open != null) { *open = *open - 1; }
     Chan_send<int>(done, 1);
 }
 
-// Accept and serve `max_conns` TLS connections concurrently over one event loop.
-async void http2_tls_serve_async(EventLoop* lp, int listen_fd, *void ctx,
-                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                                 int max_conns) {
+// http2_tls_conn_async_with under the default HttpLimits.
+Future<uint8>* http2_tls_conn_async(EventLoop* lp, int fd, *void ctx,
+                                    escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                    Chan<int>* done) {
+    return http2_tls_conn_async_with(lp, fd, ctx, handler, done, http_limits(), null);
+}
+
+// Accept and serve `max_conns` TLS connections concurrently over one event loop,
+// at most lim.max_open at once (one past that is closed right away).
+async void http2_tls_serve_async_with(EventLoop* lp, int listen_fd, *void ctx,
+                                      escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                      int max_conns, HttpLimits lim) {
     Chan<int>* done = chan_new<int>(max_conns);
+    *int open = alloc<int>(1);
     for (int accepted = 0; accepted < max_conns; accepted++) {
         int c = await net_accept_retry_async(lp, listen_fd);   // a failed accept is retried, never served
-        spawn(http2_tls_conn_async(lp, c, ctx, handler, done));
+        if (lim.max_open > 0 && *open >= lim.max_open) {
+            net_close(c);                               // over the limit: refused
+            Chan_send<int>(done, 1);
+        } else {
+            *open = *open + 1;
+            spawn(http2_tls_conn_async_with(lp, c, ctx, handler, done, lim, open));
+        }
     }
     for (int finished = 0; finished < max_conns; finished++) {
         int sig = await Chan_recv(done);
     }
+    free((*void)open);
     Chan_free<int>(done);
+}
+
+// http2_tls_serve_async_with under the default HttpLimits.
+Future<uint8>* http2_tls_serve_async(EventLoop* lp, int listen_fd, *void ctx,
+                                     escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                     int max_conns) {
+    return http2_tls_serve_async_with(lp, listen_fd, ctx, handler, max_conns, http_limits());
 }
