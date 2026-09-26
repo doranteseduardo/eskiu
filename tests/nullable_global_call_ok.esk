@@ -1,0 +1,16 @@
+extern int printf(string fmt, ...);
+struct S { int v; }
+?*S gp = null;
+int show(int v) { printf("v=%d\n", v); return v; }
+int first() {
+    if (gp == null) { show(0); return 0; }
+    return gp.v;
+}
+int main() {
+    S s = S{v: 7};
+    gp = &s;
+    if (gp != null && show(gp.v) == 7) { printf("ok\n"); }
+    if (show(1) == 1 && gp != null) { printf("%d\n", gp.v); }
+    printf("%d\n", first());
+    return 0;
+}

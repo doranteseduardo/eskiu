@@ -83,7 +83,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          constraint_inferred_unsat constraint_inferred_prim constraint_multi_one_missing constraint_struct_param constraint_method_signature constraint_unknown_iface sizeof_generic_uninstantiated alias_unknown_target alias_generic_not_imported alias_cycle_generic
          lambda_reconciled_return nullable_non_pointer await_non_future ptr_arith_to_int string_arith_to_int ternary_void_arms
          macro_unterminated_call closure_captured_field_write method_param_self operator_arity alias_nullable_deref nullable_global_call nullable_addr_taken enum_value_cycle enum_value_cycle_generic generic_variant_arg_type generic_variant_bare struct_lit_generic_bare struct_lit_not_generic cast_from_interface global_init_const_drop global_init_type constraint_self_param scalar_brace_init ptr_conv_unrelated union_two_members global_forward_ref fn_forward_global global_shift_range generic_void_field void_slice array_size_nonconst question_float_ok
-         switch_dup_cast_trunc closure_param_captured_escaping closure_param_thread_capture closure_param_local_lambda_escapes"
+         switch_dup_cast_trunc closure_param_captured_escaping closure_param_thread_capture closure_param_local_lambda_escapes
+         nullable_global_call_in_cond nullable_global_call_ternary nullable_global_call_guard nullable_global_call_branch"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

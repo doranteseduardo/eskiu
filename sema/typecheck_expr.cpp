@@ -359,6 +359,9 @@ void TypeChecker::condNarrowings(Expr* cond, bool whenTrue, std::vector<std::str
         }
         break;
     }
+    // A call may assign any global: a global proven non-null by an earlier operand is
+    // not proven after this one runs.
+    if (exprHasCall(cond)) dropGlobalKeys(keys);
     if (auto* b = dynamic_cast<BinaryExpr*>(cond)) {
         if (b->op == "!=" || b->op == "==") {
             auto isNull = [](Expr* e) {
@@ -428,11 +431,29 @@ void TypeChecker::markAddrTakenIn(Expr* e) {
 }
 
 void TypeChecker::dropGlobalNarrowings() {
+    ++callEpoch;
     for (auto it = narrowedNonNull.begin(); it != narrowedNonNull.end();) {
         size_t at = it->rfind('@');
         if (at != std::string::npos && it->compare(at, std::string::npos, "@0") == 0) it = narrowedNonNull.erase(it);
         else ++it;
     }
+}
+
+// The keys of global variables (scope 0) removed from `keys`.
+void TypeChecker::dropGlobalKeys(std::vector<std::string>& keys) {
+    keys.erase(std::remove_if(keys.begin(), keys.end(), [](const std::string& k) {
+        size_t at = k.rfind('@');
+        return at != std::string::npos && k.compare(at, std::string::npos, "@0") == 0;
+    }), keys.end());
+}
+
+// Whether evaluating `e` makes a call (a lambda body is not evaluated there).
+bool TypeChecker::exprHasCall(Expr* e) {
+    if (!e || dynamic_cast<LambdaExpr*>(e)) return false;
+    if (dynamic_cast<CallExpr*>(e) || dynamic_cast<TemplateCallExpr*>(e) || dynamic_cast<AwaitExpr*>(e)) return true;
+    bool found = false;
+    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = exprHasCall(c.get()); });
+    return found;
 }
 
 void TypeChecker::undoNarrowings(const std::vector<std::string>& inserted) {

@@ -252,6 +252,12 @@ private:
     void markAddrTaken(const std::set<std::string>& names);
     // A call (or an await) may run code that assigns any global: its narrowing ends.
     void dropGlobalNarrowings();
+    static void dropGlobalKeys(std::vector<std::string>& keys);
+    static bool exprHasCall(Expr* e);
+    // Bumped by every call (dropGlobalNarrowings); visit(IfStmt) records whether its
+    // then/else paths made a call, for the early-exit guard after it.
+    int callEpoch = 0;
+    bool lastIfThenCalled = false, lastIfElseCalled = false;
     std::string narrowKey(const std::string& name) const;
     // Keys of the `?*T` variables proven non-null when `cond` evaluates to `whenTrue`
     // (`p != null`, `p == null` false, `p`, `!c`, `a && b` true, `a || b` false).

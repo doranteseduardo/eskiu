@@ -38,8 +38,14 @@ void TypeChecker::visit(BlockStmt* node) {
                 bool thenExits = !stmtCanCompleteNormally(ifs->thenBranch.get());
                 bool elseExits = ifs->elseBranch && !stmtCanCompleteNormally(ifs->elseBranch.get());
                 std::vector<std::string> keys;
-                if (thenExits && !elseExits) condNarrowings(ifs->condition.get(), false, keys);
-                else if (elseExits && !thenExits) condNarrowings(ifs->condition.get(), true, keys);
+                // A call on the path that falls through may have assigned a global.
+                if (thenExits && !elseExits) {
+                    condNarrowings(ifs->condition.get(), false, keys);
+                    if (lastIfElseCalled) dropGlobalKeys(keys);
+                } else if (elseExits && !thenExits) {
+                    condNarrowings(ifs->condition.get(), true, keys);
+                    if (lastIfThenCalled) dropGlobalKeys(keys);
+                }
                 for (auto& k : applyNarrowings(keys)) guardNarrowed.push_back(k);
             }
         }
@@ -53,6 +59,7 @@ void TypeChecker::visit(IfStmt* node) {
     // An `else if` chain is walked with a loop; each link's else-narrowings stay in
     // force for the links after it and are undone, innermost first, at the end.
     std::vector<std::vector<std::string>> elseNarrowed;
+    int thenStart = callEpoch, thenEnd = callEpoch;
     for (IfStmt* n = node; n;) {
         if (n->condition) {
             warnAssignInCondition(n->condition.get());
@@ -65,7 +72,9 @@ void TypeChecker::visit(IfStmt* node) {
             std::vector<std::string> keys;
             condNarrowings(n->condition.get(), true, keys);
             auto inserted = applyNarrowings(keys);
+            if (n == node) thenStart = callEpoch;
             n->thenBranch->accept(this);
+            if (n == node) thenEnd = callEpoch;
             undoNarrowings(inserted);
         }
         IfStmt* next = nullptr;
@@ -79,6 +88,8 @@ void TypeChecker::visit(IfStmt* node) {
         n = next;
     }
     for (size_t i = elseNarrowed.size(); i-- > 0;) undoNarrowings(elseNarrowed[i]);
+    lastIfThenCalled = thenEnd != thenStart;
+    lastIfElseCalled = callEpoch != thenEnd;
 }
 
 void TypeChecker::visit(ForInStmt* node) {
