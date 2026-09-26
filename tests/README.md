@@ -398,6 +398,7 @@ when you add a test.
 | `http_response_header_inject` | `HttpResponse_header` refuses (returns 0) a non-token name or a value with CR/LF (it forged a second header line), a handler's Content-Length is not sent next to the automatic one (a 304 keeps it), and the HTTP/2 encoder drops a hand-written line with a bad name or an LF |
 | `http_conn_feed_incremental` | `HttpConnBuf_feed` parses the head once and decodes a chunked body as it arrives (it reparsed the whole request on every read: quadratic CPU for small reads); a chunk-size or trailer line over `HTTP_CHUNK_LINE_MAX` is 400 |
 | `http_async_slow_reader` | `http_serve_async` writes answers through `net_write_async` on a non-blocking socket, so a client that never reads an 8 MB answer no longer stalls the loop and the other client (`net_set_nonblocking` was also a no-op on arm64 macOS: `fcntl` is variadic) |
+| `http2_body_limit` | The HTTP/2 engine buffers at most `s.max_body` bytes per request body and `s.max_buffered` per connection: a request past either (or with a content-length past `max_body`) is answered 413 without the handler and reset with NO_ERROR (DATA used to be buffered without limit while the window credit came back) |
 
 ### `smoke` tests (compile + link + exit 0)
 

@@ -1,0 +1,135 @@
+// The HTTP/2 engine bounds the request bodies it buffers: s.max_body per
+// stream (default 1 MB, as HTTP/1.1) and s.max_buffered per connection
+// (default 4 MB). A request past either, or whose content-length is past
+// max_body, is answered 413 without the handler and its stream reset with
+// NO_ERROR. Every DATA frame used to be appended while WINDOW_UPDATE gave the
+// credit back, so 128 streams could buffer without limit (400 MB here).
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int calls = 0;
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    calls++;
+    printf("  handler %s body %d\n", req.path.cstr(), (int)req.body.len);
+    HttpResponse_set_body(res, "ok\n");
+}
+
+// Print the :status of each HEADERS and each RST_STREAM code queued in s.out.
+void dump(H2Server* s, HpackDecoder* d) {
+    let hs: HpackHeader[8];
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame;  h2_read_header(s.out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) {
+                    printf("  stream %d status ", f.stream_id);
+                    for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
+                    printf("\n");
+                }
+            }
+        }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        o += 9 + f.length;
+    }
+    s.outlen = 0;
+}
+
+void feed(H2Server* s, int type, int flags, int sid, *uint8 p, int len) {
+    let h: H2Frame;  h.type = type;  h.flags = flags;  h.stream_id = sid;  h.length = len;
+    H2Server_step(s, &h, p, handler);
+}
+
+// HEADERS for a POST to `path` (END_HEADERS, END_STREAM if `end`), with a
+// content-length when `clen` >= 0.
+void post(H2Server* s, *uint8 p, int sid, string path, int clen, bool end) {
+    int off = 0;
+    off = hpack_encode_header(p, off, (*uint8)":method", 7, (*uint8)"POST", 4);
+    off = hpack_encode_header(p, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    off = hpack_encode_header(p, off, (*uint8)":path", 5, (*uint8)path, strlen(path));
+    if (clen >= 0) {
+        let v: String;  v.init(16);  v.from_int(clen);
+        off = hpack_encode_header(p, off, (*uint8)"content-length", 14, (*uint8)v.cstr(), v.len);
+        v.free();
+    }
+    feed(s, H2_HEADERS, end ? 5 : 4, sid, p, off);
+}
+
+H2Server* server() {
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    *uint8 none = alloc<uint8>(1);
+    feed(s, H2_SETTINGS, 0, 0, none, 0);
+    free((*void)none);
+    s.outlen = 0;
+    return s;
+}
+
+void done(H2Server* s) {
+    H2Server_free(s);
+    free((*void)s);
+}
+
+int main() {
+    *uint8 p = alloc<uint8>(16384);
+    let d: HpackDecoder;  d.init(4096);
+
+    printf("small limits (max_body 1000, max_buffered 3000):\n");
+    H2Server* s = server();
+    s.max_body = 1000;
+    s.max_buffered = 3000;
+    post(s, p, 1, "/over", -1, false);
+    feed(s, H2_DATA, 0, 1, p, 600);
+    feed(s, H2_DATA, 0, 1, p, 600);            // past max_body: 413 + reset
+    dump(s, &d);
+    feed(s, H2_DATA, 1, 1, p, 600);            // late DATA on the reset stream: ignored
+    dump(s, &d);
+    post(s, p, 3, "/clen", 5000, false);       // content-length past max_body
+    dump(s, &d);
+    post(s, p, 5, "/fits", 1000, false);
+    feed(s, H2_DATA, 1, 5, p, 1000);           // exactly max_body: served
+    dump(s, &d);
+    post(s, p, 7, "/a", -1, false);
+    post(s, p, 9, "/b", -1, false);
+    post(s, p, 11, "/c", -1, false);
+    feed(s, H2_DATA, 0, 7, p, 900);
+    feed(s, H2_DATA, 0, 9, p, 900);
+    feed(s, H2_DATA, 0, 11, p, 900);
+    post(s, p, 13, "/d", -1, false);
+    feed(s, H2_DATA, 0, 13, p, 900);           // the connection's bodies past max_buffered
+    dump(s, &d);
+    feed(s, H2_DATA, 1, 7, p, 0);
+    feed(s, H2_DATA, 1, 9, p, 0);
+    feed(s, H2_DATA, 1, 11, p, 0);
+    dump(s, &d);
+    printf("calls %d closing %d\n", calls, s.closing);
+    done(s);
+
+    printf("defaults, 128 streams sending 16 KB DATA frames:\n");
+    s = server();
+    calls = 0;
+    for (k in 0..128) { post(s, p, 1 + 2 * k, "/", -1, false); }
+    int64 peak = 0;
+    int resets = 0;
+    for (r in 0..40) {
+        for (k in 0..128) { feed(s, H2_DATA, 0, 1 + 2 * k, p, 16384); }
+        const int64 b = H2Server_buffered(s);
+        if (b > peak) { peak = b; }
+        int64 o = 0;
+        while (o + 9 <= s.outlen) {
+            let f: H2Frame;  h2_read_header(s.out + o, &f);
+            if (f.type == H2_RST_STREAM && h2_get_u32(s.out + o + 9, 0) == H2_NO_ERROR) { resets++; }
+            o += 9 + f.length;
+        }
+        s.outlen = 0;                           // the transport wrote our frames
+    }
+    printf("peak buffered <= max_buffered: %s, streams answered 413: %d, calls %d, closing %d\n",
+           peak <= s.max_buffered ? "yes" : "no", resets, calls, s.closing);
+    done(s);
+    d.free();
+    free((*void)p);
+    return 0;
+}
