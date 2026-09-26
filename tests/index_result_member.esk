@@ -1,0 +1,19 @@
+extern int printf(string fmt, ...);
+// A member of an indexed element: the result of an overloaded `[]` (an rvalue), and an
+// element of an array of slices (`.len`).
+struct M { int v; int[2] pair; }
+struct W { M[3] ms; }
+M operator [](W w, int i) { return w.ms[i]; }
+type IS = int[];
+int main() {
+    let w: W;
+    w.ms[2] = M{3, {4, 5}};
+    w.ms[1].v = 7;
+    printf("%d %d %d\n", w[2].v, w[2].pair[1], w[1].v + w[2].v);
+    int[5] base = {1, 2, 3, 4, 5};
+    IS[2] sl;
+    sl[1] = base[0..2];
+    sl[0] = base[1..5];
+    printf("%d %d %d\n", (int)sl[1].len, (int)sl[0].len, sl[0][3]);
+    return 0;
+}

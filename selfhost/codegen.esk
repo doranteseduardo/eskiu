@@ -3582,6 +3582,9 @@ CgVal cg_lval(Codegen* g, *ExprNode e) {
     }
     if (e.kind == EK_INDEX) {
         string bet = cg_etype(g, e.a);
+        // An overloaded `w[i]` is a call: its result is an rvalue with no address (a
+        // member read of it, `w[i].v`, materializes it; see cg_member_baseptr).
+        if (List_len<*ExprNode>(&e.kids) == 0 && cg_op_resolve(g, "[]", bet, cg_etype(g, e.b))[0] != 0) { return v; }
         CgVal idx = cg_expr(g, e.b);
         string t = cg_tmp(g);
         string ity = idx.ty;                            // index keeps its own width (i32/i64)

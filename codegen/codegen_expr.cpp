@@ -1274,7 +1274,8 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
         throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + member->member + "'");
     }
 
-    if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
+    // An overloaded `w[i]` is a call: its result is an rvalue (materialized below).
+    if (auto index = dynamic_cast<IndexExpr*>(expr.get()); index && index->opFunc.empty()) {
         // `a[i] = x` — element address for array / slice / pointer / string bases.
         llvm::Value* idx = evaluateExpr(index->index);
         return indexElemAddr(index->base, idx);
