@@ -673,6 +673,17 @@ int sema_known_type(Sema* s, string t) {
 // (mirrors the C++ validateStructType).
 int sema_fold_int(Sema* s, *ExprNode e, int64* out);
 string sema_trim_sub(string s, int a, int b);
+// A name in a dimension expression: a classic enum member or an in-scope `const` int.
+int sema_dim_name(Sema* s, string nm, int64* out) {
+    int64 ev = sema_dim_value(s, nm);
+    if (ev >= (int64)0) { *out = ev; return 1; }
+    int si = sema_sym_index(s, nm);
+    if (si < 0) { return 0; }
+    Sym sy = List_get<Sym>(&s.syms, si);
+    if (sy.depth == 0 && sema_in_list(&s.late_globals, nm) == 1) { return 0; }
+    if (sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, out) == 1) { return 1; }
+    return 0;
+}
 // Each fixed-array dimension `[N]` of `t` (a number, an enum member, or a `const` int)
 // must be positive (mirrors the C++ checkArrayDim).
 void sema_check_dims(Sema* s, string t) {
@@ -693,6 +704,11 @@ void sema_check_dims(Sema* s, string t) {
                     int later = 0;                    // a global declared further down is not in scope yet
                     if (sy.depth == 0 && sema_in_list(&s.late_globals, dim) == 1) { later = 1; }
                     if (later == 0 && sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, &v) == 1) { known = 1; }
+                }
+                // An integer constant expression (`(uint8)258`, `N*2`), folded like a `const`
+                // (mirrors the C++ checkArrayDim).
+                if (known == 0 && si < 0) {
+                    known = ast_fold_dim(dim, int(string nm, *int64 out) { return sema_dim_name(s, nm, out); }, &v);
                 }
             }
             if (known == 1 && v <= (int64)0) {

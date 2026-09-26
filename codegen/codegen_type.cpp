@@ -22,6 +22,14 @@ bool CodeGen::resolveArrayDim(const std::string& dim, uint64_t& out) const {
     if (e != enumConstants.end()) { out = (uint64_t)e->second; return true; }
     auto c = constInts.find(dim);
     if (c != constInts.end())     { out = (uint64_t)c->second; return true; }
+    // An integer constant expression (`(uint8)258`, `N*2`), as the type checker folds it.
+    long long v = 0;
+    bool folded = ty::foldDim(dim, [&](const std::string& n, long long& r) {
+        if (auto en = enumConstants.find(n); en != enumConstants.end()) { r = en->second; return true; }
+        if (auto cn = constInts.find(n); cn != constInts.end()) { r = cn->second; return true; }
+        return false;
+    }, v);
+    if (folded && v > 0) { out = (uint64_t)v; return true; }
     return false;
 }
 

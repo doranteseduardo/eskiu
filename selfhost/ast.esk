@@ -917,3 +917,187 @@ int ast_stable_place(*ExprNode e) {
     }
     return 0;
 }
+
+// ── array dimensions as integer constant expressions (mirrors the C++ ty::foldDim) ──
+
+// The fold state over a dimension's text: the parser keeps the tokens' text
+// (`(uint8)258`, `N*2`). `look`, passed down the recursion, resolves a name (a `const`
+// int or an enum member): it stores the value and returns 1, or returns 0.
+struct DimFold { string s; int i; int n; int ok; }
+
+int ast_df_at(DimFold* f, string op) {
+    int k = 0;
+    while (op[k] != 0) {
+        if (f.i + k >= f.n || f.s[f.i + k] != op[k]) { return 0; }
+        k = k + 1;
+    }
+    return 1;
+}
+int ast_df_ident_start(int c) { if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95) { return 1; } return 0; }
+int ast_df_ident_char(int c) { if (ast_df_ident_start(c) == 1 || (c >= 48 && c <= 57)) { return 1; } return 0; }
+string ast_df_ident(DimFold* f) {
+    int b = f.i;
+    while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) { f.i = f.i + 1; }
+    int len = f.i - b;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)f.s[b + k]; k = k + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+// A cast of `v` to integer type `t` (truncating like C) into `r`; 0 when `t` is not one.
+int ast_df_cast(string t, int64 v, int64* r) {
+    if (ast_streq(t, "int8") == 1) { *r = (int64)(int8)v; return 1; }
+    if (ast_streq(t, "uint8") == 1 || ast_streq(t, "char") == 1) { *r = (int64)(uint8)v; return 1; }
+    if (ast_streq(t, "int16") == 1) { *r = (int64)(int16)v; return 1; }
+    if (ast_streq(t, "uint16") == 1) { *r = (int64)(uint16)v; return 1; }
+    if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1) { *r = (int64)(int)v; return 1; }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) { *r = (int64)(uint)v; return 1; }
+    if (ast_streq(t, "int64") == 1 || ast_streq(t, "uint64") == 1) { *r = v; return 1; }
+    if (ast_streq(t, "bool") == 1) { if (v != (int64)0) { *r = (int64)1; } else { *r = (int64)0; } return 1; }
+    return 0;
+}
+int64 ast_df_ternary(DimFold* f, fn(string, *int64)->int look);
+int64 ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
+    if (f.ok == 0 || f.i >= f.n) { f.ok = 0; return (int64)0; }
+    int c = (int)f.s[f.i];
+    if (c == 45) { f.i = f.i + 1; return (int64)0 - ast_df_unary(f, look); }          // '-'
+    if (c == 43) { f.i = f.i + 1; return ast_df_unary(f, look); }                     // '+'
+    if (c == 126) { f.i = f.i + 1; return ~ast_df_unary(f, look); }                   // '~'
+    if (c == 33) {                                                              // '!'
+        f.i = f.i + 1;
+        if (ast_df_unary(f, look) == (int64)0) { return (int64)1; }
+        return (int64)0;
+    }
+    if (c == 40) {                                                              // '('
+        f.i = f.i + 1;
+        int save = f.i;
+        if (f.i < f.n && ast_df_ident_start((int)f.s[f.i]) == 1) {             // `(type)x`, a cast
+            string t = ast_df_ident(f);
+            int64 probe = (int64)0;
+            if (ast_df_at(f, ")") == 1 && ast_df_cast(t, (int64)0, &probe) == 1) {
+                f.i = f.i + 1;
+                int64 r = (int64)0;
+                ast_df_cast(t, ast_df_unary(f, look), &r);
+                return r;
+            }
+            f.i = save;
+        }
+        int64 v = ast_df_ternary(f, look);
+        if (ast_df_at(f, ")") == 0) { f.ok = 0; return (int64)0; }
+        f.i = f.i + 1;
+        return v;
+    }
+    if (c >= 48 && c <= 57) {                                                   // a number
+        int b = f.i;
+        while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) { f.i = f.i + 1; }
+        int64 base = (int64)10; int k = b;
+        if (f.i - b > 1 && f.s[b] == '0' && (f.s[b + 1] == 'x' || f.s[b + 1] == 'X')) { base = (int64)16; k = b + 2; }
+        else if (f.i - b > 1 && f.s[b] == '0') { base = (int64)8; k = b + 1; }
+        if (k >= f.i) { f.ok = 0; return (int64)0; }
+        int64 v = (int64)0;
+        while (k < f.i) {
+            int ch = (int)f.s[k]; int64 d = (int64)99;
+            if (ch >= 48 && ch <= 57) { d = (int64)(ch - 48); }
+            else if (ch >= 97 && ch <= 102) { d = (int64)(ch - 87); }
+            else if (ch >= 65 && ch <= 70) { d = (int64)(ch - 55); }
+            if (d >= base) { f.ok = 0; return (int64)0; }
+            v = v * base + d;
+            k = k + 1;
+        }
+        return v;
+    }
+    if (ast_df_ident_start(c) == 1) {
+        string nm = ast_df_ident(f);
+        int64 v = (int64)0;
+        if (look(nm, &v) == 0) { f.ok = 0; }
+        return v;
+    }
+    f.ok = 0;
+    return (int64)0;
+}
+// The binary operator at the cursor for precedence `level` (0 `||` .. 9 `*`), or "".
+string ast_df_op(DimFold* f, int level) {
+    string two = "";
+    if (ast_df_at(f, "||") == 1) { two = "||"; } else if (ast_df_at(f, "&&") == 1) { two = "&&"; }
+    else if (ast_df_at(f, "==") == 1) { two = "=="; } else if (ast_df_at(f, "!=") == 1) { two = "!="; }
+    else if (ast_df_at(f, "<=") == 1) { two = "<="; } else if (ast_df_at(f, ">=") == 1) { two = ">="; }
+    else if (ast_df_at(f, "<<") == 1) { two = "<<"; } else if (ast_df_at(f, ">>") == 1) { two = ">>"; }
+    if (level == 0 && ast_streq(two, "||") == 1) { return two; }
+    if (level == 1 && ast_streq(two, "&&") == 1) { return two; }
+    if (level == 5 && (ast_streq(two, "==") == 1 || ast_streq(two, "!=") == 1)) { return two; }
+    if (level == 6 && (ast_streq(two, "<=") == 1 || ast_streq(two, ">=") == 1)) { return two; }
+    if (level == 7 && (ast_streq(two, "<<") == 1 || ast_streq(two, ">>") == 1)) { return two; }
+    if (two[0] != 0 || f.i >= f.n) { return ""; }
+    int c = (int)f.s[f.i];
+    if (level == 2 && c == 124) { return "|"; }
+    if (level == 3 && c == 94) { return "^"; }
+    if (level == 4 && c == 38) { return "&"; }
+    if (level == 6 && c == 60) { return "<"; }
+    if (level == 6 && c == 62) { return ">"; }
+    if (level == 8 && c == 43) { return "+"; }
+    if (level == 8 && c == 45) { return "-"; }
+    if (level == 9 && c == 42) { return "*"; }
+    if (level == 9 && c == 47) { return "/"; }
+    if (level == 9 && c == 37) { return "%"; }
+    return "";
+}
+int64 ast_df_bool(int b) { if (b == 1) { return (int64)1; } return (int64)0; }
+int64 ast_df_binary(DimFold* f, int level, fn(string, *int64)->int look) {
+    if (level == 10) { return ast_df_unary(f, look); }
+    int64 l = ast_df_binary(f, level + 1, look);
+    while (f.ok == 1) {
+        string o = ast_df_op(f, level);
+        if (o[0] == 0) { return l; }
+        int ol = 0; while (o[ol] != 0) { ol = ol + 1; }
+        f.i = f.i + ol;
+        int64 r = ast_df_binary(f, level + 1, look);
+        int64 z = (int64)0;
+        if (ast_streq(o, "||") == 1) { l = ast_df_bool(l != z || r != z); }
+        else if (ast_streq(o, "&&") == 1) { l = ast_df_bool(l != z && r != z); }
+        else if (ast_streq(o, "|") == 1) { l = l | r; }
+        else if (ast_streq(o, "^") == 1) { l = l ^ r; }
+        else if (ast_streq(o, "&") == 1) { l = l & r; }
+        else if (ast_streq(o, "==") == 1) { l = ast_df_bool(l == r); }
+        else if (ast_streq(o, "!=") == 1) { l = ast_df_bool(l != r); }
+        else if (ast_streq(o, "<=") == 1) { l = ast_df_bool(l <= r); }
+        else if (ast_streq(o, ">=") == 1) { l = ast_df_bool(l >= r); }
+        else if (ast_streq(o, "<") == 1) { l = ast_df_bool(l < r); }
+        else if (ast_streq(o, ">") == 1) { l = ast_df_bool(l > r); }
+        else if (ast_streq(o, "<<") == 1) { if (r < z || r > (int64)63) { f.ok = 0; } else { l = (int64)((uint64)l << (uint64)r); } }
+        else if (ast_streq(o, ">>") == 1) { if (r < z || r > (int64)63) { f.ok = 0; } else { l = l >> r; } }
+        else if (ast_streq(o, "+") == 1) { l = l + r; }
+        else if (ast_streq(o, "-") == 1) { l = l - r; }
+        else if (ast_streq(o, "*") == 1) { l = l * r; }
+        else if (r == z) { f.ok = 0; }
+        else if (ast_streq(o, "/") == 1) { l = l / r; }
+        else { l = l % r; }
+    }
+    return (int64)0;
+}
+int64 ast_df_ternary(DimFold* f, fn(string, *int64)->int look) {
+    int64 c = ast_df_binary(f, 0, look);
+    if (f.ok == 0 || ast_df_at(f, "?") == 0) { return c; }
+    f.i = f.i + 1;
+    int64 a = ast_df_ternary(f, look);
+    if (ast_df_at(f, ":") == 0) { f.ok = 0; return (int64)0; }
+    f.i = f.i + 1;
+    int64 b = ast_df_ternary(f, look);
+    if (c != (int64)0) { return a; }
+    return b;
+}
+// Fold dimension `dim` into `out`: 1 when it is an integer constant expression (numbers,
+// integer casts, unary and binary operators, `?:`, parentheses, names `look` resolves).
+int ast_fold_dim(string dim, fn(string, *int64)->int look, int64* out) {
+    int n = 0; while (dim[n] != 0) { n = n + 1; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int k = 0; int j = 0;
+    while (j < n) { if (dim[j] != ' ' && dim[j] != '\t') { buf[k] = (uint8)dim[j]; k = k + 1; } j = j + 1; }
+    buf[k] = 0;
+    if (k == 0) { return 0; }
+    let f: DimFold;
+    f.s = (string)buf; f.i = 0; f.n = k; f.ok = 1;
+    int64 v = ast_df_ternary(&f, look);
+    if (f.ok == 0 || f.i != f.n) { return 0; }
+    *out = v;
+    return 1;
+}

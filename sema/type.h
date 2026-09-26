@@ -22,6 +22,7 @@
 #include <memory>
 #include <set>
 #include <map>
+#include <functional>
 
 namespace ty {
 
@@ -95,5 +96,13 @@ struct Type {
 // arithmetic conversions over integers (each bound promoted to at least `int`, then the
 // wider rank wins, and unsigned wins at equal rank). "" when a bound is not an integer.
 std::string rangeVarType(const std::string& a, const std::string& b);
+
+// Fold an array dimension written as an integer constant expression. The parser keeps the
+// tokens' text (`(uint8)258`, `N*2`): numbers, casts to an integer type (which truncate
+// like C), unary and binary integer operators, `?:`, parentheses, and names, which `name`
+// resolves (a `const` int or an enum member; false when it is not one). False when `dim`
+// is not such an expression (a division by zero included).
+bool foldDim(const std::string& dim, const std::function<bool(const std::string&, long long&)>& name,
+             long long& out);
 
 }  // namespace ty

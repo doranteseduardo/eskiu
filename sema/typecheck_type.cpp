@@ -264,12 +264,20 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
 void TypeChecker::checkArrayDim(const std::string& dim, ASTNode* at) {
     long long v = 0;
     bool known = false;
-    if (!dim.empty() && (std::isdigit((unsigned char)dim[0]) || dim[0] == '-')) {
+    if (!dim.empty() && (std::isdigit((unsigned char)dim[0]) || dim[0] == '-') &&
+        std::all_of(dim.begin() + 1, dim.end(), [](unsigned char c) { return std::isdigit(c); })) {
         try { v = std::stoll(dim); known = true; } catch (...) {}
     } else if (auto ec = enumConstants.find(dim); ec != enumConstants.end()) {
         v = ec->second; known = true;
     } else if (const Symbol* sym = findSymbol(dim); sym && sym->isConst && sym->constInit) {
         known = foldConstInt(sym->constInit, v);
+    } else {
+        // An integer constant expression (`(uint8)258`, `N*2`), folded like a `const`.
+        known = ty::foldDim(dim, [&](const std::string& n, long long& r) {
+            if (auto ec = enumConstants.find(n); ec != enumConstants.end()) { r = ec->second; return true; }
+            const Symbol* cs = findSymbol(n);
+            return cs && cs->isConst && cs->constInit && foldConstInt(cs->constInit, r);
+        }, v);
     }
     if (known && v <= 0)
         errorAt(at, "array size must be positive, got " + std::to_string(v) +

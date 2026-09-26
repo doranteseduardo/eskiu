@@ -1,0 +1,19 @@
+// An array dimension is an integer constant expression, folded like a `const` or a case
+// label: casts truncate like C, and `const` ints and enum members may appear in it.
+extern int printf(string fmt, ...);
+const int N = 4;
+const int M = (int16)65539;
+enum E { A = 2, B }
+int[(uint8)258] g;
+int[N + 1] h;
+struct S { int[(int)N * B] a; }
+int main() {
+    int[(uint8)259] l;
+    int[M * 2] m;
+    int[0x10 >> 2] k;
+    l[2] = 7;
+    printf("%d %d %d %d %d %d\n", (int)sizeof(g), (int)sizeof(h), (int)sizeof(S),
+           (int)sizeof(l), (int)sizeof(m), (int)sizeof(k));
+    printf("%d\n", l[2]);
+    return 0;
+}

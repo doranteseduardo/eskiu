@@ -1,4 +1,6 @@
 #include "type.h"
+#include <cctype>
+#include <cstdint>
 
 namespace ty {
 
@@ -295,6 +297,144 @@ std::string rangeVarType(const std::string& a, const std::string& b) {
     bool u = (ra == rb) ? (ua || ub) : (ra > rb ? ua : ub);
     if (r == 64) return u ? "uint64" : "int64";
     return u ? "uint" : "int";
+}
+
+
+namespace {
+
+// Recursive descent over a dimension's text (see foldDim); C precedence, 64-bit values.
+struct DimFolder {
+    const std::string& s;
+    const std::function<bool(const std::string&, long long&)>& name;
+    size_t i = 0;
+    bool ok = true;
+
+    bool at(const std::string& op) const { return s.compare(i, op.size(), op) == 0; }
+    static bool identStart(char c) { return std::isalpha((unsigned char)c) || c == '_'; }
+    std::string ident() {
+        size_t b = i;
+        while (i < s.size() && (std::isalnum((unsigned char)s[i]) || s[i] == '_')) ++i;
+        return s.substr(b, i - b);
+    }
+    static bool castTo(const std::string& t, long long v, long long& r) {
+        if (t == "int8")   { r = (int8_t)v;  return true; }
+        if (t == "uint8" || t == "char") { r = (uint8_t)v; return true; }
+        if (t == "int16")  { r = (int16_t)v; return true; }
+        if (t == "uint16") { r = (uint16_t)v; return true; }
+        if (t == "int" || t == "int32")   { r = (int32_t)v; return true; }
+        if (t == "uint" || t == "uint32") { r = (uint32_t)v; return true; }
+        if (t == "int64" || t == "uint64") { r = v; return true; }
+        if (t == "bool")   { r = v != 0; return true; }
+        return false;
+    }
+    long long unary() {
+        if (!ok || i >= s.size()) { ok = false; return 0; }
+        char c = s[i];
+        if (c == '-') { ++i; return -unary(); }
+        if (c == '+') { ++i; return unary(); }
+        if (c == '~') { ++i; return ~unary(); }
+        if (c == '!') { ++i; return !unary(); }
+        if (c == '(') {
+            ++i;
+            size_t save = i;
+            if (i < s.size() && identStart(s[i])) {           // `(type)x`, a cast
+                std::string t = ident();
+                long long probe = 0;
+                if (at(")") && castTo(t, 0, probe)) {
+                    ++i;
+                    long long r = 0;
+                    castTo(t, unary(), r);
+                    return r;
+                }
+                i = save;
+            }
+            long long v = ternary();
+            if (!at(")")) { ok = false; return 0; }
+            ++i;
+            return v;
+        }
+        if (std::isdigit((unsigned char)c)) {
+            size_t b = i;
+            while (i < s.size() && std::isalnum((unsigned char)s[i])) ++i;
+            std::string lit = s.substr(b, i - b);
+            // C: a leading 0 is octal (`010` is 8), `0x` hex.
+            int base = lit.size() > 1 && lit[0] == '0' && (lit[1] == 'x' || lit[1] == 'X') ? 16
+                     : lit.size() > 1 && lit[0] == '0' ? 8 : 10;
+            try {
+                size_t used = 0;
+                unsigned long long v = std::stoull(lit, &used, base);
+                if (used != lit.size()) ok = false;
+                return (long long)v;
+            } catch (...) { ok = false; return 0; }
+        }
+        if (identStart(c)) {
+            long long v = 0;
+            if (!name(ident(), v)) ok = false;
+            return v;
+        }
+        ok = false;
+        return 0;
+    }
+    // The binary operator at the cursor for precedence `level`, or "".
+    std::string opAt(int level) const {
+        static const std::vector<std::vector<std::string>> ops = {
+            {"||"}, {"&&"}, {"|"}, {"^"}, {"&"}, {"==", "!="}, {"<=", ">=", "<", ">"},
+            {"<<", ">>"}, {"+", "-"}, {"*", "/", "%"}};
+        static const std::vector<std::string> two = {"||", "&&", "==", "!=", "<=", ">=", "<<", ">>"};
+        std::string two_here;
+        for (const auto& t : two) if (at(t)) two_here = t;
+        for (const auto& o : ops[level]) {
+            if (!at(o)) continue;
+            if (o.size() == 1 && !two_here.empty()) continue;   // `|` of `||`, `<` of `<<`
+            return o;
+        }
+        return "";
+    }
+    long long binary(int level) {
+        if (level == 10) return unary();
+        long long l = binary(level + 1);
+        for (;;) {
+            if (!ok) return 0;
+            std::string o = opAt(level);
+            if (o.empty()) return l;
+            i += o.size();
+            long long r = binary(level + 1);
+            if (o == "||") l = l || r;       else if (o == "&&") l = l && r;
+            else if (o == "|") l |= r;       else if (o == "^") l ^= r;   else if (o == "&") l &= r;
+            else if (o == "==") l = l == r;  else if (o == "!=") l = l != r;
+            else if (o == "<=") l = l <= r;  else if (o == ">=") l = l >= r;
+            else if (o == "<") l = l < r;    else if (o == ">") l = l > r;
+            else if (o == "<<") { if (r < 0 || r > 63) ok = false; else l = (long long)((unsigned long long)l << r); }
+            else if (o == ">>") { if (r < 0 || r > 63) ok = false; else l >>= r; }
+            else if (o == "+") l += r;       else if (o == "-") l -= r;   else if (o == "*") l *= r;
+            else if (r == 0) ok = false;
+            else if (o == "/") l /= r;       else l %= r;
+        }
+    }
+    long long ternary() {
+        long long c = binary(0);
+        if (!ok || !at("?")) return c;
+        ++i;
+        long long a = ternary();
+        if (!at(":")) { ok = false; return 0; }
+        ++i;
+        long long b = ternary();
+        return c ? a : b;
+    }
+};
+
+}  // namespace
+
+bool foldDim(const std::string& dim, const std::function<bool(const std::string&, long long&)>& name,
+             long long& out) {
+    std::string t;
+    for (char c : dim) if (!std::isspace((unsigned char)c)) t += c;
+    if (t.empty()) return false;
+    DimFolder f{t, name};
+    long long v = f.ternary();
+    if (!f.ok || f.i != t.size()) return false;
+    out = v;
+    return true;
 }
 
 }  // namespace ty
