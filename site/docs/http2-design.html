@@ -173,7 +173,17 @@ thin loops around it, so they share one implementation of:</p>
   prescribes: window overflow past 2^31 - 1 (FLOW_CONTROL_ERROR), invalid SETTINGS
   values (<code>h2_settings_error</code>), frames on idle streams, bad frame sizes;</li>
 <li>requests with more than <code>H2_MAX_HEADERS</code> (64) fields get 431 and requests
-  without <code>:method</code>/<code>:path</code> get 400, without calling the handler.</li>
+  with a malformed field (a CR, LF or NUL in a value, an uppercase name) get 400,
+  without calling the handler;</li>
+<li>a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3) is a stream error, reset
+  with PROTOCOL_ERROR before the handler runs: an unknown, response, repeated or
+  late pseudo-header, a missing <code>:method</code>/<code>:scheme</code>/<code>:path</code> (CONNECT needs
+  <code>:authority</code> and has neither <code>:scheme</code> nor <code>:path</code>), a connection-specific
+  field, <code>te</code> other than <code>trailers</code>, a content-length the DATA frames do not add
+  up to, a pseudo-header in trailers. The block is still decoded (HPACK stays in
+  sync), and frames the peer had in flight on a stream we reset are ignored;</li>
+<li>responses carry no connection-specific fields and one content-length (none for
+  a 1xx or 204 status, whose body is dropped).</li>
 </ul>
 <p>Streams are multiplexed (up to <code>H2_MAX_STREAMS</code>, 128, advertised as
 SETTINGS_MAX_CONCURRENT_STREAMS); ready requests are answered in arrival order and

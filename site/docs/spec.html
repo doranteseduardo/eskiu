@@ -2159,7 +2159,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/regex.esk</code></td>
-<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code>, <code>\d \w \s</code> (and negations), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>), <code>|</code>, groups, <code>^</code> / <code>$</code></td>
+<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code>, <code>\d \w \s</code> (and negations), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>), <code>|</code>, groups, <code>^</code> / <code>$</code>, <code>\A</code> / <code>\z</code>, the word boundaries <code>\b</code> / <code>\B</code>, <code>\xHH</code> and octal escapes (RE2 syntax; any other escaped letter or digit is an error)</td>
 </tr>
 <tr>
 <td><code>stdlib/sort.esk</code></td>

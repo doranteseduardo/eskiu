@@ -557,9 +557,9 @@ more and a third about 60, fixed the same way.</p>
   are case-insensitive.</li>
 <li><code>url_query_get</code> decodes each key before comparing it, so <code>a%20b=1</code> and <code>a+b=1</code> match the
   key <code>a b</code>.</li>
-<li>Regex: an invalid bracket range (<code>[z-a]</code>, <code>[a-\d]</code>, <code>[\d-z]</code>) is a compile error as in
-  RE2, and <code>\D</code> <code>\W</code> <code>\S</code> inside a bracket class are the complemented shorthands (they
-  were read as the letters).</li>
+<li>Regex: an invalid bracket range (<code>[z-a]</code>, <code>[a-\d]</code>) is a compile error as in RE2, and
+  <code>\D</code> <code>\W</code> <code>\S</code> inside a bracket class are the complemented shorthands (they were read
+  as the letters).</li>
 <li>A cast in a constant expression truncates and sign-extends as in C, so <code>case (int8)259:</code>
   and <code>case 3:</code> are duplicate labels and <code>a[(int8)257]</code> is <code>a[1]</code>.</li>
 <li><code>fmt</code> keeps a line after a <code>\</code> continuation byte for byte (it re-indented it, changing a
@@ -575,6 +575,31 @@ more and a third about 60, fixed the same way.</p>
   without arguments, <code>sizeof</code> of a function, variant or later global, <code>++</code> on an enum, a
   by-value cycle through a type alias, an array size naming a later <code>const</code>, and an
   uninitialized read in a generic instance, as the C++ compiler does.</li>
+</ul>
+<h4 id="fifth-audit-round">Fifth audit round</h4>
+<ul>
+<li><code>List_free</code> sets <code>data</code> to null, so a push after it regrows the list and a second free
+  (also through <code>String_split_free</code>) is a no-op; it was a use after free and a double free.</li>
+<li>HTTP/2: a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3) is reset with
+  RST_STREAM PROTOCOL_ERROR and the handler is not called; it was answered 200. That
+  covers an unknown or response pseudo-header, a repeated one or one after a regular
+  field, a missing <code>:method</code>, <code>:scheme</code> or <code>:path</code> (CONNECT: <code>:authority</code> and no
+  <code>:scheme</code>/<code>:path</code>), <code>connection</code>, <code>keep-alive</code>, <code>proxy-connection</code>,
+  <code>transfer-encoding</code> and <code>upgrade</code>, <code>te</code> other than <code>trailers</code>, a content-length the
+  DATA frames do not add up to, and a pseudo-header in trailers. Frames the peer had in
+  flight on a stream the server reset are ignored instead of drawing a second
+  RST_STREAM or a GOAWAY.</li>
+<li>HTTP/2 responses drop the handler's connection-specific fields and its
+  <code>content-length</code> (it was sent next to the real one).</li>
+<li>A 1xx or 204 response has no Content-Length (RFC 9110 §8.6) in <code>HttpResponse_render</code>,
+  <code>http_reply</code> and HTTP/2, and no body.</li>
+<li>HTTP/1: a NUL in a header value or the request target makes <code>HttpRequest_parse</code> and
+  <code>http_parse_head</code> fail (RFC 9110 §5.5); a header lookup stopped at it.</li>
+<li>Regex: escapes follow RE2. <code>\b</code> <code>\B</code> (ASCII word boundaries), <code>\A</code> <code>\z</code>, <code>\xHH</code>,
+  <code>\x{HH}</code>, octal (<code>\0</code>, <code>\012</code>, <code>\101</code>) and <code>\a</code> are supported, and any other escaped
+  letter or digit (<code>\q</code>, <code>\1</code>, <code>\Z</code>, <code>[\b]</code>) is a compile error; they all matched the
+  literal letter. In a class, a <code>-</code> after a shorthand is a literal (<code>[\d-z]</code> is digits,
+  <code>-</code> and <code>z</code>, as in RE2); the fourth round made it an error, wrongly citing RE2.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
