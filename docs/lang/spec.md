@@ -39,6 +39,8 @@ clang file.o -o file        # link it yourself
 
 ## 2. Lexical Elements
 
+A source file is bytes; a leading UTF-8 byte order mark (`EF BB BF`) is skipped.
+
 ### 2.1 Comments
 
 Single-line comments begin with `//` and extend to the end of the line. A trailing backslash does **not** continue the comment onto the next line (unlike C). Block comments are enclosed in `/* ... */` and may span multiple lines. Comments do not nest.
@@ -423,11 +425,20 @@ The one conversion that requires an explicit cast:
   fractional part, so it must be written out: `int n = (int)3.9;` gives `3`; `int n =
   3.9;` is a compile error.
 
-Two statically-known mistakes are also compile errors:
+Statically-known mistakes are also compile errors:
 
 - An **integer literal that does not fit** its target type: `int8 x = 300;` (300 is
   outside `int8`'s range). A literal that fits is fine: `uint8 c = 255;`.
-- **Division or remainder by a literal zero**: `x / 0`, `x % 0`.
+- **Integer division or remainder by zero**, or of the most negative value by `-1`, when
+  the operands are constant: a literal (`x / 0`), a `const` name, a fixed-size `sizeof`,
+  a cast (`x / (int)0.5`) or an expression of those. `M / -1` with `const int M =
+  -2147483647 - 1` does not fit an `int`.
+- A **floating constant converted to an integer type that cannot hold it**, written as a
+  literal or reached through `const` names and arithmetic: `(int)1e10`, `(int)D` with
+  `const double D = 1e10`, `(uint32)(0.0 - 1.0)`.
+
+A constant shift count out of range and a constant array index out of bounds are errors
+by the same folding (`a << sizeof(int64) * 8`, `a[sizeof(int)]` on an `int[4]`).
 
 ```eskiu
 int64 big = strlen(s);   // ok: no cast needed for the length

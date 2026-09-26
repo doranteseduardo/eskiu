@@ -241,6 +241,15 @@ more and a third about 60, fixed the same way.
   deduce different integer types meet at their common type (`maxof(1, big)` with `int64
   big` is `maxof<int64>`; it was `maxof<int>` and truncated `big`), and any other
   disagreement (`maxof(1.5, (float)2.5)`) is a located error in both compilers.
+- **Constant operands are checked through their folded value.** Integer division or
+  remainder by zero, the most negative value divided by `-1`, a shift count out of range,
+  a floating constant cast to an integer type that cannot hold it and a constant index
+  out of bounds are errors when the operand folds through a `const` name, a fixed-size
+  `sizeof`, a cast or arithmetic (`5 / Z` with `const int Z = 0`, `x / (int)0.5`,
+  `1 << sizeof(int64) * 8`, `(int)D` with `const double D = 1e10`, `M / -1` with `M` the
+  most negative `int`, `a[sizeof(int)]` on an `int[4]`). Only the literal forms were
+  checked; the others emitted poison. Both compilers; tests `errors/const_*`,
+  `errors/float_cast_*`, `errors/index_oob_sizeof`, `const_fold_checked`.
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -733,6 +742,23 @@ more and a third about 60, fixed the same way.
   the program with an internal error. Test `async_closure_param`.
 - An `await` the async lowering can't place (`r += await f()`) is an error located at
   that await, in both compilers (C++ reported "expected at least one `await`").
+
+#### Eighth audit round
+- Returning the address of a local through a pointer cast or a `?:` arm
+  (`return (*void)&x;`, `return c ? &x : &y;`) is the dangling-pointer error, like
+  `return &x;`. Both compilers; tests `errors/dangling_cast`, `errors/dangling_ternary`.
+- A struct that holds itself by value through an alias of a generic instance
+  (`type RA = W<RB>; struct RB { RA a; }`) is rejected; C++ gave it a wrong layout. Both
+  compilers; test `errors/struct_cycle_generic_alias`.
+- The self-host declares a prototype that the program never defines, so its object links
+  with the one that does (separate compilation failed). `driver_parity.sh`
+  `separate/prototype`.
+- The self-host rejects assigning an array literal (`a = {4, 5, 6};`) and casting a
+  function name to a non-pointer (`(int64)f`), as C++ does. Tests
+  `errors/assign_array_literal`, `errors/cast_fn_name_to_int`.
+- The self-host driver accepts `-O 2` (a separate value), like `eskiuc`.
+- A leading UTF-8 byte order mark is skipped instead of rejected, in both compilers.
+  Test `utf8_bom`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
