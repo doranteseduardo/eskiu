@@ -385,6 +385,7 @@ void TypeChecker::visit(ThrowStmt* node) {
 }
 
 void TypeChecker::visit(TryStmt* node) {
+    struct TryDepth { int& d; TryDepth(int& x) : d(x) { ++d; } ~TryDepth() { --d; } } inTry{tryDepth};
     if (node->body) node->body->accept(this);
     for (auto& c : node->catches) {
         pushScope();

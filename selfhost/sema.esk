@@ -55,6 +55,7 @@ struct Sema {
     int param_depth;         // depth of the current function's parameters (-1 outside one)
     int had_error;
     int in_async;           // currently inside an `async` function body?
+    int try_depth;          // `try` statements enclosing the current point (no await inside one)
     int in_variadic;        // the function being checked has a variadic parameter (`...`)?
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
@@ -343,6 +344,7 @@ void sema_init(Sema* s, string filename) {
     s.fold_depth = 0;
     s.had_error = 0;
     s.in_async = 0;
+    s.try_depth = 0;
     s.await_seen = 0;
     s.cur_ret = "";
     s.match_ty = "";
@@ -3679,6 +3681,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
             sema_error(s, "await is only allowed inside an async function");
+        } else if (s.try_depth > 0) {
+            sema_error(s, "await inside a 'try' statement is not supported in an async function");
         }
         s.await_seen = 1;
         sema_expr(s, e.a);
@@ -4431,6 +4435,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List<string> pnames; List_init<string>(&pnames, 4);
     sema_lambda_sig(e.sval, &ptys, &pnames);
     string saved_ret = s.cur_ret; int saved_async = s.in_async; int saved_seen = s.await_seen;
+    int saved_try = s.try_depth; s.try_depth = 0;
     int saved_sw = s.sw_depth; int saved_pd = s.param_depth; int saved_var = s.in_variadic;
     s.in_variadic = 0;
     List<string> saved_lbls = s.loop_lbls;
@@ -4471,6 +4476,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_remove<int>(&s.lam_esc, List_len<int>(&s.lam_esc) - 1);
     List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
     s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
+    s.try_depth = saved_try;
     s.sw_depth = saved_sw; s.param_depth = saved_pd; s.in_variadic = saved_var;
     s.loop_lbls = saved_lbls;
     s.narrowed = saved_narrowed;
@@ -5219,10 +5225,12 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_TRY) {
+        s.try_depth = s.try_depth + 1;
         sema_stmt(s, st.s1);               // body
         int ci = 0;
         while (ci < List_len<*StmtNode>(&st.items)) { sema_stmt(s, List_get<*StmtNode>(&st.items, ci)); ci = ci + 1; }
         sema_stmt(s, st.s2);               // finally
+        s.try_depth = s.try_depth - 1;
         return;
     }
     if (k == SK_DEFER) {
@@ -6110,6 +6118,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         wi = wi + 1;
     }
     s.in_async = 0;
+    s.try_depth = 0;
 }
 
 // Check each queued generic instance: the template body with its type parameters bound

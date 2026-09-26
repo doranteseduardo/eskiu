@@ -291,6 +291,8 @@ private:
     std::string calleeContext;
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;
+    // `try` statements enclosing the current point (an `await` can't be inside one).
+    int tryDepth = 0;
     // Whether the function being checked has a variadic parameter (`...`): only there
     // can `va_start` begin reading the variadic arguments.
     bool inVariadicFn = false;

@@ -1454,7 +1454,9 @@ void TypeChecker::visit(LambdaExpr* node) {
     // A lambda is its own (non-async) function: an `await` in its body does not belong to
     // an enclosing async function.
     bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn, savedVariadic = inVariadicFn;
+    int savedTry = tryDepth;
     inAsyncFn = false;
+    tryDepth = 0;
     inVariadicFn = false;
     // Captures are by value: an assignment to a captured name inside the body changes the
     // lambda's copy, so it must not end a narrowing of the enclosing variable.
@@ -1477,6 +1479,7 @@ void TypeChecker::visit(LambdaExpr* node) {
     loopLabelStack = std::move(savedLoops);
     switchDepth = savedSwitch;
     inAsyncFn = savedAsync;
+    tryDepth = savedTry;
     inVariadicFn = savedVariadic;
     awaitSeenInFn = savedAwait;
     narrowedNonNull = savedNarrowed;
@@ -1523,6 +1526,8 @@ void TypeChecker::visit(AwaitExpr* node) {
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     if (!inAsyncFn)
         errorAt(node, "await is only allowed inside an async function");
+    else if (tryDepth > 0)
+        errorAt(node, "await inside a 'try' statement is not supported in an async function");
     awaitSeenInFn = true;
     node->operand->accept(this);
     std::string t = getExpressionType(node->operand.get());
