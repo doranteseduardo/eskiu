@@ -78,6 +78,12 @@ if [ "$#" -eq 0 ]; then
         *"await_in_expr.esk:7:10: async function 'worker': 'await' is only supported"*) echo "ok    await_in_expr  (located error)" ;;
         *) echo "FAIL  await_in_expr  ($aw)"; fail=1 ;;
     esac
+    total=$((total + 1))
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_match.esk 2>&1 >/dev/null)"
+    case "$aw" in
+        *"await_in_match.esk:8:29: async function 'w': 'await' is not supported inside a 'match'"*) echo "ok    await_in_match  (located error)" ;;
+        *) echo "FAIL  await_in_match  ($aw)"; fail=1 ;;
+    esac
 fi
 
 echo "----"

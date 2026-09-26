@@ -274,6 +274,12 @@ if [[ "$aw_out" == *"await_in_expr.esk:7:10: async function 'worker': 'await' is
 else
     bad "cli/await-in-expr-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
+aw_out="$("$ESKIUC" "$here/run_cmd/await_in_match.esk" -o "$work/await_in_match" 2>&1)"
+if [[ "$aw_out" == *"await_in_match.esk:8:29: async function 'w': 'await' is not supported inside a 'match'"* ]]; then
+    ok "cli/await-in-match-located"
+else
+    bad "cli/await-in-match-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
+fi
 
 # A successful compile prints nothing to stdout (no output-file echo).
 printf 'int main() { return 0; }\n' > "$work/quiet.esk"

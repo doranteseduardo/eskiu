@@ -163,6 +163,30 @@ void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out) {
     else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
 }
 
+// The first await inside a `match` (the lowering cannot split a match into states).
+AwaitExpr* firstAwaitInMatch(Stmt* s) {
+    if (!s) return nullptr;
+    if (dynamic_cast<MatchStmt*>(s)) {
+        std::vector<AwaitExpr*> aws;
+        collectAwaits(s, aws);
+        return aws.empty() ? nullptr : aws.front();
+    }
+    AwaitExpr* r = nullptr;
+    auto S = [&](const StmtPtr& st) { if (!r) r = firstAwaitInMatch(st.get()); };
+    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
+        for (auto& it : b->items) if (std::holds_alternative<StmtPtr>(it)) S(std::get<StmtPtr>(it));
+    }
+    else if (auto* i = dynamic_cast<IfStmt*>(s))        { S(i->thenBranch); S(i->elseBranch); }
+    else if (auto* f = dynamic_cast<ForStmt*>(s))       { S(f->init); S(f->body); }
+    else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { S(fi->body); }
+    else if (auto* w = dynamic_cast<WhileStmt*>(s))     { S(w->body); }
+    else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); }
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s))   { for (auto& c : sw->cases) for (auto& st : c.stmts) S(st); }
+    else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
+    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
+    return r;
+}
+
 // `t` with every subtree spelled `from` replaced by `to`.
 ty::Type replaceSubtree(const ty::Type& t, const std::string& from, const std::string& to) {
     if (t.str() == from) return ty::Type::parse(to);
@@ -412,6 +436,10 @@ void AsyncTransform::run(Program* program) {
         if (stmtHasLabeledBreak(fn->body))
             throw std::runtime_error("async function '" + name + "': labeled 'break'/'continue' "
                 "is not supported inside an async function");
+        if (AwaitExpr* ma = firstAwaitInMatch(fn->body.get()))
+            throw std::runtime_error(fn->sourceFile + ":" + std::to_string(ma->line) + ":" +
+                std::to_string(ma->col) + ": async function '" + name + "': 'await' is not "
+                "supported inside a 'match' (supported: if/else, while, do/while, for, for-in, switch)");
         std::vector<DeclPtr> statics;
         {
             ShadowRenamer sr;

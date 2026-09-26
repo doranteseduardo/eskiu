@@ -1452,6 +1452,26 @@ int al_expr_has_await(*ExprNode e) {
     return null;
 }
 
+// The first await anywhere in a statement subtree.
+*ExprNode al_any_await_s(*StmtNode s) {
+    if (s == null) { return null; }
+    *ExprNode a = al_first_await_e(s.expr); if (a != null) { return a; }
+    a = al_first_await_e(s.expr2); if (a != null) { return a; }
+    a = al_any_await_s(s.s1); if (a != null) { return a; }
+    a = al_any_await_s(s.s2); if (a != null) { return a; }
+    int i = 0; while (i < List_len<*StmtNode>(&s.items)) { a = al_any_await_s(List_get<*StmtNode>(&s.items, i)); if (a != null) { return a; } i = i + 1; }
+    return null;
+}
+// The first await inside a `match` (the lowering cannot split a match into states).
+*ExprNode al_await_in_match_s(*StmtNode s) {
+    if (s == null) { return null; }
+    if (s.kind == SK_MATCH) { return al_any_await_s(s); }
+    *ExprNode a = al_await_in_match_s(s.s1); if (a != null) { return a; }
+    a = al_await_in_match_s(s.s2); if (a != null) { return a; }
+    int i = 0; while (i < List_len<*StmtNode>(&s.items)) { a = al_await_in_match_s(List_get<*StmtNode>(&s.items, i)); if (a != null) { return a; } i = i + 1; }
+    return null;
+}
+
 // Does a statement subtree contain an await anywhere (recursing control flow)?
 int al_stmt_has_await_deep(*StmtNode s) {
     if (s == null) { return 0; }
@@ -1562,7 +1582,10 @@ void async_lower(*Program prog) {
             && al_can_lower(d.body) == 0 && al_stmt_has_await_deep(d.body) == 1) {
             *ExprNode fa = al_first_await_s(d.body);
             string ff = d.file; if (ff == null) { ff = ""; }
-            if (fa != null) {
+            *ExprNode ma = al_await_in_match_s(d.body);
+            if (ma != null) {
+                dprintf(2, "error: %s:%d:%d: async function '%s': 'await' is not supported inside a 'match' (supported: if/else, while, do/while, for, for-in, switch)\n", ff, ma.line, ma.col, d.name);
+            } else if (fa != null) {
                 dprintf(2, "error: %s:%d:%d: async function '%s': 'await' is only supported as the whole initializer of a 'let', a 'return', or an assignment (not in a condition or a larger expression)\n", ff, fa.line, fa.col, d.name);
             } else {
                 dprintf(2, "error: async function '%s': await is not supported inside this statement (supported: if/else, while, do/while, for, for-in, switch)\n", d.name);
