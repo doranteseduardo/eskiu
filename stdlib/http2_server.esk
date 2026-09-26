@@ -27,6 +27,7 @@ import <http2>;
 import <hpack>;
 import <http>;
 import <string>;
+import <time>;
 
 extern int memcmp(*void a, *void b, int64 n);
 extern int64 strlen(string s);
@@ -386,6 +387,8 @@ struct H2Slot {
     int64 send_window;      // bytes we may still send on this stream
     int64 sent;             // response body bytes sent
     int   early;            // answered before the request ended: reset it once the answer is out
+    int64 opened;           // when the transport first saw the stream open (ms, 0 = not yet)
+    int64 resp_at;          // when it first saw it RESPONDING (ms, 0 = not yet)
     HttpRequest  req;       // live in RECEIVING / READY
     HttpResponse res;       // live in RESPONDING
 }
@@ -415,6 +418,14 @@ struct H2Server {
     *uint8 out;             // queued output for the transport
     int64  outlen;
     int64  outcap;
+    // Timekeeping for the transport's deadlines (H2Server_tick / H2Server_deadline),
+    // monotonic ms; 0 = not set.
+    int64  start_ms;        // the connection began (the preface/SETTINGS deadline counts from it)
+    int64  idle_since;      // no stream open since then
+    int64  hb_start;        // the header block in s.hb began
+    int64  data_sent;       // response body bytes sent, all streams (counted by H2Server_pump)
+    int64  data_seen;       // data_sent when the transport last looked
+    int64  progress_ms;     // when data_sent last grew
 }
 
 // Room for `n` more output bytes; returns where they go (the caller advances outlen).
@@ -454,6 +465,9 @@ void H2Server_init(H2Server* s, int fd) {
     s.outcap = 4096;
     s.out = alloc<uint8>(s.outcap);
     s.outlen = 0;
+    s.start_ms = time_monotonic_ms();
+    s.idle_since = 0;  s.hb_start = 0;
+    s.data_sent = 0;  s.data_seen = 0;  s.progress_ms = 0;
     *uint8 b = H2Server_reserve(s, 64);
     s.outlen += h2_write_settings(b, &s.conn.local);
 }
@@ -462,6 +476,8 @@ void H2Server_slot_release(H2Slot* sl) {
     if (sl.state == H2S_RECEIVING || sl.state == H2S_READY) { sl.req.free(); }
     if (sl.state == H2S_RESPONDING) { sl.res.free(); }
     sl.state = H2S_FREE;
+    sl.opened = 0;
+    sl.resp_at = 0;
 }
 
 void H2Server_free(H2Server* s) {
@@ -543,6 +559,7 @@ void H2Server_pump(H2Server* s) {
             *uint8 b = H2Server_reserve(s, n + 9);
             s.outlen += h2_write_data(b, sl.id, (*uint8)sl.res.body.data + sl.sent, (int)n, last);
             sl.sent += n;
+            s.data_sent += n;
             sl.send_window -= n;
             s.send_window -= n;
             if (last != 0) {
@@ -903,33 +920,114 @@ void H2Server_step(H2Server* s, H2Frame* h, *uint8 p, escaping fn(HttpRequest*, 
     H2Server_pump(s);
 }
 
+// ── Timeouts (see HttpLimits in <http>) ─────────────────────────────────────
+// A transport calls H2Server_tick before each frame read, reads with the
+// deadline H2Server_deadline gives, and on a timeout calls H2Server_timed_out.
+
+// The number of open streams, counting a header block still being assembled.
+int H2Server_open(H2Server* s) {
+    int open = s.hb_sid != 0 ? 1 : 0;
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state != H2S_FREE) { open++; }
+    }
+    return open;
+}
+
+// Note the time (`now`, monotonic ms) at which streams opened, started
+// responding, response data last moved, and the connection went idle.
+void H2Server_tick(H2Server* s, int64 now) {
+    if (s.hb_sid != 0) { if (s.hb_start == 0) { s.hb_start = now; } }
+    else { s.hb_start = 0; }
+    for (i in 0..H2_MAX_STREAMS) {
+        H2Slot* sl = &s.slots[i];
+        if (sl.state == H2S_FREE) { continue; }
+        if (sl.opened == 0) { sl.opened = now; }
+        if (sl.state == H2S_RESPONDING && sl.resp_at == 0) { sl.resp_at = now; }
+    }
+    if (s.data_sent != s.data_seen) { s.data_seen = s.data_sent;  s.progress_ms = now; }
+    if (H2Server_open(s) == 0) { if (s.idle_since == 0) { s.idle_since = now; } }
+    else { s.idle_since = 0; }
+}
+
+// The earlier of deadline `d` (0 = none) and base + ms (none when ms <= 0).
+int64 _h2_dl_min(int64 d, int64 base, int64 ms) {
+    if (ms <= 0) { return d; }
+    const int64 x = base + ms;
+    return d == 0 || x < d ? x : d;
+}
+
+// The deadline for the transport's next frame read (monotonic ms, 0 = none):
+// before the peer's SETTINGS, start + header_ms; with no stream open,
+// idle_since + idle_ms (frames such as PING do not move it); else the earliest
+// of: a header block's start + header_ms, a receiving stream's start + body_ms,
+// and for a responding stream the later of its start and the last response
+// data sent, + write_ms (a peer that stops granting window).
+int64 H2Server_deadline(H2Server* s, HttpLimits* lim) {
+    if (s.got_settings == 0) { return _h2_dl_min(0, s.start_ms, lim.header_ms); }
+    if (H2Server_open(s) == 0) { return _h2_dl_min(0, s.idle_since, lim.idle_ms); }
+    int64 d = 0;
+    if (s.hb_sid != 0) { d = _h2_dl_min(d, s.hb_start, lim.header_ms); }
+    for (i in 0..H2_MAX_STREAMS) {
+        H2Slot* sl = &s.slots[i];
+        if (sl.state == H2S_FREE) { continue; }
+        if (sl.state == H2S_RESPONDING) {
+            const int64 base = sl.resp_at > s.progress_ms ? sl.resp_at : s.progress_ms;
+            d = _h2_dl_min(d, base, lim.write_ms);
+        } else {
+            d = _h2_dl_min(d, sl.opened, lim.body_ms);
+        }
+    }
+    return d;
+}
+
+// The read ran past H2Server_deadline. An idle connection (SETTINGS done, no
+// stream open) gets GOAWAY NO_ERROR queued: returns 1, flush it and close.
+// Otherwise returns 0: close at once.
+int H2Server_timed_out(H2Server* s) {
+    if (s.got_settings != 0 && H2Server_open(s) == 0) {
+        H2Server_goaway(s, H2_NO_ERROR);
+        return 1;
+    }
+    return 0;
+}
+
 // Drive one connection: the client preface, then frames through the H2Server
-// engine until either side ends the connection (GOAWAY) or the peer closes.
-async void http2_serve_conn_async(EventLoop* lp, int fd,
-                                  escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                                  Chan<int>* done) {
+// engine until either side ends the connection (GOAWAY) or the peer closes, or
+// a deadline passes (see H2Server_deadline): a connection whose preface and
+// SETTINGS are not in by lim.header_ms is closed, an idle one gets GOAWAY
+// NO_ERROR after lim.idle_ms, and a write the peer does not take within
+// lim.write_ms closes it. `open` (may be null) is decremented on the way out.
+async void http2_serve_conn_async_with(EventLoop* lp, int fd,
+                                       escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                       Chan<int>* done, HttpLimits lim, *int open) {
     net_set_nonblocking(fd);                          // never block the loop thread
+    int64 start = time_monotonic_ms();
     *uint8 pf = alloc<uint8>(24);
-    int pn = await h2_read_full_async(lp, fd, pf, 24);
+    int pn = await h2_read_full_deadline_async(lp, fd, pf, 24, _h2_dl_min(0, start, lim.header_ms));
     bool good = pn == 24 && h2_is_preface(pf) != 0;
     free((*void)pf);
     if (good) {
         H2Server* s = alloc<H2Server>(1);
         H2Server_init(s, fd);
+        s.start_ms = start;
         int FBCAP = 16384 + H2_FRAME_HEADER_LEN;       // a full MAX_FRAME_SIZE payload + header
         *uint8 fb = alloc<uint8>(FBCAP);
         int running = 1;
         while (running != 0) {
             if (s.outlen > 0) {
-                int w = await net_write_async(lp, fd, s.out, s.outlen);
+                int64 wdl = net_deadline(lim.write_ms);
+                int w = await net_write_deadline_async(lp, fd, s.out, s.outlen, wdl);
                 s.outlen = 0;
                 if (w < 0) { running = 0; }
             }
             if (running != 0 && H2Server_done(s) != 0) { running = 0; }
             if (running != 0) {
+                H2Server_tick(s, time_monotonic_ms());
+                int64 dl = H2Server_deadline(s, &lim);
                 let hdr: H2Frame;
-                int plen = await h2_read_frame_async(lp, fd, fb, FBCAP, &hdr);
-                if (plen == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }   // over MAX_FRAME_SIZE
+                int plen = await h2_read_frame_deadline_async(lp, fd, fb, FBCAP, &hdr, dl);
+                if (plen == NET_TIMED_OUT) { running = H2Server_timed_out(s); }
+                else if (plen == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }   // over MAX_FRAME_SIZE
                 else if (plen < 0) { running = 0; }
                 else { H2Server_step(s, &hdr, fb + H2_FRAME_HEADER_LEN, handler); }
             }
@@ -939,21 +1037,45 @@ async void http2_serve_conn_async(EventLoop* lp, int fd,
         free((*void)s);
     }
     net_close(fd);
+    if (open != null) { *open = *open - 1; }
     Chan_send<int>(done, 1);
 }
 
+// http2_serve_conn_async_with under the default HttpLimits.
+Future<uint8>* http2_serve_conn_async(EventLoop* lp, int fd,
+                                      escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                      Chan<int>* done) {
+    return http2_serve_conn_async_with(lp, fd, handler, done, http_limits(), null);
+}
+
 // Accept and serve `max_conns` connections concurrently (each detached), then
-// wait for all to finish — mirroring <http_async>'s http_serve_async.
-async void http2_serve_async(EventLoop* lp, int listen_fd,
-                             escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                             int max_conns) {
+// wait for all to finish, mirroring <http_async>'s http_serve_async_with: at
+// most lim.max_open are open at once, one past that is closed right away.
+async void http2_serve_async_with(EventLoop* lp, int listen_fd,
+                                  escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                  int max_conns, HttpLimits lim) {
     Chan<int>* done = chan_new<int>(max_conns);
+    *int open = alloc<int>(1);
     for (int accepted = 0; accepted < max_conns; accepted++) {
         int c = await net_accept_retry_async(lp, listen_fd);   // a failed accept is retried, never served
-        spawn(http2_serve_conn_async(lp, c, handler, done));
+        if (lim.max_open > 0 && *open >= lim.max_open) {
+            net_close(c);                               // over the limit: refused
+            Chan_send<int>(done, 1);
+        } else {
+            *open = *open + 1;
+            spawn(http2_serve_conn_async_with(lp, c, handler, done, lim, open));
+        }
     }
     for (int finished = 0; finished < max_conns; finished++) {
         int sig = await Chan_recv(done);
     }
+    free((*void)open);
     Chan_free<int>(done);
+}
+
+// http2_serve_async_with under the default HttpLimits.
+Future<uint8>* http2_serve_async(EventLoop* lp, int listen_fd,
+                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                 int max_conns) {
+    return http2_serve_async_with(lp, listen_fd, handler, max_conns, http_limits());
 }

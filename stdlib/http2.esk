@@ -444,6 +444,36 @@ async int h2_read_frame_async(EventLoop* lp, int fd, *uint8 buf, int bufcap, H2F
     return hdr.length;
 }
 
+// h2_read_full_async with a deadline (see <net>'s net_deadline; 0 = none):
+// the count as h2_read_full_async, or NET_TIMED_OUT if the `n` bytes were not
+// all in by then (trickled bytes do not extend it).
+async int h2_read_full_deadline_async(EventLoop* lp, int fd, *uint8 buf, int n, int64 deadline) {
+    int got = 0;
+    while (got < n) {
+        int r = await net_read_deadline_async(lp, fd, buf + got, n - got, deadline);
+        if (r == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+        if (r <= 0) { return got; }
+        got += r;
+    }
+    return got;
+}
+
+// h2_read_frame_async with a deadline for the whole frame: the payload length,
+// -1 on EOF/short read, -2 if the payload exceeds the buffer, or NET_TIMED_OUT.
+async int h2_read_frame_deadline_async(EventLoop* lp, int fd, *uint8 buf, int bufcap, H2Frame* hdr, int64 deadline) {
+    int h = await h2_read_full_deadline_async(lp, fd, buf, H2_FRAME_HEADER_LEN, deadline);
+    if (h == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+    if (h < H2_FRAME_HEADER_LEN) { return -1; }
+    h2_read_header(buf, hdr);
+    if (hdr.length > bufcap - H2_FRAME_HEADER_LEN) { return -2; }
+    if (hdr.length > 0) {
+        int p = await h2_read_full_deadline_async(lp, fd, buf + H2_FRAME_HEADER_LEN, hdr.length, deadline);
+        if (p == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+        if (p < hdr.length) { return -1; }
+    }
+    return hdr.length;
+}
+
 // Read a complete header block — a HEADERS frame plus any CONTINUATION frames
 // up to END_HEADERS (§6.10) — into `buf`, with the payloads concatenated. On
 // return `hdr` is the HEADERS frame header and `*stream_id` its stream; the
