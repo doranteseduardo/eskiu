@@ -1799,10 +1799,13 @@ void check_name_not_keyword(Parser* p) {
                 List_push<*StmtNode>(&s.items, inp);
                 if (p_at(p) == COMMA) { p_adv(p); } else { break; }
             }
-            if (p_at(p) == COLON) {        // clobbers (skipped)
+            if (p_at(p) == COLON) {        // clobbers: kept as `~{c},...` in s.type
                 p_adv(p);
+                s.type = "";
                 while (p_at(p) != RPAREN && p_at(p) != EOF_TOKEN) {
-                    p_adv(p);
+                    int _dl2 = 0; string cl = tok_str_value(p.src, p_adv(p), &_dl2);
+                    if (s.type[0] != 0) { s.type = str_concat(s.type, ","); }
+                    s.type = str_concat(s.type, str_concat("~{", str_concat(cl, "}")));
                     if (p_at(p) == COMMA) { p_adv(p); } else { break; }
                 }
             }

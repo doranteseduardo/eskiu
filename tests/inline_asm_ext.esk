@@ -1,0 +1,17 @@
+// Extended inline assembly with inputs and clobbers: a register store through a
+// pointer operand ($0 = the value, $1 = the address). Both compilers emit it.
+extern int printf(string fmt, ...);
+
+int main(int argc, string* argv) {
+    int64 x = 0;
+    int64 v = 41 + (int64)argc;
+#ifdef __aarch64__
+    asm("str $0, [$1]" :: "r"(v), "r"(&x) : "memory");
+#endif
+#ifdef __x86_64__
+    asm("movq $0, ($1)" :: "r"(v), "r"(&x) : "memory");
+#endif
+    asm("nop");
+    printf("x %lld\n", x);
+    return 0;
+}

@@ -277,7 +277,7 @@ struct StmtNode {
     *StmtNode s2;          // else / for body
     List<*StmtNode> items; // block items
     string name;           // var-decl name / for-in variable
-    string type;           // var-decl type
+    string type;           // var-decl type / SK_ASM: the clobbers as `~{c},...` constraints
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
     int is_vol;            // SK_VARDECL: `volatile` (its loads/stores, and those through it, are volatile)
