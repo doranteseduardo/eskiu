@@ -1,0 +1,24 @@
+// An alias of an array type works wherever the array does: as a field, through a pointer
+// (`*AI` points at an int[3], it is not an array of pointers), and as an array of structs.
+extern int printf(string fmt, ...);
+type AR = P[2];
+type AI = int[3];
+struct P { int x; }
+struct Q { AR a; AI b; }
+int sum(*AI p) { return (*p)[0] + (*p)[2] + p[0][1]; }
+void bump(*AI p) { (*p)[1] = (*p)[1] + 10; }
+int main() {
+    Q q;
+    q.a[1].x = 7;
+    q.b[0] = 1;
+    q.b[1] = 2;
+    q.b[2] = 9;
+    AI loc = {1, 2, 3};
+    AR ps;
+    ps[0].x = 4;
+    *AI pl = &loc;
+    bump(pl);
+    printf("%d %d %d %d %d\n", (int)sizeof(Q), q.a[1].x, q.b[2], loc[1], ps[0].x);
+    printf("%d %d %d\n", sum(&loc), sum(&q.b), (int)sizeof(AR));
+    return 0;
+}

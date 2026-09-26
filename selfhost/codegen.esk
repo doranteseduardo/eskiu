@@ -504,7 +504,17 @@ string cg_dealias_d(Codegen* g, string t, int depth) {
                 if (cg_streq(sb.param, id) == 1) { rep = sb.arg; changed = 1; }
                 k = k + 1;
             }
+            // A pointer to an alias of an array (`*AI`, `type AI = int[3]`) is `int[3]*`: a
+            // leading star would bind looser than the array suffix (an array of pointers).
+            int rn = 0; while (rep[rn] != 0) { rn = rn + 1; }
+            int stars = 0;
+            if (rep != id && rn > 0 && (int)rep[rn - 1] == 93) {
+                while (s - stars > 0 && (int)t[s - stars - 1] == 42) { stars = stars + 1; }
+                out.len = out.len - (int64)stars;
+                out.data[out.len] = (char)0;
+            }
             String_append(&out, rep);
+            while (stars > 0) { String_push(&out, '*'); stars = stars - 1; }
         } else {
             String_push(&out, (char)c);
             i = i + 1;
@@ -1905,12 +1915,16 @@ int cg_arr_close(string t, int open) {
 }
 
 int cg_is_array(string t) {
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    if (n > 0 && (int)t[n - 1] == 42) { return 0; }   // `T[N]*`: a pointer to an array
     if (cg_arr_open(t) >= 0) { return 1; }
     return 0;
 }
 
 // A slice type `T[]`: its outer array suffix has empty brackets (`[` immediately `]`).
 int cg_is_slice(string t) {
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    if (n > 0 && (int)t[n - 1] == 42) { return 0; }   // `T[]*`: a pointer to a slice
     int open = cg_arr_open(t);
     if (open >= 0 && (int)t[open + 1] == 93) { return 1; }
     return 0;

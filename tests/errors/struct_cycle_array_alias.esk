@@ -1,0 +1,5 @@
+// EXPECT-ERROR: struct 'R' contains itself by value (through field 'a' of 'R')
+// An alias of an array of the struct holds it by value, like `R[2]` itself.
+type AR = R[2];
+struct R { int x; AR a; }
+int main() { return (int)sizeof(R); }

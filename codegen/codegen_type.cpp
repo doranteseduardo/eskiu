@@ -219,7 +219,13 @@ std::string CodeGen::expandAlias(const std::string& raw) const {
     // const is checked only by the type checker; codegen works on stripped types.
     std::string t = tyq::strip(raw);
     if (t.empty()) return t;
-    if (t.front() == '*') return "*" + expandAlias(t.substr(1));
+    if (t.front() == '*') {
+        // A pointer to an alias of an array (`*AI`, `type AI = int[3]`) is `int[3]*`: a
+        // leading star would bind looser than the array suffix (an array of pointers).
+        std::string inner = expandAlias(t.substr(1));
+        if (!inner.empty() && inner.back() == ']' && inner != t.substr(1)) return inner + "*";
+        return "*" + inner;
+    }
     if (t.back()  == '*') return expandAlias(t.substr(0, t.size() - 1)) + "*";
     auto it = typeAliases.find(t);
     if (it != typeAliases.end()) return expandAlias(it->second);
@@ -349,7 +355,11 @@ std::string CodeGen::getExprEskiuTypeRaw(const ExprPtr& expr) const {
             // only governs sema deref-safety, so strip it here. Likewise const (a
             // `const P*` parameter), which has no representation.
             std::string r = tyq::strip(it->second);
-            return (!r.empty() && r[0] == '?') ? r.substr(1) : r;
+            if (!r.empty() && r[0] == '?') r = r.substr(1);
+            // An alias of an array (or a pointer to one) indexes and lays out as the array.
+            std::string ex = expandAlias(r);
+            if (ex != r && ex.find('[') != std::string::npos) return ex;
+            return r;
         }
         // A table miss is by design — the resolver doesn't annotate every expr, so
         // the structural derivation below legitimately carries the rest. (Only a

@@ -1696,6 +1696,13 @@ string sema_canon_d(Sema* s, string t, int d) {
         if (sema_is_plain_enum_decl(td) == 1) { return "int"; }
     }
     int k = 0;
+    // A pointer to an alias of an array (`*AI`, `type AI = int[3]`) is `int[3]*`: a leading
+    // star would bind looser than the array suffix (an array of pointers).
+    int cn = sema_slen(ci);
+    if (cn > 0 && (int)ci[cn - 1] == 93) {
+        while (k < stars) { ci = sema_cat(ci, "*"); k = k + 1; }
+        return ci;
+    }
     while (k < stars) { ci = sema_cat("*", ci); k = k + 1; }
     return ci;
 }

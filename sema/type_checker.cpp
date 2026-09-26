@@ -387,9 +387,13 @@ void TypeChecker::checkValueCycles(Program* program) {
     auto byValueStruct = [&](const std::string& ft) -> std::string {
         // Peel array dimensions first: `S[2]` holds S by value, but normalizeType only
         // resolves a bare struct name.
+        // An alias may name an array (`type AR = R[2]`), so peel again after resolving it.
         ty::Type t = ty::Type::parse(tyq::strip(ft));
-        while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
-        t = ty::Type::parse(normalizeType(t.str()));
+        for (int hops = 0; hops < 32; ++hops) {
+            while (t.kind == ty::Type::Kind::Array && t.elem) { ty::Type e = *t.elem; t = e; }
+            t = ty::Type::parse(normalizeType(t.str()));
+            if (t.kind != ty::Type::Kind::Array) break;
+        }
         if (t.kind != ty::Type::Kind::Struct && !(t.kind == ty::Type::Kind::Named && adtEnums.count(t.name))) return "";
         std::string n = t.nominalName();
         return decls.count(n) ? n : "";
