@@ -589,9 +589,12 @@ int64 pp_ev_char(PPEval* ev, string t) {
         } else {
             v = pp_escape_char(e);
             if (v < 0) {
-                uint8[48] mb;
-                sprintf((string)&mb[0], "unknown escape sequence '\\%c'", e);
-                pp_ev_fail(ev, (string)&mb[0]); return 0;
+                string pre = "unknown escape sequence '\\";
+                int pl = pp_clen(pre);
+                *uint8 mb = alloc<uint8>(pl + 3);         // kept by ev.err: heap, not stack
+                int mi = 0; while (mi < pl) { mb[mi] = (uint8)pre[mi]; mi = mi + 1; }
+                mb[pl] = (uint8)e; mb[pl + 1] = (uint8)39; mb[pl + 2] = 0;
+                pp_ev_fail(ev, (string)mb); return 0;
             }
         }
     } else {
