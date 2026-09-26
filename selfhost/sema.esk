@@ -3043,6 +3043,26 @@ int sema_has_call(Sema* s, *ExprNode e) {
     return 0;
 }
 
+// Does `e` contain an `await`? (A lambda body is its own function; mirrors the C++
+// exprHasAwait.)
+int sema_has_await(*ExprNode e) {
+    if (e == null || e.kind == EK_LAMBDA) { return 0; }
+    if (e.kind == EK_AWAIT) { return 1; }
+    if (sema_has_await(e.a) == 1 || sema_has_await(e.b) == 1) { return 1; }
+    int i = 0; int n = List_len<*ExprNode>(&e.kids);
+    while (i < n) { if (sema_has_await(List_get<*ExprNode>(&e.kids, i)) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+
+// The async lowering splits only a whole-statement await, so one in a switch subject or a
+// loop bound is rejected here, where it has a location (mirrors the C++ rejectAwaitIn).
+void sema_reject_await_in(Sema* s, *ExprNode e, string where) {
+    if (s.in_async == 1 && sema_has_await(e) == 1) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: 'await' is not supported in %s; bind it first (`let v = await ...;`)\n", s.filename, s.line, s.col, where);
+    }
+}
+
 // A `?:` whose value goes to an interface (a declaration, assignment, return or argument):
 // each arm boxes into the interface on its own, so the arms may point at different
 // conforming structs (mirrors the C++ ifaceTargetHint).
@@ -5017,6 +5037,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
         int bad_range = 0;
+        if (st.is_range == 1) { sema_reject_await_in(s, st.expr, "a range bound"); }
         if (st.is_range == 1) {
             string bt = sema_range_bound_type(s, st.expr);
             if (bt[0] != 0) {
@@ -5252,6 +5273,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     if (k == SK_FORIN) {
         sema_push(s);
         sema_expr(s, st.expr);             // iterable (loop var not yet in scope)
+        sema_reject_await_in(s, st.expr, "a for-in iterable");
         // Stamp the loop-variable (element) type for the lowering to consume, mirroring the
         // C++ resolvedElemType. Arrays `T[N]` and slices `T[]` resolve from the iterable's
         // type; a list-like container stays "" and is resolved structurally at lowering.
@@ -5307,6 +5329,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     }
     if (k == SK_SWITCH || k == SK_MATCH) {
         sema_expr(s, st.expr);             // subject
+        if (k == SK_SWITCH) { sema_reject_await_in(s, st.expr, "a switch subject"); }
         if (k == SK_SWITCH) {
             // The subject is an integer (a classic enum counts); each case value must
             // convert to it (mirrors the C++ visit(SwitchStmt)).

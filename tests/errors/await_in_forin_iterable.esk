@@ -1,0 +1,16 @@
+// EXPECT-ERROR: 'await' is not supported in a for-in iterable
+// The async lowering splits only a whole-statement await: bind it first.
+import <future>;
+import <list>;
+Future<List<int>>* mk() {
+    Future<List<int>>* f = future_new<List<int>>();
+    List<int> l; List_init<int>(&l, 2); List_push<int>(&l, 3);
+    future_complete<List<int>>(f, l);
+    return f;
+}
+async int compute() {
+    int r = 0;
+    for (x in await mk()) { r = r + x; }
+    return r;
+}
+int main() { Future<int>* r = compute(); return r.value; }

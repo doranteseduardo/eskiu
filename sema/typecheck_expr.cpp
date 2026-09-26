@@ -494,6 +494,19 @@ void TypeChecker::dropGlobalKeys(std::vector<std::string>& keys) {
     }), keys.end());
 }
 
+bool TypeChecker::exprHasAwait(Expr* e) {
+    if (!e || dynamic_cast<LambdaExpr*>(e)) return false;
+    if (dynamic_cast<AwaitExpr*>(e)) return true;
+    bool found = false;
+    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = exprHasAwait(c.get()); });
+    return found;
+}
+
+void TypeChecker::rejectAwaitIn(Expr* e, ASTNode* at, const char* where) {
+    if (inAsyncFn && exprHasAwait(e))
+        errorAt(at, std::string("'await' is not supported in ") + where + "; bind it first (`let v = await ...;`)");
+}
+
 // Whether evaluating `e` makes a call (a lambda body is not evaluated there).
 bool TypeChecker::exprHasCall(Expr* e) const {
     if (!e || dynamic_cast<LambdaExpr*>(e)) return false;

@@ -636,6 +636,7 @@ void TypeChecker::visit(VarDecl* node) {
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); visit(ForStmt) then widens both decls to their common type.
         bool badRangeBound = false;
+        if (node->rangeBound) rejectAwaitIn(node->initializer.get(), node, "a range bound");
         if (node->rangeBound) {
             std::string bt = getExpressionType(node->initializer.get());
             if (auto* lit = dynamic_cast<LiteralExpr*>(node->initializer.get()))

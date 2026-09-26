@@ -1,0 +1,10 @@
+// EXPECT-ERROR: 'await' is not supported in a switch subject
+// The async lowering splits only a whole-statement await: bind it first.
+import <future>;
+Future<int>* mk(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+async int compute() {
+    int r = 0;
+    switch (await mk(2)) { case 2: r = 8; break; default: r = 9; }
+    return r;
+}
+int main() { Future<int>* r = compute(); return r.value; }

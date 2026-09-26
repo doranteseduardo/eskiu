@@ -1,0 +1,10 @@
+// EXPECT-ERROR: 'await' is not supported in a range bound
+// The async lowering splits only a whole-statement await: bind it first.
+import <future>;
+Future<int>* mk(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+async int compute() {
+    int r = 0;
+    for (i in 0..await mk(3)) { r = r + 1; }
+    return r;
+}
+int main() { Future<int>* r = compute(); return r.value; }
