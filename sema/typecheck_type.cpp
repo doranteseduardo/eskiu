@@ -127,6 +127,10 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         return "error";
     }
     if (op == "&") {
+        // A leading star would bind looser than an array suffix (`*int[3]` is an array of
+        // pointers), so the address of an array (or slice) takes the trailing spelling.
+        std::string st = tyq::strip(operandType);
+        if (!st.empty() && st.back() == ']') return operandType + "*";
         return "*" + operandType;
     }
     if (op == "*") {
@@ -686,6 +690,8 @@ bool TypeChecker::isPrimitiveType(const std::string& rawType) {
 
 bool TypeChecker::isPointerType(const std::string& rawType) {
     std::string type = tyq::strip(rawType);
+    // An array suffix binds tighter than a leading star: `*T[N]` is an array of pointers.
+    if (!type.empty() && type.back() == ']') return false;
     return !type.empty() && (type[0] == '*' || type.back() == '*' || type == "string");
 }
 
@@ -694,6 +700,7 @@ std::string TypeChecker::getPointeeType(const std::string& pointerType) {
     // The pointee's own const is preserved (a `const int*` derefs to `const int`).
     if (pointerType.size() >= 6 && pointerType.compare(pointerType.size() - 6, 6, "*const") == 0)
         return pointerType.substr(0, pointerType.size() - 6);
+    if (!pointerType.empty() && pointerType.back() == ']') return "";   // `*T[N]`: an array
     if (!pointerType.empty() && pointerType.back() == '*')
         return pointerType.substr(0, pointerType.size() - 1);
     // leading-star spelling: const sits before the star(s), e.g. "const *int"

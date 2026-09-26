@@ -222,6 +222,7 @@ int sema_is_ptrish(string t0) {
     string t = sema_strip_nullable(sema_strip_const(t0));
     int n = 0; while (t[n] != 0) { n = n + 1; }
     if (n == 0) { return 0; }
+    if (t[n - 1] == 93) { return 0; }                  // `*T[N]` is an array of pointers
     if (t[0] == 42 || t[n - 1] == 42) { return 1; }   // '*'
     return sema_streq(t, "string") == 1 || sema_streq(t, "null") == 1;
 }
@@ -1086,6 +1087,7 @@ string sema_pointee(string t0) {
     if (sema_pointee_const(t) == 1) { cst = 1; t = sema_strip_const(t); }
     int n = sema_slen(t);
     string r = "";
+    if (n > 0 && (int)t[n - 1] == 93) { return ""; }   // `*T[N]`: an array, not a pointer
     if (n >= 6 && sema_streq(sema_sub_str(t, n - 6, n), "*const") == 1) { r = sema_sub_str(t, 0, n - 6); }
     else if (n > 0 && (int)t[n - 1] == 42) { r = sema_sub_str(t, 0, n - 1); }
     else if (n > 0 && (int)t[0] == 42) { r = sema_sub_str(t, 1, n); }
@@ -1699,6 +1701,8 @@ string sema_canon_d(Sema* s, string t, int d) {
 }
 
 int sema_c_ptr(string c) {
+    int n = 0; while (c[n] != 0) { n = n + 1; }
+    if (n > 0 && (int)c[n - 1] == 93) { return 0; }    // `*T[N]` is an array of pointers
     if (c[0] == 42 || sema_streq(c, "string") == 1) { return 1; }
     return 0;
 }
@@ -1774,6 +1778,9 @@ int sema_ptr_compat(Sema* s, string a0, string b0) {
     string a = sema_strip_const(sema_strip_nullable(sema_canon(s, a0)));
     string b = sema_strip_const(sema_strip_nullable(sema_canon(s, b0)));
     if (sema_streq(a, b) == 1) { return 1; }
+    // An array suffix binds tighter than a leading star: `*T[N]` is an array, no pointer.
+    if (sema_slen(a) > 0 && (int)a[sema_slen(a) - 1] == 93) { return 0; }
+    if (sema_slen(b) > 0 && (int)b[sema_slen(b) - 1] == 93) { return 0; }
     if (sema_streq(a, "*void") == 1 || sema_streq(b, "*void") == 1) { return 1; }
     if (sema_is_byte_ptr(a) == 1 && sema_is_byte_ptr(b) == 1) { return 1; }
     if (sema_streq(a, "string") == 1 || sema_streq(b, "string") == 1) { return 0; }
