@@ -4503,6 +4503,18 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (sema_is_aggregate(s, vc) == 1 || sema_is_void_value(vc) == 1) {
                     s.had_error = 1;
                     dprintf(2, "error: %s:%d:%d: 'va_arg' cannot read a '%s': a variadic argument is an integer, a floating-point value or a pointer\n", s.filename, s.line, s.col, vt);
+                } else {
+                    // The default argument promotions: a float arrives as a double and a
+                    // narrow integer as an int (mirrors the C++ va_arg check).
+                    string vp = "";
+                    if (sema_streq(vc, "float") == 1) { vp = "double"; }
+                    if (sema_streq(vc, "bool") == 1 || sema_streq(vc, "char") == 1 || sema_streq(vc, "int8") == 1
+                        || sema_streq(vc, "int16") == 1 || sema_streq(vc, "uint8") == 1 || sema_streq(vc, "uint16") == 1) { vp = "int"; }
+                    if (vp[0] != 0) {
+                        s.had_error = 1;
+                        dprintf(2, "error: %s:%d:%d: 'va_arg' cannot read a '%s': a variadic '%s' is promoted to '%s'; read va_arg<%s> and convert it\n",
+                                s.filename, s.line, s.col, vt, vc, vp, vp);
+                    }
                 }
             }
         }

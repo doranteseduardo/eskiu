@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 'va_arg' cannot read a 'float': a variadic 'float' is promoted to 'double'
+// A float passed to `...` arrives as a double (the C default argument promotions).
+int f(int n, ...) { va_list ap; va_start(ap); float x = va_arg<float>(ap); va_end(ap); return (int)x; }
+int main() { float q = 1.5; return f(1, q); }

@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 'va_arg' cannot read a 'I8': a variadic 'int8' is promoted to 'int'
+// A narrow integer passed to `...` arrives as an int, also through an alias.
+type I8 = int8;
+int f(int n, ...) { va_list ap; va_start(ap); I8 d = va_arg<I8>(ap); va_end(ap); return (int)d; }
+int main() { int8 d = -3; return f(1, d); }

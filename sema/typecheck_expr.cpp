@@ -1665,9 +1665,20 @@ void TypeChecker::visit(TemplateCallExpr* node) {
         for (auto& a : node->args) a->accept(this);
         checkVaListArg(node, "va_arg", node->args);
         std::string t = normalizeType(node->typeArgs[0]);
-        if (isAggregateValue(t) || isVoidValueType(t))
+        if (isAggregateValue(t) || isVoidValueType(t)) {
             errorAt(node, "'va_arg' cannot read a '" + node->typeArgs[0] +
                           "': a variadic argument is an integer, a floating-point value or a pointer");
+        } else {
+            // A variadic argument undergoes the default argument promotions (C): a float
+            // arrives as a double and a narrow integer as an int, so reading the narrow
+            // type would take the wrong bytes.
+            std::string d = tyq::strip(dealiasOperand(t));
+            std::string promoted = d == "float" ? "double"
+                : (d == "bool" || d == "char" || d == "int8" || d == "int16" || d == "uint8" || d == "uint16") ? "int" : "";
+            if (!promoted.empty())
+                errorAt(node, "'va_arg' cannot read a '" + node->typeArgs[0] + "': a variadic '" + d +
+                              "' is promoted to '" + promoted + "'; read va_arg<" + promoted + "> and convert it");
+        }
         expressionTypes[node] = t;
         return;
     }

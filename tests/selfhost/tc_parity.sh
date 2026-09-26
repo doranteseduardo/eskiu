@@ -89,7 +89,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          ptr_array_from_addr ptr_array_deref
          struct_cycle_array_alias
          thread_handle_to_int
-         ternary_unrelated_ptrs iface_ternary_nonconforming"
+         ternary_unrelated_ptrs iface_ternary_nonconforming
+         va_arg_float va_arg_narrow_int"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk
