@@ -552,6 +552,32 @@ more and a third about 60, fixed the same way.
   a number or a single name. The self-host resolves an enum member as a struct field's
   dimension (`int[B] a`, it was invalid IR).
 
+#### Sixth audit round
+- HTTP/2: `h2_fill_request` leaked 16 bytes per request (`String_from` on the already
+  allocated version String).
+- HTTP/1: `HttpRequest_parse`, behind `http_serve` and `http_serve_async`, now frames a
+  request by RFC 9112 with the code `http_recv` uses: the body is exactly Content-Length
+  bytes (it was every byte after the head), an invalid, listed or repeated differing
+  Content-Length is rejected, and a request with no blank line after its head or a body
+  shorter than its Content-Length is incomplete instead of accepted. The new
+  `HttpRequest_parse_status` returns 0, -1 (more bytes needed) or the status (400, 413,
+  501, 505). Both servers read until the request is complete (`HttpConnBuf_feed`), so a
+  request split across TCP segments reaches the handler whole; a peer that closes early
+  gets 400, a head over 64 KiB 400 and a body over 1 MiB 413.
+- A Host value must be uri-host [":" port] (RFC 9110 §7.2): `Host: a b`, `Host: a, b`, a
+  bad port or `%` escape is 400 in `http_recv` and `HttpRequest_parse`.
+- A 304 response has no body and no Content-Length, and a HEAD response keeps the
+  Content-Length of its body but sends no body, in HTTP/1 (`HttpResponse_render_head`,
+  used by both servers) and HTTP/2; both sent the body.
+- HTTP/2 trailers follow the header-field rules: an uppercase name, a CR, LF or NUL in a
+  value, a connection-specific field or `te` resets the stream with PROTOCOL_ERROR, as a
+  pseudo-header already did.
+- Regex: `\s` is `[\t\n\f\r ]` as in RE2 (it also matched `\v`, and `\S` and `[^\s]`
+  missed it). POSIX classes in brackets (`[[:alpha:]]`, `[[:^digit:]]`, the 14 RE2
+  names) are supported; they were read as a set of letters and a stray `]`. A `{` that
+  does not start a `{n}`, `{n,}` or `{n,m}` repeat is a literal (`{`, `a{`, `a{,2}`), as
+  in RE2; it was an error.
+
 ## [0.9.1] - 2026-09-09
 ### Fixed
 A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
