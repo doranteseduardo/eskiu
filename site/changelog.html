@@ -262,10 +262,28 @@ more and a third about 60, fixed the same way.</p>
 <li>A bare nullary variant of a generic enum needs its type arguments (<code>None&lt;int&gt;()</code>), and
   a variant constructor's payload is checked against the declared instance.</li>
 <li><code>?*T</code> narrowing ends at any call or <code>await</code> for a global, and an address-taken
-  variable is never narrowed.</li>
+  variable is never narrowed. A call in a condition (also in a <code>&amp;&amp;</code> right operand, a
+  ternary condition or an early-exit guard) or in the branch that falls through ends a
+  global's narrowing from that point on.</li>
+<li>A lambda that captures a non-<code>escaping</code> closure parameter and outlives the call
+  (returned, stored, passed to an <code>escaping</code> parameter or to <code>thread_create</code>) needs the
+  parameter marked <code>escaping</code>.</li>
+<li>A pointer to a sum type converts only to and from a pointer to the same sum type (or
+  <code>*void</code>), and a pointer to an array or slice (<code>&amp;arr</code>) is not a pointer to a struct.</li>
+<li>A <code>\</code>-newline inside a string or char literal on a directive line splices the next
+  line, as in C, so a <code>#define</code> body's literal may span lines.</li>
 <li><code>?</code> needs an integer or <code>bool</code> <code>ok</code> field; a union literal names one member; an inline
   method can't declare a parameter named <code>self</code>, and an operator overload must have the
   operator's arity.</li>
+<li><code>va_start</code> needs a variadic function (<code>...</code>), and <code>va_start</code>, <code>va_arg</code> and <code>va_end</code>
+  take one <code>va_list</code>; <code>va_arg</code> of a struct, union, sum type or array is an error.
+  <code>thread_create</code> takes a <code>fn()-&gt;void</code>, <code>thread_join</code> its <code>*void</code> handle, and
+  <code>free_closure</code> a closure. <code>alloc_with</code> needs an integer count and an allocator type
+  with an <code>alloc</code> method (it was a codegen error without a location).</li>
+<li>A sum type is not a bitfield type, and a named bitfield may not have zero width
+  (<code>int x : 0</code>), as in C. <code>p - q</code> needs pointers to the same type.</li>
+<li>An enum bitfield whose enum has no negative member reads back unsigned, as in clang
+  and GCC (MS layout keeps it signed): <code>Col col : 2</code> holding <code>B = 2</code> read back as -2.</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -502,6 +520,23 @@ more and a third about 60, fixed the same way.</p>
 </ul>
 <h4 id="fourth-audit-round">Fourth audit round</h4>
 <ul>
+<li>A <code>finally</code> runs when a <code>catch</code> handler throws (directly or from a call); the new
+  exception then propagates.</li>
+<li>A <code>bool</code> bitfield at a nonzero bit offset reads back what was stored (it used an <code>i1</code>
+  storage unit, so it read false or trapped at <code>-O2</code>).</li>
+<li><code>for (x in E)</code> evaluates <code>E</code> once: a call, or an index by a variable, was evaluated
+  again for every iteration (synchronous and async loops). The C++ checker accepts a
+  pointer to a generic list returned by a call as the iterable.</li>
+<li>The C++ checker accepts arithmetic, comparisons, <code>++</code>/<code>--</code> and unary operators on a
+  value typed by an alias through a field, element, return value or pointee
+  (<code>type u8 = uint8; s.a + 1</code>).</li>
+<li>Awaiting a future of a struct or a generic instance no longer prints a spurious
+  <code>0:0: cannot convert</code> error, and an error in the lowered async code now fails the
+  build instead of being ignored.</li>
+<li>Self-host: rejects <code>free_closure</code> of a non-closure, a sum type as a bitfield type,
+  reading or assigning an inline method as if it were a field (<code>p.sum</code>), a string slice
+  into a non-<code>char</code> slice, and <code>alloc_with</code> with a non-integer count or an allocator
+  without <code>alloc</code> (each emitted invalid IR or garbage before).</li>
 <li>Async: dropping a <code>select2</code>, <code>join2</code>, <code>select2v</code> or <code>join2v</code> future before it resolves
   drops its inputs (their producers are cancelled and their wakers unhooked). A later
   completion of an input used to write into the freed combinator, for example when an
@@ -525,6 +560,21 @@ more and a third about 60, fixed the same way.</p>
 <li>Regex: an invalid bracket range (<code>[z-a]</code>, <code>[a-\d]</code>, <code>[\d-z]</code>) is a compile error as in
   RE2, and <code>\D</code> <code>\W</code> <code>\S</code> inside a bracket class are the complemented shorthands (they
   were read as the letters).</li>
+<li>A cast in a constant expression truncates and sign-extends as in C, so <code>case (int8)259:</code>
+  and <code>case 3:</code> are duplicate labels and <code>a[(int8)257]</code> is <code>a[1]</code>.</li>
+<li><code>fmt</code> keeps a line after a <code>\</code> continuation byte for byte (it re-indented it, changing a
+  spliced macro body).</li>
+<li>A variant constructor's integer literal argument must fit its payload type
+  (<code>A(300)</code> for <code>A(int8)</code>), and <code>null[0]</code> is a type error (it was a codegen error or
+  segfault).</li>
+<li>An interface arm and a struct-pointer arm of <code>?:</code> meet as the interface in both
+  compilers (C++ codegen crashed, the self-host rejected it).</li>
+<li>Self-host: rejects <code>match</code> on a pointer or a struct, casts to and from a sum type, a
+  struct literal of an enum, calling an enum member, an array or a non-closure field, a
+  method used as a value, a variadic function assigned to a number, a payload variant
+  without arguments, <code>sizeof</code> of a function, variant or later global, <code>++</code> on an enum, a
+  by-value cycle through a type alias, an array size naming a later <code>const</code>, and an
+  uninitialized read in a generic instance, as the C++ compiler does.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>

@@ -390,7 +390,10 @@ enclosing loop ends it, and a shadowing declaration of the same name is not narr
 variable whose address has been taken (<code>&amp;x</code>, before the check or anywhere in an enclosing
 loop) is not narrowed, since a write through that pointer can store null behind the check;
 for a global the address counts anywhere in the program. A global's narrowing also ends at
-every call and <code>await</code>, since the callee may assign it.</p>
+every call and <code>await</code>, since the callee may assign it: a test of a global earlier in a
+condition does not hold after a later operand that calls (<code>gp != null &amp;&amp; f() &amp;&amp; gp.v</code>),
+nor in a branch or ternary arm guarded by such a condition, nor after an early-exit guard
+whose condition or fall-through branch calls something.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
 <p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
@@ -1082,6 +1085,11 @@ builtins <code>va_start(ap)</code>, <code>va_arg&lt;T&gt;(ap)</code> (one argume
 as <code>double</code> (read it with <code>va_arg&lt;double&gt;</code>), and integer types narrower than <code>int</code>
 arrive as <code>int</code>. There is no automatic count of the arguments: pass it explicitly
 (as <code>n</code> above) or use a sentinel.</p>
+<p><code>va_start</code> is only allowed in a function with a <code>...</code> parameter. Each of the three
+builtins takes exactly one <code>va_list</code> operand (a <code>va_list</code> may also be passed to another
+function, which then reads it with <code>va_arg</code>). <code>T</code> in <code>va_arg&lt;T&gt;</code> must be a scalar: an
+integer, a floating-point type or a pointer; a struct, union, sum type or array is a
+compile error.</p>
 <h3 id="64-extern-declarations">6.4 Extern Declarations</h3>
 <p><code>extern</code> declares a C function or global variable available to Eskiu code. See §13 for details.</p>
 <h3 id="641-intrinsic-declarations">6.4.1 Intrinsic Declarations</h3>
@@ -1113,12 +1121,12 @@ int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 let add: fn(int)-&gt;int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 </code></pre>
-<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign.</p>
+<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (<code>p.set(5)</code>, where <code>set</code> takes <code>*P self</code>) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (<code>*P pp = &amp;p;</code> outside the lambda, <code>pp.set(5)</code> inside) to modify the original.</p>
 <p>Under the hood, <code>fn(T)-&gt;R</code> is a two-word fat pointer <code>{fn_ptr, env_ptr}</code>. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in <code>env_ptr</code>. Lambdas that capture nothing have <code>env_ptr = null</code> and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains <code>fn(T)-&gt;R</code> in both cases.</p>
 <p><strong>Escape analysis and closure lifetime.</strong> Where the environment lives depends on whether the closure <em>escapes</em> its creating function:</p>
 <ul>
 <li>A <strong>non-escaping</strong> closure (one that is only called, or passed to a parameter that is not marked <code>escaping</code>) has its environment allocated on the <strong>stack</strong>. This costs nothing and needs no cleanup (the common <code>map</code>/<code>filter</code>/callback-invoked-in-place case).</li>
-<li>An <strong>escaping</strong> closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an <code>escaping</code> parameter) has its environment allocated on the <strong>heap</strong>, so it remains valid after the creating function returns. Release it with <code>free_closure(f)</code> (a no-op for non-capturing closures, whose env is null).</li>
+<li>An <strong>escaping</strong> closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an <code>escaping</code> parameter) has its environment allocated on the <strong>heap</strong>, so it remains valid after the creating function returns. Release it with <code>free_closure(f)</code> (a no-op for non-capturing closures, whose env is null; <code>f</code> must be a closure value).</li>
 </ul>
 <p>A parameter that retains the closure beyond the call (stores it, returns it, hands it to another <code>escaping</code> parameter) must be declared <code>escaping</code>:</p>
 <pre><code class="language-eskiu">// stores cb beyond the call -&gt; the parameter is `escaping`
@@ -1127,7 +1135,7 @@ void on_ready(int fd, escaping fn(int)-&gt;void cb) { handlers[fd] = cb; }
 // only calls f -&gt; no annotation; closures passed here stay on the stack
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
 </code></pre>
-<p>Passing a non-<code>escaping</code> closure parameter straight on to another function's non-<code>escaping</code> parameter is also fine, since that callee can only call it too.</p>
+<p>Passing a non-<code>escaping</code> closure parameter straight on to another function's non-<code>escaping</code> parameter is also fine, since that callee can only call it too. A lambda that captures a non-<code>escaping</code> parameter escapes it with the lambda unless the lambda itself cannot outlive the call: it is passed straight to a non-<code>escaping</code> parameter, or bound to a local that is only called. Returning such a lambda, storing it, passing it to an <code>escaping</code> parameter or to <code>thread_create</code> needs the parameter marked <code>escaping</code>.</p>
 <p>This is checked: using a non-<code>escaping</code> closure parameter beyond a direct call is a compile error pointing you at <code>escaping</code>, so a closure can never silently outlive its stack environment. <code>escaping</code> and <code>free_closure</code> are reserved words (§2.3).</p>
 <p><strong>Named functions as values.</strong> A top-level function used as a value (rather than called) decays to a <code>fn(T,...)-&gt;R</code>, so it can be assigned or passed directly, no lambda wrapper needed:</p>
 <pre><code class="language-eskiu">void worker() { /* ... */ }
@@ -1172,7 +1180,7 @@ of type arguments generates a separate monomorphic instantiation.</p>
 <pre><code class="language-eskiu">thread_create(fn()-&gt;void worker) -&gt; *void
 thread_join(*void handle) -&gt; void
 </code></pre>
-<p><code>thread_create</code> accepts any <code>fn()-&gt;void</code> value, including a closure, and returns an opaque <code>*void</code> thread handle. <code>thread_join</code> blocks the calling thread until the spawned thread completes.</p>
+<p><code>thread_create</code> accepts any <code>fn()-&gt;void</code> value, including a closure, and returns an opaque <code>*void</code> thread handle. <code>thread_join</code> blocks the calling thread until the spawned thread completes. Any other worker type, or a <code>thread_join</code> operand that is not a <code>*void</code> handle, is a compile error.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
 int main() {
@@ -1250,7 +1258,7 @@ a combinator before it resolves drops its inputs with it), and
 }
 </code></pre>
 <h4 id="finally">finally</h4>
-<p>The <code>finally</code> block executes unconditionally after the <code>try</code> body and any <code>catch</code> clause, regardless of whether an exception was raised. It also runs when the body or a <code>catch</code> handler leaves early with <code>return</code>, <code>break</code>, <code>continue</code> or <code>?</code>.</p>
+<p>The <code>finally</code> block executes unconditionally after the <code>try</code> body and any <code>catch</code> clause, regardless of whether an exception was raised. It also runs when the body or a <code>catch</code> handler leaves early with <code>return</code>, <code>break</code>, <code>continue</code> or <code>?</code>, and when a <code>catch</code> handler throws (directly or from a call); the new exception then propagates after the <code>finally</code> body.</p>
 <pre><code class="language-eskiu">try {
     throw &quot;error&quot;;
 } catch (string e) {
@@ -1353,6 +1361,11 @@ the underlying collection. <code>break</code> and <code>continue</code> work as 
 <p>The form desugars to an index-counted loop: for an array the bound is its
 compile-time length; for a slice the bound is its <code>.len</code>; for a List-like value
 the bound is its <code>size</code> field, and each element is read through <code>data[i]</code>.</p>
+<p>The iterable is evaluated once, before the first iteration. A variable, or a field or
+constant-index element of one, is read in place, so the loop sees writes the body makes
+to it. Anything else (a call, an index by a variable) is held in a temporary: a
+List-like value that has an address by a pointer to it, an array, slice or pointer by
+value (an array is then copied).</p>
 <h3 id="73-while">7.3 while</h3>
 <pre><code class="language-eskiu">while (condition) {
     // body
@@ -1494,7 +1507,7 @@ struct Rect {
 }
 </code></pre>
 <p>Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.</p>
-<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield.</p>
+<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend), and writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A <code>bool</code> bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (<code>int x : 0</code> is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).</p>
 <pre><code class="language-eskiu">struct Flags {
     uint32 ready  : 1;
     uint32 mode   : 3;
@@ -1897,6 +1910,9 @@ free(buf);
 *int pi = alloc&lt;int&gt;(8);
 *int  p2 = pi + 1;        // 4 bytes forward, next int element
 </code></pre>
+<p><code>p - q</code> between two pointers counts the elements between them (an <code>int64</code>). Both must
+point to the same type, as in C (<code>const</code>, <code>?</code> and aliases aside); <code>*int - *char</code> is a
+compile error.</p>
 <p>The subscript operator <code>ptr[i]</code> reads or writes the <code>i</code>-th element and is exactly equivalent to <code>*(ptr + i)</code> (typed by the pointee). It is the idiomatic way to index allocated buffers and array fields:</p>
 <pre><code class="language-eskiu">*int xs = alloc&lt;int&gt;(4);
 xs[0] = 10;
@@ -1938,7 +1954,7 @@ if (p != null) {
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 </code></pre>
 <p>Freestanding mode does not remove any other language features. The standard library modules (<code>stdlib/result.esk</code>, etc.) remain available but must not import libc functions that are absent from the target.</p>
-<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator.</p>
+<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator. <code>n</code> must be an integer, and the allocator's type must have the <code>alloc</code> method (a free <code>&lt;Type&gt;_alloc</code> or an inline <code>alloc</code>); otherwise it is a compile error.</p>
 <pre><code class="language-eskiu">import &lt;alloc&gt;;
 
 *uint8 backing = alloc&lt;uint8&gt;(4096);   // one slab from the host (or a static buffer in freestanding)
