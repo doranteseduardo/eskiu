@@ -1,0 +1,31 @@
+// List_free leaves an empty list (data = null): a push after it regrows the
+// list and a second free is a no-op. It used to keep the freed pointer, so the
+// reuse wrote into freed memory and the second free was a double free.
+import <list>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let l: List<int>; List_init<int>(&l, 4);
+    l.push(1);
+    List_free<int>(&l);
+    List_free<int>(&l);
+    l.push(2);
+    l.push(3);
+    printf("%d %d %d\n", l.size, List_get<int>(&l, 0), List_get<int>(&l, 1));
+    List_free<int>(&l);
+    List_free<int>(&l);
+
+    let s: String; s.init(8);
+    s.append("a,b");
+    let parts: List<String>; List_init<String>(&parts, 2);
+    s.split(',', &parts);
+    printf("%d\n", List_len<String>(&parts));
+    String_split_free(&parts);
+    String_split_free(&parts);
+    s.split(',', &parts);
+    printf("%d\n", List_len<String>(&parts));
+    String_split_free(&parts);
+    s.free();
+    return 0;
+}

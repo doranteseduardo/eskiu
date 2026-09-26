@@ -51,8 +51,10 @@ int List_len<T>(List<T>* self) {
     return self.size;
 }
 
+// Leaves an empty list: push after free regrows it, and a second free is a no-op.
 void List_free<T>(List<T>* self) {
     free(self.data);
+    self.data = null;
     self.size = 0;
     self.cap  = 0;
 }
