@@ -829,6 +829,8 @@ input. What is still open is listed under Known issues.
   body is one scope, as in C: the variable is visible in the later cases, and two cases
   may not declare one name. Tests `case_decl`, `async_case_decl`,
   `errors/case_decl_redefined`, `errors/case_decl_out_of_scope`.
+- A `T[]` parameter infers `T` from a slice argument (`sum(a[0..4])`). Test
+  `generic_slice_infer`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -843,9 +845,8 @@ without a diagnostic, except where the entry says so.
   not folded by the type checker, so the constant-expression checks do not see it.
 - A bitfield write, and the initializing store, through a `volatile` variable are not
   volatile accesses.
-- A `T[]` parameter does not infer `T` from a slice argument, and a generic variant infers
-  its type arguments only from its payload (`Opt<int64> a = Some(5)` needs
-  `Some<int64>(5)`); write the type arguments.
+- A generic variant infers its type arguments only from its payload
+  (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
 - Enum member values must be integer literals.
 - A function-like macro whose name is followed by a newline before `(` is not expanded,
   and a `#undef` line inside a multi-line string literal is read as a directive.

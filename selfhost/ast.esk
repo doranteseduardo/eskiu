@@ -212,6 +212,14 @@ string ast_unify_tparam(string pat0, string arg0, string tp) {
     arg = ast_unify_canon((string)((*uint8)arg + i));
     if (pat[0] == 0 || arg[0] == 0) { return ""; }
     if (ast_streq(pat, tp) == 1) { return arg; }
+    int pn = 0; while (pat[pn] != 0) { pn = pn + 1; }
+    if (pn > 2 && (int)pat[pn - 1] == 93 && (int)pat[pn - 2] == 91) {   // `T[]`: the element
+        int an = 0; while (arg[an] != 0) { an = an + 1; }
+        if (an > 2 && (int)arg[an - 1] == 93 && (int)arg[an - 2] == 91) {
+            return ast_unify_tparam(ast_sub(pat, 0, pn - 2), ast_sub(arg, 0, an - 2), tp);
+        }
+        return "";
+    }
     int pl = 0; while (pat[pl] != 0 && (int)pat[pl] != 60) { pl = pl + 1; }
     int al = 0; while (arg[al] != 0 && (int)arg[al] != 60) { al = al + 1; }
     if (pat[pl] == 0 || arg[al] == 0 || pl != al || (int)pat[0] == 42) { return ""; }

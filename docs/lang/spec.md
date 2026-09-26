@@ -1016,8 +1016,9 @@ int first = List_get(&nums, 0);
 ```
 
 Inference unifies each parameter type against the concrete argument type
-structurally (peeling pointers and matching template instances), so a `List<T>*`
-parameter binds `T` from a `List<int>*` argument. If a type parameter cannot be
+structurally (peeling pointers, matching template instances and slice element types),
+so a `List<T>*` parameter binds `T` from a `List<int>*` argument and a `T[]` parameter
+binds `T` from an `int[]` slice (`sum(a[0..4])`). If a type parameter cannot be
 inferred from any argument, pass the type arguments explicitly. Each unique set
 of type arguments generates a separate monomorphic instantiation.
 

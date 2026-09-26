@@ -771,6 +771,15 @@ void TypeChecker::unifyTypeParam(std::string pattern, std::string concrete,
         if (!subs.count(pattern)) subs[pattern] = concrete;
         return;
     }
+    auto isSlice = [](const std::string& t) {
+        return t.size() > 2 && t.compare(t.size() - 2, 2, "[]") == 0;
+    };
+    if (isSlice(pattern)) {                     // `T[]` against a slice binds the element
+        if (isSlice(concrete))
+            unifyTypeParam(pattern.substr(0, pattern.size() - 2),
+                           concrete.substr(0, concrete.size() - 2), tps, subs);
+        return;
+    }
     if (pattern.find('<') == std::string::npos) return;
     auto [pbase, pargs] = splitTemplateType(pattern);
     std::string cbase; std::vector<std::string> cargs;
