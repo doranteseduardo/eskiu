@@ -236,6 +236,11 @@ more and a third about 60, fixed the same way.
   global's `?*T` narrowing like a call, and the rest of a block after an early-exit guard
   is not narrowed when the branch that falls through assigns the variable
   (`if (p == null) { return 0; } else { p = null; } return p.v;` was accepted).
+- **Inferred type arguments no longer come from the first argument alone.** A binding
+  from a composite parameter (`*T`, `List<T>*`) wins; by-value `T a, T b` arguments that
+  deduce different integer types meet at their common type (`maxof(1, big)` with `int64
+  big` is `maxof<int64>`; it was `maxof<int>` and truncated `big`), and any other
+  disagreement (`maxof(1.5, (float)2.5)`) is a located error in both compilers.
 
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
@@ -678,6 +683,12 @@ more and a third about 60, fixed the same way.
 - A cast to an alias of an unsigned type (`(u8)-1`) or a call returning one zero-extends
   in the self-host (it sign-extended, so `(u8)-1` was -1 and `f() + 10` with `f` returning
   `u8` 250 was 4). Test `alias_unsigned`.
+- The self-host checks every argument of an inferred generic call against the
+  instantiated parameter types, as C++ does: only a bare `T` parameter was checked, so
+  `swp(&i64, &s.a)` against `*T` corrupted memory and `List_push(&l, 1.5)` on a
+  `List<int>` compiled. Tests `errors/generic_ptr_arg_mismatch`,
+  `errors/generic_struct_param_arg`, `generic_infer_common`,
+  `errors/generic_deduce_conflict`.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: argument 2 type mismatch: expected *int64
+void swp<T>(*T a, *T b) { T t = *a; *a = *b; *b = t; }
+struct S { int a; int guard; }
+int main() { S s = S{1, 77}; int64 b = 5; swp(&b, &s.a); return s.guard; }

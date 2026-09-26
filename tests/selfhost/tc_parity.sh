@@ -92,7 +92,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          ternary_unrelated_ptrs iface_ternary_nonconforming
          va_arg_float va_arg_narrow_int
          array_dim_cast_zero
-         nullable_global_alloc_with nullable_global_thread_join nullable_global_thread_create nullable_guard_else_assign nullable_guard_then_assign array_dim_sizeof_zero await_in_switch_subject await_in_range_bound await_in_forin_iterable not_void_call throw_void deref_void_ptr cast_void_call cast_int_to_struct_generic cast_array_literal generic_void_param closure_captured_address closure_captured_slice finally_return match_alias_nonexhaustive finally_question"
+         nullable_global_alloc_with nullable_global_thread_join nullable_global_thread_create nullable_guard_else_assign nullable_guard_then_assign array_dim_sizeof_zero await_in_switch_subject await_in_range_bound await_in_forin_iterable not_void_call throw_void deref_void_ptr cast_void_call cast_int_to_struct_generic cast_array_literal generic_void_param closure_captured_address closure_captured_slice finally_return match_alias_nonexhaustive finally_question
+         generic_deduce_conflict generic_ptr_arg_mismatch generic_struct_param_arg"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

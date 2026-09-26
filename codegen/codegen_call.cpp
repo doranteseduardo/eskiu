@@ -286,8 +286,26 @@ void CodeGen::visit(CallExpr* node) {
             FunctionDecl* fd = tIt->second;
             std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
             std::map<std::string, std::string> subs;
+            // Structural parameters bind first; by-value `T a` deductions of one parameter
+            // meet at their common integer type (as the type checker decides).
             for (size_t j = 0; j < fd->params.size() && j < node->args.size(); ++j)
-                unifyTypeParam(fd->params[j].first, getExprEskiuType(node->args[j]), tps, subs);
+                if (!tps.count(tyq::strip(fd->params[j].first)))
+                    unifyTypeParam(fd->params[j].first, getExprEskiuType(node->args[j]), tps, subs);
+            std::map<std::string, std::string> byValue;
+            for (size_t j = 0; j < fd->params.size() && j < node->args.size(); ++j) {
+                std::string tp = tyq::strip(fd->params[j].first);
+                if (!tps.count(tp) || subs.count(tp)) continue;
+                std::string at = getExprEskiuType(node->args[j]);
+                if (at.empty() || at == "null") continue;
+                std::map<std::string, std::string> one;
+                unifyTypeParam(fd->params[j].first, at, tps, one);
+                if (!one.count(tp)) continue;
+                auto bv = byValue.find(tp);
+                if (bv == byValue.end()) { byValue[tp] = one[tp]; continue; }
+                std::string common = ty::rangeVarType(expandAlias(bv->second), expandAlias(one[tp]));
+                if (!common.empty() && expandAlias(bv->second) != expandAlias(one[tp])) bv->second = common;
+            }
+            for (const auto& kv : byValue) subs[kv.first] = kv.second;
             std::vector<std::string> typeArgs;
             for (const auto& tpName : fd->typeParams) {
                 auto sIt = subs.find(tpName);

@@ -308,16 +308,27 @@ void al_infer_targs(*Program prog, *DeclNode curfn, *DeclNode d, List<*ExprNode>
     int ti = 0;
     while (ti < List_len<TypeParam>(&d.type_params)) {
         string tp = List_get<TypeParam>(&d.type_params, ti).name;
-        if (List_get<string>(out, ti)[0] == 0) {
+        // Structural parameters first; by-value `T a` deductions meet at their common
+        // integer type (as sema decides).
+        int pass = 0;
+        while (pass < 2 && List_get<string>(out, ti)[0] == 0) {
             int pi = p0; int ai = a0;
-            while (List_get<string>(out, ti)[0] == 0 && pi < List_len<Param>(&d.params) && ai < List_len<*ExprNode>(args)) {
-                string at = al_expr_type(prog, curfn, List_get<*ExprNode>(args, ai));
-                if (at[0] != 0) {
+            while (pi < List_len<Param>(&d.params) && ai < List_len<*ExprNode>(args)) {
+                int bare = 0; if (ast_streq(ast_unify_canon(List_get<Param>(&d.params, pi).ty), tp) == 1) { bare = 1; }
+                string at = "";
+                if (bare == pass) { at = al_expr_type(prog, curfn, List_get<*ExprNode>(args, ai)); }
+                if (at[0] != 0 && ast_streq(at, "null") == 0) {
                     string b = ast_unify_tparam(List_get<Param>(&d.params, pi).ty, at, tp);
-                    if (b[0] != 0) { List_set<string>(out, ti, b); }
+                    string cur = List_get<string>(out, ti);
+                    if (b[0] != 0 && cur[0] == 0) { List_set<string>(out, ti, b); if (pass == 0) { break; } }
+                    else if (b[0] != 0 && pass == 1 && ast_streq(cur, b) == 0) {
+                        string common = ast_range_var_type(cur, b);
+                        if (common[0] != 0) { List_set<string>(out, ti, common); }
+                    }
                 }
                 pi = pi + 1; ai = ai + 1;
             }
+            pass = pass + 1;
         }
         ti = ti + 1;
     }

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: type parameter 'T' is deduced as 'double' from argument 1 and as 'float' here
+T maxof<T>(T a, T b) { return a > b ? a : b; }
+int main() { double d = maxof(1.5, (float)2.5); return (int)d; }

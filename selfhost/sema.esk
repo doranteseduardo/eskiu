@@ -2332,34 +2332,76 @@ int sema_tparam_index(*DeclNode fd, string name) {
     return -1;
 }
 
-// Inferred generic call: each parameter spelled exactly as a type parameter binds it to
-// the first such argument's type; later arguments for the same parameter must be
-// assignable to that binding. Conservative: unknown argument types are skipped.
-void sema_check_generic_binding(Sema* s, *DeclNode fd, *ExprNode e) {
-    List<string> bound; List_init<string>(&bound, 4);
-    int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
-    while (t < tn) { List_push<string>(&bound, ""); t = t + 1; }
-    int i = 0; int n = List_len<*ExprNode>(&e.kids);
-    int np = List_len<Param>(&fd.params);
+// 1 when parameter `i` of `fd` is spelled as the bare type parameter `tp` (`T a`): a
+// by-value deduction. The other parameters bind structurally first and take precedence.
+int sema_bare_tparam(*DeclNode fd, int i, string tp) {
+    return sema_streq(ast_unify_canon(List_get<Param>(&fd.params, i).ty), tp);
+}
+
+// The binding of `tp` from the by-value arguments of an inferred generic call: they must
+// agree, and integer ones that differ meet at their common type by C's usual arithmetic
+// conversions (`maxof(1, big)` is `maxof<int64>`). Any other disagreement is reported
+// when `report` is 1 (mirrors the C++). "" when no by-value argument binds it.
+string sema_byvalue_bind(Sema* s, *DeclNode fd, *ExprNode e, string tp, int report) {
+    string b = ""; int from = 0;
+    int i = 0; int n = List_len<*ExprNode>(&e.kids); int np = List_len<Param>(&fd.params);
     while (i < n && i < np) {
-        int ti = sema_tparam_index(fd, List_get<Param>(&fd.params, i).ty);
-        if (ti >= 0) {
-            *ExprNode a = List_get<*ExprNode>(&e.kids, i);
-            string b = List_get<string>(&bound, ti);
-            if (b[0] == 0) {
-                string at = sema_infer_type(s, a);
-                if (at[0] != 0 && sema_streq(at, "null") == 0) { List_set<string>(&bound, ti, at); }
-            } else {
-                string perr = sema_assign_err(s, b, a);
-                if (perr[0] != 0) {
-                    s.had_error = 1;
-                    dprintf(2, "error: %s:%d:%d: argument %d type mismatch: expected %s, got %s (%s)\n", s.filename, s.line, s.col, i + 1,
-                           b, sema_infer_type(s, a), perr);
+        if (sema_bare_tparam(fd, i, tp) == 1) {
+            string at = sema_value_type(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)));
+            if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) {
+                at = ast_unify_tparam(List_get<Param>(&fd.params, i).ty, at, tp);
+                if (at[0] != 0) {
+                    if (b[0] == 0) { b = at; from = i; }
+                    else if (sema_streq(sema_canon(s, b), sema_canon(s, at)) == 0) {
+                        string common = ast_range_var_type(sema_canon(s, b), sema_canon(s, at));
+                        if (common[0] != 0) { b = common; }
+                        else if (report == 1) {
+                            s.had_error = 1;
+                            dprintf(2, "error: %s:%d:%d: argument %d type mismatch: type parameter '%s' is deduced as '%s' from argument %d and as '%s' here\n",
+                                   s.filename, s.line, s.col, i + 1, tp, b, from + 1, at);
+                            return "";
+                        }
+                    }
                 }
             }
         }
         i = i + 1;
     }
+    return b;
+}
+
+// The structural binding of `tp` (from a parameter other than a bare `T a`), or "".
+string sema_struct_bind(Sema* s, *DeclNode fd, *ExprNode e, string tp) {
+    int i = 0; int n = List_len<*ExprNode>(&e.kids); int np = List_len<Param>(&fd.params);
+    while (i < n && i < np) {
+        if (sema_bare_tparam(fd, i, tp) == 0) {
+            string at = sema_value_type(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)));
+            if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) {
+                string b = ast_unify_tparam(List_get<Param>(&fd.params, i).ty, at, tp);
+                if (b[0] != 0) { return b; }
+            }
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// Inferred generic call: the by-value deductions of each type parameter not bound
+// structurally must agree (sema_byvalue_bind). 1 when they do.
+int sema_check_generic_binding(Sema* s, *DeclNode fd, *ExprNode e) {
+    int ok = 1;
+    int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
+    while (t < tn) {
+        string tp = List_get<TypeParam>(&fd.type_params, t).name;
+        if (sema_struct_bind(s, fd, e, tp)[0] == 0) {
+            int before = s.had_error; s.had_error = 0;
+            sema_byvalue_bind(s, fd, e, tp, 1);
+            if (s.had_error == 1) { ok = 0; }
+            if (before == 1) { s.had_error = 1; }
+        }
+        t = t + 1;
+    }
+    return ok;
 }
 
 // `t` with the pointer stars and spaces stripped from both ends ("*Box<int>" -> "Box<int>").
@@ -2479,16 +2521,8 @@ int sema_bind_targs(Sema* s, *DeclNode fd, *ExprNode e, List<string>* out) {
     int t = 0; int tn = List_len<TypeParam>(&fd.type_params);
     while (t < tn) {
         string tp = List_get<TypeParam>(&fd.type_params, t).name;
-        string b = "";
-        int i = 0; int n = List_len<*ExprNode>(&e.kids); int np = List_len<Param>(&fd.params);
-        while (i < n && i < np && b[0] == 0) {
-            string at = sema_value_type(sema_infer_type(s, List_get<*ExprNode>(&e.kids, i)));
-            if (at[0] != 0 && sema_streq(at, "null") == 0 && sema_streq(at, "unknown") == 0) {
-                string pty = List_get<Param>(&fd.params, i).ty;
-                if (sema_streq(pty, tp) == 1) { b = at; } else { b = ast_unify_tparam(pty, at, tp); }
-            }
-            i = i + 1;
-        }
+        string b = sema_struct_bind(s, fd, e, tp);
+        if (b[0] == 0) { b = sema_byvalue_bind(s, fd, e, tp, 0); }
         if (b[0] == 0) { ok = 0; }
         List_push<string>(out, b);
         t = t + 1;
@@ -4582,10 +4616,24 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                     dprintf(2, "error: %s:%d:%d: cannot infer type argument(s) %s of generic function '%s' from the call; write them explicitly, e.g. %s<...>(...)\n",
                            s.filename, s.line, s.col, unb, gfd.name, gfd.name);
                 } else if (sema_check_generic_arity(s, gfd, e) == 1) {
-                    sema_check_generic_binding(s, gfd, e);
+                    int agree = sema_check_generic_binding(s, gfd, e);
                     List<string> btargs; List_init<string>(&btargs, 4);
                     if (sema_bind_targs(s, gfd, e, &btargs) == 1) {
-                        if (sema_check_constraints(s, &gfd.type_params, &btargs) == 1) { sema_queue_inst(s, gfd, null, &btargs, gfd.name, ""); }
+                        if (agree == 1 && sema_check_constraints(s, &gfd.type_params, &btargs) == 1) {
+                            // The inferred instance's parameter types must accept every
+                            // argument (`swp(&i64, &i32)` against `*T`), as in C++.
+                            List<string> ipts; List_init<string>(&ipts, 4);
+                            int pi = 0;
+                            while (pi < List_len<Param>(&gfd.params)) {
+                                List_push<string>(&ipts, sema_subst_params(List_get<Param>(&gfd.params, pi).ty, &gfd.type_params, &btargs));
+                                pi = pi + 1;
+                            }
+                            int before = s.had_error; s.had_error = 0;
+                            sema_check_call_args(s, e, sema_cat(sema_cat("function '", gfd.name), "'"), &ipts);
+                            int bad = s.had_error;
+                            if (before == 1) { s.had_error = 1; }
+                            if (bad == 0) { sema_queue_inst(s, gfd, null, &btargs, gfd.name, ""); }
+                        }
                     }
                     else if (sema_args_typed(s, e) == 1) {
                         string unbound = "";

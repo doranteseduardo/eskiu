@@ -5313,12 +5313,32 @@ string cg_infer_generic(Codegen* g, *DeclNode gd, *ExprNode e) {
     int ti = 0; int ntp = List_len<TypeParam>(&gd.type_params);
     while (ti < ntp) {
         string tp = List_get<TypeParam>(&gd.type_params, ti).name;
+        // Structural parameters bind first; by-value `T a` deductions meet at their common
+        // integer type (as sema decides: `maxof(1, big)` is `maxof<int64>`).
         string binding = "";
         int pi = 0; int np = List_len<Param>(&gd.params);
         while (pi < np && binding[0] == 0) {
-            if (pi < List_len<*ExprNode>(&e.kids)) {
+            if (pi < List_len<*ExprNode>(&e.kids) && cg_streq(ast_unify_canon(List_get<Param>(&gd.params, pi).ty), tp) == 0) {
                 string argty = cg_etype(g, List_get<*ExprNode>(&e.kids, pi));
                 if (argty[0] != 0) { binding = cg_infer_bind(List_get<Param>(&gd.params, pi).ty, tp, argty); }
+            }
+            pi = pi + 1;
+        }
+        int bystruct = 0; if (binding[0] != 0) { bystruct = 1; }
+        pi = 0;
+        while (bystruct == 0 && pi < np && pi < List_len<*ExprNode>(&e.kids)) {
+            if (cg_streq(ast_unify_canon(List_get<Param>(&gd.params, pi).ty), tp) == 1) {
+                string argty = cg_etype(g, List_get<*ExprNode>(&e.kids, pi));
+                if (argty[0] != 0 && cg_streq(argty, "null") == 0) {
+                    string b = cg_infer_bind(List_get<Param>(&gd.params, pi).ty, tp, argty);
+                    if (b[0] != 0) {
+                        if (binding[0] == 0) { binding = b; }
+                        else if (cg_streq(binding, b) == 0) {
+                            string common = ast_range_var_type(binding, b);
+                            if (common[0] != 0) { binding = common; }
+                        }
+                    }
+                }
             }
             pi = pi + 1;
         }

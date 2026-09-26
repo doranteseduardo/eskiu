@@ -1,0 +1,19 @@
+// By-value deductions of one type parameter that are different integer types meet at
+// their common type (C's usual arithmetic conversions); a structural binding wins.
+import <list>;
+extern int printf(string fmt, ...);
+T maxof<T>(T a, T b) { return a > b ? a : b; }
+T first<T>(*T p, T d) { return *p + d; }
+int main() {
+  int64 big = 5000000000;
+  printf("%lld %lld\n", maxof(1, big), maxof(big, 1));
+  uint32 u = 4000000000;
+  printf("%lld\n", (int64)maxof(5, u));
+  int8 a = 100; int16 b = 1000;
+  printf("%d\n", maxof(a, b));
+  int64 x = 7;
+  printf("%lld\n", first(&x, 3));
+  List<uint8> l; List_init(&l, 2); List_push(&l, 300 - 45);
+  printf("%d\n", List_get(&l, 0));
+  return 0;
+}

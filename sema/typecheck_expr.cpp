@@ -978,10 +978,46 @@ void TypeChecker::visit(CallExpr* node) {
             for (auto& a : node->args) a->accept(this);
             std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
             std::map<std::string, std::string> subs;
+            // A parameter spelled as a bare type parameter (`T a`) is a by-value deduction;
+            // the others bind structurally first and take precedence.
+            auto bareParam = [&](size_t j) {
+                std::string p = tyq::strip(fd->params[j].first);
+                return tps.count(p) ? p : std::string();
+            };
             for (size_t j = 0; j < fd->params.size() && j < node->args.size(); ++j) {
                 std::string at = getExpressionType(node->args[j].get());
-                if (at != "unknown" && !at.empty())
+                if (at != "unknown" && !at.empty() && bareParam(j).empty())
                     unifyTypeParam(fd->params[j].first, at, tps, subs);
+            }
+            // By-value deductions of one type parameter must agree; integer ones that differ
+            // meet at their common type by C's usual arithmetic conversions
+            // (`maxof(1, big)` is `maxof<int64>`), any other disagreement is an error.
+            std::map<std::string, std::pair<std::string, size_t>> byValue;
+            bool conflict = false;
+            for (size_t j = 0; j < fd->params.size() && j < node->args.size(); ++j) {
+                std::string tp = bareParam(j);
+                if (tp.empty() || subs.count(tp)) continue;
+                std::string at = getExpressionType(node->args[j].get());
+                if (at == "unknown" || at.empty() || at == "null") continue;
+                std::map<std::string, std::string> one;
+                unifyTypeParam(fd->params[j].first, at, tps, one);
+                if (!one.count(tp)) continue;
+                at = one[tp];
+                auto bv = byValue.find(tp);
+                if (bv == byValue.end()) { byValue[tp] = {at, j}; continue; }
+                std::string cur = bv->second.first;
+                if (normalizeType(cur) == normalizeType(at)) continue;
+                std::string common = ty::rangeVarType(normalizeType(cur), normalizeType(at));
+                if (!common.empty()) { bv->second.first = common; continue; }
+                errorAt(node, "argument " + std::to_string(j + 1) + " type mismatch: type parameter '" + tp +
+                              "' is deduced as '" + cur + "' from argument " +
+                              std::to_string(bv->second.second + 1) + " and as '" + at + "' here");
+                conflict = true;
+            }
+            for (const auto& kv : byValue) subs[kv.first] = kv.second.first;
+            if (conflict) {
+                expressionTypes[node] = "unknown";
+                return;
             }
             std::string unbound;
             for (const auto& tpName : fd->typeParams)

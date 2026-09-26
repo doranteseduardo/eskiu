@@ -1005,6 +1005,15 @@ parameter binds `T` from a `List<int>*` argument. If a type parameter cannot be
 inferred from any argument, pass the type arguments explicitly. Each unique set
 of type arguments generates a separate monomorphic instantiation.
 
+A binding from a composite parameter type (`*T`, `List<T>*`) takes precedence. When a
+type parameter is bound only by parameters spelled as the bare type parameter (`T a, T
+b`), every such argument must deduce the same type. Integer deductions that differ meet
+at their common type by the usual arithmetic conversions (section 3.1), so
+`max(1, big)` with `int64 big` is `max<int64>` and does not truncate; any other
+disagreement (`max(1.5, (float)2.5)`, `pick(1, "s")`) is a type error. Once the type
+arguments are known, every argument is checked against the instantiated parameter type,
+as for any call (`swap(&i64, &i32)` against `*T` is an error).
+
 ### 6.7 Thread Primitives
 
 `thread_create` and `thread_join` are language keywords that spawn and await OS threads.
