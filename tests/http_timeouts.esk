@@ -1,0 +1,128 @@
+// http_serve and http_serve_async disconnect slow or silent clients (HttpLimits,
+// shortened here to 60 and 150 ms): a peer that sends nothing is closed
+// without an answer, one that trickles its head or stalls its body gets 408, and
+// a good client is served afterwards even though every worker was busy with
+// them. The async server also holds at most lim.max_open connections: one past
+// it is closed at once. Before, each of these peers held a worker (or a
+// descriptor) until it went away.
+import <http>;
+import <http_async>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <time>;
+extern int printf(string fmt, ...);
+extern int usleep(uint32 usec);
+extern void exit(int c);
+
+EventLoop* g_lp;
+HttpLimits g_lim;
+
+void handle(HttpRequest* req, HttpResponse* res) { HttpResponse_set_body(res, "hi\n"); }
+
+int connect_retry(int port) {
+    int c = net_tcp_connect("127.0.0.1", (uint16)port);
+    for (int tries = 0; c < 0 && tries < 200; tries++) {   // the server may not listen yet
+        usleep(5000);
+        c = net_tcp_connect("127.0.0.1", (uint16)port);
+    }
+    return c;
+}
+
+// The status line the server sent on `c` (read to EOF), or "(closed)".
+void show2(string label, int c, int64 t0, int64 lo, int64 hi) {
+    uint8[512] buf;
+    int got = 0;
+    while (got < 511) {
+        const int64 n = net_recv(c, (*void)&buf[got], (int64)(511 - got));
+        if (n <= 0) { break; }
+        got += (int)n;
+    }
+    int e = 0;
+    while (e < got && buf[e] != '\r') { e++; }
+    buf[e] = 0;
+    const int64 dt = time_monotonic_ms() - t0;
+    printf("%s: %s (timely=%d)\n", label, got == 0 ? "(closed)" : (string)&buf[0], dt >= lo && dt < hi ? 1 : 0);
+    net_close(c);
+}
+
+void show(string label, int c, int64 t0, int64 lo) { show2(label, c, t0, lo, 2000); }
+
+void clients(int port) {
+    int64 t0 = time_monotonic_ms();
+    int c = connect_retry(port);
+    show("silent", c, t0, 140);
+
+    t0 = time_monotonic_ms();
+    c = connect_retry(port);
+    // A byte every 15 ms for 120 ms: all of it read before header_ms (150), which
+    // it must not extend (a per-read timeout would answer at about 270 ms).
+    net_send_str(c, "GET / HTTP/1.1\r\n");
+    for (i in 0..8) { usleep(15000); net_send_str(c, "X"); }
+    show2("trickled head", c, t0, 140, 250);
+
+    t0 = time_monotonic_ms();
+    c = connect_retry(port);
+    net_send_str(c, "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 10\r\n\r\nab");
+    show("stalled body", c, t0, 60);
+
+    t0 = time_monotonic_ms();
+    c = connect_retry(port);
+    net_send_str(c, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+    show("good", c, t0, 0);
+}
+
+void over_limit(int port) {
+    int a = connect_retry(port);           // holds the only slot until header_ms
+    usleep(20000);
+    int64 t0 = time_monotonic_ms();
+    int b = connect_retry(port);           // past max_open: closed at once
+    uint8[16] buf;
+    const int64 n = net_recv(b, (*void)&buf[0], (int64)16);
+    printf("over max_open: recv=%lld (at once=%d)\n", n, time_monotonic_ms() - t0 < 60 ? 1 : 0);
+    net_close(b);
+    show("slot holder", a, t0, 40);
+    int64 t1 = time_monotonic_ms();
+    int c = connect_retry(port);
+    net_send_str(c, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+    show("after", c, t1, 0);
+}
+
+void async_clients() { clients(18262); }
+void async_over_limit() { over_limit(18263); }
+
+void watchdog() {
+    usleep(20000000);
+    printf("stalled: a slow peer held the server\n");
+    exit(3);
+}
+
+void serve_async(int port, int n, escaping fn()->void cl) {
+    const int fd = net_tcp_listen((uint16)port);
+    Future<uint8>* f = http_serve_async_with(g_lp, fd, handle, n, g_lim);
+    let t: *void = thread_create(cl);
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    thread_join(t);
+    free_future<uint8>(f);
+    net_close(fd);
+}
+
+int main() {
+    thread_create(watchdog);
+    g_lim.init();
+    g_lim.header_ms = 150;
+    g_lim.body_ms = 60;
+
+    printf("== http_serve (1 worker)\n");
+    thread_create(void() { http_serve_with(18261, 1, handle, g_lim); });
+    clients(18261);
+
+    g_lp = el_new(64);
+    printf("== http_serve_async\n");
+    serve_async(18262, 4, async_clients);
+    printf("== http_serve_async, max_open 1\n");
+    g_lim.max_open = 1;
+    serve_async(18263, 3, async_over_limit);
+    EventLoop_free(g_lp);
+    return 0;
+}

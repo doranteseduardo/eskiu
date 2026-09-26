@@ -1,0 +1,6 @@
+silent: (timely=1)
+preface only: SETTINGS (timely=1)
+idle after a request: SETTINGS ACK HEADERS DATA[hi] GOAWAY(last=1,0) (timely=1)
+pings while idle: SETTINGS ACK GOAWAY(last=0,0) (timely=1)
+unfinished header block: SETTINGS ACK (timely=1)
+no window for the response: SETTINGS ACK ACK HEADERS (timely=1)

@@ -1,0 +1,14 @@
+== http_serve (1 worker)
+silent: (closed) (timely=1)
+trickled head: HTTP/1.1 408 Request Timeout (timely=1)
+stalled body: HTTP/1.1 408 Request Timeout (timely=1)
+good: HTTP/1.1 200 OK (timely=1)
+== http_serve_async
+silent: (closed) (timely=1)
+trickled head: HTTP/1.1 408 Request Timeout (timely=1)
+stalled body: HTTP/1.1 408 Request Timeout (timely=1)
+good: HTTP/1.1 200 OK (timely=1)
+== http_serve_async, max_open 1
+over max_open: recv=0 (at once=1)
+slot holder: (closed) (timely=1)
+after: HTTP/1.1 200 OK (timely=1)
