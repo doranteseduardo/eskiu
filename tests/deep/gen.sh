@@ -99,6 +99,18 @@ run_test() { # name expected-output < program
     echo '}'
 } | run_test blocks_10k 5
 
+# A 50000-link member chain (each base typed once, not once per level).
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'struct S { int n; *S s; }'
+    echo 'int main() {'
+    echo '    S s; s.n = 4; s.s = &s;'
+    printf '    int x = s'; rep '.s' 50000; echo '.n;'
+    echo '    printf("%d\n", x);'
+    echo '    return 0;'
+    echo '}'
+} | run_test member_chain_50k 4
+
 # 5000 nested-generic declarations, each closed by a lexed `>>` (split in O(1)).
 {
     echo 'import <list>;'

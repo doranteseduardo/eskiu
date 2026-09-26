@@ -504,6 +504,10 @@ public:
 class Expr : public ASTNode {
 public:
     virtual ~Expr() = default;
+    // Codegen's memo of whether this place is reached from a `volatile` variable, valid
+    // while its set of volatile names has `volMemoSize` entries (CodeGen::volatileRooted).
+    mutable size_t volMemoSize = (size_t)-1;
+    mutable bool volMemo = false;
 };
 
 class BinaryExpr : public Expr {

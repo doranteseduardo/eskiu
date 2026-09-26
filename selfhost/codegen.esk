@@ -153,6 +153,8 @@ struct Codegen {
     int msbf;                // 1: MS bitfield layout (Windows targets), else SysV/AAPCS
     int wintgt;              // 1: a Windows target (mingw SEH exception personality)
     List<CgCabi> cabis;      // externs declared with a C-ABI-lowered signature
+    int mstamp;              // member-chain type stamps handed out so far (see cg_chain_begin)
+    int mactive;             // the stamp of the member chain being emitted (0 = none)
     List<string> vols;       // names of `volatile` variables (C++ volatileVars)
 }
 
@@ -246,6 +248,8 @@ uint64 cg_int_lit_mag(string s) {
 
 void cg_init(Codegen* g) {
     g.bf_vol = "";
+    g.mstamp = 0;
+    g.mactive = 0;
     String_init(&g.out, 1024);
     String_init(&g.globals, 256);
     g.next = 0;
@@ -3431,6 +3435,48 @@ string cg_range_bound_type(Codegen* g, *ExprNode e) {
 }
 
 string cg_etype_raw(Codegen* g, *ExprNode e);
+string cg_etype(Codegen* g, *ExprNode e);
+
+// The type of member `field` of a value of type `bet` ("" when unknown; a narrow bitfield
+// reads as int).
+string cg_member_ety(Codegen* g, string bet, string field) {
+    string sname = bet;
+    if (cg_is_ptr_ty(bet) == 1) { sname = cg_strip_ptr(bet); }
+    CgStruct s = cg_find_struct(g, sname);
+    int idx = cg_field_idx(&s, field);
+    if (idx >= 0) {
+        CgBF bslot = cg_bf(g, sname, field);
+        if (bslot.bw > 0) { return cg_bf_read_ety(g, bslot); }
+        return List_get<string>(&s.fetys, idx);
+    }
+    return "";
+}
+
+// Emitting a member chain `a.b.c...` asks for the type of every base at every level,
+// which is quadratic in the chain's length. So the outermost member of a chain types the
+// whole chain once, innermost first, and stamps each member node with its type; the
+// stamps hold while that chain is emitted (no local is declared inside an expression).
+// Returns 1 when this call opened the stamp (the caller closes it with g.mactive = 0).
+int cg_chain_begin(Codegen* g, *ExprNode e) {
+    if (g.mactive != 0 || e == null || e.kind != EK_MEMBER) { return 0; }
+    List<*ExprNode> chain; List_init<*ExprNode>(&chain, 4);
+    *ExprNode base = e;
+    while (base != null && base.kind == EK_MEMBER) { List_push<*ExprNode>(&chain, base); base = base.a; }
+    string t = cg_etype(g, base);
+    g.mstamp = g.mstamp + 1;
+    int i = List_len<*ExprNode>(&chain) - 1;
+    while (i >= 0) {
+        *ExprNode m = List_get<*ExprNode>(&chain, i);
+        string raw = cg_member_ety(g, t, m.sval);
+        if (raw[0] != 0) { m.cg_ety = raw; m.cg_stamp = g.mstamp; }   // an unknown type is recomputed
+        t = cg_dealias(g, raw);
+        i = i - 1;
+    }
+    List_free<*ExprNode>(&chain);
+    g.mactive = g.mstamp;
+    return 1;
+}
+
 // The Eskiu type of an expression, never spelled as a type alias: every shape check
 // (pointer, array, slice, fn value, interface) sees the alias target (mirrors the C++
 // getExprEskiuTypeRaw).
@@ -3457,17 +3503,8 @@ string cg_etype_raw(Codegen* g, *ExprNode e) {
         return "";
     }
     if (e.kind == EK_MEMBER) {
-        string bet = cg_etype(g, e.a);
-        string sname = bet;
-        if (cg_is_ptr_ty(bet) == 1) { sname = cg_strip_ptr(bet); }
-        CgStruct s = cg_find_struct(g, sname);
-        int idx = cg_field_idx(&s, e.sval);
-        if (idx >= 0) {
-            CgBF bslot = cg_bf(g, sname, e.sval);
-            if (bslot.bw > 0) { return cg_bf_read_ety(g, bslot); }   // a narrow bitfield reads as int
-            return List_get<string>(&s.fetys, idx);
-        }
-        return "";
+        if (g.mactive != 0 && e.cg_stamp == g.mactive) { return e.cg_ety; }
+        return cg_member_ety(g, cg_etype(g, e.a), e.sval);
     }
     if (e.kind == EK_INDEX) {
         string bet = cg_etype(g, e.a);
@@ -3614,7 +3651,12 @@ string cg_etype_raw(Codegen* g, *ExprNode e) {
 }
 
 // Address of an lvalue: returns a `ptr` operand + the lvalue's Eskiu type.
+CgVal cg_lval_k(Codegen* g, *ExprNode e);
 CgVal cg_lval(Codegen* g, *ExprNode e) {
+    if (cg_chain_begin(g, e) == 1) { CgVal r = cg_lval_k(g, e); g.mactive = 0; return r; }
+    return cg_lval_k(g, e);
+}
+CgVal cg_lval_k(Codegen* g, *ExprNode e) {
     let v: CgVal; v.op = ""; v.ty = "ptr"; v.ety = "";
     if (e == null) { return v; }
     if (e.kind == EK_IDENT) {
@@ -4198,7 +4240,9 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
 // and shape check on a value sees the target type (`(u8)x`, a call returning `u8`).
 CgVal cg_expr_i(Codegen* g, *ExprNode e);
 CgVal cg_expr(Codegen* g, *ExprNode e) {
+    int opened = cg_chain_begin(g, e);
     CgVal v = cg_expr_i(g, e);
+    if (opened == 1) { g.mactive = 0; }
     if (List_len<CgSub>(&g.aliases) > 0 && v.ety != null && v.ety[0] != 0) { v.ety = cg_dealias(g, v.ety); }
     return v;
 }

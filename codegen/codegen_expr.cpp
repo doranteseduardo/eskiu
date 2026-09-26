@@ -25,21 +25,30 @@ static bool isPureExpr(const ExprPtr& e) {
 // An access through a `volatile` variable: the variable itself, or a place reached from
 // it by `*`, `[]` or `.` (`*reg`, `reg[i]`, `dev.ctrl`). Its loads and stores are volatile.
 bool CodeGen::volatileRooted(const Expr* e) const {
+    // Each place walked remembers the answer (Expr::volMemo), so a long `a.b.c...` chain,
+    // whose every level asks, walks to its root once instead of once per level.
+    if (volatileVars.empty()) return false;
+    const size_t gen = volatileVars.size();
+    std::vector<const Expr*> walked;
+    bool res = false;
     while (e) {
-        if (auto* id = dynamic_cast<const IdentExpr*>(e)) return volatileVars.count(id->name) > 0;
+        if (e->volMemoSize == gen) { res = e->volMemo; break; }
+        walked.push_back(e);
+        if (auto* id = dynamic_cast<const IdentExpr*>(e)) { res = volatileVars.count(id->name) > 0; break; }
         if (auto* u = dynamic_cast<const UnaryExpr*>(e)) {
-            if (u->op != "*" || !u->opFunc.empty()) return false;
+            if (u->op != "*" || !u->opFunc.empty()) break;
             e = u->operand.get();
         } else if (auto* ix = dynamic_cast<const IndexExpr*>(e)) {
-            if (!ix->opFunc.empty()) return false;
+            if (!ix->opFunc.empty()) break;
             e = ix->base.get();
         } else if (auto* m = dynamic_cast<const MemberExpr*>(e)) {
             e = m->base.get();
         } else {
-            return false;
+            break;
         }
     }
-    return false;
+    for (const Expr* w : walked) { w->volMemoSize = gen; w->volMemo = res; }
+    return res;
 }
 
 llvm::LoadInst* CodeGen::volLoad(llvm::LoadInst* ld, const Expr* root) const {

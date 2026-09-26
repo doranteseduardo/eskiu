@@ -273,6 +273,8 @@ struct ExprNode {
     string op_fn;          // EK_BINARY/EK_UNARY/EK_INDEX: resolved operator-overload fn ("" = built-in)
     List<string> ids_memo; // EK_LAMBDA: identifiers of the body, collected once (cg_collect_idents_e)
     int ids_done;          // EK_LAMBDA: ids_memo is filled
+    string cg_ety;         // EK_MEMBER: codegen's type of this member, valid while cg_stamp is active
+    int cg_stamp;
     int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
     int col;
 }
