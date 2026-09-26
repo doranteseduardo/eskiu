@@ -4901,6 +4901,9 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                     if (s.last_if_then_called == 1) { sema_drop_global_keys(&keys); }
                 }
                 sema_narrow_apply(s, &keys, &guard);
+                // The branch that falls through may have assigned the variable.
+                if (then_exits == 1 && else_exits == 0) { sema_drop_assigned(s, it.s2); }
+                else if (else_exits == 1 && then_exits == 0) { sema_drop_assigned(s, it.s1); }
             }
             i = i + 1;
         }

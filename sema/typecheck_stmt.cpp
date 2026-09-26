@@ -47,6 +47,9 @@ void TypeChecker::visit(BlockStmt* node) {
                     if (lastIfThenCalled) dropGlobalKeys(keys);
                 }
                 for (auto& k : applyNarrowings(keys)) guardNarrowed.push_back(k);
+                // The branch that falls through may have assigned the variable.
+                if (thenExits && !elseExits) dropAssignedIn(ifs->elseBranch.get());
+                else if (elseExits && !thenExits) dropAssignedIn(ifs->thenBranch.get());
             }
         }
     }
