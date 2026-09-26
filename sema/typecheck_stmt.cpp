@@ -370,6 +370,11 @@ void TypeChecker::visit(AsmStmt* node) {
 
 void TypeChecker::visit(ThreadJoinStmt* node) {
     node->tid->accept(this);
+    std::string t = getExpressionType(node->tid.get());
+    std::string n = normalizeType(t);
+    if (!n.empty() && n[0] == '?') n = n.substr(1);
+    if (t != "unknown" && n != "*void")
+        errorAt(node, "thread_join expects a thread handle ('*void' from thread_create), got '" + t + "'");
 }
 
 void TypeChecker::visit(ThrowStmt* node) {

@@ -3752,6 +3752,21 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         return;
     }
+    if ((k == EK_FREECLOSURE || k == EK_THREADCREATE) && e.a != null) {
+        // free_closure takes a closure; thread_create a `fn()->void` one (mirrors the C++).
+        string ct = sema_infer_type(s, e.a);
+        if (ct[0] != 0) {
+            string cc = sema_canon(s, ct);
+            if (k == EK_FREECLOSURE && sema_is_fn_type(cc) == 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: free_closure expects a closure (fn(...)->R), got %s\n", s.filename, s.line, s.col, ct);
+            }
+            if (k == EK_THREADCREATE && sema_streq(cc, "fn()->void") == 0) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: thread_create expects a closure 'fn()->void', got '%s'\n", s.filename, s.line, s.col, ct);
+            }
+        }
+    }
     if (k == EK_UNARY || k == EK_CAST
         || k == EK_FREECLOSURE || k == EK_THREADCREATE) {
         if (k == EK_UNARY && sema_streq(e.sval, "*") == 1) {
@@ -4780,7 +4795,15 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         return;
     }
     if (k == SK_THROW) { sema_expr(s, st.expr); return; }
-    if (k == SK_THREADJOIN) { sema_expr(s, st.expr); return; }
+    if (k == SK_THREADJOIN) {
+        sema_expr(s, st.expr);
+        string jt = sema_infer_type(s, st.expr);
+        if (jt[0] != 0 && sema_streq(sema_strip_nullable(sema_canon(s, jt)), "*void") == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: thread_join expects a thread handle ('*void' from thread_create), got '%s'\n", s.filename, s.line, s.col, jt);
+        }
+        return;
+    }
     if (k == SK_EXPR) {
         sema_expr(s, st.expr);
         // A bare call to a must_use function discards its result — reject it.

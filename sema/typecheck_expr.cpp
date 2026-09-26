@@ -1548,6 +1548,12 @@ void TypeChecker::visit(FreeClosureExpr* node) {
 
 void TypeChecker::visit(ThreadCreateExpr* node) {
     node->worker->accept(this);
+    std::string t = getExpressionType(node->worker.get());
+    if (t != "unknown") {
+        ty::Type ft = ty::Type::parse(normalizeType(t));
+        bool ok = ft.isFn() && ft.params.empty() && ft.ret && ft.ret->kind == ty::Type::Kind::Void;
+        if (!ok) errorAt(node, "thread_create expects a closure 'fn()->void', got '" + t + "'");
+    }
     expressionTypes[node] = "*void";
 }
 

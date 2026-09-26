@@ -1,0 +1,2 @@
+// EXPECT-ERROR: free_closure expects a closure
+int main() { free_closure(5); return 0; }
