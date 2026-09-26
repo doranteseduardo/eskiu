@@ -238,6 +238,7 @@ when you add a test.
 | `path_posix_edges` | POSIX dirname/basename edge cases: the root, empty paths, and repeated separators between the directory and the final component. |
 | `ptr_diff` | Pointer difference counts elements (C), not bytes. |
 | `range_bound_once` | A range loop's upper bound is evaluated once, before the first iteration. |
+| `regex_class_range` | An invalid bracket range (`[z-a]`, `[a-\d]`, `[\d-z]`) is a compile error as in RE2; `\D` `\W` `\S` inside a class are the complemented shorthands (they used to be the literal letters). |
 | `regex_depth` | regex_compile rejects group nesting past RE_MAX_DEPTH (512) with an error instead of overflowing the stack. |
 | `regex_empty_iter` | A starred group that can match empty takes one empty iteration and exits, as in RE2 (`(a?\|b)*` on "b" is (0,0) with group 1 = (0,0)). |
 | `regex_repeat_count` | A `{m,n}` count above 1000 is a compile error (RE2 limit); the digits used to wrap, so `a{4294967298}` compiled as `a{2}`. |

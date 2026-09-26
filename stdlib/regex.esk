@@ -212,6 +212,30 @@ void re_shorthand(ReComp* c, int id, int kind) {
     }
 }
 
+// Add the complement (over bytes 0..255) of a \d \w \s shorthand to class
+// `id`: \D \W \S inside a bracket class.
+void re_shorthand_neg(ReComp* c, int id, int kind) {
+    bool[256] in_set;
+    for (i in 0..256) {
+        const bool digit = i >= '0' && i <= '9';
+        const bool word = digit || (i >= 'A' && i <= 'Z') || (i >= 'a' && i <= 'z') || i == '_';
+        const bool space = (i >= '\t' && i <= '\r') || i == ' ';
+        in_set[i] = kind == 'd' ? digit : (kind == 'w' ? word : space);
+    }
+    int i = 0;
+    while (i < 256) {
+        if (in_set[i]) { i++; continue; }
+        const int lo = i;
+        while (i < 256 && !in_set[i]) { i++; }
+        re_range(c, id, lo, i - 1);
+    }
+}
+
+// 1 if `e` names a class shorthand (\d \w \s \D \W \S).
+int re_is_shorthand(int e) {
+    return (e == 'd' || e == 'w' || e == 's' || e == 'D' || e == 'W' || e == 'S') ? 1 : 0;
+}
+
 // Decode a backslash escape to its literal byte (\n, \t, ...); default is the
 // character itself (so \. is '.', \\ is '\').
 int re_escape_char(int e) {
@@ -246,8 +270,14 @@ Node* re_parse_class(ReComp* c) {
             c.pos++;
             const int e = re_peek(c);
             c.pos++;
-            if (e == 'd' || e == 'w' || e == 's') {
-                re_shorthand(c, id, e);
+            if (re_is_shorthand(e) == 1) {
+                // A shorthand cannot bound a range: [\d-z] is an error (RE2).
+                if (re_peek(c) == '-' && re_peek_at(c, 1) != ']' && re_peek_at(c, 1) != -1) {
+                    if (c.err == null) { c.err = "invalid character class range"; }
+                    return re_node(c, N_CLASS);
+                }
+                if (e == 'd' || e == 'w' || e == 's') { re_shorthand(c, id, e); }
+                else { re_shorthand_neg(c, id, e + 32); }
                 continue;
             }
             lo = re_escape_char(e);
@@ -263,10 +293,19 @@ Node* re_parse_class(ReComp* c) {
                 c.pos++;
                 const int e2 = re_peek(c);
                 c.pos++;
+                if (re_is_shorthand(e2) == 1 || e2 == -1) {
+                    if (c.err == null) { c.err = "invalid character class range"; }
+                    return re_node(c, N_CLASS);
+                }
                 hi = re_escape_char(e2);
             } else {
                 hi = re_peek(c);
                 c.pos++;
+            }
+            // A range whose end is below its start ([z-a]) is an error (RE2).
+            if (hi < lo) {
+                if (c.err == null) { c.err = "invalid character class range"; }
+                return re_node(c, N_CLASS);
             }
             re_range(c, id, lo, hi);
         } else {

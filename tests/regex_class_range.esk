@@ -1,0 +1,27 @@
+// Invalid bracket-class ranges are compile errors, as in RE2: an end below its
+// start ([z-a]) and a class shorthand as either end ([a-\d], [\d-z]). Valid
+// ranges, a trailing '-', a one-byte range and \D \W \S inside a class work.
+import <regex>;
+extern int printf(string fmt, ...);
+
+void show(string p, string s) {
+    Regex re = regex_compile(p);
+    if (re.ok == 0) { printf("%s: error %s\n", p, re.err); Regex_free(&re); return; }
+    printf("%s on \"%s\": %d\n", p, s, regex_match(p, s));
+    Regex_free(&re);
+}
+
+int main() {
+    show("[z-a]", "m");
+    show("[a-\\d]", "a");
+    show("[\\d-z]", "5");
+    show("[a-\\W]", "a");
+    show("[a-z]", "m");
+    show("[a-a]", "a");
+    show("[\\d-]", "-");
+    show("^[\\D]+$", "abc");
+    show("^[\\D]+$", "a1c");
+    show("^[\\W\\d]+$", " 9!");
+    show("^[\\S]$", " ");
+    return 0;
+}
