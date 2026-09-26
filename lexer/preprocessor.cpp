@@ -242,8 +242,10 @@ static std::string ppExpand(const std::string& input,
 // the following source line (a footgun: it eats a `return`, an `else`, etc.).
 // Note: cross-line block-comment state isn't tracked here (a '\' on an interior
 // line of a multi-line /* */ may still splice — harmless, it only drops a newline
-// inside comment text). Precondition: line.back() == '\\'.
-static bool backslashContinuesLine(const std::string& line) {
+// inside comment text). On a directive line (`directive`) a '\' inside a string or char
+// literal splices too, as in C, so a #define body's literal may span lines.
+// Precondition: line.back() == '\\'.
+static bool backslashContinuesLine(const std::string& line, bool directive) {
     bool inStr = false, inChr = false, inBlock = false;
     for (size_t i = 0; i < line.size(); ++i) {
         char c = line[i];
@@ -266,8 +268,9 @@ static bool backslashContinuesLine(const std::string& line) {
         if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') return false;  // line comment
         if (c == '/' && i + 1 < line.size() && line[i + 1] == '*') { inBlock = true; ++i; continue; }
     }
-    // The trailing '\' is reached in this state: only code-context splices.
-    return !inStr && !inChr && !inBlock;
+    // The trailing '\' is reached in this state: code context splices (and a literal
+    // on a directive line).
+    return !inBlock && (directive || (!inStr && !inChr));
 }
 
 // Scan `line` for comment state: starting inside a `/* */` comment when `inBlock`,
@@ -660,7 +663,9 @@ void preprocess(const std::string& src,
         // logical line is emitted as one line followed by `extra` blank lines,
         // keeping every later source line on its original line number.
         int extra = 0;
-        while (!line.empty() && line.back() == '\\' && backslashContinuesLine(line)) {
+        size_t dh = line.find_first_not_of(" \t");
+        bool directive = !inBlockComment && dh != std::string::npos && line[dh] == '#';
+        while (!line.empty() && line.back() == '\\' && backslashContinuesLine(line, directive)) {
             line.pop_back();
             std::string cont;
             if (!std::getline(in, cont)) break;

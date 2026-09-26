@@ -457,8 +457,9 @@ int pp_ends_in_block(string line, int inb) {
 
 // Does a line ending in '\' genuinely continue (mirrors backslashContinuesLine)?
 // Precondition: the trailing char is '\'. Returns 0 if that '\' is inside a //
-// comment, an open block comment, or a string/char literal.
-int pp_bs_continues(string line) {
+// comment, an open block comment, or (unless `directive`, a directive line where it
+// splices as in C) a string/char literal.
+int pp_bs_continues(string line, int directive) {
     int in_str = 0;
     int in_chr = 0;
     int in_block = 0;
@@ -486,7 +487,8 @@ int pp_bs_continues(string line) {
         if (c == 47 && i + 1 < n && (int)line[i + 1] == 42) { in_block = 1; i = i + 2; continue; }
         i = i + 1;
     }
-    if (in_str == 0 && in_chr == 0 && in_block == 0) { return 1; }
+    if (in_block == 1) { return 0; }
+    if (directive == 1 || (in_str == 0 && in_chr == 0)) { return 1; }
     return 0;
 }
 
@@ -1094,9 +1096,13 @@ string pp_run(string src, int len, string filename, *int had_err) {
         // Line splicing: a real trailing '\' joins the next physical line. Each
         // continuation becomes a trailing blank line so later line numbers hold.
         int extra = 0;
+        int dh = 0;
+        while (dh < String_len(&line) && pp_is_sp((int)String_char_at(&line, dh)) == 1) { dh = dh + 1; }
+        int directive = 0;
+        if (in_block == 0 && dh < String_len(&line) && (int)String_char_at(&line, dh) == 35) { directive = 1; }
         while (String_len(&line) > 0
                && (int)String_char_at(&line, String_len(&line) - 1) == 92
-               && pp_bs_continues((string)String_cstr(&line)) == 1) {
+               && pp_bs_continues((string)String_cstr(&line), directive) == 1) {
             pp_pop(&line);                           // drop the '\'
             if (i >= len) { break; }                 // no continuation line (getline fail)
             while (i < len && (int)src[i] != 10) { String_push(&line, (char)src[i]); i = i + 1; }
