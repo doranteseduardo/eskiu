@@ -647,6 +647,32 @@ more and a third about 60, fixed the same way.
   array or struct literal) is a constant closure, as in C; both compilers rejected it as
   not a compile-time constant. Test `global_fn_value`.
 
+#### Seventh audit round
+- HTTP/2: request bodies were buffered without limit (every DATA frame appended while
+  WINDOW_UPDATE gave the credit back, 400 MB over 128 streams). The `H2Server` engine
+  now buffers at most `s.max_body` bytes per request (default 1 MiB, as HTTP/1.1) and
+  `s.max_buffered` across a connection (default `H2_MAX_BUFFERED`, 4 MiB); a request past
+  either, or with a content-length past `max_body`, is answered 413 without the handler
+  and its stream reset with NO_ERROR. Test `http2_body_limit`.
+- `http_serve_async` sent each answer with a blocking `net_send`, so a client that asked
+  for a large body and did not read it stalled the event loop and every other client.
+  The connection socket is now non-blocking and the answer goes out through
+  `net_write_async`. `net_set_nonblocking` (and the executor's self-pipe setup) did
+  nothing on arm64 macOS: `fcntl` is variadic and was declared with a fixed third
+  parameter. Test `http_async_slow_reader`.
+- `HttpConnBuf_feed` reparsed the request from its first byte on every read, so a
+  chunked request fed in small pieces cost time quadratic in its size. It now parses the
+  head once and decodes the chunked body as it arrives; a chunk-size or trailer line over
+  `HTTP_CHUNK_LINE_MAX` (8192 bytes) is 400. Test `http_conn_feed_incremental`.
+- Response header injection: `HttpResponse_header` accepted a CR or LF in a value (and
+  any bytes in a name), so a handler echoing input could add a header line. It now
+  returns 0 and adds nothing for such a pair (1 otherwise), and the HTTP/2 encoder drops
+  a hand-written line with a non-token name or an LF or NUL. A Content-Length the
+  handler sets is no longer sent next to the automatic one in HTTP/1 (a 1xx, 204 or 304
+  keeps it). Test `http_response_header_inject`.
+- `http_chunked_step` spun forever on a chunk size near `INT64_MAX` when the limit
+  allowed it (`size + 2` overflowed in the room check). Test `http_chunk_size_max`.
+
 ## [0.9.1] - 2026-09-09
 ### Fixed
 A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
