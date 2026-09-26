@@ -29,6 +29,7 @@ struct Parser {
     int spec;              // > 0 while parsing speculatively (errors backtrack, not abort)
     int failed;            // a speculative parse hit a syntax error (see p_fail)
     int nest;              // current expression/statement nesting (see p_nest_enter)
+    int tdepth;            // current type nesting (see p_type_level)
 }
 
 // Session state shared across every file parsed in one run (mirrors the C++ parser's
@@ -275,6 +276,7 @@ void p_init(Parser* p, *uint8 src, int len) {
     p.spec = 0;
     p.failed = 0;
     p.nest = 0;
+    p.tdepth = 0;
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src; lx.len = len; lx.pos = 0; lx.line = 1; lx.col = 1;
@@ -354,6 +356,16 @@ int P_MAX_NESTING = 100000;
 void p_nest_enter(Parser* p) {
     p.nest = p.nest + 1;
     if (p.nest > P_MAX_NESTING) { p_report(p, p_peek(p), "nesting too deep (more than 100000 levels)"); }
+}
+
+// Types nest far less (mirrors the C++ kMaxTypeNesting): every template argument list,
+// fn type, pointer level and array dimension is one level, at most 1000 in all. Later
+// passes spell a generic instance by its whole argument list, so a type's cost grows
+// faster than its depth; the limit keeps every type cheap. Reported like p_nest_enter.
+int P_MAX_TYPE_NESTING = 1000;
+void p_type_level(Parser* p) {
+    p.tdepth = p.tdepth + 1;
+    if (p.tdepth > P_MAX_TYPE_NESTING) { p_report(p, p_peek(p), "type nesting too deep (more than 1000 levels)"); }
 }
 
 // Consume a token of type `t`, or fail with `msg`.
@@ -657,13 +669,21 @@ string tok_char_value(*uint8 src, Token t) {
 
 // Parse a type into its canonical string (mirrors parser.cpp parseType). Template
 // instantiation `Name<...>` is added in a later slice (S2b/S6).
+string parse_type_inner(Parser* p);
 string parse_type(Parser* p) {
+    int saved = p.tdepth;
+    p_type_level(p);
+    string ty = parse_type_inner(p);
+    p.tdepth = saved;
+    return ty;
+}
+string parse_type_inner(Parser* p) {
     int is_const = 0;
     if (p_at(p) == CONST) { p_adv(p); is_const = 1; }
     int nullable = 0;
     if (p_at(p) == QUESTION) { p_adv(p); nullable = 1; }   // `?*T`: checked nullable pointer
     int leading = 0;
-    while (p_at(p) == STAR) { p_adv(p); leading = leading + 1; }
+    while (p_at(p) == STAR) { p_type_level(p); p_adv(p); leading = leading + 1; }
 
     if (p_at(p) == FN) {
         p_adv(p);                          // 'fn'
@@ -709,6 +729,7 @@ string parse_type(Parser* p) {
     }
 
     while (p_at(p) == STAR) {
+        p_type_level(p);
         p_adv(p); ty = str_concat(ty, "*");
         if (p_at(p) == CONST) { p_adv(p); ty = str_concat(ty, "const"); }
     }
@@ -717,6 +738,7 @@ string parse_type(Parser* p) {
     if (is_const == 1) { ty = str_concat("const ", ty); }
 
     while (p_at(p) == LBRACKET) {
+        p_type_level(p);
         p_adv(p);
         string sz = "";
         while (p_at(p) != RBRACKET && p_at(p) != EOF_TOKEN) {

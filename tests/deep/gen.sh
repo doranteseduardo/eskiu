@@ -110,6 +110,20 @@ run_test() { # name expected-output < program
     echo '}'
 } | run_test rshift_close_5k 1
 
+# Types just under the 1000-level type nesting limit (the innermost type counts one).
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'struct B<T> { T v; }'
+    echo 'int main() {'
+    printf '    '; rep '*' 999; echo 'int p = null;'
+    printf '    int'; rep '[1]' 999; echo ' a;'
+    printf '    '; rep 'fn()->' 999; echo 'int f;'
+    printf '    '; rep 'B<' 300; printf 'int'; rep '>' 300; echo ' b;'
+    echo '    printf("%d\n", (int)(p == null));'
+    echo '    return 0;'
+    echo '}'
+} | run_test types_deep_999 1
+
 # Past the nesting limit: a clean error, not a stack overflow.
 {
     echo '// EXPECT-ERROR: nesting too deep'
@@ -134,3 +148,11 @@ run_test() { # name expected-output < program
     echo '    return x;'
     echo '}'
 } > "$out/casts_too_deep.esk"
+{
+    echo '// EXPECT-ERROR: type nesting too deep'
+    echo 'struct B<T> { T v; }'
+    echo 'int main() {'
+    printf '    '; rep 'B<' 100001; printf 'int'; rep '>' 100001; echo ' b;'
+    echo '    return 0;'
+    echo '}'
+} > "$out/generic_too_deep.esk"

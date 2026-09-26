@@ -209,6 +209,8 @@ std::string Parser::parseType() {
 // is known before the base type is read, so the spelling is built left to right into
 // one buffer: nested template arguments and fn types cost time linear in their length.
 void Parser::parseTypeInto(std::string& out) {
+    TypeLevelGuard guard(*this);
+
     // Leading `?` marks a checked nullable pointer `?*T`; re-attached as a `?` prefix.
     bool nullable = match(TokenType::QUESTION);
 
@@ -219,7 +221,9 @@ void Parser::parseTypeInto(std::string& out) {
 
     // Handle leading pointers (Rust-style: *i32)
     int leading_pointers = 0;
-    while (match(TokenType::STAR)) {
+    while (check(TokenType::STAR)) {
+        enterTypeLevel();
+        advance();
         leading_pointers++;
     }
 
@@ -272,13 +276,17 @@ void Parser::parseTypeInto(std::string& out) {
 
     // Handle trailing pointers (C-style: i32*). A `const` right after a star
     // makes that pointer level const (`int* const`), encoded as `*const`.
-    while (match(TokenType::STAR)) {
+    while (check(TokenType::STAR)) {
+        enterTypeLevel();
+        advance();
         out += "*";
         if (match(TokenType::CONST)) out += "const";
     }
 
     // Handle array syntax [N] — capture the size literal
-    while (match(TokenType::LBRACKET)) {
+    while (check(TokenType::LBRACKET)) {
+        enterTypeLevel();
+        advance();
         std::string sizeStr;
         while (!is_at_end() && !check(TokenType::RBRACKET)) {
             sizeStr += peek().value;

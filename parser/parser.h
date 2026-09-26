@@ -103,6 +103,28 @@ private:
             throw NestingError("nesting too deep (more than " + std::to_string(kMaxNesting) + " levels)");
         }
     }
+    // Types nest far less: every template argument list, fn type, pointer level and
+    // array dimension is one level, and at most kMaxTypeNesting are allowed. Later
+    // passes spell a generic instance by its whole argument list, so the cost of a
+    // type grows faster than its depth; the limit (like C++'s template depth) keeps
+    // every type cheap. Raised as a NestingError too.
+    static constexpr int kMaxTypeNesting = 1000;
+    int typeNesting = 0;
+    void enterTypeLevel() {
+        if (++typeNesting > kMaxTypeNesting) {
+            Token at = peek();
+            errLine = at.line;
+            errCol = at.column;
+            throw NestingError("type nesting too deep (more than " + std::to_string(kMaxTypeNesting) + " levels)");
+        }
+    }
+    // One level for the type being parsed; restores the depth when the type ends.
+    struct TypeLevelGuard {
+        Parser& p;
+        int saved;
+        explicit TypeLevelGuard(Parser& parser) : p(parser), saved(parser.typeNesting) { p.enterTypeLevel(); }
+        ~TypeLevelGuard() { p.typeNesting = saved; }
+    };
     struct NestGuard {
         Parser& p;
         explicit NestGuard(Parser& parser) : p(parser) { p.enterNesting(); }

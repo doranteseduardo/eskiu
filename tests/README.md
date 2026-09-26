@@ -28,8 +28,8 @@ checked (`c_abi_struct.c`, `c_abi_try.c`, `c_abi_callback.c`, `c_abi_fnptr.c`,
 libraries a program implies (`#pragma link`, the C++ runtime, pthread) are exercised too.
 
 `run.sh` also runs the generated deep-input tests from `tests/deep/gen.sh`: a
-100000-operand chain, 10000-deep nesting, and a program past the 100000-level nesting
-limit that must be rejected.
+100000-operand chain, 10000-deep nesting, programs past the 100000-level nesting
+limit that must be rejected, and types just under and past the 1000-level type limit.
 
 These are *honest* tests: a `run` test fails the moment the generated program
 prints anything different, and an `error` test fails if the compiler ever starts
@@ -437,6 +437,7 @@ when you add a test.
 |------|---------------------|
 | `errors/undefined_var` | reference to an undeclared variable |
 | `errors/undefined_type` | use of an undefined type |
+| `errors/type_nesting_too_deep` | a type nested past the 1000-level type limit (here 1000 pointer levels) |
 | `errors/undefined_field` | access to an undefined struct member |
 | `errors/const_no_init` | `const` declared without an initializer |
 | `errors/const_reassign` | reassigning a `const` |

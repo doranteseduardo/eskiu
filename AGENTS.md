@@ -48,7 +48,9 @@ On macOS, set `LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm` if cmake cannot fi
 
 The compiler runs its pipeline on a thread with a 1 GB stack (`main()` in `main.cpp`;
 `selfhost/bigstack.esk` for the self-hosted drivers) and the parser rejects more than 100000
-nesting levels (`Parser::kMaxNesting` / `P_MAX_NESTING`). Operator and `else if` chains are
+nesting levels (`Parser::kMaxNesting` / `P_MAX_NESTING`), and a type more than 1000
+(`kMaxTypeNesting` / `P_MAX_TYPE_NESTING`: each pointer level, array dimension, template
+argument list and fn type counts one). Operator and `else if` chains are
 loops in every pass (`parseBinary` precedence climbing, `astwalk::forEachChildExprFlat`), so
 they have no length limit. `tests/deep/gen.sh` generates the deep-input tests.
 

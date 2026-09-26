@@ -113,7 +113,8 @@ absolute, with `.`, `..` and symlinks resolved), and the driver seeds it with ea
 root input so a file that imports its importer is parsed once. The libraries named
 by `#pragma link("name")` in the file and its imports end up in
 `Program::linkLibs`, deduplicated in first-seen order. Nesting deeper than 100000
-levels is a parse error (`nesting too deep`).
+levels is a parse error (`nesting too deep`), and so is a type nested deeper than 1000
+levels (`type nesting too deep`).
 
 ---
 

@@ -261,6 +261,12 @@ input. What is still open is listed under Known issues.
   the `#if` evaluator; tests `escape_octal`, `errors/escape_unknown`,
   `errors/escape_octal_range`, `errors/escape_hex_empty`.
 
+- **A type nests at most 1000 levels** (each pointer level, array dimension, template
+  argument list and fn type counts one): deeper is a located `type nesting too deep`
+  error in both compilers, alongside the 100000-level statement and expression limit.
+  Test `errors/type_nesting_too_deep`, `tests/deep/gen.sh` (`types_deep_999`,
+  `generic_too_deep`).
+
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
   convention says: `Rng_*` (`<random>`), `Regex_search`/`Regex_free`/`Match_*`

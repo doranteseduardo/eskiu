@@ -227,7 +227,12 @@ per level, so the compiler runs its pipeline on a thread with a 1 GB stack (`mai
 `main.cpp`; `selfhost/bigstack.esk` for the self-hosted drivers). The parser counts
 nesting (`Parser::kMaxNesting`, `P_MAX_NESTING` in the self-host) and rejects more than
 100000 levels with a located `nesting too deep` error, a safety net far above realistic
-code. The generated tests in `tests/deep/gen.sh` (run by `tests/run.sh` and
+code. Types have their own, lower limit (`Parser::kMaxTypeNesting`, `P_MAX_TYPE_NESTING`):
+1000 levels, counting each pointer level, array dimension, template argument list and
+fn type. A generic instance is spelled by its whole argument list in every later pass,
+so a type's cost grows faster than its depth, and the limit keeps every type cheap. Both
+nesting errors escape speculative parses (a C++ `NestingError` is rethrown by every
+speculative catch; the self-host reports it directly), so the diagnostic is the real one. The generated tests in `tests/deep/gen.sh` (run by `tests/run.sh` and
 `tests/selfhost/driver_parity.sh`) cover 100000-operand chains, 10000-deep nesting and
 the limit.
 

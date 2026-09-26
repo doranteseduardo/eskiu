@@ -264,7 +264,9 @@ level; the ternary sits just above it, also right-associative.
 The parser implements the binary levels by precedence climbing, so an operator chain
 of any length parses without deep recursion. Nesting (parentheses, blocks, nested
 statements and lambdas) is limited to 100000 levels, past which the parser reports
-`nesting too deep`.
+`nesting too deep`. A type nests at most 1000 levels (each pointer level, array
+dimension, template argument list and fn type counts one, and so does the innermost
+type), past which the parser reports `type nesting too deep`.
 
 ```
 primary =
