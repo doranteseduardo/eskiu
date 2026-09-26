@@ -98,6 +98,7 @@ struct Codegen {
     List<CgEnumC> econsts;   // plain-enum constants → value
     List<CgFK> fconsts;      // top-level non-i32 `const` values (for constant folding)
     List<string> enum_names; // enum type names (lower to i32)
+    List<string> enum_uns;   // plain enums with no negative member (an unsigned bitfield, as in C)
     List<CgVariant> variants; // ADT enum variants (by name)
     List<string> adt_names;  // ADT enum type names (lower to %Name, a tagged union)
     List<string> union_names; // union type names (all members overlap at offset 0)
@@ -260,6 +261,7 @@ void cg_init(Codegen* g) {
     List_init<CgEnumC>(&g.econsts, 32);
     List_init<CgFK>(&g.fconsts, 4);
     List_init<string>(&g.enum_names, 16);
+    List_init<string>(&g.enum_uns, 8);
     List_init<CgVariant>(&g.variants, 16);
     List_init<string>(&g.adt_names, 8);
     List_init<string>(&g.union_names, 4);
@@ -6277,7 +6279,9 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         slot.fidx = 0; slot.sty = lty; slot.aal = 0; slot.aty = lty; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
         if (bw > 0) {
             slot.bw = bw;
-            if (cg_is_unsigned(cg_dealias(g, pm.ty)) == 0) { slot.sgn = 1; }
+            // Signed unless the type is unsigned or an enum with no negative member (as clang).
+            string fdt = cg_dealias(g, pm.ty);
+            if (cg_is_unsigned(fdt) == 0 && cg_in_strlist(&g.enum_uns, fdt) == 0) { slot.sgn = 1; }
             if (contig == 1) {
                 slot.boffs = bitpos / 8; slot.boff = bitpos % 8;
                 int span = (slot.boff + bw + 7) / 8;
@@ -7174,6 +7178,11 @@ void cg_program(Codegen* g, *Program prog) {
         if (d.kind == DK_TYPEALIAS) {
             let sb: CgSub; sb.param = d.name; sb.arg = d.ret_type;
             List_push<CgSub>(&g.aliases, sb);
+        }
+        if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) == 0 && cg_enum_is_adt(d) == 0) {
+            int neg = 0; int mi = 0;
+            while (mi < List_len<Param>(&d.params)) { if ((int)List_get<Param>(&d.params, mi).ty[0] == 45) { neg = 1; } mi = mi + 1; }
+            if (neg == 0) { List_push<string>(&g.enum_uns, d.name); }
         }
         ai = ai + 1;
     }

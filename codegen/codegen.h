@@ -275,6 +275,7 @@ private:
     };
     std::vector<TryCtx> tryStack;
     void emitDeferPad();
+    bool enumBitfieldUnsigned(const std::string& type);
     void ensureEHRuntime();
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue

@@ -465,6 +465,15 @@ void CodeGen::declareStructType(StructDecl* node) {
     structLayout[node->name] = slots;
 }
 
+// An enum bitfield with no negative member reads back zero-extended (clang and GCC give
+// such an enum an unsigned underlying type; MS rules keep it signed).
+bool CodeGen::enumBitfieldUnsigned(const std::string& type) {
+    auto it = plainEnumDecls.find(expandAlias(tyq::strip(type)));
+    if (it == plainEnumDecls.end() || !it->second->typeParams.empty()) return false;
+    for (const auto& m : it->second->members) if (m.second < 0) return false;
+    return true;
+}
+
 void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
                                    unsigned packN, std::vector<llvm::Type*>& phys,
                                    std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked) {
@@ -545,7 +554,8 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
         s.byOffset = true; s.storageType = ty;
         if (f.bitWidth > 0) {
             uint64_t w = (uint64_t)f.bitWidth, unitBits = size * 8;
-            s.isBitfield = true; s.bitWidth = (unsigned)w; s.isSigned = !eskiuUnsigned(f.type);
+            s.isBitfield = true; s.bitWidth = (unsigned)w;
+            s.isSigned = !eskiuUnsigned(f.type) && !enumBitfieldUnsigned(f.type);
             if (contiguous) {
                 s.byteOffset = bitpos / 8;
                 s.bitOffset = (unsigned)(bitpos % 8);

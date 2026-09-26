@@ -1,0 +1,18 @@
+// Bool and enum bitfields agree with C (tests/bitfield_enum_c.c): a bool takes a byte
+// unit, and an enum with no negative member reads back unsigned.
+extern int printf(string fmt, ...);
+enum Col { R, G, B }
+struct F { uint8 a : 7; bool c : 1; Col col : 2; uint8 d : 6; }
+extern void c_fill(*F f);
+extern int c_read(*F f);
+extern int c_size();
+int main() {
+  let f: F;
+  c_fill(&f);
+  printf("%d %d %d %d\n", f.a, f.c, f.col, f.d);
+  if (f.col == B) { printf("blue\n"); }
+  switch (f.col) { case B: printf("case blue\n"); break; default: printf("other\n"); }
+  f.a = 5; f.c = false; f.col = G; f.d = 21;
+  printf("%d %d %d\n", c_read(&f), c_size(), (int)sizeof(F));
+  return 0;
+}
