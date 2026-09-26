@@ -440,36 +440,41 @@ void CodeGen::declareStructType(StructDecl* node) {
     }
     if (structTypes.count(node->name)) return; // already created by the pre-pass
 
+    layoutStruct(node->name, node->fields, node->isPacked, node->packAlign);
+}
+
+void CodeGen::layoutStruct(const std::string& name, const std::vector<StructDecl::Field>& fields,
+                           bool isPacked, int packAlign) {
     bool hasBitfields = false;
-    for (const auto& f : node->fields) if (f.bitWidth > 0) hasBitfields = true;
+    for (const auto& f : fields) if (f.bitWidth > 0) hasBitfields = true;
 
     if (!hasBitfields) {
         // #pragma pack(N>=2): manual layout (padding + physical-index remap).
-        if (node->packAlign >= 2) {
+        if (packAlign >= 2) {
             std::vector<llvm::Type*> phys;
             std::map<std::string, BitfieldSlot> slots;
-            buildPackedLayout(node->fields, (unsigned)node->packAlign, phys, slots);
-            structTypes[node->name]  = llvm::StructType::create(*context, phys, node->name, /*isPacked=*/true);
-            structFields[node->name] = node->fields;
-            structLayout[node->name] = slots;
+            buildPackedLayout(fields, (unsigned)packAlign, phys, slots);
+            structTypes[name]  = llvm::StructType::create(*context, phys, name, /*isPacked=*/true);
+            structFields[name] = fields;
+            structLayout[name] = slots;
             return;
         }
         std::vector<llvm::Type*> fieldTypes;
-        for (const auto& field : node->fields)
+        for (const auto& field : fields)
             fieldTypes.push_back(getTypeFromString(field.type));
-        structTypes[node->name] = llvm::StructType::create(*context, fieldTypes, node->name, node->isPacked);
-        structFields[node->name] = node->fields;
+        structTypes[name] = llvm::StructType::create(*context, fieldTypes, name, isPacked);
+        structFields[name] = fields;
         return;
     }
 
     std::vector<llvm::Type*> phys;
     std::map<std::string, BitfieldSlot> slots;
-    bool llvmPacked = node->isPacked;
-    layoutBitfieldStruct(node->fields, node->isPacked, (unsigned)std::max(node->packAlign, 0),
+    bool llvmPacked = isPacked;
+    layoutBitfieldStruct(fields, isPacked, (unsigned)std::max(packAlign, 0),
                          phys, slots, llvmPacked);
-    structTypes[node->name]  = llvm::StructType::create(*context, phys, node->name, llvmPacked);
-    structFields[node->name] = node->fields;
-    structLayout[node->name] = slots;
+    structTypes[name]  = llvm::StructType::create(*context, phys, name, llvmPacked);
+    structFields[name] = fields;
+    structLayout[name] = slots;
 }
 
 // An enum bitfield with no negative member reads back zero-extended (clang and GCC give

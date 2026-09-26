@@ -64,26 +64,10 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
     std::map<std::string, std::string> subs;
     for (size_t i = 0; i < tp.size() && i < args.size(); ++i) subs[tp[i]] = args[i];
 
-    std::vector<llvm::Type*> fieldTypes;
     std::vector<StructDecl::Field> fields;
-    for (const auto& f : tmpl->fields) {
-        std::string concrete = substType(f.type, subs);
-        fieldTypes.push_back(getTypeFromString(concrete));
-        fields.push_back({concrete, f.name});
-    }
-    // #pragma pack(N>=2): same manual layout as concrete structs.
-    if (tmpl->packAlign >= 2) {
-        std::vector<llvm::Type*> phys;
-        std::map<std::string, BitfieldSlot> slots;
-        buildPackedLayout(fields, (unsigned)tmpl->packAlign, phys, slots);
-        structTypes[mangled]  = llvm::StructType::create(*context, phys, mangled, /*isPacked=*/true);
-        structFields[mangled] = fields;
-        structLayout[mangled] = slots;
-        return;
-    }
-    llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, mangled, tmpl->isPacked);
-    structTypes[mangled] = st;
-    structFields[mangled] = fields;
+    for (const auto& f : tmpl->fields)
+        fields.push_back({substType(f.type, subs), f.name, f.bitWidth});
+    layoutStruct(mangled, fields, tmpl->isPacked, tmpl->packAlign);
 }
 
 std::string CodeGen::instanceSpelling(const std::string& t) {

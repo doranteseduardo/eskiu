@@ -633,6 +633,8 @@ private:
         const std::vector<std::pair<std::string, std::string>>& params);
     // Create the LLVM struct type shell for a (non-template) struct. Idempotent.
     void declareStructType(StructDecl* node);
+    void layoutStruct(const std::string& name, const std::vector<StructDecl::Field>& fields,
+                      bool isPacked, int packAlign);
     // #pragma pack(N>=2): manual layout capping each field's alignment at packN.
     // Fills `phys` with field types interleaved with i8 padding and `slots` with
     // one non-bitfield entry per field (physIndex into `phys`). Returns true if a

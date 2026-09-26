@@ -655,6 +655,8 @@ int cg_seen_inst(Codegen* g, string mangled) {
 // Monomorphize a generic struct spelling ("Box<int>") into a concrete named type
 // `%Box_int = type {…}` with the type params substituted in its field types. Returns
 // the mangled name. Idempotent (deduped via inst_seen).
+void cg_emit_tydecl(Codegen* g, *DeclNode d);
+int cg_struct_has_bf(*DeclNode d);
 string cg_ensure_struct_inst(Codegen* g, string spelling) {
     spelling = cg_apply_sub(g, spelling);                 // resolve T→concrete before mangling
     string mangled = cg_mangle(spelling);
@@ -695,7 +697,25 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
         fi = fi + 1;
     }
     List_push<CgStruct>(&g.structs, s);                   // register before emitting the line
-    cg_deftype(g, mangled, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
+    if (cg_struct_has_bf(gd) == 1 || gd.is_packed == 1 || gd.pack_align >= 2) {
+        // Bitfields / packing: lay the instance out like a plain struct of the concrete
+        // field types (same widths and packing as the generic decl).
+        *DeclNode cd = alloc<DeclNode>(1);
+        cd.kind = DK_STRUCT; cd.name = mangled;
+        cd.is_packed = gd.is_packed; cd.pack_align = gd.pack_align;
+        cd.field_bits = gd.field_bits;
+        List_init<Param>(&cd.params, nf);
+        int ci = 0;
+        while (ci < nf) {
+            let cp: Param; cp.name = List_get<string>(&s.fnames, ci); cp.ty = List_get<string>(&s.fetys, ci);
+            List_push<Param>(&cd.params, cp);
+            ci = ci + 1;
+        }
+        List_push<*DeclNode>(&g.tydecls, cd);
+        cg_emit_tydecl(g, cd);
+    } else {
+        cg_deftype(g, mangled, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
+    }
 
     g.cursub = oldsub;                                    // restore
     return mangled;
@@ -6628,6 +6648,7 @@ string cg_ext_attr(Codegen* g, string t) {
 
 // The bitfield slot for `sname.fname` (sentinel .fidx == -1 if not registered).
 CgBF cg_bf(Codegen* g, string sname, string fname) {
+    if (cg_has_targs(sname) == 1) { sname = cg_ensure_struct_inst(g, sname); }   // generic -> mangled
     int i = 0; int n = List_len<CgBF>(&g.bitfields);
     while (i < n) {
         CgBF b = List_get<CgBF>(&g.bitfields, i);
@@ -6639,6 +6660,7 @@ CgBF cg_bf(Codegen* g, string sname, string fname) {
     return none;
 }
 int cg_is_bf_struct(Codegen* g, string sname) {
+    if (cg_has_targs(sname) == 1) { sname = cg_ensure_struct_inst(g, sname); }
     int i = 0; int n = List_len<CgBF>(&g.bitfields);
     while (i < n) { if (cg_streq(List_get<CgBF>(&g.bitfields, i).sname, sname) == 1) { return 1; } i = i + 1; }
     return 0;
