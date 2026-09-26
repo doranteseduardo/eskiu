@@ -11,6 +11,7 @@
 import <mem>;
 import <string>;
 import <net>;
+import <time>;
 import <threading>;
 import <bytes>;
 
@@ -573,6 +574,7 @@ string http_reason(int s) {
         case 403: return "Forbidden";
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
+        case 408: return "Request Timeout";
         case 409: return "Conflict";
         case 413: return "Payload Too Large";
         case 422: return "Unprocessable Entity";
@@ -677,6 +679,56 @@ void _http_render(HttpResponse* self, String* out, bool head) {
 // HTTP_SERVE_MAX_BODY bytes 413.
 const int HTTP_SERVE_MAX_HEAD = 65536;
 const int HTTP_SERVE_MAX_BODY = 1048576;
+
+// Timeouts and connection limits of every stdlib server (http_serve, <http_async>,
+// <http2_server>, <tls>), in milliseconds; 0 turns one off. A client that sends
+// nothing, trickles its bytes or stops reading is disconnected once one runs out:
+//   header_ms  the whole request head (HTTP/1.1), or the HTTP/2 preface and first
+//              SETTINGS (and each header block), must arrive within this;
+//   body_ms    a request body must arrive within this once its head is in (an
+//              HTTP/2 stream: the whole request from its first HEADERS);
+//   idle_ms    an HTTP/2 connection with no open stream is closed (GOAWAY
+//              NO_ERROR) after this long; frames such as PING do not extend it;
+//   write_ms   an answer (or an HTTP/2 stream's response data) must be taken by
+//              the client within this;
+//   max_open   the async servers hold at most this many connections at once; one
+//              accepted past it is closed at once (so idle peers cannot use up
+//              every file descriptor).
+// A request cut by header_ms or body_ms after some of it arrived is answered 408
+// before the connection closes (HTTP/1.1); nothing is sent to a peer that sent
+// nothing. The HTTP/1.1 servers answer one request per connection, so they have
+// no idle wait between requests.
+const int64 HTTP_HEADER_TIMEOUT_MS = 10000;
+const int64 HTTP_BODY_TIMEOUT_MS   = 60000;
+const int64 HTTP_IDLE_TIMEOUT_MS   = 60000;
+const int64 HTTP_WRITE_TIMEOUT_MS  = 30000;
+const int   HTTP_MAX_OPEN_CONNS    = 1024;
+
+struct HttpLimits {
+    int64 header_ms;
+    int64 body_ms;
+    int64 idle_ms;
+    int64 write_ms;
+    int   max_open;
+}
+
+// Set `self` to the defaults above; change the fields after, then pass it to a
+// *_with server (http_serve_with, http_serve_async_with, http2_serve_async_with,
+// http2_tls_serve_async_with, http2_tls_serve_conn_with).
+void HttpLimits_init(HttpLimits* self) {
+    self.header_ms = HTTP_HEADER_TIMEOUT_MS;
+    self.body_ms   = HTTP_BODY_TIMEOUT_MS;
+    self.idle_ms   = HTTP_IDLE_TIMEOUT_MS;
+    self.write_ms  = HTTP_WRITE_TIMEOUT_MS;
+    self.max_open  = HTTP_MAX_OPEN_CONNS;
+}
+
+// The default limits, by value.
+HttpLimits http_limits() {
+    let l: HttpLimits;
+    l.init();
+    return l;
+}
 
 // The bytes of one request as a server reads them from a connection.
 struct HttpConnBuf {
@@ -788,24 +840,48 @@ void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpRes
     out.free();
 }
 
+// Read one request from the blocking socket `c` into `b` / `req` under the
+// limits: HttpConnBuf_feed's result, -2 if the peer closed or timed out before
+// sending anything, or 408 if the head (header_ms) or the body (body_ms) did not
+// arrive in time. SO_RCVTIMEO is set to what is left of the deadline before each
+// recv, so trickled bytes cannot stretch it.
+int _http_conn_read(int c, HttpConnBuf* b, HttpRequest* req, HttpLimits* lim) {
+    const int64 head_dl = net_deadline(lim.header_ms);
+    int64 body_dl = 0;
+    bool body_armed = false;
+    while (true) {
+        if (b.hend > 0 && !body_armed) { body_dl = net_deadline(lim.body_ms);  body_armed = true; }
+        const int64 dl = b.hend > 0 ? body_dl : head_dl;
+        int64 left = 0;
+        if (dl != 0) {
+            left = dl - time_monotonic_ms();
+            if (left <= 0) { return b.len == 0 ? -2 : 408; }
+        }
+        net_set_recv_timeout(c, left);
+        const int64 got = net_recv(c, b.data + b.len, b.cap - b.len);
+        if (got < 0 && dl != 0 && net_would_block() == 1) { continue; }   // SO_RCVTIMEO ran out: the check above decides
+        if (got <= 0) { return b.len == 0 ? -2 : 400; }   // closed: nothing sent, or a cut request
+        b.len += (int)got;
+        const int st = b.feed(req);
+        if (st != -1) { return st; }
+    }
+    return -1;
+}
+
 // A handler reads the request and fills the response.
 //
 // Accept-and-serve loop for one worker. Each connection is read until its
-// request is complete (or known to be bad), parsed, handed to `handler`, and
-// answered. Runs forever.
-void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
+// request is complete (or known to be bad, or out of time: see HttpLimits),
+// parsed, handed to `handler`, and answered (the send gives up after
+// lim.write_ms). Runs forever.
+void http_worker_loop_with(int fd, fn(HttpRequest*, HttpResponse*)->void handler, HttpLimits lim) {
     while (true) {
         const int c = net_accept(fd);
         if (c < 0) { continue; }
+        net_set_send_timeout(c, lim.write_ms);
         let b: HttpConnBuf;  b.init();
         let req: HttpRequest;  req.init();
-        int st = -1;
-        while (st == -1) {
-            const int64 got = net_recv(c, b.data + b.len, b.cap - b.len);
-            if (got <= 0) { st = b.len == 0 ? -2 : 400; break; }   // closed: nothing sent, or a cut request
-            b.len += (int)got;
-            st = b.feed(&req);
-        }
+        const int st = _http_conn_read(c, &b, &req, &lim);
         if (st != -2) { _http_conn_answer(c, &req, st, handler); }
         net_close(c);
         req.free();
@@ -813,15 +889,26 @@ void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
     }
 }
 
+void http_worker_loop(int fd, fn(HttpRequest*, HttpResponse*)->void handler) {
+    http_worker_loop_with(fd, handler, http_limits());
+}
+
 // Listen on `port` and serve with `nworkers` threads (the calling thread is one
-// of them, so it blocks here). Returns immediately only if the bind fails.
+// of them, so it blocks here) under the default HttpLimits. Returns immediately
+// only if the bind fails.
 void http_serve(int port, int nworkers, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    http_serve_with(port, nworkers, handler, http_limits());
+}
+
+// http_serve with the timeouts in `lim` (max_open does not apply: the workers
+// are the bound).
+void http_serve_with(int port, int nworkers, escaping fn(HttpRequest*, HttpResponse*)->void handler, HttpLimits lim) {
     const int fd = net_tcp_listen((uint16)port);
     if (fd < 0) { return; }
     // Each worker's closure is written in the call, so its thread owns (and frees) it.
     for (int spawned = 1; spawned < nworkers; spawned++)
-        thread_create(void() { http_worker_loop(fd, handler); });
-    http_worker_loop(fd, handler);
+        thread_create(void() { http_worker_loop_with(fd, handler, lim); });
+    http_worker_loop_with(fd, handler, lim);
 }
 
 // ── Binary-safe request (full body) ────────────────────────────────────────────
