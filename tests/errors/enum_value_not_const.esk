@@ -1,0 +1,5 @@
+// EXPECT-ERROR: value of enum member 'B' of 'E' is not an integer constant expression
+// An enum member value must be an integer constant expression.
+int g = 3;
+enum E { A = 1, B = A + g }
+int main() { return (int)B; }

@@ -106,11 +106,14 @@ DeclPtr Parser::parseDeclaration() {
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<std::pair<std::string, long long>> members;
             std::vector<std::vector<std::string>> payloads;
+            std::vector<ExprPtr> valueExprs;
+            bool anyValueExpr = false;
             long long next = 0;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 std::string mname = consume(TokenType::IDENT,
                     "Expected enum member name").value;
                 long long val = next;
+                ExprPtr valueExpr;
                 std::vector<std::string> payload;
                 if (match(TokenType::LPAREN)) {
                     // Algebraic variant with a payload: `Circle(float)`, `Rect(float, float)`.
@@ -119,15 +122,27 @@ DeclPtr Parser::parseDeclaration() {
                     }
                     consume(TokenType::RPAREN, "Expected ')' after variant payload");
                 } else if (match(TokenType::EQ)) {
-                    // Classic integer enum with an explicit value (payload-free only).
-                    bool neg = match(TokenType::MINUS);
-                    Token num = consume(TokenType::INT_LIT,
-                        "Expected integer value for enum member");
-                    val = std::stoll(num.value, nullptr, 0);
-                    if (neg) val = -val;
+                    // Classic integer enum with an explicit value (payload-free only): a
+                    // literal, or an integer constant expression the type checker folds
+                    // (after the first expression every explicit value is one).
+                    int lit = check(TokenType::MINUS) ? 1 : 0;
+                    TokenType after = peek_ahead(lit + 1).type;
+                    if (!anyValueExpr && peek_ahead(lit).type == TokenType::INT_LIT &&
+                        (after == TokenType::COMMA || after == TokenType::RBRACE)) {
+                        bool neg = match(TokenType::MINUS);
+                        Token num = consume(TokenType::INT_LIT,
+                            "Expected integer value for enum member");
+                        val = std::stoll(num.value, nullptr, 0);
+                        if (neg) val = -val;
+                    } else {
+                        valueExpr = parseExpression();
+                        anyValueExpr = true;
+                        val = 0;
+                    }
                 }
                 members.push_back({mname, val});
                 payloads.push_back(payload);
+                valueExprs.push_back(valueExpr);
                 if (!enumTypeParams.empty()) sharedGenericNames->insert(mname);   // Some<int>(x)
                 next = val + 1;
                 if (!match(TokenType::COMMA)) break;
@@ -136,6 +151,7 @@ DeclPtr Parser::parseDeclaration() {
             sharedTypeNames->insert(name);
             auto ed = withPos(std::make_shared<EnumDecl>(name, members), enameTok);
             ed->payloads = std::move(payloads);
+            ed->valueExprs = std::move(valueExprs);
             ed->typeParams = std::move(enumTypeParams);
             return ed;
         }

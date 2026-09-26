@@ -239,6 +239,10 @@ public:
     // a plain integer enum. Variants are constructed by name (`Circle(2.0)`, or a
     // bare `None`) and consumed with `match`.
     std::vector<std::vector<std::string>> payloads;
+    // Per-member value expression, parallel to `members` (null = a literal value or the
+    // previous member's value + 1). `B = A << 2`: an integer constant expression the type
+    // checker folds into `members` (literals, earlier members, `const` ints, `sizeof`).
+    std::vector<ExprPtr> valueExprs;
     // Non-empty → a generic algebraic enum (e.g. `enum Option<T> { None, Some(T) }`),
     // monomorphized per instantiation like a template struct.
     std::vector<std::string> typeParams;

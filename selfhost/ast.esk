@@ -316,6 +316,8 @@ struct DeclNode {
     List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
     List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none, -1 = `: 0`)
+    List<*ExprNode> enum_vals;     // enum: member value expressions (parallel to params; null = a
+                                   // literal or the previous + 1), folded by sema into params' ty
     int is_async;                  // function declared `async` (1) or not (0)
     int is_mustuse;                  // function declared `must_use` (discarding result is an error)
     int is_const;                  // DK_VARDECL: declared value-const global
@@ -865,10 +867,15 @@ void print_decl(*DeclNode dn, int d) {
         print_type_params(dn, d + 1);
         int i = 0;
         int n = List_len<Param>(&dn.params);
+        int since = 0 - 1;                           // members after a value expression: "<expr>+k"
         while (i < n) {
             Param pm = List_get<Param>(&dn.params, i);
+            *ExprNode ve = null;
+            if (i < List_len<*ExprNode>(&dn.enum_vals)) { ve = List_get<*ExprNode>(&dn.enum_vals, i); }
             pind(d + 1);
-            printf("%s = %s", pm.name, pm.ty);       // name = value
+            if (ve != null) { printf("%s = <expr>", pm.name); since = 0; }
+            else if (since >= 0) { since = since + 1; printf("%s = <expr>+%d", pm.name, since); }
+            else { printf("%s = %s", pm.name, pm.ty); }       // name = value
             List<string> pl = List_get<List<string>>(&dn.payloads, i);
             int pn = List_len<string>(&pl);
             if (pn > 0) {                            // ADT variant payload: (t1, t2)
@@ -882,6 +889,7 @@ void print_decl(*DeclNode dn, int d) {
                 printf(")");
             }
             printf("\n");
+            if (ve != null) { print_expr(ve, d + 2); }
             i = i + 1;
         }
         return;

@@ -837,6 +837,9 @@ input. What is still open is listed under Known issues.
   so the constant checks (zero divisor, index out of bounds, duplicate `case`) see it.
   Tests `sizeof_expr`, `errors/index_oob_sizeof_struct`, `errors/switch_dup_sizeof_ptr`,
   `errors/const_div_zero_sizeof_expr`.
+- An enum member value may be an integer constant expression over literals, earlier
+  members, `const` ints and `sizeof` (`B = A << 2`), folded like any constant. Tests
+  `enum_value_expr`, `errors/enum_value_not_const`, `errors/enum_value_expr_range`.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -851,7 +854,6 @@ without a diagnostic, except where the entry says so.
   volatile accesses.
 - A generic variant infers its type arguments only from its payload
   (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
-- Enum member values must be integer literals.
 - A function-like macro whose name is followed by a newline before `(` is not expanded,
   and a `#undef` line inside a multi-line string literal is read as a directive.
 - `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a

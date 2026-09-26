@@ -879,10 +879,41 @@ void TypeChecker::visit(IntrinsicDecl* node) {
     }
 }
 
+void TypeChecker::foldEnumValues(EnumDecl* ed, bool report) {
+    bool any = false;
+    for (const auto& v : ed->valueExprs) if (v) any = true;
+    if (!any) return;
+    bool known = true;
+    bool seenExpr = false;
+    long long prev = 0;
+    for (size_t i = 0; i < ed->members.size(); ++i) {
+        auto& m = ed->members[i];
+        Expr* ve = i < ed->valueExprs.size() ? ed->valueExprs[i].get() : nullptr;
+        long long v = m.second;
+        if (ve) {
+            seenExpr = true;
+            size_t before = errors.size();
+            if (report) ve->accept(this);
+            long long r = 0;
+            known = errors.size() == before && foldConstInt(ve, r);
+            if (known) v = r;
+            else if (report && errors.size() == before)
+                errorAt(ve, "value of enum member '" + m.first + "' of '" + ed->name +
+                            "' is not an integer constant expression");
+        } else if (seenExpr) {
+            v = prev + 1;
+        }
+        if (known || !seenExpr) m.second = v;
+        prev = m.second;
+        enumConstants[m.first] = m.second;
+    }
+}
+
 void TypeChecker::visit(EnumDecl* node) {
     // Members and the enum type were registered in the first pass.
     definitionLocations[node->name] = {node->line, node->col, diagFile()};
     checkTypeParams(node, node->name, node->typeParams);
+    if (!node->isADT() && node->typeParams.empty()) foldEnumValues(node, /*report=*/true);
     // A classic enum is an `int`: every member value (explicit, or the previous one + 1)
     // must fit it, instead of wrapping or being truncated.
     if (!node->isADT())

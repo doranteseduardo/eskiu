@@ -51,6 +51,7 @@ bool TypeChecker::check(Program* program) {
                 for (size_t i = 0; i < enumDecl->members.size(); ++i)
                     adtVariants[enumDecl->members[i].first] = {enumDecl->name, (int)i};
             } else {
+                foldEnumValues(enumDecl, /*report=*/false);   // provisional: later decls unseen
                 for (const auto& m : enumDecl->members) enumConstants[m.first] = m.second;
                 plainEnumDecls[enumDecl->name] = enumDecl;   // for exhaustiveness-checked `match`
             }

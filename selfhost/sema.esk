@@ -377,6 +377,68 @@ void sema_set_target(Sema* s, string triple) {
     if (ast_has_prefix(triple, "arm") == 1 || ast_has_prefix(triple, "thumb") == 1) { s.ptrsz = 4; }
 }
 
+int sema_fold_int(Sema* s, *ExprNode e, int64* out);
+void sema_expr(Sema* s, *ExprNode e);
+string sema_i64_text(int64 v) {
+    *uint8 b = alloc<uint8>(24);
+    sprintf((string)b, "%lld", v);
+    return (string)b;
+}
+// Fold a classic enum's member value expressions (`B = A << 2`) into its members' values
+// (the params' ty and the registered EVars), in order: a member's value may use the
+// members before it. `report` checks each expression and diagnoses one that is not an
+// integer constant expression (the declaration-order pass), then consumes the
+// expressions. Mirrors the C++ TypeChecker::foldEnumValues.
+void sema_fold_enum(Sema* s, *DeclNode d, int report) {
+    int any = 0; int i = 0;
+    while (i < List_len<*ExprNode>(&d.enum_vals)) { if (List_get<*ExprNode>(&d.enum_vals, i) != null) { any = 1; } i = i + 1; }
+    if (any == 0) { return; }
+    int sline = s.line; int scol = s.col;
+    int known = 1; int seen = 0;
+    int64 prev = (int64)0;
+    i = 0;
+    while (i < List_len<Param>(&d.params)) {
+        Param pm = List_get<Param>(&d.params, i);
+        *ExprNode ve = null;
+        if (i < List_len<*ExprNode>(&d.enum_vals)) { ve = List_get<*ExprNode>(&d.enum_vals, i); }
+        int64 v = sema_parse_int(pm.ty);
+        if (ve != null) {
+            seen = 1;
+            int e0 = s.had_error; s.had_error = 0;
+            if (report == 1) { s.line = ve.line; s.col = ve.col; sema_expr(s, ve); }
+            int fresh = s.had_error;
+            int64 r = (int64)0;
+            known = 0;
+            if (fresh == 0 && sema_fold_int(s, ve, &r) == 1) { known = 1; v = r; }
+            if (known == 0 && fresh == 0 && report == 1) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: value of enum member '%s' of '%s' is not an integer constant expression\n",
+                        s.filename, ve.line, ve.col, pm.name, d.name);
+            }
+            if (e0 == 1) { s.had_error = 1; }
+        } else if (seen == 1) {
+            v = prev + (int64)1;
+        }
+        if (known == 1 || seen == 0) {
+            pm.ty = sema_i64_text(v);
+            List_set<Param>(&d.params, i, pm);
+            int k = 0;
+            while (k < List_len<EVar>(&s.evars)) {
+                EVar ev = List_get<EVar>(&s.evars, k);
+                if (sema_streq(ev.en, d.name) == 1 && sema_streq(ev.variant, pm.name) == 1) { ev.val = pm.ty; List_set<EVar>(&s.evars, k, ev); }
+                k = k + 1;
+            }
+        }
+        prev = sema_parse_int(pm.ty);
+        i = i + 1;
+    }
+    s.line = sline; s.col = scol;
+    if (report == 1 && s.had_error == 0) {
+        i = 0;
+        while (i < List_len<*ExprNode>(&d.enum_vals)) { List_set<*ExprNode>(&d.enum_vals, i, null); i = i + 1; }
+    }
+}
+
 void sema_init(Sema* s, string filename) {
     s.ptrsz = 8; s.i64al = 8;
     List_init<Sym>(&s.syms, 64);
@@ -6247,6 +6309,7 @@ void sema_register_globals(Sema* s, *Program prog) {
                 List_push<EVar>(&s.evars, ev);
                 j = j + 1;
             }
+            if (sema_is_plain_enum_decl(d) == 1) { sema_fold_enum(s, d, 0); }   // provisional: later decls unseen
         }
         i = i + 1;
     }
@@ -7131,6 +7194,7 @@ int sema_check(Sema* s, *Program prog) {
         // must be a constant expression, as in C.
         if (d.kind == DK_VARDECL) { sema_check_decl_type(s, d.ret_type); }   // a global's type must exist
         if (d.kind == DK_TYPEALIAS) { sema_check_decl_type(s, d.ret_type); }  // so must an alias's
+        if (d.kind == DK_ENUM && sema_is_plain_enum_decl(d) == 1) { sema_fold_enum(s, d, 1); }
         if (d.kind == DK_ENUM) {           // a classic enum is an int: each member value must fit it
             int adt = 0; int pj = 0;
             while (pj < List_len<List<string>>(&d.payloads)) {

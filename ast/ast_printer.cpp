@@ -600,8 +600,13 @@ void ASTPrinter::visit(EnumDecl* node) {
     println("EnumDecl: " + node->name);
     indentLevel++;
     printTypeParams(node->typeParams, {});   // EnumDecl has no constraints field
+    int sinceExpr = -1;   // members after a value expression: "<expr>+k"
     for (size_t i = 0; i < node->members.size(); ++i) {
-        std::string line = node->members[i].first + " = " + std::to_string(node->members[i].second);
+        const ExprPtr* ve = i < node->valueExprs.size() && node->valueExprs[i] ? &node->valueExprs[i] : nullptr;
+        std::string val = std::to_string(node->members[i].second);
+        if (ve) { val = "<expr>"; sinceExpr = 0; }
+        else if (sinceExpr >= 0) val = "<expr>+" + std::to_string(++sinceExpr);
+        std::string line = node->members[i].first + " = " + val;
         if (i < node->payloads.size() && !node->payloads[i].empty()) {
             line += "(";
             for (size_t j = 0; j < node->payloads[i].size(); ++j) {
@@ -611,6 +616,11 @@ void ASTPrinter::visit(EnumDecl* node) {
             line += ")";
         }
         println(line);
+        if (ve) {
+            indentLevel++;
+            (*ve)->accept(this);
+            indentLevel--;
+        }
     }
     indentLevel--;
 }

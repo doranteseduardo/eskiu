@@ -362,6 +362,10 @@ private:
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool foldConstInt(Expr* e, long long& out);
+    // Fold a classic enum's member value expressions (`B = A << 2`) into its members, in
+    // order (a member's value may use the members before it). `report` diagnoses a value that is
+    // not an integer constant expression (the declaration-order pass).
+    void foldEnumValues(EnumDecl* ed, bool report);
     // Size and ABI alignment of a concrete type as the target lays it out (the same rules
     // as codegen's DataLayout: C struct layout, `packed`/`pack(N)`, C unions). False for a
     // type whose layout only codegen knows here: a generic instance, a sum type, a

@@ -134,7 +134,7 @@ interface-decl  = 'interface' IDENT '{' ( type IDENT '(' param-list? ')' ';' )* 
 
 enum-decl       = 'enum' IDENT type-params? '{' enum-variant (',' enum-variant)* ','? '}'   // enum type-params are names only (no constraints)
 enum-variant    = IDENT ( '(' type (',' type)* ')' )?           // ADT payload
-                | IDENT ( '=' '-'? INT_LIT )?                    // classic, optional integer value
+                | IDENT ( '=' expr )?                            // classic, optional integer constant expression
 
 type-alias      = 'type' IDENT '=' type ';'
 

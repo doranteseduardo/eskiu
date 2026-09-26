@@ -2255,10 +2255,13 @@ string i64_to_str(int64 n) {
     parse_type_params(p, &d.type_params, 0);   // optional <T> (enum: no constraints field)
     p_expect(p, LBRACE, "Expected '{'");
     List_init<Param>(&d.params, 4);
+    List_init<*ExprNode>(&d.enum_vals, 4);
+    int any_expr = 0;                  // after the first value expression every value is one
     int64 next = (int64)0;             // 64-bit, so sema can reject a value that does not fit int
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         string mname = tok_text(p.src, p_expect_ident(p, "Expected enum member name"));
         int64 val = next;
+        *ExprNode ve = null;
         let pl: List<string>;
         List_init<string>(&pl, 2);
         if (p_at(p) == LPAREN) {           // ADT payload — capture variant field types
@@ -2268,18 +2271,28 @@ string i64_to_str(int64 n) {
                 while (p_at(p) == COMMA) { p_adv(p); List_push<string>(&pl, parse_type(p)); }
             }
             p_expect(p, RPAREN, "Expected ')'");
-        } else if (p_at(p) == EQ) {        // explicit value
+        } else if (p_at(p) == EQ) {        // explicit value: a literal, or a constant expression
             p_adv(p);
-            int neg = 0;
-            if (p_at(p) == MINUS) { p_adv(p); neg = 1; }
-            val = str_to_i64(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected integer value for enum member")));
-            if (neg == 1) { val = (int64)0 - val; }
+            int lit = 0;
+            if (p_at(p) == MINUS) { lit = 1; }
+            int after = p_peek_k(p, lit + 1).type;
+            if (any_expr == 0 && p_peek_k(p, lit).type == INT_LIT && (after == COMMA || after == RBRACE)) {
+                int neg = 0;
+                if (p_at(p) == MINUS) { p_adv(p); neg = 1; }
+                val = str_to_i64(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected integer value for enum member")));
+                if (neg == 1) { val = (int64)0 - val; }
+            } else {
+                ve = parse_expr(p);        // folded by sema (mirrors the C++ valueExprs)
+                any_expr = 1;
+                val = (int64)0;
+            }
         }
         let pm: Param;
         pm.name = mname;
         pm.ty = i64_to_str(val);
         List_push<Param>(&d.params, pm);
         List_push<List<string>>(&d.payloads, pl);
+        List_push<*ExprNode>(&d.enum_vals, ve);
         if (List_len<TypeParam>(&d.type_params) > 0) { List_push<string>(&g_genericnames, mname); }   // Some<int>(x)
         next = val + (int64)1;
         if (p_at(p) == COMMA) { p_adv(p); } else { break; }
