@@ -4084,6 +4084,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (k == EK_UNARY && sema_streq(e.sval, "&") == 1 && sema_is_lvalue(s, e.a) == 0) {
             sema_error(s, "cannot take the address of this expression: it is not a variable, field, element, or dereference");
         }
+        if (k == EK_UNARY && sema_streq(e.sval, "&") == 1) { sema_check_captured_address(s, e.a); }
         if (k == EK_UNARY && sema_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_MEMBER) {
             *DeclNode bsd = sema_find_struct(s, sema_struct_of_type(sema_infer_type(s, e.a.a)));
             if (bsd != null) {
@@ -4224,6 +4225,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (k == EK_INDEX && List_len<*ExprNode>(&e.kids) > 0) {
             *ExprNode hiE = List_get<*ExprNode>(&e.kids, 0);
             string abt = sema_infer_type(s, e.a);
+            // A slice of a fixed array refers to the array's storage (a string or pointer base does not).
+            string sbc = sema_canon(s, sema_strip_nullable(abt));
+            int sbr = sema_arr_bracket(sbc); int sbn = sema_slen(sbc);
+            if (sbr > 0 && (int)sbc[sbr + 1] != 93 && (int)sbc[0] != 42 && (int)sbc[sbn - 1] != 42) {
+                sema_check_captured_address(s, e.a);
+            }
             int64 lo = (int64)0; int64 hi = (int64)0;
             int lo_ok = sema_fold_int(s, e.b, &lo);
             int hi_ok = sema_fold_int(s, hiE, &hi);
@@ -4870,31 +4877,51 @@ void sema_arm_bindings(string label, List<string>* out) {
 // A field or element of a captured struct/array value (`p.a = 5`, `arr[0] = 9`) is part
 // of the copy too; a write through a pointer (`ptr.a`, `*p`, a slice or string element)
 // reaches the shared object and is allowed.
-void sema_check_captured_write(Sema* s, *ExprNode t) {
+// The captured variable whose own storage `t` names (itself, a field or a fixed array
+// element of it, not through a pointer) inside a lambda, or "" (mirrors the C++
+// capturedRoot).
+string sema_captured_root(Sema* s, *ExprNode t) {
     int nb = List_len<int>(&s.lam_bounds);
-    if (nb == 0) { return; }
+    if (nb == 0) { return ""; }
     int walking = 1;
     while (walking == 1 && t != null) {
         if (t.kind == EK_MEMBER) {
             string bc = sema_canon(s, sema_strip_nullable(sema_infer_type(s, t.a)));
-            if (sema_is_ptrish(bc) == 1) { return; }
+            if (sema_is_ptrish(bc) == 1) { return ""; }
             t = t.a;
         } else if (t.kind == EK_INDEX) {
-            if (List_len<*ExprNode>(&t.kids) > 0) { return; }        // a slice a[lo..hi]
+            if (List_len<*ExprNode>(&t.kids) > 0) { return ""; }        // a slice a[lo..hi]
             string bc = sema_canon(s, sema_strip_nullable(sema_infer_type(s, t.a)));
             int br = sema_arr_bracket(bc);
-            if (br < 0 || (int)bc[br + 1] == 93) { return; }          // not a fixed array T[N]
+            if (br < 0 || (int)bc[br + 1] == 93) { return ""; }          // not a fixed array T[N]
             t = t.a;
         } else { walking = 0; }
     }
-    if (t == null || t.kind != EK_IDENT) { return; }
+    if (t == null || t.kind != EK_IDENT) { return ""; }
     int si = sema_sym_index(s, t.sval);
-    if (si < 0) { return; }
+    if (si < 0) { return ""; }
     Sym sy = List_get<Sym>(&s.syms, si);
-    if (sy.depth >= 1 && sy.depth <= List_get<int>(&s.lam_bounds, nb - 1) && sy.is_static == 0) {
+    if (sy.depth >= 1 && sy.depth <= List_get<int>(&s.lam_bounds, nb - 1) && sy.is_static == 0) { return t.sval; }
+    return "";
+}
+
+void sema_check_captured_write(Sema* s, *ExprNode t) {
+    string n = sema_captured_root(s, t);
+    if (n[0] != 0) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: cannot assign to captured variable '%s': a closure captures it by value (use a pointer, a global, or a static)\n",
-               s.filename, s.line, s.col, t.sval);
+               s.filename, s.line, s.col, n);
+    }
+}
+
+// `&x` / `x[lo..hi]` of a captured variable's storage: the address is the closure's copy,
+// so a write through it is lost (mirrors the C++ checkCapturedAddress).
+void sema_check_captured_address(Sema* s, *ExprNode t) {
+    string n = sema_captured_root(s, t);
+    if (n[0] != 0) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: cannot take the address of captured variable '%s': a closure captures it by value, so a write through the address is lost (use a pointer, a global, or a static)\n",
+               s.filename, s.line, s.col, n);
     }
 }
 

@@ -1,0 +1,24 @@
+// Inside a lambda, the address of a lambda local, a field reached through a captured
+// pointer, and a slice of a captured slice are all fine: they do not name the closure's
+// copy of a captured variable.
+extern int printf(string fmt, ...);
+struct P { int a; }
+int main() {
+    int[3] ar = {1, 2, 3};
+    P p = P{a: 1};
+    *P pp = &p;
+    int[] sl = ar[0..3];
+    fn()->void f = void() {
+        int[] s = sl[1..3];
+        s[0] = 7;
+        *int q = &pp.a;
+        *q = 4;
+        int m = 2;
+        *int r = &m;
+        *r = *r + 1;
+        printf("%d\n", m);
+    };
+    f();
+    printf("%d %d\n", ar[1], p.a);
+    return 0;
+}

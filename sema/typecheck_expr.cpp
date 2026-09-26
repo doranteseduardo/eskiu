@@ -38,28 +38,42 @@ static bool floatConstFitsInt(double v, const std::string& t) {
 // A field or element of a captured struct/array value (`p.a = 5`, `arr[0] = 9`) is part
 // of the copy too; a write through a pointer (`ptr.a`, `*p`, `s[i]` of a slice or a
 // string) reaches the shared object and is allowed.
-void TypeChecker::checkCapturedWrite(ASTNode* at, Expr* target) {
-    if (captureBoundary.empty()) return;
+std::string TypeChecker::capturedRoot(Expr* target) {
+    if (captureBoundary.empty()) return "";
     while (target) {
         if (auto* m = dynamic_cast<MemberExpr*>(target)) {
-            if (tyq::isPtr(getExpressionType(m->base.get()))) return;
+            if (tyq::isPtr(getExpressionType(m->base.get()))) return "";
             target = m->base.get(); continue;
         }
         if (auto* ix = dynamic_cast<IndexExpr*>(target)) {
-            if (!ix->opFunc.empty() || ix->highIndex) return;
+            if (!ix->opFunc.empty() || ix->highIndex) return "";
             std::string bt = normalizeType(getExpressionType(ix->base.get()));
-            if (ty::Type::parse(bt).kind != ty::Type::Kind::Array) return;
+            if (ty::Type::parse(bt).kind != ty::Type::Kind::Array) return "";
             target = ix->base.get(); continue;
         }
         break;
     }
     auto* id = dynamic_cast<IdentExpr*>(target);
-    if (!id) return;
-    if (lookupSymbol(id->name).empty()) return;
+    if (!id) return "";
+    if (lookupSymbol(id->name).empty()) return "";
     int defIdx = scopeOf(id->name);
-    if (defIdx >= 1 && defIdx < captureBoundary.back() && !scopes[defIdx][id->name].isStatic)
-        errorAt(at, "cannot assign to captured variable '" + id->name +
+    if (defIdx >= 1 && defIdx < captureBoundary.back() && !scopes[defIdx][id->name].isStatic) return id->name;
+    return "";
+}
+
+void TypeChecker::checkCapturedWrite(ASTNode* at, Expr* target) {
+    std::string n = capturedRoot(target);
+    if (!n.empty())
+        errorAt(at, "cannot assign to captured variable '" + n +
                     "': a closure captures it by value (use a pointer, a global, or a static)");
+}
+
+void TypeChecker::checkCapturedAddress(ASTNode* at, Expr* target) {
+    std::string n = capturedRoot(target);
+    if (!n.empty())
+        errorAt(at, "cannot take the address of captured variable '" + n +
+                    "': a closure captures it by value, so a write through the address is lost "
+                    "(use a pointer, a global, or a static)");
 }
 
 // Expression visitors
@@ -579,6 +593,7 @@ void TypeChecker::visit(UnaryExpr* node) {
     std::string operandType = getExpressionType(node->operand.get());
     if (node->op == "&" && !isLvalueExpr(node->operand.get()))
         errorAt(node, "cannot take the address of this expression: it is not a variable, field, element, or dereference");
+    if (node->op == "&") checkCapturedAddress(node, node->operand.get());
     if (node->op == "&")
         if (auto* m = dynamic_cast<MemberExpr*>(node->operand.get())) {
             std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
@@ -1195,6 +1210,10 @@ void TypeChecker::visit(IndexExpr* node) {
     node->index->accept(this);
     if (node->highIndex) node->highIndex->accept(this);
     checkNullableDeref(node->base.get(), "index");
+    // A slice of a fixed array refers to the array's storage (a string or pointer base does not).
+    if (node->highIndex && ty::Type::parse(normalizeType(getExpressionType(node->base.get()))).kind ==
+                               ty::Type::Kind::Array)
+        checkCapturedAddress(node, node->base.get());
 
     std::string baseType = getExpressionType(node->base.get());
     std::string indexType = getExpressionType(node->index.get());

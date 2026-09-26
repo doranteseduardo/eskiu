@@ -430,6 +430,12 @@ private:
     bool isPointerType(const std::string& type);
     bool isConditionType(const std::string& type);
     void checkCapturedWrite(ASTNode* at, Expr* target);
+    // The captured variable whose own storage `target` names (itself, a field or a fixed
+    // array element of it, not through a pointer) inside a lambda, or "".
+    std::string capturedRoot(Expr* target);
+    // `&x` / `x[lo..hi]` of a captured variable's storage: the address is the closure's
+    // copy, so a write through it is lost.
+    void checkCapturedAddress(ASTNode* at, Expr* target);
     std::string nullableAliasTarget(const std::string& t);
     bool pointeesCompatible(const std::string& lhs, const std::string& rhs);
     std::string plainEnumAsInt(const std::string& type);

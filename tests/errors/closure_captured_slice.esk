@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot take the address of captured variable 'ar'
+// A slice of a captured array refers to the closure's copy, so a write through it is lost.
+int main() {
+    int[3] ar = {1, 2, 3};
+    fn()->void g = void() { int[] s = ar[0..2]; s[0] = 9; };
+    g();
+    return ar[0];
+}
