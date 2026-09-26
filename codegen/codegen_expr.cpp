@@ -202,7 +202,8 @@ void CodeGen::emitAssignment(BinaryExpr* node) {
                 const BitfieldSlot* slot = nullptr;
                 llvm::Value* gep = bitfieldWordPtr(mem, slot);
                 llvm::Value* rhs = evaluateExpr(node->right);
-                storeBitfieldInto(gep, *slot, rhs, eskiuUnsigned(getExprEskiuType(node->right)));
+                storeBitfieldInto(gep, *slot, rhs, eskiuUnsigned(getExprEskiuType(node->right)),
+                                  volatileRooted(mem));
                 exprValueStack.push(rhs);
                 return;
             }
@@ -684,14 +685,15 @@ void CodeGen::visit(IncDecExpr* node) {
             if (sit != lit->second.end() && sit->second.isBitfield) {
                 const BitfieldSlot* slot = nullptr;
                 llvm::Value* gep = bitfieldWordPtr(mem, slot);
-                llvm::Value* old = loadBitfieldFrom(gep, *slot);
+                bool vol = volatileRooted(mem);
+                llvm::Value* old = loadBitfieldFrom(gep, *slot, vol);
                 llvm::Value* one = llvm::ConstantInt::get(old->getType(), 1);
                 llvm::Value* nw = node->decrement ? builder->CreateSub(old, one)
                                                   : builder->CreateAdd(old, one);
-                storeBitfieldInto(gep, *slot, nw);
+                storeBitfieldInto(gep, *slot, nw, false, vol);
                 // Prefix: the stored value, read as the field reads; postfix: the old value
                 // in the declared type (C, as clang).
-                exprValueStack.push(node->prefix ? bitfieldReadValue(loadBitfieldFrom(gep, *slot),
+                exprValueStack.push(node->prefix ? bitfieldReadValue(loadBitfieldFrom(gep, *slot, vol),
                                                                      structBaseTypeOf(mem->base), mem->member)
                                                  : old);
                 return;
@@ -937,7 +939,7 @@ void CodeGen::visit(MemberExpr* node) {
             exprValueStack.push(volLoad(builder->CreateLoad(slot.storageType, gep, node->member), node));
             return;
         }
-        exprValueStack.push(bitfieldReadValue(loadBitfieldFrom(gep, slot), baseType, node->member));
+        exprValueStack.push(bitfieldReadValue(loadBitfieldFrom(gep, slot, volatileRooted(node)), baseType, node->member));
         return;
     }
 
@@ -967,14 +969,18 @@ void CodeGen::visit(MemberExpr* node) {
 
 // The storage word is read and written as `accessType` (the declared type unless a
 // packed struct's field spans an odd byte range); the value is in the declared type.
-static llvm::Value* loadWord(llvm::IRBuilder<>& b, llvm::Type* at, llvm::Value* p, unsigned align) {
-    return align ? (llvm::Value*)b.CreateAlignedLoad(at, p, llvm::MaybeAlign(align)) : b.CreateLoad(at, p);
+// A `volatile` root (`vol`) makes the word's load (and store) volatile.
+static llvm::Value* loadWord(llvm::IRBuilder<>& b, llvm::Type* at, llvm::Value* p, unsigned align,
+                             bool vol) {
+    llvm::LoadInst* ld = align ? b.CreateAlignedLoad(at, p, llvm::MaybeAlign(align)) : b.CreateLoad(at, p);
+    ld->setVolatile(vol);
+    return ld;
 }
 
-llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot) {
+llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot, bool vol) {
     llvm::Type* sty = slot.storageType;
     llvm::Type* aty = slot.accessType ? slot.accessType : sty;
-    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign);
+    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign, vol);
     llvm::Value* shifted = slot.bitOffset
         ? builder->CreateLShr(word, llvm::ConstantInt::get(aty, slot.bitOffset)) : word;
     if (aty != sty) shifted = builder->CreateZExtOrTrunc(shifted, sty);
@@ -988,7 +994,7 @@ llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot&
 }
 
 void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
-                                llvm::Value* val, bool unsignedSrc) {
+                                llvm::Value* val, bool unsignedSrc, bool vol) {
     llvm::Type* sty = slot.storageType;  // integer storage word
     if (val->getType() != sty) {
         if (val->getType()->isIntegerTy())
@@ -999,7 +1005,7 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
             val = builder->CreateFPToSI(val, sty);
     }
     llvm::Type* aty = slot.accessType ? slot.accessType : sty;
-    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign);
+    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign, vol);
     uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
     llvm::Value* fieldMask = builder->CreateShl(llvm::ConstantInt::get(aty, mask), slot.bitOffset);
     llvm::Value* cleared  = builder->CreateAnd(word, builder->CreateNot(fieldMask));
@@ -1009,12 +1015,13 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
         ? builder->CreateShl(vMasked, llvm::ConstantInt::get(aty, slot.bitOffset)) : vMasked;
     llvm::StoreInst* st = builder->CreateStore(builder->CreateOr(cleared, vShifted), wordPtr);
     if (slot.accessAlign) st->setAlignment(llvm::Align(slot.accessAlign));
+    st->setVolatile(vol);
 }
 
 void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
     const BitfieldSlot* slot = nullptr;
     llvm::Value* gep = bitfieldWordPtr(m, slot);
-    storeBitfieldInto(gep, *slot, val);
+    storeBitfieldInto(gep, *slot, val, false, volatileRooted(m));
 }
 
 llvm::Value* CodeGen::bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slotOut) {

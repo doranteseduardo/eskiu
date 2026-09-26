@@ -840,6 +840,10 @@ input. What is still open is listed under Known issues.
 - An enum member value may be an integer constant expression over literals, earlier
   members, `const` ints and `sizeof` (`B = A << 2`), folded like any constant. Tests
   `enum_value_expr`, `errors/enum_value_not_const`, `errors/enum_value_expr_range`.
+- A bitfield read or written through a `volatile` variable (`r.mode = 5`, `r.mode++`)
+  uses volatile loads and stores of its storage word, and a volatile variable's
+  initializing store is volatile. Test `volatile_bitfield` (IR count checked in `run.sh`
+  and `cg_parity.sh`).
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -850,8 +854,6 @@ without a diagnostic, except where the entry says so.
 - The C++ compiler does not treat a type alias inside a composite type as its target, so
   `Box<F>` and `Box<int>` (with `type F = int`) are different types there and a valid
   assignment between them is rejected. Spell the target type.
-- A bitfield write, and the initializing store, through a `volatile` variable are not
-  volatile accesses.
 - A generic variant infers its type arguments only from its payload
   (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
 - A function-like macro whose name is followed by a newline before `(` is not expanded,

@@ -396,7 +396,7 @@ void CodeGen::visit(VarDecl* node) {
         } else {
             llvm::Value* val = evalForType(node->initializer, varType);
             val = coerceValue(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
-            if (val) builder->CreateStore(val, alloca);
+            if (val) builder->CreateStore(val, alloca)->setVolatile(node->isVolatile);   // an MMIO init
         }
     }
     if (node->isVolatile) volatileVars.insert(node->name);

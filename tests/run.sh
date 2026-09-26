@@ -266,6 +266,10 @@ fi
 v_n="$("$ESKIUC" --test-codegen "$here/volatile_access.esk" 2>/dev/null | grep -c 'volatile i32')"
 if [[ "$v_n" -eq 10 ]]; then ok "codegen/volatile-access"
 else bad "codegen/volatile-access" "$v_n volatile i32 accesses in the IR, expected 10"; fi
+# A bitfield through a `volatile` variable, and a volatile variable's initializing store.
+vb_n="$("$ESKIUC" --test-codegen "$here/volatile_bitfield.esk" 2>/dev/null | grep -c 'volatile i16')"
+if [[ "$vb_n" -eq 12 ]]; then ok "codegen/volatile-bitfield"
+else bad "codegen/volatile-bitfield" "$vb_n volatile i16 accesses in the IR, expected 12"; fi
 
 # An await inside a larger expression is an error located at the await.
 aw_out="$("$ESKIUC" "$here/run_cmd/await_in_expr.esk" -o "$work/await_in_expr" 2>&1)"

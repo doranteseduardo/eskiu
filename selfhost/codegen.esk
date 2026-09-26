@@ -143,6 +143,7 @@ struct Codegen {
     int lam_i;
     int thk_i;
     String entry_buf;        // local allocas for the fn/lambda being emitted, hoisted to entry
+    string bf_vol;           // "volatile " while a bitfield access goes through a volatile root
     List<CgSub> tydefs;      // emitted named LLVM types: name (no '%') → body text ("{ i32, ptr }")
     List<*DeclNode> tydecls; // non-generic struct/union/ADT decls whose type line is emitted on demand
     int abi;                 // target C ABI: 0 none, 1 AArch64 Darwin, 2 AArch64 AAPCS64, 3 x86-64 SysV,
@@ -244,6 +245,7 @@ uint64 cg_int_lit_mag(string s) {
 }
 
 void cg_init(Codegen* g) {
+    g.bf_vol = "";
     String_init(&g.out, 1024);
     String_init(&g.globals, 256);
     g.next = 0;
@@ -4263,13 +4265,19 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
                 string bsn2 = "";
                 string bbase = cg_member_baseptr(g, e.a.a, &bsn2);
                 string wa = cg_bf_wordptr(g, bbase, bsn2, bslot);
+                g.bf_vol = cg_vol(g, e.a);
                 CgVal bold = cg_bf_load(g, wa, bslot);
                 string bnw = cg_tmp(g);
                 cg_emit(g, "  "); cg_emit(g, bnw); cg_emit(g, " = ");
                 if ((int)e.sval[L0 - 1] == 45) { cg_emit(g, "sub "); } else { cg_emit(g, "add "); }
                 cg_emit(g, bslot.sty); cg_emit(g, " "); cg_emit(g, bold.op); cg_emit(g, ", 1\n");
                 cg_bf_store(g, wa, bslot, bnw);
-                if ((int)e.sval[1] == 114) { return cg_bf_promote(g, cg_bf_load(g, wa, bslot), bslot); }   // prefix: the stored (wrapped) value
+                if ((int)e.sval[1] == 114) {                  // prefix: the stored (wrapped) value
+                    CgVal bnv = cg_bf_promote(g, cg_bf_load(g, wa, bslot), bslot);
+                    g.bf_vol = "";
+                    return bnv;
+                }
+                g.bf_vol = "";
                 return bold;                              // postfix: the declared type, unpromoted (as clang)
             }
         }
@@ -4310,7 +4318,10 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         if (slot.bw > 0) {
             string sn2 = "";
             string baseptr = cg_member_baseptr(g, e.a, &sn2);
-            return cg_bf_read(g, baseptr, sn2, slot);
+            g.bf_vol = cg_vol(g, e);
+            CgVal bv = cg_bf_read(g, baseptr, sn2, slot);
+            g.bf_vol = "";
+            return bv;
         }
     }
     // Slice construction: base[lo..hi] → a fat pointer { &base[lo], hi - lo }.
@@ -4420,7 +4431,9 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
                     string baseptr = cg_member_baseptr(g, e.a.a, &sn2);   // target first
                     CgVal rv = cg_expr(g, e.b);
                     string rop = cg_coerce(g, rv, slot.sty);
+                    g.bf_vol = cg_vol(g, e.a);
                     cg_bf_write(g, baseptr, sn2, slot, rop);
+                    g.bf_vol = "";
                     return rv;
                 }
             }
@@ -5523,7 +5536,7 @@ CgVal cg_bf_load(Codegen* g, string wa, CgBF slot) {
     string st = slot.sty; int W = cg_int_w(st);
     string at = slot.aty;
     string w = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, at); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, g.bf_vol); cg_emit(g, at); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
     string sh = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, sh); cg_emit(g, " = lshr "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, w); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
     string shs = cg_bf_resize(g, sh, at, st);
@@ -5547,7 +5560,7 @@ void cg_bf_store(Codegen* g, string wa, CgBF slot, string rhsop) {
     string at = slot.aty; int AW = cg_int_w(at);
     uint64 mask = cg_bf_mask(slot.bw);
     string w = cg_tmp(g);
-    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, at); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = load "); cg_emit(g, g.bf_vol); cg_emit(g, at); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
     string fm = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, fm); cg_emit(g, " = shl "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, cg_bf_const(mask, AW)); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
     string nfm = cg_tmp(g);
@@ -5561,7 +5574,7 @@ void cg_bf_store(Codegen* g, string wa, CgBF slot, string rhsop) {
     cg_emit(g, "  "); cg_emit(g, shv); cg_emit(g, " = shl "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, vma); cg_emit(g, ", "); cg_emit(g, cg_itoa(slot.boff)); cg_emit(g, "\n");
     string nw = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, nw); cg_emit(g, " = or "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, c); cg_emit(g, ", "); cg_emit(g, shv); cg_emit(g, "\n");
-    cg_emit(g, "  store "); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, nw); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
+    cg_emit(g, "  store "); cg_emit(g, g.bf_vol); cg_emit(g, at); cg_emit(g, " "); cg_emit(g, nw); cg_emit(g, ", ptr "); cg_emit(g, wa); cg_emit(g, cg_bf_al(slot)); cg_emit(g, "\n");
 }
 
 // The type a bitfield is read as: `int` when all its values fit an int (C promotion),
@@ -6078,7 +6091,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 g.lam_expret = "";
                 string iop = cg_coerce(g, init, ty);    // widen/truncate/null-coerce to the declared type
                 if (cg_is_iface(g, cg_dealias(g, st.type)) == 1) { iop = cg_iface_conv(g, st.type, init, st.expr); }
-                cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, iop);
+                cg_emit(g, "  store ");
+                if (st.is_vol == 1) { cg_emit(g, "volatile "); }   // an MMIO init is a volatile store
+                cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, iop);
                 cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
             }
         }

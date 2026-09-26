@@ -504,7 +504,7 @@ volatile let uart: *uint8 = (uint8*) 0x3F8;
 *uart = 'A';   // store is always emitted, not eliminated by optimiser
 ```
 
-`volatile` applies to every load and store of the variable itself and of any place reached from it by `*`, `[]` or `.` (`*uart`, `uart[i]`, `dev.ctrl`), including `++`/`--` and compound assignment, for locals and globals. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.
+`volatile` applies to every load and store of the variable itself and of any place reached from it by `*`, `[]` or `.` (`*uart`, `uart[i]`, `dev.ctrl`), including `++`/`--`, compound assignment and the storage word of a bitfield (`dev.mode = 5` reads and writes the word with volatile accesses), for locals and globals. The initializing store of a volatile variable is volatile too. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.
 
 ### 4.6 Constants (`const`)
 
