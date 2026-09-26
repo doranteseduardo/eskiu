@@ -1194,7 +1194,15 @@ llvm::Value* CodeGen::evaluateExpr(const ExprPtr& expr) {
 }
 
 void CodeGen::visit(SizeofExpr* node) {
-    llvm::Type* ty   = getTypeFromString(node->typeName);
+    // Sema rewrites `sizeof(var)` to the variable's type, except in a generic body
+    // (its nodes are shared by the instances): resolve the variable here, per instance.
+    std::string tn = node->typeName;
+    if (!typeParamOverride.count(tn) && !structTypes.count(tn) && !typeAliases.count(tn) &&
+        !enumTypes.count(tn)) {
+        std::string vt = lookupVarType(tn);
+        if (!vt.empty()) tn = vt;
+    }
+    llvm::Type* ty   = getTypeFromString(tn);
     uint64_t    size = module->getDataLayout().getTypeAllocSize(ty);
     exprValueStack.push(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size));
