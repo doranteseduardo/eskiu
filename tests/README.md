@@ -379,6 +379,14 @@ when you add a test.
 | `thread_handle_ptr` | the `*void` handle of `thread_create` converts to another pointer and joins back |
 | `iface_ternary_box` | `?:` arms of different conforming structs boxed into an interface (declaration, assignment, return, argument, nested) |
 | `array_dim_const_expr` | array dimensions as constant expressions: C-truncating casts, `const` and enum members, hex and shifts |
+| `array_dim_sizeof` | `sizeof(T)` in array dimensions (scalars, structs, a generic instance, pointers, a field) |
+| `array_dim_compare_ops` | `<`, `<<`, `<=`, `>` and `?:` in array dimensions of globals, fields, parameters and locals |
+| `array_alias_of_alias` | an array of an array alias is outer-dimension-first (`Arr[2]`, `Mat[4]`, `Arr[2] n`) |
+| `array_alias_nested_init` | nested brace initializers whose rows are an array alias (local and global) |
+| `alloc_with_generic` | `alloc_with` over a generic allocator instance: inline `alloc` method and a top-level `G_int_alloc` |
+| `target_sizes` | type sizes per target (pointer width, i386 `int64`/`double` alignment), compared by `cabi_parity.sh` |
+| `forin_array_alias_deref` | `for (x in *p)` with `p: *A4`, and over a field of array-alias type |
+| `closure_address_ok` | addresses a lambda may take: its locals, through a captured pointer, a slice of a captured slice |
 
 ### `smoke` tests (compile + link + exit 0)
 
@@ -653,6 +661,24 @@ when you add a test.
 | `errors/va_arg_float` | `va_arg<float>` (promoted to `double`) |
 | `errors/va_arg_narrow_int` | `va_arg` of an alias of `int8` (promoted to `int`) |
 | `errors/array_dim_cast_zero` | `int[(uint8)256]` folds to 0 |
+| `errors/array_dim_sizeof_zero` | `int[sizeof(int) - 4]` folds to 0 in the type checker |
+| `errors/nullable_global_alloc_with` | `alloc_with` ends a global's narrowing (the alloc method nulls it) |
+| `errors/nullable_global_thread_join` | `thread_join` ends a global's narrowing |
+| `errors/nullable_global_thread_create` | `thread_create` ends a global's narrowing |
+| `errors/nullable_guard_else_assign` | an early-exit guard whose `else if` branch assigns the pointer |
+| `errors/nullable_guard_then_assign` | an early-exit guard (else exits) whose then branch assigns the pointer |
+| `errors/await_in_switch_subject` | `switch (await f())` in an async function |
+| `errors/await_in_range_bound` | `for (i in 0..await f())` |
+| `errors/await_in_forin_iterable` | `for (x in await f())` |
+| `errors/not_void_call` | `!i.m()` of a void interface call |
+| `errors/throw_void` | `throw v()` of a void call |
+| `errors/deref_void_ptr` | `*x;` of a `*void` |
+| `errors/cast_void_call` | `(int)v()` |
+| `errors/cast_int_to_struct_generic` | `(T)0` with T = a struct, in a generic instance |
+| `errors/cast_array_literal` | `((S){1}).a` |
+| `errors/generic_void_param` | `id<void>(v())` makes a parameter `void` |
+| `errors/closure_captured_address` | `*(&n) = 5` of a captured `n` in a lambda |
+| `errors/closure_captured_slice` | a slice of a captured array in a lambda |
 | `errors/async_await_in_try` | `await` inside a `try` in an `async` function |
 | `errors/void_logical_operand` | a `void` call as an operand of `&&` |
 | `errors/void_compare` | comparing two `void` calls |

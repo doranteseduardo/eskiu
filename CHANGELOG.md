@@ -219,6 +219,20 @@ more and a third about 60, fixed the same way.
 - Without `-o`, `eskiuc-esk` writes the object `FILE.o` like `eskiuc` (it printed the
   IR); `--test-codegen` prints the IR.
 
+- `!` of a void value (`!v()`, also through a method or interface call), `throw v()` of a
+  void call and dereferencing a `*void` (`*p`, `*p = v()`) are type errors in both
+  compilers; they compiled (the self-host emitted invalid IR for `*p;`).
+- Inside a lambda, taking the address of a captured variable's storage (`&n`, `&p.a`,
+  `&arr[0]`) or slicing a captured array (`arr[0..2]`) is an error, like assigning to
+  it: the address is the closure's copy, so a write through it was silently lost.
+- An `await` in a `switch` subject, a `for-in` iterable or a range bound
+  (`for (i in 0..await f())`) is a located type error in both compilers. The self-host
+  miscompiled the first two, and C++ failed in the async lowering without a location.
+- `alloc_with` (a call to the alloc method), `thread_create` and `thread_join` end a
+  global's `?*T` narrowing like a call, and the rest of a block after an early-exit guard
+  is not narrowed when the branch that falls through assigns the variable
+  (`if (p == null) { return 0; } else { p = null; } return p.v;` was accepted).
+
 ### Deprecated
 - Stdlib modules built around a struct now use `Type_method` names, as the naming
   convention says: `Rng_*` (`<random>`), `Regex_search`/`Regex_free`/`Match_*`
@@ -577,6 +591,30 @@ more and a third about 60, fixed the same way.
   names) are supported; they were read as a set of letters and a stray `]`. A `{` that
   does not start a `{n}`, `{n,}` or `{n,m}` repeat is a literal (`{`, `a{`, `a{,2}`), as
   in RE2; it was an error.
+- `sizeof(T)` in an array dimension is an integer constant, as in C
+  (`uint8[sizeof(Header)]`, `int[sizeof(S) / 4]`): a fixed-size scalar folds in the type
+  checker, any other type's size comes from the target layout in codegen. Both compilers
+  rejected it.
+- The self-host accepts `<`, `<<`, `<=`, `>` and `?:` in an array dimension
+  (`int[K << 1]`, `int[K < 4 ? 2 : 1]`); its type-spelling scanners read the `<` as a
+  generic argument list ("unknown type").
+- An array of an array alias (`type Arr = int[3]; type Mat = Arr[2];`) is 2 arrays of 3
+  in the self-host (it laid out 3 arrays of 2), and C++ indexes three levels of such
+  aliases (`Cube c; c[3][1][2]` was a codegen error).
+- A nested brace initializer whose rows are an array alias (`type A = int[2];
+  A[2] m = {{1, 2}, {3, 4}};`, also a global) compiles in C++; it was rejected.
+- `alloc_with` over an instance of a generic allocator works in both compilers, through
+  its inline `alloc` method or a top-level `G_int_alloc(*G<int> self, int64 n)`: C++
+  failed in codegen without a location, and the self-host rejected both.
+- The self-host lays out 32-bit x86 targets (`--target i686-...`): 4-byte pointers, and
+  4-byte alignment of `int64` and `double` on SysV (8 on Windows). It used the 64-bit
+  layout, so `sizeof` and struct sizes differed from C++. `cabi_parity.sh` compares the
+  sizes of `tests/target_sizes.esk` per target.
+- C++ iterates `for (x in *p)` with `p: *A4` (`type A4 = int[4]`); it was rejected.
+- The self-host rejects a cast of a void value (`(int)v()`), of a `{...}` literal
+  (`((S){1}).a`) and, in a generic instance, of an int to a struct type argument
+  (`(T)0` with T = S), and a type argument that makes a parameter `void`
+  (`id<void>(v())`), as C++ does.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

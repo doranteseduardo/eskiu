@@ -198,7 +198,8 @@ A pointer converts implicitly only to a pointer to the same type (adding `const`
 fine). `null` converts to any pointer, a `*void` converts to and from any pointer, and
 the byte pointers `string`, `*char`, `*int8` and `*uint8` interconvert. Any other change
 of pointee, such as `*int` to `*Big` or `**int` to `*int`, needs an explicit cast
-(`(*Big)p`).
+(`(*Big)p`). A `*void` points at no type, so it cannot be dereferenced (`*p` is a compile
+error); cast it to a typed pointer first.
 
 #### Checked nullable pointers (`?*T`)
 
@@ -224,14 +225,16 @@ A null-check narrows in these forms: the then-branch of `if (x != null)` (and th
 `if (x == null)`), `if (x)`, `!(x == null)`, the right operand of `x != null && ...` and of
 `x == null || ...`, either arm of a `?:` on such a condition, the body of
 `while (x != null)` or `for (...; x != null; ...)`, and the rest of a block after an early
-exit such as `if (x == null) { return 0; }`. While narrowed, `x` can be passed or assigned
+exit such as `if (x == null) { return 0; }` (unless the branch that falls through assigns
+`x`). While narrowed, `x` can be passed or assigned
 where a `*T` is expected. Narrowing applies to the variable itself: assigning to it (other
 than storing an address `&y`), taking its address, or reassigning it anywhere in an
 enclosing loop ends it, and a shadowing declaration of the same name is not narrowed. A
 variable whose address has been taken (`&x`, before the check or anywhere in an enclosing
 loop) is not narrowed, since a write through that pointer can store null behind the check;
 for a global the address counts anywhere in the program. A global's narrowing also ends at
-every call and `await`, since the callee may assign it: a test of a global earlier in a
+every call and `await`, and at `alloc_with` (a call to the alloc method), `thread_create`
+and `thread_join`, since the code they run may assign it: a test of a global earlier in a
 condition does not hold after a later operand that calls (`gp != null && f() && gp.v`),
 nor in a branch or ternary arm guarded by such a condition, nor after an early-exit guard
 whose condition or fall-through branch calls something. A user operator (`a + b` on a
@@ -241,7 +244,7 @@ by every call and closure, so it follows the rule for globals.
 
 ### 3.3 Array Types
 
-Fixed-size arrays use the form `T[N]` where `N` is a compile-time integer constant: a decimal literal, an `enum` member, or a `const int` (see §4.6). Array types are supported both as struct fields and as local variables:
+Fixed-size arrays use the form `T[N]` where `N` is a positive integer constant expression, as in C: numbers, `enum` members and `const int`s (see §4.6), casts to an integer type, the integer operators including comparisons and `?:` (`int[K << 1]`, `int[K > 2 ? 4 : 1]`), and `sizeof(T)` (`uint8[sizeof(Header)]`), whose value is the target's layout size. An array of an array alias puts the new dimension outermost: with `type Row = int[3]`, `Row[2]` is `int[2][3]`. Array types are supported both as struct fields and as local variables:
 
 ```eskiu
 struct QRBuffer {
@@ -926,7 +929,7 @@ let add: fn(int)->int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 ```
 
-The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to `base` in the enclosing function is not seen by `add`. For the same reason a lambda may not assign to a captured variable (`base = 1;`, `base += 1;` or `base++;` inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, `p.a = 5;` or `arr[0] = 9;`), since the write would change only the copy and be lost. To share state with the enclosing code, write through a pointer to it (`*p = v`, `ptr.a = v`), or use a global or a `static` local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (`p.set(5)`, where `set` takes `*P self`) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (`*P pp = &p;` outside the lambda, `pp.set(5)` inside) to modify the original.
+The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to `base` in the enclosing function is not seen by `add`. For the same reason a lambda may not assign to a captured variable (`base = 1;`, `base += 1;` or `base++;` inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, `p.a = 5;` or `arr[0] = 9;`), since the write would change only the copy and be lost. Taking the address of a captured variable's storage (`&base`, `&p.a`, `&arr[0]`) or slicing a captured array (`arr[0..2]`) is an error for the same reason ("cannot take the address of captured variable"). To share state with the enclosing code, write through a pointer to it (`*p = v`, `ptr.a = v`), or use a global or a `static` local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (`p.set(5)`, where `set` takes `*P self`) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (`*P pp = &p;` outside the lambda, `pp.set(5)` inside) to modify the original.
 
 Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in `env_ptr`. Lambdas that capture nothing have `env_ptr = null` and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains `fn(T)->R` in both cases.
 
@@ -1044,7 +1047,9 @@ An `async` function lowers to a resumable state machine and executes over the
 (`if`/`while`/C-style `for`/`switch`/`for-in`, with `break`/`continue`) are
 supported; a pending future is cancelled with `future_drop`. An `await` inside a `try`
 statement (its body, a `catch` or the `finally`) is a compile error, as are labeled
-`break`/`continue` and an `await` inside a `defer`.
+`break`/`continue`, an `await` inside a `defer`, and an `await` in a `switch` subject, a
+`for-in` iterable or a range bound (`for (i in 0..await n())`): bind the value first with
+`let v = await ...;`.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it
