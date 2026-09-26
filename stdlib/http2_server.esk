@@ -199,8 +199,8 @@ int h2_headers_bufsize(HttpResponse* res) {
 // handler's headers) into `out` as a HEADERS frame, followed by CONTINUATION
 // frames when the block exceeds the default MAX_FRAME_SIZE (§6.10); the last
 // fragment carries END_HEADERS, and END_STREAM is never set (a body follows).
-// A 1xx or 204 response has no content (RFC 9110 §8.6): its body is dropped
-// and it gets no content-length.
+// A 1xx, 204 or 304 response has no content (RFC 9110 §8.6): its body is
+// dropped and it gets no content-length.
 // `out` must hold h2_headers_bufsize(res) bytes. Returns the byte count.
 int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
     const int nocontent = http_status_no_content(res.status);
@@ -297,7 +297,9 @@ void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
 //   - a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3: bad or missing
 //     pseudo-headers, a connection-specific field, a content-length that the
 //     DATA frames do not add up to, a pseudo-header in trailers) is a stream
-//     error: RST_STREAM PROTOCOL_ERROR, and the handler is not called.
+//     error: RST_STREAM PROTOCOL_ERROR, and the handler is not called;
+//   - a HEAD response carries its content-length but no body, and a 1xx,
+//     204 or 304 response neither.
 
 const int H2_MAX_HEADERS   = 64;          // header fields decoded per request
 const int H2_MAX_STREAMS   = 128;         // concurrent streams (advertised)
@@ -491,11 +493,15 @@ void H2Server_respond(H2Server* s, int i, escaping fn(HttpRequest*, HttpResponse
         sl.res.init(200);
         handler(&sl.req, &sl.res);
     }
+    const bool head = sl.req.method.eq_cstr("HEAD") == 1;
     sl.req.free();
     sl.state = H2S_RESPONDING;
     sl.sent = 0;
     *uint8 b = H2Server_reserve(s, h2_headers_bufsize(&sl.res));
     s.outlen += h2_build_headers(b, sl.id, &sl.res);
+    // A HEAD response keeps the content-length of the body but sends none
+    // (RFC 9110 §9.3.2): the stream ends with one empty END_STREAM DATA frame.
+    if (head) { sl.res.body.clear(); }
 }
 
 // Reset the stream in slot `sl` with PROTOCOL_ERROR: its request is malformed.

@@ -518,16 +518,29 @@ void _http_append_int(String* out, int64 v) {
     while (n > 0) { out.push(digits[--n]); }
 }
 
-// 1 if a response with this status has no content and so no Content-Length
-// (RFC 9110 §8.6, §15.2, §15.3.5: 1xx and 204).
+// 1 if a response with this status has no content and so no body and no
+// Content-Length (RFC 9110 §8.6, §15.2, §15.3.5, §15.4.5: 1xx, 204 and 304;
+// a 304 Content-Length would describe the selected representation, which
+// the handler's body need not be).
 int http_status_no_content(int status) {
-    return (status >= 100 && status < 200) || status == 204 ? 1 : 0;
+    return (status >= 100 && status < 200) || status == 204 || status == 304 ? 1 : 0;
 }
 
 // Serialize the full HTTP/1.1 response (status line, headers, auto
-// Content-Length, blank line, body) into `out`. A 1xx or 204 response gets
-// no Content-Length and no body.
+// Content-Length, blank line, body) into `out`. A 1xx, 204 or 304 response
+// gets no Content-Length and no body.
 void HttpResponse_render(HttpResponse* self, String* out) {
+    _http_render(self, out, false);
+}
+
+// Serialize the response to a HEAD request into `out`: as HttpResponse_render,
+// with the Content-Length of the body a GET would get, but no body (RFC 9110
+// §9.3.2).
+void HttpResponse_render_head(HttpResponse* self, String* out) {
+    _http_render(self, out, true);
+}
+
+void _http_render(HttpResponse* self, String* out, bool head) {
     out.append("HTTP/1.1 ");
     _http_append_int(out, self.status);
     out.push(' ');
@@ -541,6 +554,7 @@ void HttpResponse_render(HttpResponse* self, String* out) {
     out.append("Content-Length: ");
     _http_append_int(out, self.body.len);
     out.append("\r\n\r\n");
+    if (head) { return; }
     // All body.len bytes: the body may hold a NUL, which cstr() would cut at.
     for (i in 0..self.body.len) { out.push(self.body.data[i]); }
 }
@@ -598,14 +612,15 @@ int HttpConnBuf_feed(HttpConnBuf* b, HttpRequest* req) {
 }
 
 // Answer a request read by a server: `st` is HttpConnBuf_feed's result, 0 to
-// call `handler`, else the error status sent
+// call `handler` (a HEAD request gets no body), else the error status sent
 // without calling it.
 void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler) {
     let res: HttpResponse;  res.init(200);
     if (st == 0) { handler(req, &res); }
     else { res.status = st; }                   // malformed: the handler never sees it
     let out: String;  out.init(256);
-    res.render(&out);
+    if (st == 0 && req.method.eq_cstr("HEAD") == 1) { res.render_head(&out); }
+    else { res.render(&out); }
     net_send(c, out.cstr(), out.len);
     out.free();
     res.free();
