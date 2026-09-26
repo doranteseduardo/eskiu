@@ -29,6 +29,9 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     llvm::FunctionType* fty = llvm::FunctionType::get(retTy, paramTypes, false);
     llvm::Function* func = llvm::Function::Create(
         fty, llvm::Function::InternalLinkage, lambdaName, module.get());
+    // Its `return` converts to the declared type like a function's (an interface boxes).
+    funcEskiuReturnType[lambdaName] = typeParamOverride.empty()
+        ? node->returnType : substType(node->returnType, typeParamOverride);
 
     auto argIt = func->arg_begin();
     argIt->setName("env");

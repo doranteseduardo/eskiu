@@ -258,8 +258,8 @@ void CodeGen::visit(CallExpr* node) {
             std::string mangled = ensureEnumInst(gi.first, targs);
             std::map<std::string, std::string> sub2;
             for (size_t i = 0; i < ge->typeParams.size() && i < targs.size(); ++i) sub2[ge->typeParams[i]] = targs[i];
-            std::vector<llvm::Type*> fts;
-            for (const auto& ft : payload) fts.push_back(getTypeFromString(substType(ft, sub2)));
+            std::vector<std::string> fts;
+            for (const auto& ft : payload) fts.push_back(substType(ft, sub2));
             exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
             return;
         }
@@ -792,8 +792,8 @@ void CodeGen::visit(TemplateCallExpr* node) {
         std::map<std::string, std::string> subs;
         for (size_t i = 0; i < ge->typeParams.size() && i < args.size(); ++i)
             subs[ge->typeParams[i]] = args[i];
-        std::vector<llvm::Type*> fts;
-        for (const auto& ft : ge->payloads[gi.second]) fts.push_back(getTypeFromString(substType(ft, subs)));
+        std::vector<std::string> fts;
+        for (const auto& ft : ge->payloads[gi.second]) fts.push_back(substType(ft, subs));
         exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
         return;
     }

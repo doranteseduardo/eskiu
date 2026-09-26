@@ -83,16 +83,18 @@ std::string CodeGen::ensureEnumInst(const std::string& genericName,
 // Core builder: alloca the enum struct, store the tag, write payload fields (viewed
 // as the variant's struct, coerced to the field types), then load the value.
 llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
-        const std::vector<llvm::Type*>& fieldTypes, const std::vector<ExprPtr>& args) {
+        const std::vector<std::string>& fieldEsk, const std::vector<ExprPtr>& args) {
     llvm::Value* tmp = entryAlloca(et, nullptr, "variant.tmp");
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), tag),
                          builder->CreateStructGEP(et, tmp, 0));
+    std::vector<llvm::Type*> fieldTypes;
+    for (const auto& ft : fieldEsk) fieldTypes.push_back(getTypeFromString(ft));
     if (!fieldTypes.empty()) {
         llvm::StructType* vt = llvm::StructType::get(*context, fieldTypes);
         llvm::Value* pay = builder->CreateStructGEP(et, tmp, 1);   // the [N x i64] area
         for (size_t i = 0; i < args.size() && i < fieldTypes.size(); ++i) {
             llvm::Value* fp = builder->CreateStructGEP(vt, pay, i);
-            llvm::Value* val = evaluateExpr(args[i]);
+            llvm::Value* val = evalForType(args[i], fieldEsk[i]);   // an interface payload boxes
             llvm::Type* ft = fieldTypes[i];
             val = coerceValue(val, ft, eskiuUnsigned(getExprEskiuType(args[i])));  // arg to field type
             builder->CreateStore(val, fp);
@@ -104,9 +106,7 @@ llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
 llvm::Value* CodeGen::buildVariant(const std::string& variant, const std::vector<ExprPtr>& args) {
     auto& info = adtVariants[variant];
     EnumDecl* ed = adtEnumDecls[info.first];
-    std::vector<llvm::Type*> fts;
-    for (const auto& ft : ed->payloads[info.second]) fts.push_back(getTypeFromString(ft));
-    return buildEnumValue(structTypes[info.first], info.second, fts, args);
+    return buildEnumValue(structTypes[info.first], info.second, ed->payloads[info.second], args);
 }
 
 std::string CodeGen::resolveStructInitName(const std::string& name) {

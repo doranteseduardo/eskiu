@@ -4947,9 +4947,13 @@ CgVal cg_build_variant(Codegen* g, CgVariant var, *ExprNode call) {
         cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, ", i32 0, i32 1\n");
         int i = 0;
         while (i < np && i < List_len<*ExprNode>(&call.kids)) {
-            CgVal a = cg_expr(g, List_get<*ExprNode>(&call.kids, i));
-            string fty = cg_lltype(g, List_get<string>(&var.ptys, i));
-            string aop = cg_coerce(g, a, fty);
+            *ExprNode kx = List_get<*ExprNode>(&call.kids, i);
+            CgVal a = cg_expr(g, kx);
+            string pety = List_get<string>(&var.ptys, i);
+            string fty = cg_lltype(g, pety);
+            string aop = "";
+            if (cg_is_iface(g, cg_dealias(g, pety)) == 1) { aop = cg_iface_conv(g, pety, a, kx); }   // box `&s`
+            else { aop = cg_coerce(g, a, fty); }
             string fp = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr "); cg_emit(g, pstruct);
             cg_emit(g, ", ptr "); cg_emit(g, pp); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(i)); cg_emit(g, "\n");

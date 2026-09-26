@@ -599,8 +599,7 @@ private:
     llvm::Value* buildVariant(const std::string& variant, const std::vector<ExprPtr>& args);
     // Core builder: { tag, payload } value with payload fields of `fieldTypes`.
     llvm::Value* buildEnumValue(llvm::StructType* et, int tag,
-                                const std::vector<llvm::Type*>& fieldTypes,
-                                const std::vector<ExprPtr>& args);
+                                const std::vector<std::string>& fieldTypes, const std::vector<ExprPtr>& args);
     // Monomorphize a generic enum for `typeArgs`; returns the mangled instance name
     // (and creates its struct type + records enumInstanceArgs on first use).
     std::string ensureEnumInst(const std::string& genericName,
