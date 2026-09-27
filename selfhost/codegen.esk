@@ -2232,6 +2232,9 @@ int cg_has_float_mark(string s) {
 // Normalize a double literal for LLVM textual IR, which requires a decimal point:
 // an exponent-only form like "1e6" becomes "1.0e6"; a bare "5" becomes "5.0".
 string cg_double_lit(string text) {
+    double dv = atof(text);                                      // too large for double: infinity,
+    *uint64 db = (*uint64)(&dv);                                 // in LLVM's hex form (as C++ emits)
+    if (((*db >> 52) & (uint64)2047) == (uint64)2047) { return cg_cat("0x", cg_hex16(*db)); }
     int i = 0; int has_dot = 0; int ei = 0 - 1;
     while (text[i] != 0) {
         int c = (int)text[i];
