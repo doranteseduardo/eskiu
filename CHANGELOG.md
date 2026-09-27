@@ -859,6 +859,16 @@ input. What is still open is listed under Known issues.
   once (self-host sema and codegen; C++ codegen's volatile-root walk is memoized), and a
   ternary finds its `:` from a table built once (both parsers). `tests/deep/gen.sh`
   gains `member_chain_50k` and `ternary_then_5k`.
+- The blocking TLS server's deadlines (`tls_accept_with`, `tls_read_full_deadline`,
+  `http2_tls_serve_conn_with`) hold against a peer that trickles bytes inside one TLS
+  record. They used `SO_RCVTIMEO`, which restarted with every byte OpenSSL's record loop
+  read, so one byte every 200 ms kept a handshake or preface open forever. The socket now
+  runs non-blocking and the calls wait with `poll` (`WSAPoll` on Windows) on what is left
+  of the deadline; writes take `tls_write_all_deadline`. `<net>` gains `net_wait_ready`.
+  Test `tls_trickle_deadline` (+ `.c`, an OpenSSL stand-in with a record layer).
+- `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size, so
+  32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
+  `run_cmd/net_timeval` (IR checked by `run.sh` for armv7 and x86-64).
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
