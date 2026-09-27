@@ -1,0 +1,135 @@
+// An HTTP/2 response must be all sent within HttpLimits.write_total_ms of when
+// it was ready. write_ms counts from the last response data sent, so a peer
+// granting one byte of window every 150 ms kept a 2 MB response (and its
+// buffer) alive forever. Driven through the H2Server engine with a simulated
+// clock (write_ms 300, write_total_ms 2000): the trickled stream is reset
+// with CANCEL 2000 ms after it was ready and its slot freed, the connection
+// stays up and answers the next request. With write_total_ms 0 (off) the
+// deadline keeps moving, as before.
+import <mem>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+
+String g_big;
+
+void handle(HttpRequest* req, HttpResponse* res) {
+    if (req.path.eq_cstr("/big") == 1) { HttpResponse_set_body(res, g_big.cstr()); }
+    else { HttpResponse_set_body(res, "hi"); }
+}
+
+uint8[256] g_fb;
+
+// Feed one frame (payload `p`, `n` bytes) to the engine.
+void feed(H2Server* s, int type, int flags, int sid, *uint8 p, int n) {
+    for (i in 0..n) { g_fb[9 + i] = p[i]; }
+    h2_frame_finish(&g_fb[0], type, flags, sid, n);
+    let fr: H2Frame;
+    h2_read_header(&g_fb[0], &fr);
+    H2Server_step(s, &fr, &g_fb[9], handle);
+}
+
+void settings_window(H2Server* s, int64 w) {
+    uint8[6] p;
+    const int n = h2_put_setting(&p[0], 0, H2_SETTINGS_INITIAL_WINDOW_SIZE, w);
+    feed(s, H2_SETTINGS, 0, 0, &p[0], n);
+}
+
+void get(H2Server* s, int sid, string path) {
+    uint8[64] blk;
+    int off = hpack_encode_header(&blk[0], 0, (*uint8)":method", 7, (*uint8)"GET", 3);
+    off = hpack_encode_header(&blk[0], off, (*uint8)":path", 5, (*uint8)path, (int)strlen(path));
+    off = hpack_encode_header(&blk[0], off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    feed(s, H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, sid, &blk[0], off);
+}
+
+// Summarize s.out (what the transport would write), then drop it.
+void flush(H2Server* s, string label) {
+    int data = 0;
+    int pos = 0;
+    printf("%s:", label);
+    while (pos + 9 <= s.outlen) {
+        let fr: H2Frame;  h2_read_header(s.out + pos, &fr);
+        if (fr.type == H2_DATA) { data += fr.length; }
+        else if (fr.type == H2_HEADERS) { printf(" HEADERS(%d)", fr.stream_id); }
+        else if (fr.type == H2_RST_STREAM) { printf(" RST_STREAM(%d,%lld)", fr.stream_id, h2_get_u32(s.out + pos + 9, 0)); }
+        pos += 9 + fr.length;
+    }
+    printf(" data=%d\n", data);
+    s.outlen = 0;
+}
+
+void run(int64 total_ms) {
+    let lim: HttpLimits;  lim.init();
+    lim.write_ms = 300;
+    lim.write_total_ms = total_ms;
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    int64 now = 1000;
+    s.start_ms = now;
+    settings_window(s, 0);
+    get(s, 1, "/big");
+    H2Server_tick(s, now);
+    s.outlen = 0;
+    int running = 1;
+    int64 at = -1;
+    int sent = 0;
+    while (now < 11000 && at < 0) {
+        now += 150;
+        uint8[4] inc;
+        h2_put_u32(&inc[0], 0, 1);
+        feed(s, H2_WINDOW_UPDATE, 0, 1, &inc[0], 4);
+        H2Server_tick(s, now);
+        const int64 dl = H2Server_deadline(s, &lim);
+        if (dl != 0 && now >= dl) {
+            at = now - 1000;
+            sent = (int)s.data_sent;
+            s.outlen = 0;
+            running = H2Server_timed_out_with(s, &lim, now);
+        } else {
+            s.outlen = 0;
+        }
+    }
+    printf("write_total_ms=%lld: ", total_ms);
+    if (at < 0) { printf("still open after %lld ms, open streams %d\n", now - 1000, H2Server_open(s)); }
+    else {
+        printf("timed out at +%lld ms after %d bytes, running=%d, open streams %d\n", at, sent, running, H2Server_open(s));
+    }
+    H2Server_free(s);
+    free((*void)s);
+}
+
+int main() {
+    g_big.init(2097152);
+    for (i in 0..2097152) { g_big.push('a'); }
+    run(0);
+    run(2000);
+
+    // The reset also comes out of the deadline path itself, and the connection
+    // then answers another request.
+    let lim: HttpLimits;  lim.init();
+    lim.write_ms = 300;
+    lim.write_total_ms = 2000;
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    s.start_ms = 1000;
+    settings_window(s, 0);
+    get(s, 1, "/big");
+    H2Server_tick(s, 1000);
+    s.outlen = 0;
+    printf("deadline +%lld\n", H2Server_deadline(s, &lim) - 1000);
+    printf("expire early: %d\n", H2Server_expire(s, &lim, 2999));
+    printf("timed_out_with: %d\n", H2Server_timed_out_with(s, &lim, 3000));
+    flush(s, "reset");
+    settings_window(s, 65535);
+    get(s, 3, "/small");
+    flush(s, "next request");
+    H2Server_free(s);
+    free((*void)s);
+    g_big.free();
+    return 0;
+}

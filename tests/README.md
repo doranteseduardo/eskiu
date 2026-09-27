@@ -423,6 +423,7 @@ when you add a test.
 | `volatile_bitfield` | a bitfield through a `volatile` variable and a volatile variable's initializing store are volatile (IR count checked in `run.sh` and `cg_parity.sh`) |
 | `macro_call_newline` | a function-like macro whose `(` starts a later line (past blank lines and comments) is expanded |
 | `http2_host_rules` | HTTP/2 requests follow the HTTP/1.1 Host rules: two host fields or a host that differs from `:authority` is RST_STREAM PROTOCOL_ERROR, an invalid host or `:authority` 400, and without a host field the handler sees `:authority` as Host (it was dropped, and any host fields were accepted) |
+| `http2_write_total` | An HTTP/2 response must be all sent within `HttpLimits.write_total_ms` of when it was ready: a peer granting one byte of window every 150 ms (simulated clock through the `H2Server` engine) gets the stream reset with CANCEL and its slot freed, and the connection answers the next request (`write_ms` counts from the last data sent, so the response stayed open forever); with `write_total_ms` 0 the deadline keeps moving |
 | `tls_trickle_deadline` | The blocking TLS server's handshake and preface deadlines hold against a peer trickling one byte every 25 ms inside a record: both end after `header_ms` (SO_RCVTIMEO restarted with every byte OpenSSL's record loop read, so they never ended); a normal request still gets a 60000-byte answer through the non-blocking writes. Over an OpenSSL stand-in with a record layer (C companion `tls_trickle_deadline.c`) |
 
 ### `smoke` tests (compile + link + exit 0)
