@@ -875,6 +875,7 @@ input. What is still open is listed under Known issues.
 - `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size, so
   32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
   `run_cmd/net_timeval` (IR checked by `run.sh` for armv7 and x86-64).
+- `http_serve` sends an answer under one `write_ms` deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.
 
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program

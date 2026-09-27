@@ -840,11 +840,26 @@ void _http_conn_render(HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)
 }
 
 // Answer a request read by a server over the blocking socket `c` (see
-// _http_conn_render).
-void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler) {
+// _http_conn_render). The whole answer must be taken within `write_ms` from the
+// first byte: SO_SNDTIMEO is set to what is left of that deadline before each
+// send, so a peer that reads slowly cannot stretch it.
+void _http_conn_answer(int c, HttpRequest* req, int st, fn(HttpRequest*, HttpResponse*)->void handler, int64 write_ms) {
     let out: String;  out.init(256);
     _http_conn_render(req, st, handler, &out);
-    net_send(c, out.cstr(), out.len);
+    const int64 dl = net_deadline(write_ms);
+    int64 off = 0;
+    while (off < (int64)out.len) {
+        int64 left = 0;
+        if (dl != 0) {
+            left = dl - time_monotonic_ms();
+            if (left <= 0) { break; }
+        }
+        net_set_send_timeout(c, left);
+        const int64 sent = net_send(c, out.cstr() + off, (int64)out.len - off);
+        if (sent < 0 && dl != 0 && net_would_block() == 1) { continue; }   // SO_SNDTIMEO ran out: the check above decides
+        if (sent <= 0) { break; }
+        off += sent;
+    }
     out.free();
 }
 
@@ -880,17 +895,16 @@ int _http_conn_read(int c, HttpConnBuf* b, HttpRequest* req, HttpLimits* lim) {
 //
 // Accept-and-serve loop for one worker. Each connection is read until its
 // request is complete (or known to be bad, or out of time: see HttpLimits),
-// parsed, handed to `handler`, and answered (the send gives up after
-// lim.write_ms). Runs forever.
+// parsed, handed to `handler`, and answered (the whole answer must be taken
+// within lim.write_ms). Runs forever.
 void http_worker_loop_with(int fd, fn(HttpRequest*, HttpResponse*)->void handler, HttpLimits lim) {
     while (true) {
         const int c = net_accept(fd);
         if (c < 0) { continue; }
-        net_set_send_timeout(c, lim.write_ms);
         let b: HttpConnBuf;  b.init();
         let req: HttpRequest;  req.init();
         const int st = _http_conn_read(c, &b, &req, &lim);
-        if (st != -2) { _http_conn_answer(c, &req, st, handler); }
+        if (st != -2) { _http_conn_answer(c, &req, st, handler, lim.write_ms); }
         net_close(c);
         req.free();
         b.free();
