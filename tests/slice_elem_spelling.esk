@@ -1,0 +1,17 @@
+// A slice's element type compares by type, not by spelling: `int*[]` is `*int[]`,
+// and `T[]` binds T from a slice of a generic instance or of a trailing-star pointer.
+extern int printf(string fmt, ...);
+struct Box<T> { T v; }
+int64 n<T>(T[] s) { return s.len; }
+T last2<T>(T[] s) { return s[s.len - 1]; }
+int main() {
+    Box<int>[2] bs = {Box<int>{1}, Box<int>{2}};
+    Box<int>[] s = bs[0..2];
+    printf("%lld %d\n", n(s), s[1].v);
+    int[5] a = {1, 2, 3, 4, 5};
+    int*[2] pp = {&a[0], &a[1]};
+    int*[] sl = pp[0..2];
+    *int[] q = pp[0..2];
+    printf("%d %d\n", *last2(sl), *last2(q));
+    return 0;
+}

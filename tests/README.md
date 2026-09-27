@@ -347,6 +347,7 @@ when you add a test.
 | `slice` | slice `T[]` fat pointer: carries its length and aliases the backing array |
 | `slice_empty_end` | an empty slice `s[len..len]` at the end is valid; a mid slice reads the right element |
 | `slice_ptr` | `ptr[lo..hi]` builds a slice over heap memory |
+| `slice_elem_spelling` | a slice element compares by type (`int*[]` is `*int[]`); `T[]` infers from a slice of `Box<int>` or `int*` |
 | `sort` | `<sort>` generic heapsort and binary search |
 | `static_const_init` | `static` locals accept array, cast and negative constant initializers and persist across calls |
 | `static_local` | a `static` local keeps one instance across calls |

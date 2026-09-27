@@ -483,6 +483,7 @@ private:
 
     // Type normalization
     std::string normalizeType(const std::string& type);
+    std::string canonElemType(const std::string& type);
 
     // Pointer type handling
     bool hasPointerSuffix(const std::string& type) const;

@@ -877,6 +877,9 @@ input. What is still open is listed under Known issues.
   `run_cmd/net_timeval` (IR checked by `run.sh` for armv7 and x86-64).
 - `http_serve` sends an answer under one `write_ms` deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.
 
+- A slice or array compares by its element type in the C++ type checker, whatever the
+  spelling (`int*[]` is `*int[]`), and a `T[]` parameter binds `T` from a slice of a
+  generic instance or of a trailing-star pointer. Test `slice_elem_spelling`.
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.

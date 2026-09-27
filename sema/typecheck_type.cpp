@@ -560,6 +560,10 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     std::string rhs = normalizeType(rhsType);
 
     if (lhs == rhs) return true;
+    // An array or slice compares by its element type, whatever the element's spelling
+    // (`int*[]` is `*int[]`, `Box_int[]` is `struct:Box_int[]`).
+    if (!lhs.empty() && lhs.back() == ']' && !rhs.empty() && rhs.back() == ']')
+        return canonElemType(lhs) == canonElemType(rhs);
     // Numeric: widening and same-width (incl. signedness changes) are fine; a
     // narrowing conversion (float->int, or wider->narrower) loses information and
     // must be an explicit cast. A literal small enough for the target is handled at
@@ -593,6 +597,19 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     }
 
     return false;
+}
+
+// One spelling per type for identity checks: pointers leading-star, each nominal part
+// normalized, arrays and slices canonical in their element.
+std::string TypeChecker::canonElemType(const std::string& raw) {
+    ty::Type t = ty::Type::parse(tyq::strip(raw));
+    if ((t.kind == ty::Type::Kind::Array || t.kind == ty::Type::Kind::Slice) && t.elem) {
+        t.elem = std::make_shared<ty::Type>(ty::Type::parse(canonElemType(t.elem->str())));
+        return t.str();
+    }
+    if (t.kind == ty::Type::Kind::Pointer && t.pointee && !t.bindingConst)
+        return std::string(t.nullable ? "?" : "") + "*" + canonElemType(t.pointee->str());
+    return int32AsInt(normalizeType(t.str()));
 }
 
 // Two pointer types convert implicitly only when they point at the same type (C): a
