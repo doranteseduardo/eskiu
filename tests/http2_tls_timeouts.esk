@@ -1,6 +1,6 @@
 // Both h2-over-TLS servers apply the h2c server's deadlines (HttpLimits,
 // shortened to 60-100 ms): the blocking http2_tls_serve_conn_with through
-// SO_RCVTIMEO / SO_SNDTIMEO, the async http2_tls_conn_async_with through timers.
+// a non-blocking socket and poll, the async http2_tls_conn_async_with through timers.
 // A connection that sends nothing is closed after header_ms, and one idle after
 // a request gets GOAWAY(NO_ERROR) after idle_ms. OpenSSL is replaced by the C
 // companion (http2_tls_timeouts.c), whose "SSL" is the plain socket.

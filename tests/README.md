@@ -236,7 +236,7 @@ when you add a test.
 | `http_serve_split` | `http_serve` and `http_serve_async` read until the request is complete (a head and body split over TCP segments reach the handler whole), a peer that closes early gets 400, a HEAD response has Content-Length but no body, a 304 neither. |
 | `http_timeouts` | `http_serve` (one worker) and `http_serve_async` under short `HttpLimits`: a silent peer is closed, a trickled head (its deadline not extended by the bytes) and a stalled body get 408, then a good client is served; past `max_open` a connection is closed at once. |
 | `http2_timeouts` | h2c deadlines over a socketpair kept open: no preface or no SETTINGS closes after `header_ms`, an idle connection gets GOAWAY(NO_ERROR) after `idle_ms` even with PINGs coming in, an unfinished header block and a response with no window are closed. |
-| `http2_tls_timeouts` | The blocking (SO_RCVTIMEO) and async (timer) h2-over-TLS servers close a silent connection after `header_ms` and send GOAWAY(NO_ERROR) after `idle_ms`, over an OpenSSL stand-in (C companion `http2_tls_timeouts.c`). |
+| `http2_tls_timeouts` | The blocking (poll) and async (timer) h2-over-TLS servers close a silent connection after `header_ms` and send GOAWAY(NO_ERROR) after `idle_ms`, over an OpenSSL stand-in (C companion `http2_tls_timeouts.c`). |
 | `int_promotion` | C integer promotions: operands narrower than `int` (bool, char, int8/16, uint8/16) become `int` before arithmetic, bitwise, shift, and comparison. |
 | `interface_values` | An interface value is a {data, vtable} fat pointer held by value: it can be a local, a struct field, a return value, or an argument, and it refers to a... |
 | `json_builder_escape` | The JSON builder escapes control bytes (so its output parses back) and writes a full int64 instead of truncating it to 32 bits. |
@@ -423,6 +423,7 @@ when you add a test.
 | `volatile_bitfield` | a bitfield through a `volatile` variable and a volatile variable's initializing store are volatile (IR count checked in `run.sh` and `cg_parity.sh`) |
 | `macro_call_newline` | a function-like macro whose `(` starts a later line (past blank lines and comments) is expanded |
 | `http2_host_rules` | HTTP/2 requests follow the HTTP/1.1 Host rules: two host fields or a host that differs from `:authority` is RST_STREAM PROTOCOL_ERROR, an invalid host or `:authority` 400, and without a host field the handler sees `:authority` as Host (it was dropped, and any host fields were accepted) |
+| `tls_trickle_deadline` | The blocking TLS server's handshake and preface deadlines hold against a peer trickling one byte every 25 ms inside a record: both end after `header_ms` (SO_RCVTIMEO restarted with every byte OpenSSL's record loop read, so they never ended); a normal request still gets a 60000-byte answer through the non-blocking writes. Over an OpenSSL stand-in with a record layer (C companion `tls_trickle_deadline.c`) |
 
 ### `smoke` tests (compile + link + exit 0)
 

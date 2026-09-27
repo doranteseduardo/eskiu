@@ -1,7 +1,7 @@
 // OpenSSL stand-in for http2_tls_timeouts.esk (the one of http2_tls_engine.esk):
 // an "SSL" is just the socket, read and written in the clear, with
-// SSL_get_error reporting WANT_READ/WANT_WRITE on EAGAIN, which is also what a
-// blocking read past SO_RCVTIMEO gives.
+// SSL_get_error reporting WANT_READ/WANT_WRITE on EAGAIN (the blocking TLS
+// server runs the socket non-blocking too).
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
