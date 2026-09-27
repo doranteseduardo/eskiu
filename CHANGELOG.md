@@ -866,6 +866,12 @@ input. What is still open is listed under Known issues.
   runs non-blocking and the calls wait with `poll` (`WSAPoll` on Windows) on what is left
   of the deadline; writes take `tls_write_all_deadline`. `<net>` gains `net_wait_ready`.
   Test `tls_trickle_deadline` (+ `.c`, an OpenSSL stand-in with a record layer).
+- An HTTP/2 response must be all sent within the new `HttpLimits.write_total_ms`
+  (`HTTP_WRITE_TOTAL_MS`, 5 min) of when it was ready. `write_ms` counts from the last
+  data sent, so a peer granting one byte of window every 150 ms kept a 2 MB response and
+  its buffer alive forever. Past the cap the stream is reset with CANCEL and its response
+  freed; the connection stays open (`H2Server_expire`, `H2Server_timed_out_with`, used by
+  the h2c and both TLS servers). Test `http2_write_total`.
 - `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size, so
   32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
   `run_cmd/net_timeval` (IR checked by `run.sh` for armv7 and x86-64).
