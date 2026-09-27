@@ -420,6 +420,7 @@ pre.code-block {
 <a href="#sec-23-3" class="toc-sec">23.3 Concurrent connections</a>
 <a href="#sec-23-4" class="toc-sec">23.4 TCP client</a>
 <a href="#sec-23-5" class="toc-sec">23.5 net_accept_addr and binary uploads</a>
+<a href="#sec-23-6" class="toc-sec">23.6 Timeouts and limits</a>
 <a href="#chapter-24" class="toc-ch">Chapter 24</a>
 <a href="#sec-24-1" class="toc-sec">24.1 Background</a>
 <a href="#sec-24-2" class="toc-sec">24.2 The pipeline</a>
@@ -1844,6 +1845,7 @@ pre.code-block {
  printf(&quot;\n&quot;);</pre>
 <pre class="code-block"> List_free(&amp;nums);</pre>
 <p class="output"><em>Output:</em> len: 3 10 20 30 10 20 30</p>
+<p><code>List_free</code> releases the buffer and sets <code>data</code> to <code>null</code> (and the size and capacity to zero). A second <code>List_free</code> on the same list is then a harmless no-op, and a <code>push</code> after a free starts a fresh buffer instead of writing into freed memory. The same holds for a list freed through <code>String_split_free</code>.</p>
 <h2 class="section" id="sec-15-3">15.3 string: mutable text</h2>
 <p>The built-in <code>string</code> type is an immutable C-<code>string</code> literal. For text you need to build or modify at runtime, use <code>String</code>, a struct with an owned, growable buffer. The standard library is broad. The complete <code>String</code> API:</p>
 <pre class="code-block"> // string.esk: the complete interface
@@ -2059,6 +2061,7 @@ pre.code-block {
  Match_free(&amp;m);
  Regex_free(&amp;re);</pre>
 <p>The syntax covers literals, <code>.</code> (any byte but newline), character classes <code>[a-z]</code> and <code>[^...]</code>, the shorthands <code>\d \w \s</code> (and <code>\D \W \S</code>), the quantifiers <code>* + ? {m} {m,} {m,n}</code>, alternation <code>|</code>, capturing groups <code>( )</code>, and the anchors <code>^</code> and <code>$</code>. Quantifiers are greedy by default; append a <code>?</code> (as in <code>.+?</code>) for the lazy form that matches as little as possible.</p>
+<p>The details follow RE2, working on bytes. Besides the shorthands above there are the ASCII word boundaries <code>\b</code> and <code>\B</code>, the text anchors <code>\A</code> and <code>\z</code>, the escapes <code>\a \f \t \n \r \v</code>, octal <code>\012</code> and hex <code>\x41</code> or <code>\x{41}</code>, and a backslash before any punctuation character for that character (<code>\.</code>). Any other escaped letter or digit (<code>\q</code>, <code>\1</code>) is a compile error rather than the literal letter. Inside brackets the POSIX classes work (<code>[[:alpha:]]</code>, <code>[[:^digit:]]</code> and the other RE2 names), <code>\s</code> is <code>[\t\n\f\r ]</code>, and an inverted range such as <code>[z-a]</code> is an error. A repeat count may be at most 1000, and a <code>{</code> that does not start a valid <code>{n}</code>, <code>{n,}</code> or <code>{n,m}</code> is a literal brace. A loop whose body can match the empty string behaves as in RE2 (<code>(a?|b)*</code> on <code>&quot;b&quot;</code> matches the empty string at 0), and nesting is limited to 512 levels so a hostile pattern fails cleanly. A pattern that does not compile leaves <code>re.ok</code> at 0. <code>\Q..\E</code>, non-capturing groups, flags such as <code>(?i)</code> and Unicode classes are not supported.</p>
 <h2 class="section" id="sec-15-12">15.12 Additional stdlib: quick reference</h2>
 <pre class="code-block"> // net: TCP sockets (see Chapter 23)
  import &lt;net&gt;;      net_tcp_listen      net_accept      net_tcp_connect
@@ -2066,7 +2069,8 @@ pre.code-block {
 <pre class="code-block"> // threading: Mutex / Cond / Sem over pthread
  import &lt;threading&gt;;         Mutex   Cond   Sem   (init/lock/unlock/wait/signal/destroy)</pre>
 <pre class="code-block"> // http: HTTP/1.1 worker pool server
- import &lt;http&gt;;     http_serve(port, workers, handler)</pre>
+ import &lt;http&gt;;     http_serve(port, workers, handler)
+                  http_serve_with(port, workers, handler, lim)   // HttpLimits: timeouts, see 23.6</pre>
 <pre class="code-block"> // json: builder + parser
  import &lt;json&gt;;     Json_init/obj_begin/key/str/int/obj_end/cstr/free
                   json_parse/JsonValue_get/JsonValue_as_double/JsonValue_free</pre>
@@ -2684,6 +2688,31 @@ pre.code-block {
        }
        net_close(srv);   return 0;
  }</pre>
+<h2 class="section" id="sec-23-6">23.6 Timeouts and limits</h2>
+<p>The servers above wait as long as a client likes. A client that connects and sends nothing, or sends one byte every few seconds, holds a connection (and in 23.2 the whole server) open for good. On the open internet that is an attack, so a real server needs deadlines.</p>
+<p>For your own sockets, <code>&lt;net&gt;</code> bounds each blocking call. <code>net_set_recv_timeout(fd, ms)</code> and <code>net_set_send_timeout(fd, ms)</code> (or both at once with <code>net_set_timeouts(fd, recv_ms, send_ms)</code>) make a <code>net_recv</code> or <code>net_send</code> that runs out return <code>-1</code>, with <code>net_would_block()</code> returning 1; 0 means wait forever. A per-call timeout restarts with every read, so for a limit on the whole exchange use a deadline: <code>net_deadline(ms)</code> is an absolute time <code>ms</code> from now, and <code>net_wait_ready(fd, 0, deadline)</code> waits until <code>fd</code> is readable (mode 1: writable) or returns <code>NET_TIMED_OUT</code> once the deadline has passed:</p>
+<pre class="code-block"> int fd = net_tcp_connect(&quot;127.0.0.1&quot;, 7000);
+ net_set_timeouts(fd, 2000, 2000);             // 2 s for each recv and each send
+ int64 dl = net_deadline(5000);                // 5 s from now
+ if (net_wait_ready(fd, 0, dl) == NET_TIMED_OUT) {
+       printf(&quot;no reply within 5 s\n&quot;);
+ }</pre>
+<p>The async versions are in <code>&lt;net_async&gt;</code>: <code>net_read_deadline_async(lp, fd, buf, cap, deadline)</code> and <code>net_write_deadline_async</code> race the I/O against a timer and complete with <code>NET_TIMED_OUT</code> when the timer wins. A send to a peer that has already closed returns <code>-1</code> instead of raising <code>SIGPIPE</code> and killing the process.</p>
+<p>The stdlib HTTP servers (<code>http_serve</code>, <code>http_serve_async</code>, <code>http2_serve_async</code> and the TLS servers) apply deadlines of their own. The defaults are constants in <code>&lt;http&gt;</code>:</p>
+<pre class="code-block">        Limit                     Default      Meaning
+        HTTP_HEADER_TIMEOUT_MS    10 s         the whole request head (or HTTP/2 preface and SETTINGS)
+        HTTP_BODY_TIMEOUT_MS      60 s         the body, once the head is in
+        HTTP_IDLE_TIMEOUT_MS      60 s         an HTTP/2 connection with no open stream (then GOAWAY)
+        HTTP_WRITE_TIMEOUT_MS     30 s         the client must keep taking the answer
+        HTTP_WRITE_TOTAL_MS       5 min        a whole HTTP/2 response, however the peer paces it
+        HTTP_MAX_OPEN_CONNS       1024         connections an async server holds at once</pre>
+<p>A request cut off by the head or body deadline after some of it arrived is answered 408; a client that sent nothing is simply closed. To change them, fill an <code>HttpLimits</code> (<code>http_limits()</code> returns the defaults, <code>HttpLimits_init</code> resets one) and pass it to the <code>_with</code> variant of the server: <code>http_serve_with</code>, <code>http_serve_async_with</code>, <code>http2_serve_async_with</code>, <code>http2_tls_serve_async_with</code> or <code>http2_tls_serve_conn_with</code>. A field set to 0 turns that limit off:</p>
+<pre class="code-block"> HttpLimits lim = http_limits();     // start from the defaults
+ lim.header_ms = 5000;               // 5 s for the request head
+ lim.max_open = 256;                 // at most 256 connections at once
+ http_serve_with(8080, 4, hello, lim);</pre>
+<p>Sizes are bounded as well. An HTTP/1.1 request head over 64 KiB is answered 400 and a body over 1 MiB 413. The parser follows RFC 9112: a chunked body is decoded before the handler sees it, <code>Transfer-Encoding</code> together with <code>Content-Length</code> is 400, a transfer coding other than <code>chunked</code> is 501, and a missing, repeated or malformed <code>Host</code> header (it must be a host with an optional <code>:port</code>) is 400. Both HTTP/1.1 servers read until the request is complete, so a request split across several TCP segments reaches the handler whole. On the way out, <code>HttpResponse_header</code> refuses a value containing a CR or LF (it returns 0 and adds nothing), so a handler that echoes client input cannot be used to inject a header line.</p>
+<p>The HTTP/2 engine buffers at most 1 MiB of body per request and 4 MiB across a connection (<code>s.max_body</code> and <code>s.max_buffered</code> on the <code>H2Server</code>); past either the request is answered 413 without calling the handler. A decoded header list over 64 KiB is 431. A malformed request (a missing <code>:method</code> or <code>:path</code>, a connection-specific header, a content-length the DATA frames do not add up to) is reset with <code>RST_STREAM</code> and never reaches the handler. The HTTP/1.1 Host rules apply here too: an invalid host or <code>:authority</code> is 400, two host fields or a host that disagrees with <code>:authority</code> reset the stream, and a request without a host field shows its <code>:authority</code> to the handler as the Host header.</p>
 <div class="chapter-start" id="chapter-24"><span class="chapter-label">Chapter 24</span>
 <h1 class="chapter-title">Real World: INE QR Decoder</h1><hr class="chapter-rule"></div>
 <p>This chapter walks through the program that validated Eskiu: a production decoder for the cryptographic QR codes on Mexican voter ID cards. It uses nearly every feature covered in this book, and it runs 2.5× faster than the hand-written C reference it replaced.</p>
@@ -2809,6 +2838,7 @@ pre.code-block {
        return 0;
  }</pre>
 <p>Each incoming connection is handled by a detached async task: a slow client never blocks others. The same handler function works with &lt;http&gt; (threaded) and &lt;http_async&gt; (event loop).</p>
+<p>Each connection socket is non-blocking and the answer goes out through <code>net_write_async</code>, so a client that stops reading parks only its own connection. The server enforces the deadlines and the connection cap from section 23.6; <code>http_serve_async_with(lp, fd, hello, 1000, lim)</code> takes an <code>HttpLimits</code> of your own.</p>
 <h2 class="section" id="sec-25-4">25.4 spawn, select2, and join2</h2>
 <p>Three combinators for composing concurrent tasks:</p>
 <pre class="code-block"> import &lt;future&gt;;
@@ -2826,6 +2856,7 @@ pre.code-block {
  free_future&lt;int&gt;(fa);   free_future&lt;int&gt;(fb);</pre>
 <pre class="code-block"> select2 cancels the loser future automatically: its on_drop cascade cleans up any resources the losing
  task held.</pre>
+<p>Dropping a combinator before it resolves cascades the same way. When a <code>select2</code>, <code>join2</code>, <code>select2v</code> or <code>join2v</code> future is itself cancelled (for example by an outer timeout that wins its own <code>select2</code>), it drops both of its inputs, so their producers are cancelled and their wakers unhooked. A late completion of an input can no longer write into the freed combinator.</p>
 <p>The value-returning forms are in <code>&lt;futureval&gt;</code>: <code>select2v</code> completes with the winner's value as an <code>Either&lt;A,B&gt;</code> (<code>Left</code> if the first future won, <code>Right</code> if the second did) and consumes both inputs, and <code>join2v</code> completes with both values as a <code>Pair&lt;A,B&gt;</code>:</p>
 <pre class="code-block"> import &lt;futureval&gt;;
  Future&lt;Either&lt;int,int&gt;&gt;* race = select2v&lt;int,int&gt;(fa, fb);
@@ -3133,12 +3164,19 @@ pre.code-block {
                                                                               0=closed, -1=error</pre>
 <pre class="code-block">        net_send_str       int64 net_send_str(int fd, string s)               send string literal</pre>
 <pre class="code-block">        net_close          void net_close(int fd)                             close connection or server fd</pre>
+<pre class="code-block">        net_set_timeouts   void net_set_timeouts(int fd, int64 r, int64 s)    bound each recv/send (ms);
+                                                                              also net_set_recv_timeout,
+                                                                              net_set_send_timeout</pre>
+<pre class="code-block">        net_deadline       int64 net_deadline(int64 ms)                       absolute deadline ms from now</pre>
+<pre class="code-block">        net_wait_ready     int net_wait_ready(int fd, int mode, int64 dl)     0 when ready, NET_TIMED_OUT
+                                                                              (-3) past the deadline</pre>
 <h3 class="subsection">threading: import &lt;threading&gt;</h3>
 <pre class="code-block"> Mutex: Mutex_init / Mutex_lock / Mutex_unlock / Mutex_destroy
  Cond:     Cond_init / Cond_wait / Cond_signal / Cond_broadcast / Cond_destroy
  Sem:      Sem_init(initial) / Sem_post / Sem_wait / Sem_destroy</pre>
 <h3 class="subsection">http: import &lt;http&gt;</h3>
 <pre class="code-block"> http_serve(port, workers, handler)              // threaded worker pool
+ http_serve_with(port, workers, handler, lim)    // same, with HttpLimits lim (http_limits() = defaults)
  handler type: fn(HttpRequest*, HttpResponse*)-&gt;void
  HttpRequest:       method / path / version / headers / body (String fields)
  HttpResponse: HttpResponse_header / HttpResponse_set_body / HttpResponse_render</pre>
