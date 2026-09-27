@@ -190,7 +190,8 @@ absolute, with <code>.</code>, <code>..</code> and symlinks resolved), and the d
 root input so a file that imports its importer is parsed once. The libraries named
 by <code>#pragma link("name")</code> in the file and its imports end up in
 <code>Program::linkLibs</code>, deduplicated in first-seen order. Nesting deeper than 100000
-levels is a parse error (<code>nesting too deep</code>).</p>
+levels is a parse error (<code>nesting too deep</code>), and so is a type nested deeper than 1000
+levels (<code>type nesting too deep</code>).</p>
 <hr>
 <h2 id="type-checker">Type Checker</h2>
 <p>Header: <code>sema/type_checker.h</code></p>

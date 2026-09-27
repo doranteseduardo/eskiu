@@ -362,6 +362,13 @@ input. What is still open is listed under Known issues.</p>
   the <code>#if</code> evaluator; tests <code>escape_octal</code>, <code>errors/escape_unknown</code>,
   <code>errors/escape_octal_range</code>, <code>errors/escape_hex_empty</code>.</p>
 </li>
+<li>
+<p><strong>A type nests at most 1000 levels</strong> (each pointer level, array dimension, template
+  argument list and fn type counts one): deeper is a located <code>type nesting too deep</code>
+  error in both compilers, alongside the 100000-level statement and expression limit.
+  Test <code>errors/type_nesting_too_deep</code>, <code>tests/deep/gen.sh</code> (<code>types_deep_999</code>,
+  <code>generic_too_deep</code>).</p>
+</li>
 </ul>
 <h3 id="deprecated">Deprecated</h3>
 <ul>
@@ -941,6 +948,50 @@ input. What is still open is listed under Known issues.</p>
   <code>HttpLimits</code> and the <code>*_with</code> server variants change them; <code>&lt;net&gt;</code> gains
   <code>net_set_timeouts</code> and <code>&lt;net_async&gt;</code> deadline reads and writes. Tests <code>http_timeouts</code>,
   <code>http2_timeouts</code>, <code>http2_tls_timeouts</code>.</li>
+<li>A declaration may follow <code>case N:</code> or <code>default:</code> directly, without braces. The switch
+  body is one scope, as in C: the variable is visible in the later cases, and two cases
+  may not declare one name. Tests <code>case_decl</code>, <code>async_case_decl</code>,
+  <code>errors/case_decl_redefined</code>, <code>errors/case_decl_out_of_scope</code>.</li>
+<li>A <code>T[]</code> parameter infers <code>T</code> from a slice argument (<code>sum(a[0..4])</code>). Test
+  <code>generic_slice_infer</code>.</li>
+<li><code>sizeof(expr)</code> is the size of the expression's type, not evaluated (<code>sizeof(*p)</code>,
+  <code>sizeof(a[0])</code>, <code>sizeof(s.f)</code>); <code>sizeof(*p)</code> used to measure a pointer. The type
+  checker folds <code>sizeof</code> of a pointer, array, struct or union with the target's layout,
+  so the constant checks (zero divisor, index out of bounds, duplicate <code>case</code>) see it.
+  Tests <code>sizeof_expr</code>, <code>errors/index_oob_sizeof_struct</code>, <code>errors/switch_dup_sizeof_ptr</code>,
+  <code>errors/const_div_zero_sizeof_expr</code>.</li>
+<li>An enum member value may be an integer constant expression over literals, earlier
+  members, <code>const</code> ints and <code>sizeof</code> (<code>B = A &lt;&lt; 2</code>), folded like any constant. Tests
+  <code>enum_value_expr</code>, <code>errors/enum_value_not_const</code>, <code>errors/enum_value_expr_range</code>.</li>
+<li>A bitfield read or written through a <code>volatile</code> variable (<code>r.mode = 5</code>, <code>r.mode++</code>)
+  uses volatile loads and stores of its storage word, and a volatile variable's
+  initializing store is volatile. Test <code>volatile_bitfield</code> (IR count checked in <code>run.sh</code>
+  and <code>cg_parity.sh</code>).</li>
+<li>A nullary variant written with parentheses (<code>B()</code>) is an error located at the call,
+  "variant 'B' takes no arguments" (write <code>B</code>). Test <code>errors/variant_nullary_parens</code>.</li>
+<li>A function-like macro whose name is followed by a newline (and blanks or comments)
+  before its <code>(</code> is expanded, as in C. Test <code>macro_call_newline</code>.</li>
+<li>Deep types, member chains and nested ternaries compile in linear time: type spellings
+  are parsed and rendered in one pass (C++ <code>ty::Type</code>, parser), a member chain is typed
+  once (self-host sema and codegen; C++ codegen's volatile-root walk is memoized), and a
+  ternary finds its <code>:</code> from a table built once (both parsers). <code>tests/deep/gen.sh</code>
+  gains <code>member_chain_50k</code> and <code>ternary_then_5k</code>.</li>
+<li>The blocking TLS server's deadlines (<code>tls_accept_with</code>, <code>tls_read_full_deadline</code>,
+  <code>http2_tls_serve_conn_with</code>) hold against a peer that trickles bytes inside one TLS
+  record. They used <code>SO_RCVTIMEO</code>, which restarted with every byte OpenSSL's record loop
+  read, so one byte every 200 ms kept a handshake or preface open forever. The socket now
+  runs non-blocking and the calls wait with <code>poll</code> (<code>WSAPoll</code> on Windows) on what is left
+  of the deadline; writes take <code>tls_write_all_deadline</code>. <code>&lt;net&gt;</code> gains <code>net_wait_ready</code>.
+  Test <code>tls_trickle_deadline</code> (+ <code>.c</code>, an OpenSSL stand-in with a record layer).</li>
+<li>An HTTP/2 response must be all sent within the new <code>HttpLimits.write_total_ms</code>
+  (<code>HTTP_WRITE_TOTAL_MS</code>, 5 min) of when it was ready. <code>write_ms</code> counts from the last
+  data sent, so a peer granting one byte of window every 150 ms kept a 2 MB response and
+  its buffer alive forever. Past the cap the stream is reset with CANCEL and its response
+  freed; the connection stays open (<code>H2Server_expire</code>, <code>H2Server_timed_out_with</code>, used by
+  the h2c and both TLS servers). Test <code>http2_write_total</code>.</li>
+<li><code>&lt;net&gt;</code>'s socket timeouts pass a <code>struct timeval</code> of two C <code>long</code>s with its own size, so
+  32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
+  <code>run_cmd/net_timeval</code> (IR checked by <code>run.sh</code> for armv7 and x86-64).</li>
 </ul>
 <h3 id="known-issues">Known issues</h3>
 <p>These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -951,26 +1002,17 @@ without a diagnostic, except where the entry says so.</p>
 <li>The C++ compiler does not treat a type alias inside a composite type as its target, so
   <code>Box&lt;F&gt;</code> and <code>Box&lt;int&gt;</code> (with <code>type F = int</code>) are different types there and a valid
   assignment between them is rejected. Spell the target type.</li>
-<li><code>sizeof(*p)</code> is parsed as a type; use <code>sizeof(T)</code>. <code>sizeof</code> of a struct or a pointer is
-  not folded by the type checker, so the constant-expression checks do not see it.</li>
-<li>A bitfield write, and the initializing store, through a <code>volatile</code> variable are not
-  volatile accesses.</li>
-<li>A declaration directly after <code>case N:</code> needs braces (<code>case 1: { int y = 2; ... }</code>).</li>
-<li>A <code>T[]</code> parameter does not infer <code>T</code> from a slice argument, and a generic variant infers
-  its type arguments only from its payload (<code>Opt&lt;int64&gt; a = Some(5)</code> needs
-  <code>Some&lt;int64&gt;(5)</code>); write the type arguments.</li>
-<li>Enum member values must be integer literals.</li>
-<li>A function-like macro whose name is followed by a newline before <code>(</code> is not expanded,
-  and a <code>#undef</code> line inside a multi-line string literal is read as a directive.</li>
+<li>A generic variant infers its type arguments only from its payload
+  (<code>Opt&lt;int64&gt; a = Some(5)</code> needs <code>Some&lt;int64&gt;(5)</code>); write the type arguments.</li>
+<li>A <code>#undef</code> line inside a multi-line string literal is read as a directive.</li>
 <li><code>await</code> is rejected inside <code>try</code>, a <code>match</code> arm, a <code>switch</code> subject, a range bound and a
   compound assignment; bind the awaited value to a local first.</li>
 <li>There is no spelling for a pointer to a nullable pointer, inline <code>asm</code> has no output
   operands, and <code>null</code> does not convert to an interface value.</li>
 <li>A method that mutates a captured value inside a lambda acts on the closure's copy.</li>
-<li>A nullary variant written with parentheses (<code>B()</code>) is accepted.</li>
 <li>The <code>&lt;json&gt;</code> methods named <code>int</code> and <code>bool</code> cannot be called with dot syntax.</li>
-<li>Types nested about a thousand levels deep and very long ternary or member chains compile
-  slowly.</li>
+<li>The self-hosted compiler type-checks deeply nested <code>?:</code> expressions in time quadratic
+  in their depth (5000 levels take about ten seconds; the C++ compiler is linear).</li>
 <li>The C ABI lowering of <code>extern</code> struct and union arguments is not implemented for 32-bit
   x86 (not a supported C ABI target).</li>
 <li>Regex does not support <code>\Q..\E</code>, <code>(?:...)</code>, <code>(?i)</code>, <code>\p{...}</code> or code points above one

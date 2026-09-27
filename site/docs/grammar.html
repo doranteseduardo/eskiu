@@ -235,7 +235,7 @@ interface-decl  = 'interface' IDENT '{' ( type IDENT '(' param-list? ')' ';' )* 
 
 enum-decl       = 'enum' IDENT type-params? '{' enum-variant (',' enum-variant)* ','? '}'   // enum type-params are names only (no constraints)
 enum-variant    = IDENT ( '(' type (',' type)* ')' )?           // ADT payload
-                | IDENT ( '=' '-'? INT_LIT )?                    // classic, optional integer value
+                | IDENT ( '=' expr )?                            // classic, optional integer constant expression
 
 type-alias      = 'type' IDENT '=' type ';'
 
@@ -291,8 +291,8 @@ throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
 switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, `default` may repeat
-switch-case   = 'case' expr ':' statement*
-default-case  = 'default' ':' statement*
+switch-case   = 'case' expr ':' ( declaration | statement )*   // the switch body is one scope
+default-case  = 'default' ':' ( declaration | statement )*
 
 match-stmt    = 'match' expr '{' match-arm+ '}'
 match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '-&gt;' statement   // variant + payload bindings
@@ -346,7 +346,9 @@ level; the ternary sits just above it, also right-associative.</p>
 <p>The parser implements the binary levels by precedence climbing, so an operator chain
 of any length parses without deep recursion. Nesting (parentheses, blocks, nested
 statements and lambdas) is limited to 100000 levels, past which the parser reports
-<code>nesting too deep</code>.</p>
+<code>nesting too deep</code>. A type nests at most 1000 levels (each pointer level, array
+dimension, template argument list and fn type counts one, and so does the innermost
+type), past which the parser reports <code>type nesting too deep</code>.</p>
 <pre><code>primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
   | IDENT
@@ -355,7 +357,8 @@ statements and lambdas) is limited to 100000 levels, past which the parser repor
   | IDENT '&lt;' type (',' type)* '&gt;' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
   | '(' expr ')'
   | lambda
-  | 'sizeof' '(' type ')'
+  | 'sizeof' '(' type ')'           // a bare name, or a spelling over a known type (`*Node`)
+  | 'sizeof' '(' expr ')'           // any other operand (`*p`, `a[0]`): its type, not evaluated
   | 'alloc_with' '(' expr ',' type ',' expr ')'
   | 'free_closure' '(' expr ')'
   | 'thread_create' '(' expr ')'

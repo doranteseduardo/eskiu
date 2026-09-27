@@ -206,7 +206,11 @@ server flavours run the <code>&lt;http2&gt;</code> frame protocol (reusing the c
 the <code>&lt;http2_server&gt;</code> request/response glue) over the encrypted stream:</p>
 <ul>
 <li><strong>Blocking</strong>, thread-per-connection: <code>http2_tls_serve_conn</code> over
-  <code>tls_accept</code>/<code>tls_read_full</code>/<code>tls_write_all</code>/<code>tls_close</code>.</li>
+  <code>tls_accept</code>/<code>tls_read_full</code>/<code>tls_write_all</code>/<code>tls_close</code>. The socket runs
+  non-blocking and the calls wait with <code>poll</code> (<code>net_wait_ready</code>) on what is left
+  of their deadline whenever OpenSSL asks for <code>WANT_READ</code>/<code>WANT_WRITE</code>. A socket
+  timeout (<code>SO_RCVTIMEO</code>) cannot bound them: OpenSSL loops <code>recv()</code> inside one
+  <code>SSL_read</code> until a record is complete, and each trickled byte restarts it.</li>
 <li>Both drive the same <code>H2Server</code> engine as the h2c server.</li>
 <li><strong>Async</strong>, many TLS connections on one event-loop thread:
   <code>http2_tls_serve_async</code>. A non-blocking SSL pump
