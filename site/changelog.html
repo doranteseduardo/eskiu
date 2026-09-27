@@ -992,6 +992,26 @@ input. What is still open is listed under Known issues.</p>
 <li><code>&lt;net&gt;</code>'s socket timeouts pass a <code>struct timeval</code> of two C <code>long</code>s with its own size, so
   32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
   <code>run_cmd/net_timeval</code> (IR checked by <code>run.sh</code> for armv7 and x86-64).</li>
+<li>
+<p><code>http_serve</code> sends an answer under one <code>write_ms</code> deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.</p>
+</li>
+<li>
+<p>A slice or array compares by its element type in the C++ type checker, whatever the
+  spelling (<code>int*[]</code> is <code>*int[]</code>), and a <code>T[]</code> parameter binds <code>T</code> from a slice of a
+  generic instance or of a trailing-star pointer. Test <code>slice_elem_spelling</code>.</p>
+</li>
+<li>The self-host calls a local or parameter of fn type named like an ADT variant (<code>A(1)</code>,
+  <code>B()</code>) instead of building the variant, as C++ does. Test <code>variant_name_shadow</code>.</li>
+<li>The self-host emits a double literal too large for double as infinity in LLVM hex form
+  (<code>0x7FF0000000000000</code>), as C++ does; a global initializer <code>1e400</code> was rejected by clang.
+  <code>float_literal_range</code> now covers the global case, so <code>corpus_parity.sh</code> checks it.</li>
+<li><code>a * b;</code> and <code>a * g();</code> with <code>a</code> a local or parameter are expression statements in both
+  compilers, in a block or after a <code>case</code> label (C++ read them as declarations, the
+  self-host read <code>a * b;</code> after a <code>case</code> as one). Test <code>local_times_stmt</code>.</li>
+<li><code>sizeof</code> of a generic struct instance, a sum type, a struct with bitfields (SysV/AAPCS
+  or MS rules, per target) and a struct holding an interface value folds in the type
+  checker, so a duplicate <code>case sizeof(T):</code> is a located error instead of an LLVM or
+  clang failure. Tests <code>sizeof_case_layouts</code>, <code>errors/switch_dup_sizeof_{generic,adt,bitfield,iface}</code>.</li>
 </ul>
 <h3 id="known-issues">Known issues</h3>
 <p>These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -1018,6 +1038,12 @@ without a diagnostic, except where the entry says so.</p>
 <li>Regex does not support <code>\Q..\E</code>, <code>(?:...)</code>, <code>(?i)</code>, <code>\p{...}</code> or code points above one
   byte.</li>
 <li>A few diagnostics report a different column in the two compilers.</li>
+<li>The type checker does not fold <code>sizeof</code> of a struct under <code>#pragma pack(N)</code> with N of 2
+  or more, or of one with a <code>: 0</code> bitfield, so constant-expression checks do not see it.</li>
+<li>An enum member value cannot use <code>?:</code>, <code>&amp;&amp;</code>/<code>||</code>, or a <code>const</code> whose initializer is a
+  ternary, although global <code>const</code> initializers accept them.</li>
+<li>An object-like macro that expands to the name of a function-like macro is not expanded
+  as a call when the <code>(</code> is on the next line (<code>#define G F</code> then <code>G</code> / <code>(5)</code>).</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
