@@ -917,6 +917,12 @@ without a diagnostic, except where the entry says so.
 - Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
   byte.
 - A few diagnostics report a different column in the two compilers.
+- The type checker does not fold `sizeof` of a struct under `#pragma pack(N)` with N of 2
+  or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.
+- An enum member value cannot use `?:`, `&&`/`||`, or a `const` whose initializer is a
+  ternary, although global `const` initializers accept them.
+- An object-like macro that expands to the name of a function-like macro is not expanded
+  as a call when the `(` is on the next line (`#define G F` then `G` / `(5)`).
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
