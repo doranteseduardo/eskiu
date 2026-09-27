@@ -660,6 +660,7 @@ pre.code-block {
  int* where = &amp;limit;               // fine: address of a global
  // int start = compute();          // error: not a compile-time constant
  // int twice = limit * 2;          // error: limit is not const</pre>
+<p>A global exists from its definition onward, as in C. A global initializer or a function body written above the definition cannot name it (&quot;undefined variable&quot;), so define shared globals near the top of the file, before the functions that use them. Functions are different: they can be called before they are defined (section 3.5).</p>
 <h2 class="section" id="sec-2-6">2.6 const: immutable bindings</h2>
 <p>A <code>const</code> binding cannot be reassigned after its initial value. Unlike a plain variable, a <code>const</code> <code>int</code> can be used as an array size:</p>
 <pre class="code-block"> const int CAP = 4;
@@ -732,6 +733,7 @@ pre.code-block {
        printf(&quot;Hello, %s!\n&quot;, name);
  }</pre>
 <pre class="code-block"> greet(&quot;world&quot;);       // Hello, world!</pre>
+<p>A call to a <code>void</code> function has no value, so it can only stand as a statement. Using it as an operand of <code>&amp;&amp;</code>, <code>||</code>, <code>!</code> or a comparison, as a condition, or as an argument (<code>printf(&quot;%d&quot;, greet(&quot;x&quot;))</code>) is a compile error. Two forms are allowed because they produce no value either: <code>return greet(name);</code> inside another <code>void</code> function, and a ternary statement whose two arms are both <code>void</code> calls (<code>ok ? greet(&quot;a&quot;) : greet(&quot;b&quot;);</code>).</p>
 <h2 class="section" id="sec-3-3">3.3 Parameters are copies</h2>
 <p>When you pass a value, the function gets its own copy. Changes to the copy stay inside the function. Pointers (Chapter 6) are how you <code>let</code> a function modify the caller&#x27;s data:</p>
 <pre class="code-block"> void try_to_double(int x) {
@@ -764,6 +766,7 @@ pre.code-block {
 <pre class="code-block"> printf(&quot;%d %d\n&quot;, is_even(10), is_odd(10));             // 1 0</pre>
 <p class="output"><em>Output:</em> 1 0</p>
 <p>A forward declaration must match the definition exactly: the same return type and the same parameter types. A mismatch is a <em>conflicting declaration</em> error. Defining the same function twice, giving two parameters the same name, or using one name for both a function and a global variable is also rejected.</p>
+<p>The freedom of order covers functions only. A global variable has to be defined before the code that reads it, as section 2.5 explains.</p>
 <h2 class="section" id="sec-3-6">3.6 Command-line arguments</h2>
 <p>To read what the user typed on the command line, give main two parameters: <code>argc</code>, the number of arguments, and <code>argv</code>, an array of strings. <code>argv</code>[0] is always the program&#x27;s own name, so the first real argument is <code>argv</code>[1]:</p>
 <pre class="code-block"> extern int printf(string fmt, ...);</pre>
@@ -802,6 +805,7 @@ pre.code-block {
        printf(&quot;F\n&quot;);
  }</pre>
 <p class="output"><em>Output:</em> C</p>
+<p>A condition can be a <code>bool</code>, a number or a pointer (a <code>string</code> included). A nonzero number and a non-null pointer count as true, as in C, and a floating-point condition tests <code>!= 0.0</code>. A struct, an array or any other aggregate is not a condition; test one of its fields instead. The same rule applies to <code>while</code>, <code>for</code>, <code>!</code>, <code>&amp;&amp;</code>, <code>||</code> and the ternary.</p>
 <h2 class="section" id="sec-4-2">4.2 while</h2>
 <p>Repeats while the condition is <code>true</code>. The condition is checked before each iteration:</p>
 <pre class="code-block"> int n = 1;
@@ -948,6 +952,7 @@ pre.code-block {
  V3 operator *(V3 a, double s) { let r: V3; r.x = a.x*(float)s; r.y = a.y*(float)s; r.z = a.z*(float)s; return r; }</pre>
 <pre class="code-block"> V3 p = (a + b) * 2.0;          // uses operator + then operator *</pre>
 <p>You can overload the binary operators (<code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>), the unary <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) reuses your <code>operator +</code>. Overloads coexist by operand type, so <code>V3 * V3</code> and <code>V3 * double</code> are different operators selected by the right-hand side. The short-circuit <code>&amp;&amp;</code> and <code>||</code>, pointer <code>*</code>/<code>&amp;</code>, assignment <code>=</code>, and member access <code>.</code> cannot be overloaded.</p>
+<p>Structs, arrays, slices, closures and interface values have no built-in <code>==</code>, <code>&lt;</code> or truth value. <code>a == b</code> on two <code>V3</code> values is a compile error (&quot;invalid operands for operator&quot;) until you declare <code>bool operator ==(V3 a, V3 b)</code>, which then also works in an <code>if</code>. An overload must have at least one operand of a user-defined type, so the operators on the built-in types cannot be redefined.</p>
 <p>Resolution is fully static: an <code>operator</code> is an ordinary function, and <code>a op b</code> compiles to a direct call to it. There is no dynamic dispatch and no boxing, so the cost is exactly that of writing the call by hand, which keeps it fit for hot numeric code.</p>
 <h2 class="section" id="sec-5-4">5.4 Fixed-size array fields</h2>
 <pre class="code-block"> struct Packet {
@@ -1048,6 +1053,7 @@ pre.code-block {
 <pre class="code-block"> *ptr = 100;                 // write through the pointer
  printf(&quot;%d\n&quot;, x);         // 100</pre>
 <p class="output"><em>Output:</em> 42 100</p>
+<p><code>&amp;</code> needs storage: a variable, a field or element of one, or a dereference. The result of a call is a temporary value with no storage, so <code>&amp;make_point().x</code>, <code>make_point().x = 5</code> and slicing an array returned by a call are compile errors. Store the result in a local first and work on the local.</p>
 <h2 class="section" id="sec-6-3">6.3 Passing pointers to functions</h2>
 <p>This is the primary use of pointers in everyday code. A function that receives a pointer can modify the caller&#x27;s variable:</p>
 <pre class="code-block"> void set_to_zero(*int p) { *p = 0; }</pre>
@@ -1077,6 +1083,7 @@ pre.code-block {
  printf(&quot;%lld\n&quot;, gap);</pre>
 <pre class="code-block"> free(arr);</pre>
 <pre class="code-block"> Exception: *void and *char always use byte stride (1 byte per step), for C interop compatibility.</pre>
+<p>A pointer converts implicitly only where the conversion cannot mean something else. <code>*void</code> and <code>null</code> convert to and from any pointer, and the byte pointers (<code>string</code>, <code>*char</code>, <code>*int8</code>, <code>*uint8</code>) convert among themselves. A pointer to one type is not a pointer to an unrelated type: <code>*Big b = p;</code> with <code>p</code> an <code>*int</code> is a compile error (&quot;cannot convert '*int' to '*Big'&quot;). Write the cast when you mean the reinterpretation, <code>*Big b = (*Big)p;</code>, so it is visible in the source. The spellings <code>int</code>/<code>int32</code> and <code>uint</code>/<code>uint32</code> name the same type, so <code>*int</code> and <code>*int32</code> match.</p>
 <h2 class="section" id="sec-6-7">6.7 Null and checked nullable pointers</h2>
 <p>A plain <code>*T</code> may hold <code>null</code>, exactly as in C. Dereferencing a null pointer is undefined, so you guard it by hand:</p>
 <pre class="code-block"> *int p = null;
@@ -1097,7 +1104,7 @@ pre.code-block {
        while (n != null) { t = t + n.v; n = n.next; }
        return t;
  }</pre>
-<p>A narrowed pointer can be passed or assigned where a plain <code>*T</code> is expected. Narrowing ends when the variable is reassigned (the new value is unchecked again) or when an inner block declares a new variable with the same name.</p>
+<p>A narrowed pointer can be passed or assigned where a plain <code>*T</code> is expected. Narrowing ends when the variable is reassigned (the new value is unchecked again) or when an inner block declares a new variable with the same name. A variable whose address has been taken is never narrowed, since a write through that address could null it. A global <code>?*T</code> stays narrowed only until the next call or <code>await</code> (a call to a user operator counts), because the code that runs there could change the global; check it again after the call, or copy it into a local first.</p>
 <p>A non-null <code>*T</code> converts to <code>?*T</code> freely (it is always safe to forget non-nullness); going the other way requires a null-check. <code>?*T</code> has the same representation as a bare pointer, so the safety is entirely at compile time with no runtime cost. Use <code>?*T</code> at the boundaries where <code>null</code> is a real possibility (a lookup that can miss, an optional field) and keep <code>*T</code> where the value is always present.</p>
 <h2 class="section" id="sec-6-8">6.8 Pointer constness</h2>
 <p><code>const</code> T* is a pointer to read-only data: you can read through it and rebind it, but cannot write through it. T* <code>const</code> is a read-only pointer: you can write through it but cannot rebind it. Adding <code>const</code> is always safe; removing it is a compile error:</p>
@@ -1197,6 +1204,11 @@ pre.code-block {
 <pre class="code-block"> printf(&quot;%d\n&quot;, max(3, 5));           // 5   : T inferred as int
  printf(&quot;%d\n&quot;, identity(42));        // 42</pre>
 <p>A generic call is checked like any other call: the number of arguments, the number of type arguments (<code>identity&lt;int, int&gt;</code> is an error), and each argument&#x27;s type once <code>T</code> is known. When a type parameter cannot be inferred from the arguments, for example because it appears only in the return type, the compiler asks you to write it explicitly.</p>
+<p>When several arguments bind the same type parameter, they have to agree. A composite parameter such as <code>*T</code> or <code>List&lt;T&gt;*</code> binds first. Two by-value arguments that deduce different integer types meet at their common type, the one C arithmetic would use: with <code>int64 big</code>, <code>max(1, big)</code> is <code>max&lt;int64&gt;</code>, so <code>big</code> is not truncated. Any other disagreement is an error that names both types:</p>
+<pre class="code-block"> int64 big = 5000000000;
+ printf(&quot;%lld\n&quot;, max(1, big));             // 5000000000: T is int64
+ // max(1.5, (float)2.5);                     // error: T is deduced as 'double' from
+ //                                           // argument 1 and as 'float' here</pre>
 <p>The body is checked too, once for each set of type arguments you actually use. A template that only works for some types is fine until you instantiate it with one it does not support, and the error then points at the offending line and names the instance:</p>
 <pre class="code-block"> struct Box { int v; }
  T twice&lt;T&gt;(T x) { return x + x; }
@@ -1302,6 +1314,17 @@ pre.code-block {
  printf(&quot;%d\n&quot;, add_base(0));     // still 10</pre>
 <p class="output"><em>Output:</em> 15 42 10</p>
 <p>Because the closure holds a copy, it may not assign a captured variable: <code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the lambda is a compile error, since the write would change only the copy. To share state, write through a pointer (<code>*p = v</code>), or use a global or a <code>static</code> local, which are not captured. The lambda&#x27;s own parameters and locals can be assigned freely.</p>
+<p>The rule covers every way of writing into the copy. Assigning a field or an element of a captured struct or array (<code>p.a = 5</code>, <code>arr[0] = 9</code>) is an error, and so is taking the address of a captured variable or of one of its parts (<code>&amp;n</code>, <code>&amp;p.a</code>, <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>), because a write through that address would also land in the copy. Writing through a captured pointer, slice or <code>string</code> is fine, since the data it points to is shared:</p>
+<pre class="code-block"> int hits = 0;
+ *int ph = &amp;hits;
+ let count: fn()-&gt;void = void() {
+       // hits += 1;           // error: cannot assign to captured variable 'hits'
+       *ph = *ph + 1;          // ok: writes the shared int
+ };
+ count();
+ count();
+ printf(&quot;%d\n&quot;, hits);        // 2</pre>
+<p class="output"><em>Output:</em> 2</p>
 <h2 class="section" id="sec-9-4">9.4 Void lambdas</h2>
 <pre class="code-block"> let greet: fn()-&gt;void = void() {
        printf(&quot;hello from a lambda\n&quot;);
@@ -1328,7 +1351,7 @@ pre.code-block {
 <pre class="code-block"> int x = 42;
  on_ready(fd, void(int n) { printf(&quot;%d %d\n&quot;, x, n); });
  // free_closure(cb) when done</pre>
-<p>The escaping qualifier states, and the compiler enforces, that the closure may outlive its creator. Pass a non-escaping closure to an escaping parameter and you get a compile error.</p>
+<p>The escaping qualifier states, and the compiler enforces, that the closure may outlive its creator. Pass a non-escaping closure to an escaping parameter and you get a compile error. The check follows captures too: a lambda that captures a non-<code>escaping</code> closure parameter and outlives the call (it is returned, stored, passed to an <code>escaping</code> parameter or given to <code>thread_create</code>) needs that parameter marked <code>escaping</code>.</p>
 <h2 class="section" id="sec-9-7">9.7 Closures inside generic functions</h2>
 <p>A lambda declared inside a generic function body captures correctly across all instantiations. The closure environment is monomorphized alongside the outer template: a field typed by the type parameter gets the concrete type at each instantiation:</p>
 <pre class="code-block"> int call_it(escaping fn()-&gt;int op) { return op(); }</pre>
@@ -1388,6 +1411,7 @@ pre.code-block {
        }
        return 0;
  }</pre>
+<p>A <code>finally</code> block cannot itself <code>return</code> or use <code>?</code>. Either would discard the exit already in progress, including an exception on its way to a handler, so both are compile errors (&quot;'return' is not allowed inside a finally block&quot;). A <code>break</code> or <code>continue</code> inside a <code>finally</code> that sits in a loop still works, and a lambda written inside a <code>finally</code> is a separate function that may return normally.</p>
 <p>No link flag is needed: when a program uses exceptions, eskiuc links the C++ runtime for the target (-lc++ on macOS, -lstdc++ on Linux and on Windows, where mingw also supplies the SEH unwinder).</p>
 <h2 class="section" id="sec-10-3">10.3 The ? operator</h2>
 <p>Chaining multiple <code>Result</code>-returning calls with explicit if (r.ok == 0) return <code>Err</code> checks gets verbose quickly. The postfix ? operator shortens this: applied to a <code>Result</code>&lt;T,E&gt; expression, it either unwraps the value on success or immediately returns the <code>Err</code> to the caller:</p>
@@ -1621,9 +1645,9 @@ pre.code-block {
  #error DEBUG builds are not supported in this file
  #endif</pre>
 <pre class="code-block"> Supported directives: #define (object-like and function-like, including multi-line with \), #undef, #ifdef,
- #ifndef, #if, #elif, #else, #endif, #error, #pragma pack. Predefined: __APPLE__, __linux__, _WIN32, _WIN64,
- __aarch64__, __x86_64__, __arm__, __FILE__, __LINE__, __ESKIU_FREESTANDING__. pack(N) with any N ≥ 1 is fully
- supported.</pre>
+ #ifndef, #if, #elif, #else, #endif, #error, #pragma pack, #pragma link. Predefined: __APPLE__, __linux__,
+ _WIN32, _WIN64, __aarch64__, __x86_64__, __arm__, __FILE__, __LINE__, __ESKIU_FREESTANDING__. pack(N) takes
+ N = 1, 2, 4, 8 or 16; any other value is an error.</pre>
 <div class="chapter-start" id="chapter-13"><span class="chapter-label">Chapter 13</span>
 <h1 class="chapter-title">Multi-file Programs</h1><hr class="chapter-rule"></div>
 <p>Every program in this book so far has lived in a single file. Real programs grow. When a file exceeds a few hundred lines, it becomes hard to navigate. The <code>import</code> statement lets you split code across as many files as you like.</p>
@@ -2488,6 +2512,23 @@ pre.code-block {
  f(1, 2);                                // error: function 'f' expects 1 arguments, got 2
  int n = 08;                             // error: invalid digit '8' in octal literal '08'
  #include &lt;stdio.h&gt;                      // error: #include is not supported (use import)</pre>
+<p>The later 0.9.2 audit rounds closed more holes of the same kind. These are the checks most likely to reject code that an earlier release accepted:</p>
+<pre class="code-block"> void() { n += 1; }                      // error: cannot assign to captured variable 'n'
+ void() { *int q = &amp;n; }                 // error: cannot take the address of captured variable 'n'
+ *Big b = p;                             // error: cannot convert '*int' to '*Big' (write (*Big)p)
+ int f() { return g; }  int g = 5;       // error: undefined variable 'g' (define g first)
+ if (s) { }                              // error: condition must be boolean, numeric, or a pointer
+ if (a == b) { }                         // error: invalid operands for operator: struct:P and struct:P
+ finally { return 2; }                   // error: 'return' is not allowed inside a finally block
+ max(1.5, (float)2.5);                   // error: 'T' is deduced as 'double' ... and as 'float' here
+ const int Z = 0;  int q = 5 / Z;        // error: division by zero
+ int64 w = 1 &lt;&lt; sizeof(int64) * 8;       // error: shift count 64 is out of range for a 32-bit operand
+ const double D = 1e10;  int i = (int)D; // error: floating constant ... is out of range for 'int'
+ mk().x = 5;                             // error: cannot assign to this expression
+ printf(&quot;%d&quot;, v());                      // error: argument 2 has type 'void'
+ r += await f();                         // error: 'await' is only supported as the whole initializer ...
+ string t = &quot;a\qb&quot;;                      // error: unknown escape sequence '\q'</pre>
+<p>The constant checks work on the folded value, not only on the literal spelling. A divisor, a shift count, an index or a cast operand that folds to a bad value through a <code>const</code> name, a <code>sizeof</code>, a cast or arithmetic is reported the same way as the literal form, instead of compiling to an undefined result.</p>
 <div class="chapter-start" id="chapter-23"><span class="chapter-label">Chapter 23</span>
 <h1 class="chapter-title">Networking</h1><hr class="chapter-rule"></div>
 <p>Network programming in Eskiu is POSIX sockets via the stdlib module. No framework required for basic use. A TCP server is a file descriptor you accept connections on. A TCP client is a file descriptor you write bytes to.</p>
@@ -2667,6 +2708,9 @@ pre.code-block {
        return 0;
  }</pre>
 <p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread. Every control-flow form can contain an await: <code>if</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, <code>for</code>-in and <code>switch</code>. A <code>defer</code> in an async function runs when its block exits, even if the block awaited in between, and a lambda inside it can capture the function&#x27;s locals. Labeled <code>break</code>/<code>continue</code> is not supported inside an async function.</p>
+<p>Where the <code>await</code> sits within a statement is more limited. It must be the whole initializer of a <code>let</code>, the value of a <code>return</code>, or the right side of a plain assignment (<code>x = await f();</code>). The compiler rejects, with an error located at the <code>await</code>, one inside a <code>try</code> statement or a <code>match</code> arm, in a <code>switch</code> subject, a <code>for</code>-in iterable or a range bound (<code>for (i in 0..await f())</code>), in a compound assignment (<code>r += await f();</code>), and inside a larger expression or a condition. In each case the fix is to bind the value first:</p>
+<pre class="code-block"> int n = await produce();        // bind it
+ for (i in 0..n) { total += i; } // then use it anywhere</pre>
 <h2 class="section" id="sec-25-2">25.2 The event loop</h2>
 <p>Async tasks need something to run them. The event loop is a reactor that watches file descriptors for readiness and resumes the tasks waiting on them:</p>
 <pre class="code-block"> import &lt;eventloop&gt;;
