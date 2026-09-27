@@ -163,15 +163,19 @@ StmtPtr Parser::parseStatement() {
 
 // A block item: a local declaration, or else a statement.
 BlockItem Parser::parseBlockItem() {
+    // `a * b;` with `a` a variable in scope is an expression (C: a variable name is not
+    // a type there), not a declaration of `b` as a pointer to `a`.
+    bool localTimes = check(TokenType::IDENT) && peek_ahead(1).type == TokenType::STAR &&
+                      isLocalVar(peek().value);
     // Check if this looks like a declaration
-    if (check(TokenType::CONST) ||
+    if (!localTimes && (check(TokenType::CONST) ||
         check(TokenType::VOLATILE) ||
         check(TokenType::STATIC) ||
         check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
         check(TokenType::FN) ||         // `fn(int)->int f = ...` (fn only names a type)
         check(TokenType::LET) ||
         check(TokenType::STAR) || check(TokenType::IDENT) ||
-        isPrimitiveTypeToken(peek().type)) {
+        isPrimitiveTypeToken(peek().type))) {
 
         size_t savePos = current;
         try {

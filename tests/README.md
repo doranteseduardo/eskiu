@@ -339,6 +339,7 @@ when you add a test.
 | `octal_literal` | leading-zero integer literals are octal (C rule) |
 | `operators` | operator overloading: binary, overloads by operand type, comparison, unary, subscript, compound assign |
 | `paren_deref` | `(*p)` is a dereference expression, not a cast; `(*T)x` stays a cast when T is a type |
+| `local_times_stmt` | `a * expr;` with `a` a local or parameter is an expression statement, also after `case` |
 | `pointer_array` | `*T[N]` is an array of N pointers, at module scope and as a local |
 | `pp_macro_args` | function-like macro arguments: literals stay whole, nested calls expand first, block-comment apostrophes are ignored |
 | `random` | `<random>` xoshiro256** stream from a fixed seed (regression golden) |

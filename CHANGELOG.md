@@ -885,6 +885,9 @@ input. What is still open is listed under Known issues.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
+- `a * b;` and `a * g();` with `a` a local or parameter are expression statements in both
+  compilers, in a block or after a `case` label (C++ read them as declarations, the
+  self-host read `a * b;` after a `case` as one). Test `local_times_stmt`.
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.

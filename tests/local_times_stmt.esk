@@ -1,0 +1,15 @@
+// `a * expr;` with `a` a local or parameter is an expression statement (as in C), in a
+// block and directly after a `case` label; `T * p` with T a type is still a declaration.
+extern int printf(string fmt, ...);
+struct P { int x; }
+int g() { printf("g\n"); return 1; }
+int h(int a, int b) { a * g(); a * b; return a + b; }
+int main() {
+    int a = 3; int b = 4; int[4] arr;
+    P v = P{ x: 9 };
+    switch (a) { case 3: a * g(); a * b; arr[g()] = 5; }
+    a * g();
+    P * q = &v;
+    printf("%d %d %d\n", h(a, b), arr[1], q.x);
+    return 0;
+}

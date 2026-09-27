@@ -1973,8 +1973,11 @@ void check_name_not_keyword(Parser* p) {
 // looking lead token, speculatively parse a var-decl and back out on failure.
 *StmtNode parse_block_item(Parser* p) {
     int t = p_at(p);
-    if (t == LET || t == CONST || t == VOLATILE || t == STATIC || t == STAR || t == IDENT
-        || t == FN || t == QUESTION || is_type_kw(t) == 1) {   // QUESTION: a `?*T` nullable decl
+    // `a * b;` with `a` a variable in scope is an expression (C), not a declaration.
+    int local_times = 0;
+    if (t == IDENT && p_peek2(p).type == STAR && is_local_var(tok_text(p.src, p_peek(p))) == 1) { local_times = 1; }
+    if (local_times == 0 && (t == LET || t == CONST || t == VOLATILE || t == STATIC || t == STAR || t == IDENT
+        || t == FN || t == QUESTION || is_type_kw(t) == 1)) {   // QUESTION: a `?*T` nullable decl
         int save = p.pos;
         *StmtNode d = spec_var_decl(p);
         if (d != null) { List_push<string>(&g_localvars, d.name); return d; }
