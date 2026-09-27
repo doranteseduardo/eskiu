@@ -961,7 +961,8 @@ int64 _h2_dl_min(int64 d, int64 base, int64 ms) {
 // idle_since + idle_ms (frames such as PING do not move it); else the earliest
 // of: a header block's start + header_ms, a receiving stream's start + body_ms,
 // and for a responding stream the later of its start and the last response
-// data sent, + write_ms (a peer that stops granting window).
+// data sent, + write_ms (a peer that stops granting window), and its start +
+// write_total_ms (a peer that grants window a byte at a time).
 int64 H2Server_deadline(H2Server* s, HttpLimits* lim) {
     if (s.got_settings == 0) { return _h2_dl_min(0, s.start_ms, lim.header_ms); }
     if (H2Server_open(s) == 0) { return _h2_dl_min(0, s.idle_since, lim.idle_ms); }
@@ -973,6 +974,7 @@ int64 H2Server_deadline(H2Server* s, HttpLimits* lim) {
         if (sl.state == H2S_RESPONDING) {
             const int64 base = sl.resp_at > s.progress_ms ? sl.resp_at : s.progress_ms;
             d = _h2_dl_min(d, base, lim.write_ms);
+            if (sl.resp_at != 0) { d = _h2_dl_min(d, sl.resp_at, lim.write_total_ms); }
         } else {
             d = _h2_dl_min(d, sl.opened, lim.body_ms);
         }
@@ -991,12 +993,38 @@ int H2Server_timed_out(H2Server* s) {
     return 0;
 }
 
+// Reset (CANCEL) every responding stream whose response is not all sent
+// lim.write_total_ms after it was ready (`now`, monotonic ms), freeing its
+// buffered response. Returns how many it reset.
+int H2Server_expire(H2Server* s, HttpLimits* lim, int64 now) {
+    if (lim.write_total_ms <= 0) { return 0; }
+    int n = 0;
+    for (i in 0..H2_MAX_STREAMS) {
+        H2Slot* sl = &s.slots[i];
+        if (sl.state != H2S_RESPONDING || sl.resp_at == 0) { continue; }
+        if (now - sl.resp_at < lim.write_total_ms) { continue; }
+        H2Server_rst(s, sl.id, H2_CANCEL);
+        H2Server_slot_release(sl);
+        n++;
+    }
+    return n;
+}
+
+// H2Server_timed_out for a transport that has the limits: a stream past
+// write_total_ms is reset and the connection carries on (returns 1: flush the
+// RST_STREAM and read on); otherwise as H2Server_timed_out.
+int H2Server_timed_out_with(H2Server* s, HttpLimits* lim, int64 now) {
+    if (H2Server_expire(s, lim, now) > 0) { return 1; }
+    return H2Server_timed_out(s);
+}
+
 // Drive one connection: the client preface, then frames through the H2Server
 // engine until either side ends the connection (GOAWAY) or the peer closes, or
 // a deadline passes (see H2Server_deadline): a connection whose preface and
 // SETTINGS are not in by lim.header_ms is closed, an idle one gets GOAWAY
 // NO_ERROR after lim.idle_ms, and a write the peer does not take within
-// lim.write_ms closes it. `open` (may be null) is decremented on the way out.
+// lim.write_ms closes it; a response not all sent within lim.write_total_ms has
+// its stream reset. `open` (may be null) is decremented on the way out.
 async void http2_serve_conn_async_with(EventLoop* lp, int fd,
                                        escaping fn(HttpRequest*, HttpResponse*)->void handler,
                                        Chan<int>* done, HttpLimits lim, *int open) {
@@ -1026,7 +1054,7 @@ async void http2_serve_conn_async_with(EventLoop* lp, int fd,
                 int64 dl = H2Server_deadline(s, &lim);
                 let hdr: H2Frame;
                 int plen = await h2_read_frame_deadline_async(lp, fd, fb, FBCAP, &hdr, dl);
-                if (plen == NET_TIMED_OUT) { running = H2Server_timed_out(s); }
+                if (plen == NET_TIMED_OUT) { running = H2Server_timed_out_with(s, &lim, time_monotonic_ms()); }
                 else if (plen == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }   // over MAX_FRAME_SIZE
                 else if (plen < 0) { running = 0; }
                 else { H2Server_step(s, &hdr, fb + H2_FRAME_HEADER_LEN, handler); }

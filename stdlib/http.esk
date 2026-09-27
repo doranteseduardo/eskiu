@@ -691,6 +691,11 @@ const int HTTP_SERVE_MAX_BODY = 1048576;
 //              NO_ERROR) after this long; frames such as PING do not extend it;
 //   write_ms   an answer (or an HTTP/2 stream's response data) must be taken by
 //              the client within this;
+//   write_total_ms an HTTP/2 stream's whole response must be sent within this
+//              from when it is ready, however the peer paces its window updates
+//              (write_ms counts from the last data sent); past it the stream is
+//              reset (CANCEL) and its buffered response freed, the connection
+//              stays open;
 //   max_open   the async servers hold at most this many connections at once; one
 //              accepted past it is closed at once (so idle peers cannot use up
 //              every file descriptor).
@@ -702,6 +707,7 @@ const int64 HTTP_HEADER_TIMEOUT_MS = 10000;
 const int64 HTTP_BODY_TIMEOUT_MS   = 60000;
 const int64 HTTP_IDLE_TIMEOUT_MS   = 60000;
 const int64 HTTP_WRITE_TIMEOUT_MS  = 30000;
+const int64 HTTP_WRITE_TOTAL_MS    = 300000;
 const int   HTTP_MAX_OPEN_CONNS    = 1024;
 
 struct HttpLimits {
@@ -710,6 +716,7 @@ struct HttpLimits {
     int64 idle_ms;
     int64 write_ms;
     int   max_open;
+    int64 write_total_ms;
 }
 
 // Set `self` to the defaults above; change the fields after, then pass it to a
@@ -721,6 +728,7 @@ void HttpLimits_init(HttpLimits* self) {
     self.idle_ms   = HTTP_IDLE_TIMEOUT_MS;
     self.write_ms  = HTTP_WRITE_TIMEOUT_MS;
     self.max_open  = HTTP_MAX_OPEN_CONNS;
+    self.write_total_ms = HTTP_WRITE_TOTAL_MS;
 }
 
 // The default limits, by value.

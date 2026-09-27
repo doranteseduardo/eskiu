@@ -280,7 +280,7 @@ void http2_tls_serve_conn_with(*void ssl, escaping fn(HttpRequest*, HttpResponse
         H2Server_tick(s, time_monotonic_ms());
         let fr: H2Frame;
         const int fl = tls_read_frame_deadline(ssl, fb, &fr, H2Server_deadline(s, &lim));
-        if (fl == NET_TIMED_OUT) { running = H2Server_timed_out(s) != 0; }
+        if (fl == NET_TIMED_OUT) { running = H2Server_timed_out_with(s, &lim, time_monotonic_ms()) != 0; }
         else if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
         else if (fl < 0) { running = false; }
         else { H2Server_step(s, &fr, fb + H2_FRAME_HEADER_LEN, handler); }
@@ -443,7 +443,7 @@ async void http2_tls_dispatch_async_with(EventLoop* lp, int fd, *void ssl, *uint
             int64 dl = H2Server_deadline(s, &lim);
             let fr: H2Frame;
             int fl = await tls_read_frame_deadline_async(lp, fd, ssl, fb, &fr, dl);
-            if (fl == NET_TIMED_OUT) { running = H2Server_timed_out(s); }
+            if (fl == NET_TIMED_OUT) { running = H2Server_timed_out_with(s, &lim, time_monotonic_ms()); }
             else if (fl == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
             else if (fl < 0) { running = 0; }
             else { H2Server_step(s, &fr, fb + H2_FRAME_HEADER_LEN, handler); }
