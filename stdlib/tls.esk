@@ -109,19 +109,49 @@ int tls_alpn_select(*void ssl, **uint8 out, *uint8 outlen, *uint8 protos, uint i
     return ctx;
 }
 
+// The blocking TLS calls below run the socket non-blocking and wait for it with
+// poll (<net>'s net_wait_ready) whenever OpenSSL asks for more (WANT_READ /
+// WANT_WRITE), so a deadline bounds the whole call. A socket timeout
+// (SO_RCVTIMEO) would not: OpenSSL loops recv() inside one SSL_read until a
+// record is complete, and every byte a peer trickles restarts that timeout.
+
+// Wait for what SSL error `e` wants on `fd` (WANT_READ: readable, else
+// writable) by `deadline` (0 = none): 0 when ready, NET_TIMED_OUT, or -1.
+int _tls_wait(int fd, int e, int64 deadline) {
+    return net_wait_ready(fd, e == SSL_ERROR_WANT_READ ? 0 : 1, deadline);
+}
+
+// Complete the server handshake on `ssl` by `deadline` (0 = none), waiting for
+// writes at most `write_ms` each (0 = no limit): 1 on success, NET_TIMED_OUT,
+// or -1 on failure.
+int tls_accept_deadline(*void ssl, int64 deadline, int64 write_ms) {
+    const int fd = SSL_get_fd(ssl);
+    while (true) {
+        const int r = SSL_accept(ssl);
+        if (r == 1) { return 1; }
+        const int e = SSL_get_error(ssl, r);
+        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
+        const int64 dl = e == SSL_ERROR_WANT_WRITE ? _h2_dl_min(deadline, time_monotonic_ms(), write_ms) : deadline;
+        const int w = _tls_wait(fd, e, dl);
+        if (w == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+        if (w < 0) { return -1; }
+    }
+    return -1;
+}
+
 // Wrap an accepted socket in TLS and complete the handshake (ALPN runs here).
-// Returns the SSL* on success, null on handshake failure. The handshake reads
-// give up after lim.header_ms and its writes after lim.write_ms (a peer that
-// stalls it fails it); the socket's timeouts are cleared again before returning.
+// Returns the SSL* on success, null on handshake failure. The whole handshake
+// must be done within lim.header_ms, and each of its writes taken within
+// lim.write_ms (a peer that stalls or trickles it fails it). The socket is left
+// non-blocking: the tls_* calls here wait for it themselves.
 *void tls_accept_with(*void ctx, int fd, HttpLimits* lim) {
     *void ssl = SSL_new(ctx);
     if (ssl == null) { return null; }
     tls_nosigpipe(fd);
     SSL_set_fd(ssl, fd);
-    net_set_timeouts(fd, lim.header_ms, lim.write_ms);
-    const int r = SSL_accept(ssl);
-    net_set_timeouts(fd, 0, 0);
-    if (r <= 0) { SSL_free(ssl); return null; }
+    net_set_nonblocking(fd);
+    const int r = tls_accept_deadline(ssl, net_deadline(lim.header_ms), lim.write_ms);
+    if (r != 1) { SSL_free(ssl); return null; }
     return ssl;
 }
 
@@ -136,27 +166,21 @@ int tls_read_full(*void ssl, *uint8 buf, int n) {
     return tls_read_full_deadline(ssl, buf, n, 0);
 }
 
-// tls_read_full with a deadline (<net>'s net_deadline; 0 = none): the count,
-// or NET_TIMED_OUT once it passes. Each SSL_read waits (SO_RCVTIMEO on the
-// socket) only for what is left of the deadline.
+// tls_read_full with a deadline (<net>'s net_deadline; 0 = none) for all `n`
+// bytes: the count, or NET_TIMED_OUT once it passes. The deadline holds on a
+// non-blocking socket (tls_accept_with leaves it so); on a blocking one an
+// SSL_read may wait past it.
 int tls_read_full_deadline(*void ssl, *uint8 buf, int n, int64 deadline) {
-    const int fd = deadline != 0 ? SSL_get_fd(ssl) : -1;
     int got = 0;
     while (got < n) {
-        if (deadline != 0) {
-            const int64 left = deadline - time_monotonic_ms();
-            if (left <= 0) { net_set_recv_timeout(fd, 0);  return NET_TIMED_OUT; }
-            net_set_recv_timeout(fd, left);
-        }
         const int r = SSL_read(ssl, (*void)(buf + got), n - got);
-        if (r <= 0) {
-            const int e = SSL_get_error(ssl, r);
-            if (deadline != 0 && (e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE)) { continue; }   // timed out: the check above decides
-            break;
-        }
-        got += r;
+        if (r > 0) { got += r; continue; }
+        const int e = SSL_get_error(ssl, r);
+        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { break; }
+        const int w = _tls_wait(SSL_get_fd(ssl), e, deadline);
+        if (w == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+        if (w < 0) { break; }
     }
-    if (deadline != 0) { net_set_recv_timeout(fd, 0); }
     return got;
 }
 
@@ -165,14 +189,25 @@ void tls_write_all(*void ssl, *uint8 buf, int n) {
     const int w = tls_write_all_n(ssl, buf, n);
 }
 
-// tls_write_all returning `n`, or -1 once a write fails (a closed peer, or one
-// past the socket's SO_SNDTIMEO).
+// tls_write_all returning `n`, or -1 once a write fails (a closed peer).
 int tls_write_all_n(*void ssl, *uint8 buf, int n) {
+    const int w = tls_write_all_deadline(ssl, buf, n, 0);
+    return w == n ? n : -1;
+}
+
+// tls_write_all_n with a deadline for all `n` bytes (0 = none, and as for
+// tls_read_full_deadline it holds on a non-blocking socket): `n`, -1 once a
+// write fails, or NET_TIMED_OUT (a peer that stops reading, or reads slowly).
+int tls_write_all_deadline(*void ssl, *uint8 buf, int n, int64 deadline) {
     int sent = 0;
     while (sent < n) {
         const int w = SSL_write(ssl, (*void)(buf + sent), n - sent);
-        if (w <= 0) { return -1; }
-        sent += w;
+        if (w > 0) { sent += w; continue; }
+        const int e = SSL_get_error(ssl, w);
+        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) { return -1; }
+        const int x = _tls_wait(SSL_get_fd(ssl), e, deadline);
+        if (x == NET_TIMED_OUT) { return NET_TIMED_OUT; }
+        if (x < 0) { return -1; }
     }
     return sent;
 }
@@ -218,11 +253,12 @@ void http2_tls_serve_conn(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->v
 // http2_tls_serve_conn with the deadlines of `lim`, as the h2c server (see
 // H2Server_deadline in <http2_server>), counted from this call: the preface and
 // SETTINGS within header_ms, GOAWAY NO_ERROR and close after idle_ms with no
-// open stream, and a write the peer does not take within write_ms (SO_SNDTIMEO)
-// ends it.
+// open stream, and a write the peer does not take within write_ms ends it. The
+// socket is made non-blocking (the reads and writes wait with poll), so a peer
+// that trickles bytes cannot stretch a deadline.
 void http2_tls_serve_conn_with(*void ssl, escaping fn(HttpRequest*, HttpResponse*)->void handler, HttpLimits lim) {
     const int64 start = time_monotonic_ms();
-    net_set_send_timeout(SSL_get_fd(ssl), lim.write_ms);
+    net_set_nonblocking(SSL_get_fd(ssl));
     *uint8 pf = alloc<uint8>(24);
     const int pn = tls_read_full_deadline(ssl, pf, 24, _h2_dl_min(0, start, lim.header_ms));
     const bool ok = pn == 24 && h2_is_preface(pf) != 0;
@@ -236,7 +272,7 @@ void http2_tls_serve_conn_with(*void ssl, escaping fn(HttpRequest*, HttpResponse
     bool running = true;
     while (running) {
         if (s.outlen > 0) {
-            const int w = tls_write_all_n(ssl, s.out, (int)s.outlen);
+            const int w = tls_write_all_deadline(ssl, s.out, (int)s.outlen, net_deadline(lim.write_ms));
             s.outlen = 0;
             if (w < 0) { break; }
         }
