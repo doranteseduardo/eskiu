@@ -880,6 +880,8 @@ input. What is still open is listed under Known issues.
 - A slice or array compares by its element type in the C++ type checker, whatever the
   spelling (`int*[]` is `*int[]`), and a `T[]` parameter binds `T` from a slice of a
   generic instance or of a trailing-star pointer. Test `slice_elem_spelling`.
+- The self-host calls a local or parameter of fn type named like an ADT variant (`A(1)`,
+  `B()`) instead of building the variant, as C++ does. Test `variant_name_shadow`.
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.

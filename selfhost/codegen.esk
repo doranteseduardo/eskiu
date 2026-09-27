@@ -4523,8 +4523,10 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             cg_emit(g, "  call void @"); cg_emit(g, intr); cg_emit(g, "(ptr "); cg_emit(g, ap); cg_emit(g, ")\n");
             v.op = ""; v.ty = "void"; return v;
         }
-        // An ADT variant constructor `Circle(4)` parses as a call with a bare-ident callee.
-        if (e.a != null && e.a.kind == EK_IDENT) {
+        // An ADT variant constructor `Circle(4)` parses as a call with a bare-ident callee;
+        // a local or global of that name shadows the variant.
+        if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] == 0
+            && cg_find_global(g, e.a.sval).slot[0] == 0) {
             CgVariant var = cg_find_variant(g, e.a.sval);
             if (var.ename[0] != 0) { return cg_build_variant(g, var, e); }
         }

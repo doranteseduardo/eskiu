@@ -348,6 +348,7 @@ when you add a test.
 | `slice_empty_end` | an empty slice `s[len..len]` at the end is valid; a mid slice reads the right element |
 | `slice_ptr` | `ptr[lo..hi]` builds a slice over heap memory |
 | `slice_elem_spelling` | a slice element compares by type (`int*[]` is `*int[]`); `T[]` infers from a slice of `Box<int>` or `int*` |
+| `variant_name_shadow` | a fn-typed local or parameter named like an ADT variant shadows it in calls |
 | `sort` | `<sort>` generic heapsort and binary search |
 | `static_const_init` | `static` locals accept array, cast and negative constant initializers and persist across calls |
 | `static_local` | a `static` local keeps one instance across calls |
