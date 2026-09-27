@@ -1,0 +1,11 @@
+// EXPECT-ERROR: duplicate case value in switch
+// `sizeof` of a struct with bitfields folds with the target's C bitfield layout.
+struct B { uint8 a : 3; uint8 b : 2; }
+int f(int64 n) {
+    switch (n) {
+        case sizeof(B): return 1;
+        case 1: return 2;
+    }
+    return 0;
+}
+int main() { return f(1); }

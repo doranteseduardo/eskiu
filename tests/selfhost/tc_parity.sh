@@ -97,7 +97,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          const_div_zero_name const_rem_zero_sizeof const_div_float_cast const_shift_sizeof const_shift_float_cast const_div_overflow const_rem_overflow_int64 float_cast_const_name_range float_cast_unsigned_negative index_oob_sizeof dangling_cast dangling_ternary struct_cycle_generic_alias assign_array_literal cast_fn_name_to_int escape_unknown escape_octal_range escape_hex_empty
          case_decl_redefined case_decl_out_of_scope
          index_oob_sizeof_struct switch_dup_sizeof_ptr const_div_zero_sizeof_expr
-         enum_value_not_const enum_value_expr_range variant_nullary_parens type_nesting_too_deep"
+         enum_value_not_const enum_value_expr_range variant_nullary_parens type_nesting_too_deep
+         switch_dup_sizeof_generic switch_dup_sizeof_adt switch_dup_sizeof_bitfield switch_dup_sizeof_iface"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

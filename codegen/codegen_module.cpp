@@ -117,6 +117,7 @@ TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
     info.i64Align = al(llvm::Type::getInt64Ty(ctx));
     info.f32Align = al(llvm::Type::getFloatTy(ctx));
     info.f64Align = al(llvm::Type::getDoubleTy(ctx));
+    info.msBitfields = triple.isOSWindows();
     return info;
 }
 

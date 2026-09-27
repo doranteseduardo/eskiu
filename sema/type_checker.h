@@ -22,6 +22,7 @@ long long fixedScalarSize(const std::string& t);
 struct TargetLayoutInfo {
     unsigned ptrSize = 8, ptrAlign = 8;
     unsigned i16Align = 2, i32Align = 4, i64Align = 8, f32Align = 4, f64Align = 8;
+    bool msBitfields = false;   // Windows: bitfields follow the MS layout rules
 };
 TargetLayoutInfo targetLayoutInfo(const std::string& triple);
 // Does the floating value v, truncated toward zero, fit the integer type t?
@@ -367,10 +368,11 @@ private:
     // not an integer constant expression (the declaration-order pass).
     void foldEnumValues(EnumDecl* ed, bool report);
     // Size and ABI alignment of a concrete type as the target lays it out (the same rules
-    // as codegen's DataLayout: C struct layout, `packed`/`pack(N)`, C unions). False for a
-    // type whose layout only codegen knows here: a generic instance, a sum type, a
-    // bitfield struct, `va_list`, an unknown name.
+    // as codegen's DataLayout: C struct layout, `packed`/`pack(N)`, C unions, sum types,
+    // bitfields). False for a type whose layout only codegen knows here: a `pack(N>=2)`
+    // struct, a `: 0` bitfield, `va_list`, an unknown name.
     bool constLayout(const std::string& t, unsigned long long& size, unsigned long long& align, int depth = 0);
+    bool bitfieldLayout(const StructInfo& si, unsigned long long& size, unsigned long long& align, int depth);
     // `sizeof(t)` when constLayout knows it, else 0.
     long long constSizeof(const std::string& t);
     bool haveLayoutInfo = false;

@@ -1,0 +1,25 @@
+// `case sizeof(T):` over a generic instance, a sum type, a bitfield struct and a struct
+// holding an interface value: the type checker folds each size as codegen lays it out,
+// so distinct labels compile and each value reaches its own case.
+extern int printf(string fmt, ...);
+struct Box<T> { T v; char c; }
+interface Sh { int area(); }
+struct If { Sh i; char c; B2 b; }
+enum Ad2 { C1(char, int), C2(double, char, char), C3 }
+struct B { uint8 a : 3; }
+struct B2 { uint32 a : 3; uint8 b; uint16 c : 9; uint64 d : 40; }
+int which(int64 n) {
+    switch (n) {
+        case sizeof(B): return 1;
+        case sizeof(Box<char>): return 2;
+        case sizeof(B2): return 3;
+        case sizeof(Ad2): return 4;
+        case sizeof(If): return 5;
+    }
+    return 0;
+}
+int main() {
+    printf("%d %d %d %d %d\n", which(sizeof(B)), which(sizeof(Box<char>)), which(sizeof(B2)),
+           which(sizeof(Ad2)), which(sizeof(If)));
+    return 0;
+}

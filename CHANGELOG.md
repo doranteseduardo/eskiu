@@ -888,6 +888,10 @@ input. What is still open is listed under Known issues.
 - `a * b;` and `a * g();` with `a` a local or parameter are expression statements in both
   compilers, in a block or after a `case` label (C++ read them as declarations, the
   self-host read `a * b;` after a `case` as one). Test `local_times_stmt`.
+- `sizeof` of a generic struct instance, a sum type, a struct with bitfields (SysV/AAPCS
+  or MS rules, per target) and a struct holding an interface value folds in the type
+  checker, so a duplicate `case sizeof(T):` is a located error instead of an LLVM or
+  clang failure. Tests `sizeof_case_layouts`, `errors/switch_dup_sizeof_{generic,adt,bitfield,iface}`.
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.

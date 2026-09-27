@@ -340,6 +340,7 @@ when you add a test.
 | `operators` | operator overloading: binary, overloads by operand type, comparison, unary, subscript, compound assign |
 | `paren_deref` | `(*p)` is a dereference expression, not a cast; `(*T)x` stays a cast when T is a type |
 | `local_times_stmt` | `a * expr;` with `a` a local or parameter is an expression statement, also after `case` |
+| `sizeof_case_layouts` | `case sizeof(T):` over a generic instance, a sum type, a bitfield struct and an interface-holding struct reach their own cases |
 | `pointer_array` | `*T[N]` is an array of N pointers, at module scope and as a local |
 | `pp_macro_args` | function-like macro arguments: literals stay whole, nested calls expand first, block-comment apostrophes are ignored |
 | `random` | `<random>` xoshiro256** stream from a fixed seed (regression golden) |
@@ -733,6 +734,10 @@ when you add a test.
 | `errors/case_decl_out_of_scope` | a case's declaration used after the switch |
 | `errors/index_oob_sizeof_struct` | an index `sizeof(P)` out of bounds (a struct's size folds) |
 | `errors/switch_dup_sizeof_ptr` | two case labels equal once `sizeof` of a pointer and of a struct fold |
+| `errors/switch_dup_sizeof_generic` | `sizeof` of a generic struct instance and of a generic sum type fold, so equal case labels are seen |
+| `errors/switch_dup_sizeof_adt` | `sizeof` of a sum type folds for the duplicate `case` check |
+| `errors/switch_dup_sizeof_bitfield` | `sizeof` of a bitfield struct folds with the target C layout |
+| `errors/switch_dup_sizeof_iface` | `sizeof` of a struct holding an interface value folds |
 | `errors/const_div_zero_sizeof_expr` | a divisor `sizeof(*p) - 2` that folds to zero |
 | `errors/enum_value_not_const` | an enum member value that reads a non-`const` global |
 | `errors/enum_value_expr_range` | a folded enum member value that does not fit an `int` |

@@ -1,0 +1,12 @@
+// EXPECT-ERROR: duplicate case value in switch
+// `sizeof` of a generic struct instance and of a generic sum type fold, so equal labels are seen.
+struct Box<T> { T v; char c; }
+enum Opt<T> { Some(T), None }
+int f(int64 n) {
+    switch (n) {
+        case sizeof(Box<int64>): return 1;
+        case sizeof(Opt<int>): return 2;
+    }
+    return 0;
+}
+int main() { return f(16); }

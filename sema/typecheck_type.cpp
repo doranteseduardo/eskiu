@@ -326,11 +326,45 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
         case K::Struct: case K::Named: {
             std::string nm = pt.name;
             if (nm.rfind("struct:", 0) == 0) nm = nm.substr(7);
-            if (templateInstanceArgs.count(nm) || adtEnums.count(nm) || enumDecls.count(nm)) return false;
+            if (interfaceDecls.count(nm)) {        // {data, vtable}
+                size = 2ull * L.ptrSize; align = L.ptrAlign; return true;
+            }
+            if (adtEnums.count(nm)) {
+                // { i32 tag, [N x i64] payload }, N the largest variant's bytes in i64s
+                // (codegen's makeAdtStruct).
+                const EnumDecl* ed = nullptr;
+                std::map<std::string, std::string> subs;
+                if (auto e = enumDecls.find(nm); e != enumDecls.end()) ed = e->second;
+                else if (auto ti = templateInstanceArgs.find(nm); ti != templateInstanceArgs.end()) {
+                    auto g = genericEnumDecls.find(ti->second.first);
+                    if (g == genericEnumDecls.end()) return false;
+                    ed = g->second;
+                    for (size_t i = 0; i < ed->typeParams.size() && i < ti->second.second.size(); ++i)
+                        subs[ed->typeParams[i]] = ti->second.second[i];
+                }
+                if (!ed || (!ed->typeParams.empty() && subs.empty())) return false;
+                unsigned long long maxBytes = 0;
+                for (const auto& pl : ed->payloads) {
+                    unsigned long long bytes = 0;
+                    for (const auto& ft : pl) {
+                        unsigned long long fs = 0, fa = 1;
+                        if (!constLayout(subs.empty() ? ft : substType(ft, subs), fs, fa, depth + 1)) return false;
+                        bytes = up(bytes, fa) + fs;
+                    }
+                    maxBytes = std::max(maxBytes, bytes);
+                }
+                unsigned long long n = std::max(1ull, (maxBytes + 7) / 8);
+                align = std::max(L.i32Align, L.i64Align);
+                size = up(up(4, L.i64Align) + 8 * n, align);
+                return true;
+            }
+            if (enumDecls.count(nm)) return false;
             auto it = structs.find(nm);
             if (it == structs.end()) return false;
             const StructInfo& si = it->second;
             if (si.packAlign >= 2) return false;
+            if (std::any_of(si.fields.begin(), si.fields.end(), [](const StructDecl::Field& f) { return f.bitWidth != 0; }))
+                return !si.isUnion && bitfieldLayout(si, size, align, depth);
             unsigned long long off = 0, maxAl = 1;
             for (const auto& f : si.fields) {
                 if (f.bitWidth != 0) return false;
@@ -348,6 +382,60 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
         default:
             return false;
     }
+}
+
+// Size and alignment of a struct with bitfields as codegen's layoutBitfieldStruct lays it
+// out: the MS rules on Windows, else SysV/AAPCS (clang's Itanium layout).
+bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
+                                 unsigned long long& align, int depth) {
+    auto up = [](unsigned long long x, unsigned long long a) { return a ? (x + a - 1) / a * a : x; };
+    bool packed = si.packAlign == 1;
+    unsigned long long structAlign = 1;
+    if (layoutInfo.msBitfields) {
+        // Each storage word and normal field is an element of the natural (or packed) layout.
+        unsigned long long off = 0, curBits = 0, curOff = 0;
+        bool open = false;
+        for (const auto& f : si.fields) {
+            if (f.bitWidth < 0) return false;
+            unsigned long long fs = 0, fa = 1;
+            if (!constLayout(f.type, fs, fa, depth + 1)) return false;
+            if (packed) fa = 1;
+            if (f.bitWidth > 0) {
+                unsigned long long stBits = fs * 8, w = (unsigned long long)f.bitWidth;
+                if (!open || curBits != stBits || curOff + w > stBits) {
+                    off = up(off, fa) + fs; structAlign = std::max(structAlign, fa);
+                    open = true; curBits = stBits; curOff = 0;
+                }
+                curOff += w;
+            } else {
+                open = false;
+                off = up(off, fa) + fs; structAlign = std::max(structAlign, fa);
+            }
+        }
+        align = structAlign;
+        size = up(off, structAlign);
+        return true;
+    }
+    unsigned long long bitpos = 0;
+    for (const auto& f : si.fields) {
+        if (f.bitWidth < 0) return false;
+        unsigned long long fs = 0, fa = 1;
+        if (!constLayout(f.type, fs, fa, depth + 1)) return false;
+        if (packed) fa = 1;
+        structAlign = std::max(structAlign, fa);
+        if (f.bitWidth > 0) {
+            unsigned long long w = (unsigned long long)f.bitWidth, unitBits = fs * 8;
+            if (!packed && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits)
+                bitpos = up(bitpos, unitBits);
+            bitpos += w;
+        } else {
+            unsigned long long off = up((bitpos + 7) / 8, fa);
+            bitpos = (off + fs) * 8;
+        }
+    }
+    align = structAlign;
+    size = up((bitpos + 7) / 8, structAlign);
+    return true;
 }
 
 long long TypeChecker::constSizeof(const std::string& t) {

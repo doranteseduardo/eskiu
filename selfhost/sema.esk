@@ -40,6 +40,7 @@ struct Sema {
     int fold_depth;          // recursion guard for sema_fold_int through const initializers
     int ptrsz;               // the target's pointer size and int64/double alignment, so
     int i64al;               // sizeof folds to its layout (sema_set_target)
+    int msbf;                // 1: bitfields follow the MS (Windows) layout rules
     List<Sym> syms;
     List<string> gaddr;      // names whose address is taken anywhere (a global among them is never narrowed)
     List<FnSig> fns;
@@ -366,6 +367,7 @@ void sema_set_target(Sema* s, string triple) {
     if (triple == null || triple[0] == 0) { return; }
     s.ptrsz = 8; s.i64al = 8;
     int win = sema_has_sub(triple, "windows") | sema_has_sub(triple, "win32") | sema_has_sub(triple, "mingw");
+    s.msbf = win;
     if (ast_has_prefix(triple, "aarch64") == 1 || ast_has_prefix(triple, "arm64") == 1
         || ast_has_prefix(triple, "x86_64") == 1 || ast_has_prefix(triple, "amd64") == 1) { return; }
     if (ast_has_prefix(triple, "i386") == 1 || ast_has_prefix(triple, "i486") == 1
@@ -440,7 +442,10 @@ void sema_fold_enum(Sema* s, *DeclNode d, int report) {
 }
 
 void sema_init(Sema* s, string filename) {
-    s.ptrsz = 8; s.i64al = 8;
+    s.ptrsz = 8; s.i64al = 8; s.msbf = 0;
+#ifdef _WIN32
+    s.msbf = 1;
+#endif
     List_init<Sym>(&s.syms, 64);
     List_init<FnSig>(&s.fns, 32);
     List_init<string>(&s.types, 32);
@@ -876,32 +881,102 @@ int64 sema_const_layout(Sema* s, string t0, int64* al, int depth) {
         if (fx == (int64)8) { al[0] = (int64)s.i64al; }
         return fx;
     }
-    int i = 0; while (i < n) { if ((int)t[i] == 60) { return (int64)0; } i = i + 1; }  // a generic instance
-    if (sema_in_list(&s.tparams, t) == 1) { return (int64)0; }
-    *DeclNode d = sema_find_tdecl(s, t);
+    List<string> targs; List_init<string>(&targs, 2);
+    string base = t;
+    int i = 0; while (i < n && (int)t[i] != 60) { i = i + 1; }
+    if (i < n) { base = sema_base_name(t); sema_parse_targs(t, &targs); }   // a generic instance
+    if (sema_in_list(&s.tparams, base) == 1) { return (int64)0; }
+    *DeclNode d = sema_find_tdecl(s, base);
     if (d == null) { return (int64)0; }
-    if (d.kind == DK_ENUM) {
-        if (sema_is_plain_enum_decl(d) == 0) { return (int64)0; }
-        al[0] = (int64)4; return (int64)4;
-    }
+    if (List_len<TypeParam>(&d.type_params) != List_len<string>(&targs)) { return (int64)0; }
+    return sema_decl_layout(s, d, &targs, al, depth);
+}
+
+int64 sema_up(int64 x, int64 a) { if (a <= (int64)0) { return x; } return ((x + a - (int64)1) / a) * a; }
+
+// Size (and alignment in al[0]) of a declared type with its type arguments `targs`, as
+// codegen lays it out; 0 when only codegen knows it (a `pack(N>=2)` struct, a `: 0`
+// bitfield). Mirrors C++ TypeChecker::constLayout / bitfieldLayout.
+int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int depth) {
+    int64 ps = (int64)s.ptrsz;
     if (d.kind == DK_INTERFACE) { al[0] = ps; return ps * (int64)2; }
+    if (d.kind == DK_ENUM) {
+        if (sema_is_plain_enum_decl(d) == 1) { al[0] = (int64)4; return (int64)4; }
+        // { i32 tag, [N x i64] payload }, N the largest variant's bytes in i64s.
+        int64 maxb = (int64)0;
+        int vi = 0;
+        while (vi < List_len<List<string>>(&d.payloads)) {
+            List<string> pl = List_get<List<string>>(&d.payloads, vi);
+            int64 b = (int64)0;
+            int pi = 0;
+            while (pi < List_len<string>(&pl)) {
+                int64 pal = (int64)1;
+                int64 psz = sema_const_layout(s, sema_subst_params(List_get<string>(&pl, pi), &d.type_params, targs), &pal, depth + 1);
+                if (psz == (int64)0) { return (int64)0; }
+                b = sema_up(b, pal) + psz;
+                pi = pi + 1;
+            }
+            if (b > maxb) { maxb = b; }
+            vi = vi + 1;
+        }
+        int64 nw = (maxb + (int64)7) / (int64)8; if (nw == (int64)0) { nw = (int64)1; }
+        int64 ea = (int64)s.i64al; if (ea < (int64)4) { ea = (int64)4; }
+        al[0] = ea;
+        return sema_up(sema_up((int64)4, (int64)s.i64al) + (int64)8 * nw, ea);
+    }
     if (d.kind != DK_STRUCT && d.kind != DK_UNION) { return (int64)0; }
-    if (List_len<TypeParam>(&d.type_params) > 0 || d.pack_align >= 2) { return (int64)0; }
-    int64 off = (int64)0; int64 maxal = (int64)1;
+    if (d.pack_align >= 2) { return (int64)0; }
+    int nf = List_len<Param>(&d.params);
+    int hasbits = 0;
     int fi = 0;
-    while (fi < List_len<Param>(&d.params)) {
-        if (fi < List_len<int>(&d.field_bits) && List_get<int>(&d.field_bits, fi) != 0) { return (int64)0; }
-        int64 fal = (int64)1;
-        int64 fsz = sema_const_layout(s, List_get<Param>(&d.params, fi).ty, &fal, depth + 1);
-        if (fsz == (int64)0) { return (int64)0; }
-        if (d.is_packed == 1) { fal = (int64)1; }
-        if (fal > maxal) { maxal = fal; }
-        if (d.kind == DK_UNION) { if (fsz > off) { off = fsz; } }
-        else { off = ((off + fal - (int64)1) / fal) * fal + fsz; }
+    while (fi < nf) {
+        if (fi < List_len<int>(&d.field_bits) && List_get<int>(&d.field_bits, fi) != 0) { hasbits = 1; }
         fi = fi + 1;
     }
+    if (hasbits == 1 && d.kind == DK_UNION) { return (int64)0; }
+    int64 off = (int64)0; int64 maxal = (int64)1;
+    int64 bitpos = (int64)0;                         // SysV bitfield cursor
+    int open = 0; int64 curbits = (int64)0; int64 curoff = (int64)0;   // MS open storage word
+    fi = 0;
+    while (fi < nf) {
+        int bw = 0; if (fi < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, fi); }
+        if (bw < 0) { return (int64)0; }
+        int64 fal = (int64)1;
+        int64 fsz = sema_const_layout(s, sema_subst_params(List_get<Param>(&d.params, fi).ty, &d.type_params, targs), &fal, depth + 1);
+        if (fsz == (int64)0) { return (int64)0; }
+        if (d.is_packed == 1) { fal = (int64)1; }
+        if (hasbits == 0) {
+            if (fal > maxal) { maxal = fal; }
+            if (d.kind == DK_UNION) { if (fsz > off) { off = fsz; } }
+            else { off = sema_up(off, fal) + fsz; }
+        } else if (s.msbf == 1) {                    // MS: each storage word is an element
+            if (bw > 0) {
+                int64 stb = fsz * (int64)8;
+                if (open == 0 || curbits != stb || curoff + (int64)bw > stb) {
+                    off = sema_up(off, fal) + fsz; if (fal > maxal) { maxal = fal; }
+                    open = 1; curbits = stb; curoff = (int64)0;
+                }
+                curoff = curoff + (int64)bw;
+            } else {
+                open = 0;
+                off = sema_up(off, fal) + fsz; if (fal > maxal) { maxal = fal; }
+            }
+        } else {                                     // SysV / AAPCS
+            if (fal > maxal) { maxal = fal; }
+            if (bw > 0) {
+                int64 ub = fsz * (int64)8;
+                if (d.is_packed == 0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
+                bitpos = bitpos + (int64)bw;
+            } else {
+                int64 fo = sema_up((bitpos + (int64)7) / (int64)8, fal);
+                bitpos = (fo + fsz) * (int64)8;
+            }
+        }
+        fi = fi + 1;
+    }
+    if (hasbits == 1 && s.msbf == 0) { off = (bitpos + (int64)7) / (int64)8; }
     al[0] = maxal;
-    return ((off + maxal - (int64)1) / maxal) * maxal;
+    return sema_up(off, maxal);
 }
 int64 sema_const_sizeof(Sema* s, string t) {
     int64 al = (int64)1;

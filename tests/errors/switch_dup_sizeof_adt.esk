@@ -1,0 +1,12 @@
+// EXPECT-ERROR: duplicate case value in switch
+// `sizeof` of a sum type folds (a tag plus the largest payload in 8-byte words).
+enum Ad { A1(int64), A2(char), A3 }
+struct Two { int a; int64 b; }
+int f(int64 n) {
+    switch (n) {
+        case sizeof(Ad): return 1;
+        case sizeof(Two): return 2;
+    }
+    return 0;
+}
+int main() { return f(16); }
