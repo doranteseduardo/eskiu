@@ -1,0 +1,5 @@
+// net_set_recv_timeout passes a struct timeval of two C `long`s with its own
+// size: {i32, i32} (8 bytes) on 32-bit ARM, {i64, i64} (16) on 64-bit targets.
+// run.sh checks the IR for each target.
+import <net>;
+int main() { return net_set_recv_timeout(0, 1500); }

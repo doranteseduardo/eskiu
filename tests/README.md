@@ -405,6 +405,7 @@ when you add a test.
 | `c_abi_narrow` | narrow integer params and results across `extern` (+ `.c`): `signext`/`zeroext`, callbacks and C calling Eskiu |
 | `va_list_c` | a `va_list` handed to `vprintf`/`vsnprintf`, also through an Eskiu `va_list` param |
 | `volatile_access` | volatile loads/stores through a volatile local or global (`*p`, `p[i]`, `p.f`, `++`, `+=`); IR count checked |
+| `run_cmd/net_timeval` | `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size: `{i32, i32}` and optlen 8 on 32-bit ARM, `{i64, i64}` and 16 on x86-64 (it was always 16 bytes); IR checked by `run.sh` per target |
 | `inline_asm_ext` | extended inline asm with inputs and a clobber (AArch64 and x86-64 spellings) |
 | `async_arm_locals` | an async fn declaring locals in `match` arms and `try`/`catch`/`finally` bodies |
 | `async_closure_param` | an async fn's closure param outlives the caller (heap env), awaited after the caller returned |

@@ -207,9 +207,9 @@ int net_would_block() {
 // ── Socket timeouts ──────────────────────────────────────────────────────────
 // SO_RCVTIMEO / SO_SNDTIMEO bound how long a blocking recv / send on `fd` waits
 // (`ms` milliseconds; 0 waits forever). A recv or send that runs out returns -1
-// with net_would_block() == 1. POSIX takes a struct timeval (64-bit fields on
-// 64-bit macOS and Linux: the low half of tv_usec is macOS's int), Winsock a
-// DWORD of milliseconds.
+// with net_would_block() == 1. POSIX takes a struct timeval of two C `long`s
+// (_net_long: 64-bit on 64-bit macOS and Linux, where the low half of tv_usec is
+// macOS's int; 32-bit on 32-bit ARM and x86), Winsock a DWORD of milliseconds.
 #ifdef __linux__
 #define _NET_SO_SNDTIMEO 21
 #define _NET_SO_RCVTIMEO 20
@@ -218,9 +218,16 @@ int net_would_block() {
 #define _NET_SO_RCVTIMEO 4102
 #endif
 
+// The target's C `long` (LP64 on the 64-bit Unix targets, ILP32 on 32-bit).
+#if defined(__aarch64__) || defined(__x86_64__)
+type _net_long = int64;
+#else
+type _net_long = int32;
+#endif
+
 struct _net_timeval {
-    int64 tv_sec;
-    int64 tv_usec;
+    _net_long tv_sec;
+    _net_long tv_usec;
 }
 
 int _net_set_timeo(int fd, int opt, int64 ms) {
@@ -230,9 +237,9 @@ int _net_set_timeo(int fd, int opt, int64 ms) {
     return setsockopt(fd, SOL_SOCKET, opt, (*void)&w, 4);
 #else
     let tv: _net_timeval;
-    tv.tv_sec = ms / 1000;
-    tv.tv_usec = (ms % 1000) * 1000;
-    return setsockopt(fd, SOL_SOCKET, opt, (*void)&tv, 16);
+    tv.tv_sec = (_net_long)(ms / 1000);
+    tv.tv_usec = (_net_long)((ms % 1000) * 1000);
+    return setsockopt(fd, SOL_SOCKET, opt, (*void)&tv, (int)sizeof(_net_timeval));
 #endif
 }
 

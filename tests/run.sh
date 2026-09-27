@@ -271,6 +271,16 @@ vb_n="$("$ESKIUC" --test-codegen "$here/volatile_bitfield.esk" 2>/dev/null | gre
 if [[ "$vb_n" -eq 12 ]]; then ok "codegen/volatile-bitfield"
 else bad "codegen/volatile-bitfield" "$vb_n volatile i16 accesses in the IR, expected 12"; fi
 
+# <net>'s struct timeval is two C `long`s: 8 bytes on 32-bit ARM, 16 on 64-bit.
+tv_arm="$("$ESKIUC" --target armv7-unknown-linux-gnueabihf --test-codegen "$here/run_cmd/net_timeval.esk" 2>/dev/null)"
+tv_x64="$("$ESKIUC" --target x86_64-unknown-linux-gnu --test-codegen "$here/run_cmd/net_timeval.esk" 2>/dev/null)"
+if [[ "$tv_arm" == *"%_net_timeval = type { i32, i32 }"* && "$tv_arm" == *"ptr %tv, i32 8)"* \
+   && "$tv_x64" == *"%_net_timeval = type { i64, i64 }"* && "$tv_x64" == *"ptr %tv, i32 16)"* ]]; then
+    ok "codegen/net-timeval-width"
+else
+    bad "codegen/net-timeval-width" "timeval layout or optlen wrong for armv7 or x86-64"
+fi
+
 # An await inside a larger expression is an error located at the await.
 aw_out="$("$ESKIUC" "$here/run_cmd/await_in_expr.esk" -o "$work/await_in_expr" 2>&1)"
 if [[ "$aw_out" == *"await_in_expr.esk:7:10: async function 'worker': 'await' is only supported"* ]]; then
