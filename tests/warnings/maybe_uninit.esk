@@ -1,0 +1,116 @@
+// EXPECT-WARNING: 'a' may be used uninitialized
+// EXPECT-WARNING: 'b' may be used uninitialized
+// EXPECT-WARNING: 'c' may be used uninitialized
+// EXPECT-WARNING: 'd' may be used uninitialized
+// EXPECT-WARNING: 'e' may be used uninitialized
+// EXPECT-WARNING: 'g' may be used uninitialized
+// EXPECT-WARNING: 'h' may be used uninitialized
+// EXPECT-WARNING: 'k' may be used uninitialized
+// EXPECT-WARNING: 'm' may be used uninitialized
+// EXPECT-WARNING: 'n' may be used uninitialized
+// EXPECT-WARNING: 'p' may be used uninitialized
+// EXPECT-WARNING: 'q' may be used uninitialized
+// -Wall: a scalar local read where some path has not assigned it (a read with no
+// assignment on any path in the straight-line prefix is an error instead).
+extern int printf(string f, ...);
+enum Opt { Some(int), None }
+int work(int v) { return v; }
+
+int if_no_else(int c) {
+    int a;
+    if (c > 0) a = 1;
+    return a;
+}
+
+int else_if_missing(int c) {
+    int b;
+    if (c == 0) b = 1;
+    else if (c == 1) b = 2;
+    return b;
+}
+
+int loop_may_skip(int n) {
+    int c;
+    for (int i = 0; i < n; i++) c = i;
+    return c;
+}
+
+int switch_no_default(int k) {
+    int d;
+    switch (k) {
+        case 0: d = 1; break;
+        case 1: d = 2; break;
+    }
+    return d;
+}
+
+int switch_missing_case(int k) {
+    int e;
+    switch (k) {
+        case 0: e = 1; break;
+        case 1: break;
+        default: e = 3;
+    }
+    return e;
+}
+
+int match_one_arm(Opt o) {
+    int g;
+    match o {
+        Some(v) -> g = v;
+        None -> printf("none\n");
+    }
+    return g;
+}
+
+int catch_path(int v) {
+    int h;
+    try { h = work(v); } catch (string s) { printf("%s\n", s); }
+    return h;
+}
+
+int break_early(int n) {
+    int k;
+    while (n > 0) {
+        if (n == 3) break;
+        k = n;
+        n--;
+    }
+    return k;
+}
+
+int defer_reads(int c) {
+    int m;
+    defer printf("%d\n", m);
+    if (c > 0) return 0;
+    m = 1;
+    return m;
+}
+
+int lambda_capture(int c) {
+    int n;
+    if (c > 0) n = 1;
+    let f: fn()->int = int() { return n; };
+    return f();
+}
+
+int ternary_arm(bool c) {
+    int p;
+    int r = c ? (p = 1) : 2;
+    return r + p;
+}
+
+int short_circuit(int c) {
+    int q;
+    if (c > 0 && (q = work(c)) > 0) return 1;
+    return q;
+}
+
+int main() {
+    let o: Opt = Some(1);
+    printf("%d\n", if_no_else(1) + else_if_missing(0) + loop_may_skip(1) +
+                   switch_no_default(0) + switch_missing_case(0) + match_one_arm(o) +
+                   catch_path(1) + break_early(1) + defer_reads(0) + lambda_capture(1) +
+                   ternary_arm(true) + short_circuit(1));
+    return 0;
+}
