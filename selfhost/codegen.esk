@@ -4706,6 +4706,39 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         // a local or global of that name shadows the variant.
         if (e.a != null && e.a.kind == EK_IDENT && cg_find_local(g, e.a.sval).slot[0] == 0
             && cg_find_global(g, e.a.sval).slot[0] == 0) {
+            // A bare generic variant (`Some(v)`, in a generic body too): each type parameter
+            // is the type of the argument whose payload slot is that parameter (C++
+            // visit(CallExpr)), so every instance builds its own enum instance.
+            CgVariant gvar = cg_find_gvariant(g, e.a.sval);
+            *DeclNode gen = null;
+            if (gvar.ename[0] != 0) { gen = cg_find_genum(g, gvar.ename); }
+            if (gen != null) {
+                String sp; String_init(&sp, 16);
+                String_append(&sp, gvar.ename); String_append(&sp, "<");
+                int ti = 0; int found = 0;
+                while (ti < List_len<TypeParam>(&gen.type_params)) {
+                    string tp = List_get<TypeParam>(&gen.type_params, ti).name;
+                    string at = "int";
+                    int pi = 0;
+                    while (pi < List_len<string>(&gvar.ptys) && pi < List_len<*ExprNode>(&e.kids)) {
+                        if (cg_streq(List_get<string>(&gvar.ptys, pi), tp) == 1) {
+                            at = cg_apply_sub(g, cg_etype(g, List_get<*ExprNode>(&e.kids, pi)));
+                            found = 1;
+                            break;
+                        }
+                        pi = pi + 1;
+                    }
+                    if (ti > 0) { String_append(&sp, ", "); }
+                    String_append(&sp, at);
+                    ti = ti + 1;
+                }
+                String_append(&sp, ">");
+                if (found == 1) {
+                    string menum = cg_ensure_enum_inst(g, (string)String_cstr(&sp));
+                    CgVariant cv = cg_find_variant_in(g, e.a.sval, menum);
+                    if (cv.ename[0] != 0) { return cg_build_variant(g, cv, e); }
+                }
+            }
             CgVariant var = cg_find_variant(g, e.a.sval);
             if (var.ename[0] != 0) { return cg_build_variant(g, var, e); }
         }
