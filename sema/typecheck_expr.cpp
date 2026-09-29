@@ -159,7 +159,10 @@ void TypeChecker::visit(BinaryExpr* node) {
             b->right->accept(this);
             undoNarrowings(inserted);
         } else {
-            if (b->op == "=") hintIfaceTarget(b->right.get(), getExpressionType(b->left.get()));
+            if (b->op == "=") {
+                hintIfaceTarget(b->right.get(), getExpressionType(b->left.get()));
+                inferVariantTarget(b->right, getExpressionType(b->left.get()));
+            }
             b->right->accept(this);
         }
         finishBinary(b);
@@ -335,6 +338,45 @@ static std::string literalArmType(Expr* e, const std::string& t) {
         // Above INT64_MAX: only an unsigned 64-bit type holds it.
         return "uint64";
     }
+}
+
+// A generic variant built where a known instance of its enum is expected (`Opt<int64> a =
+// Some(5)`, `return None;`, an argument, an assignment) takes that instance's type
+// arguments: the node is rewritten to the explicit form (`Some<int64>(5)`, `None<int>()`),
+// which codegen lowers as written. A `?:` passes the target to both arms. Skipped in a
+// generic instance, whose body is shared by every instance.
+void TypeChecker::inferVariantTarget(ExprPtr& e, const std::string& target) {
+    if (!e || inInstance || target.empty() || target == "unknown") return;
+    if (auto* t = dynamic_cast<TernaryExpr*>(e.get())) {
+        inferVariantTarget(t->thenExpr, target);
+        inferVariantTarget(t->elseExpr, target);
+        return;
+    }
+    std::string name;
+    std::vector<ExprPtr> args;
+    auto* call = dynamic_cast<CallExpr*>(e.get());
+    if (call) {
+        auto* cid = dynamic_cast<IdentExpr*>(call->callee.get());
+        if (!cid) return;
+        name = cid->name;
+        args = call->args;
+    } else if (auto* id = dynamic_cast<IdentExpr*>(e.get())) {
+        name = id->name;
+    } else {
+        return;
+    }
+    auto gv = genericVariants.find(name);
+    if (gv == genericVariants.end() || !lookupSymbol(name).empty()) return;
+    std::string n = normalizeType(tyq::strip(target));
+    if (!n.empty() && n[0] == '?') return;
+    auto ia = templateInstanceArgs.find(n);
+    if (ia == templateInstanceArgs.end() || ia->second.first != gv->second.first) return;
+    auto ge = genericEnumDecls.find(gv->second.first);
+    if (ge == genericEnumDecls.end() || ia->second.second.size() != ge->second->typeParams.size()) return;
+    auto tc = std::make_shared<TemplateCallExpr>(name, ia->second.second, std::move(args));
+    tc->line = e->line;
+    tc->col = e->col;
+    e = tc;
 }
 
 void TypeChecker::hintIfaceTarget(Expr* e, const std::string& target) {
@@ -729,8 +771,10 @@ void TypeChecker::visit(CallExpr* node) {
     if (auto* cid = dynamic_cast<IdentExpr*>(node->callee.get()); cid && lookupSymbol(cid->name).empty()) {
         auto sig = functionSignatures.find(cid->name);
         if (sig != functionSignatures.end())
-            for (size_t i = 0; i < node->args.size() && i < sig->second.second.size(); ++i)
+            for (size_t i = 0; i < node->args.size() && i < sig->second.second.size(); ++i) {
                 hintIfaceTarget(node->args[i].get(), sig->second.second[i]);
+                if (!funcTemplateDecls.count(cid->name)) inferVariantTarget(node->args[i], sig->second.second[i]);
+            }
     }
     // Variadic access builtins: va_start(ap) / va_end(ap) — void.
     if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {

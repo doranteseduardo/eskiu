@@ -1,0 +1,8 @@
+// EXPECT-ERROR: variant 'Some' argument 1 type mismatch
+// A variant that takes the expected instance's type arguments checks its payload
+// against them: a string is not an int64.
+enum Opt<T> { Some(T), None }
+int main() {
+    Opt<int64> a = Some("x");
+    return 0;
+}

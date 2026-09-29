@@ -3467,6 +3467,44 @@ string sema_flat_name(string t) {
     return (string)buf;
 }
 
+*DeclNode sema_variant_enum(Sema* s, string name);
+int sema_variant_index(*DeclNode d, string name);
+// A generic variant built where a known instance of its enum is expected (`Opt<int64> a =
+// Some(5)`, `return None;`, an argument, an assignment) takes that instance's type
+// arguments: the node becomes the explicit form (`Some<int64>(5)`, `None<int>()`), which
+// codegen lowers as written. A `?:` passes the target to both arms. Skipped in a generic
+// body (mirrors the C++ inferVariantTarget, which skips generic instances).
+void sema_infer_variant(Sema* s, *ExprNode x, string t) {
+    if (x == null || t == null || t[0] == 0 || s.in_inst == 1 || List_len<string>(&s.tparams) > 0) { return; }
+    if (x.kind == EK_TERNARY) {
+        sema_infer_variant(s, x.b, t);
+        if (List_len<*ExprNode>(&x.kids) > 0) { sema_infer_variant(s, List_get<*ExprNode>(&x.kids, 0), t); }
+        return;
+    }
+    string name = "";
+    if (x.kind == EK_CALL && x.a != null && x.a.kind == EK_IDENT) { name = x.a.sval; }
+    else if (x.kind == EK_IDENT) { name = x.sval; }
+    else { return; }
+    if (sema_sym_depth(s, name) > 0) { return; }
+    *DeclNode ve = sema_variant_enum(s, name);
+    if (ve == null || List_len<TypeParam>(&ve.type_params) == 0 || sema_variant_index(ve, name) < 0) { return; }
+    string c = sema_canon(s, t);
+    if (c[0] == 0 || (int)c[0] == 63 || sema_has_lt(c) == 0 || sema_streq(sema_base_name(c), ve.name) == 0) { return; }
+    List<string> targs; List_init<string>(&targs, 2);
+    sema_parse_targs(c, &targs);
+    if (List_len<string>(&targs) != List_len<TypeParam>(&ve.type_params)) { return; }
+    string sig = sema_cat(name, "<");
+    int i = 0;
+    while (i < List_len<string>(&targs)) {
+        if (i > 0) { sig = sema_cat(sig, ","); }
+        sig = sema_cat(sig, List_get<string>(&targs, i));
+        i = i + 1;
+    }
+    sig = sema_cat(sig, ">");
+    if (x.kind == EK_IDENT) { List_init<*ExprNode>(&x.kids, 1); }
+    x.kind = EK_TEMPLATECALL; x.sval = sig; x.a = null;
+}
+
 // A `?:` whose value goes to an interface (a declaration, assignment, return or argument):
 // each arm boxes into the interface on its own, so the arms may point at different
 // conforming structs (mirrors the C++ ifaceTargetHint).
@@ -4405,6 +4443,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_streq(e.sval, "=") == 1 && e.a != null) {
             string alt = sema_infer_type(s, e.a);
             if (e.a.kind == EK_IDENT) { alt = sema_lookup_type(s, e.a.sval); }   // declared type, even if narrowed
+            sema_infer_variant(s, e.b, alt);
             if (e.b != null && e.b.kind == EK_ARRAYLIT) {
                 // A `{...}` literal is only an initializer (mirrors the C++ assignability).
                 s.had_error = 1;
@@ -4427,7 +4466,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         if (sema_is_assign(e.sval) == 1) { sema_check_captured_write(s, e.a); }
         sema_expr(s, e.a);
-        if (sema_streq(e.sval, "=") == 1) { sema_hint_iface(s, e.b, sema_infer_type(s, e.a)); }
+        if (sema_streq(e.sval, "=") == 1) {
+            sema_hint_iface(s, e.b, sema_infer_type(s, e.a));
+        }
         sema_expr(s, e.b);
         // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
         // itself (`p = p + k`, `p += k`).
@@ -5081,6 +5122,17 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         int n = List_len<*ExprNode>(&e.kids);
         while (i < n) { sema_expr(s, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
         return;
+    }
+    if (k == EK_CALL && e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0) {
+        // A generic variant argument takes the parameter's instance (`get(Some(40))`).
+        *DeclNode vfd = sema_find_fndecl(s, e.a.sval);
+        if (vfd != null && List_len<TypeParam>(&vfd.type_params) == 0) {
+            int vi = 0;
+            while (vi < List_len<*ExprNode>(&e.kids) && vi < List_len<Param>(&vfd.params)) {
+                sema_infer_variant(s, List_get<*ExprNode>(&e.kids, vi), List_get<Param>(&vfd.params, vi).ty);
+                vi = vi + 1;
+            }
+        }
     }
     if (k == EK_CALL && e.a != null && e.a.kind == EK_IDENT && sema_local_bound(s, e.a.sval) == 0
         && sema_find_fndecl(s, e.a.sval) == null && sema_variant_enum(s, e.a.sval) != null) {
@@ -5778,6 +5830,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             s.lam_local = st.name;
         }
         sema_hint_iface(s, st.expr, st.type);
+        sema_infer_variant(s, st.expr, st.type);
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         s.lam_ret = "";
         s.lam_local = "";
@@ -5868,6 +5921,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             dprintf(2, "error: %s:%d:%d: 'return' is not allowed inside a finally block\n", s.filename, s.line, s.col);
         }
         sema_hint_iface(s, st.expr, s.cur_ret);
+        sema_infer_variant(s, st.expr, s.cur_ret);
         sema_expr(s, st.expr);
         if (st.expr != null && sema_streq(s.cur_ret, "void") == 1) {
             string rvt = sema_infer_type(s, st.expr);

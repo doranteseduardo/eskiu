@@ -275,6 +275,7 @@ private:
     // to different conforming structs. Keyed by the ternary; the value is the interface.
     std::map<const Expr*, std::string> ifaceTargetHint;
     void hintIfaceTarget(Expr* e, const std::string& target);
+    void inferVariantTarget(ExprPtr& e, const std::string& target);
     // Binary/unary/index nodes that resolved to a user `operator` (a call, for narrowing).
     std::set<const Expr*> operatorCallNodes;
     // Bumped by every call (dropGlobalNarrowings); visit(IfStmt) records whether its

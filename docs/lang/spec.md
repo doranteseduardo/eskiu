@@ -1710,22 +1710,25 @@ Shape a = Circle(2.0);          // construct; payload-free variants are bare (`U
 ```
 
 Algebraic enums may be **generic** and are monomorphized per instantiation, like
-template structs. The type arguments of a generic variant are inferred from the
-payload arguments when they determine them (`Some(42)` → `Option<int>`); otherwise
-(a payload-free variant like `None`, or one that under-determines the type like
-`Either`'s `Left`) write them explicitly. They are not inferred from the target
-type: a bare `None` is a compile error, and `Some(42)` is an `Option<int>` even where
-an `Option<int64>` is expected (write `Some<int64>(42)`):
+template structs. Where an instance of the variant's enum is expected (a declaration,
+an assignment, a `return`, or an argument of a non-generic function), the variant takes
+that instance's type arguments, and its payload is checked against them: `Option<int64>
+a = Some(42)` builds an `Option<int64>`, and a bare `None` or an under-determining
+`Left(7)` is accepted there. Elsewhere the type arguments are inferred from the payload
+arguments when they determine them (`Some(42)` → `Option<int>`); otherwise (a
+payload-free variant like `None`, or one that under-determines the type like `Either`'s
+`Left`) write them explicitly (`None<int>()`, `Left<int, string>(7)`). Inside a generic
+function the expected type is not used, so write the type arguments there too:
 
 ```eskiu
 enum Option<T>    { None, Some(T) }
 enum Either<A, B> { Left(A), Right(B) }
 
-Option<int> x = Some<int>(42);
-Option<int> y = None<int>();
-Either<int, string> e = Left<int, string>(7);
+Option<int64> x = Some(42);
+Option<int> y = None;
+Either<int, string> e = Left(7);
 
-match x { Some(v) -> printf("%d\n", v);  None -> printf("none\n"); }
+match x { Some(v) -> printf("%lld\n", v);  None -> printf("none\n"); }
 ```
 
 A `match` must be **exhaustive**: every variant must have an arm, or there must be

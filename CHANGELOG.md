@@ -922,6 +922,11 @@ input. What is still open is listed under Known issues.
   Type arguments are canonicalized before an instance is named, so both spellings share
   one monomorph in both compilers (`unbox<F>` no longer adds an `unbox_F`). Tests
   `alias_in_composite`, `errors/alias_in_composite_mismatch`.
+- A generic variant takes its type arguments from the expected type: in a declaration,
+  an assignment, a `return` and an argument of a non-generic function, `Some(5)` builds
+  the expected `Opt<int64>`, and a bare `None` or an under-determining `Left(4)` is
+  accepted (`Opt<int> n = None;`). The payload is checked against those arguments; the
+  explicit forms still work. Tests `variant_expected_type`, `errors/variant_expected_payload`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -973,8 +978,6 @@ without a diagnostic, except where the entry says so.
   assignment between them is rejected. Spell the target type.
 - A local read that is uninitialized on only some paths is accepted, as in C (the check
   only catches a read with no assignment on any path).
-- A generic variant infers its type arguments only from its payload
-  (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
 - A `#undef` line inside a multi-line string literal is read as a directive.
 - An `await` inside a `finally` or a `defer` is rejected (both run, without suspending,
   when a cancelled future is dropped), and so is one in a generic async function's
