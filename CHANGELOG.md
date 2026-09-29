@@ -906,6 +906,9 @@ input. What is still open is listed under Known issues.
 - An enum member value may use `?:`, `&&`, `||` and `!` (short-circuit, as in C) and a
   `const` whose initializer uses them. Tests `enum_value_logic`,
   `errors/enum_value_ternary_not_const`.
+- `null` converts to an interface value (`{null, null}`) in a declaration, an assignment, a
+  return, an argument and a field, and an interface value compares with `null` and is a
+  condition (`if (i)`, `!i`, `i && ...`). Tests `iface_null_value`, `errors/iface_compare_ptr`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -966,6 +969,8 @@ without a diagnostic, except where the entry says so.
   compound assignment; bind the awaited value to a local first.
 - There is no spelling for a pointer to a nullable pointer, and `null` does not convert
   to an interface value.
+- There is no spelling for a pointer to a nullable pointer, and inline `asm` has no output
+  operands.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
 - The self-hosted compiler type-checks deeply nested `?:` expressions in time quadratic

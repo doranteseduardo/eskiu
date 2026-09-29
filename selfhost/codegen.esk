@@ -1605,6 +1605,7 @@ CgVal cg_expr(Codegen* g, *ExprNode e);
 CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal l);
 CgVal cg_unary_apply(Codegen* g, *ExprNode e, CgVal operand);
 CgVal cg_cond_val(Codegen* g, CgVal c);
+CgVal cg_iface_data(Codegen* g, CgVal c);   // fwd: an interface value's data pointer
 CgVal cg_lval(Codegen* g, *ExprNode e);
 CgVal cg_addr(Codegen* g, *ExprNode e);   // fwd: address for a read (materializes an rvalue)
 string cg_etype(Codegen* g, *ExprNode e);
@@ -4061,7 +4062,7 @@ CgVal cg_unary_apply(Codegen* g, *ExprNode e, CgVal operand) {
         v.op = t; v.ty = a.ty; v.ety = a.ety; return v;   // keeps the (promoted) signedness
     }
     if (cg_streq(e.sval, "!") == 1) {                // logical not: (x == 0) -> i1
-        CgVal a = operand;
+        CgVal a = cg_iface_data(g, operand);
         string t = cg_tmp(g);
         if (cg_is_float(a.ty) == 1) {                  // !x on a float: x == 0.0
             cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fcmp oeq "); cg_emit(g, a.ty);
@@ -4162,6 +4163,11 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
         v.op = t; v.ty = "i1"; v.ety = "bool"; return v;
     }
     CgVal r = cg_expr(g, e.b);
+    // An interface value compares with `null` by its data pointer.
+    if ((cg_streq(e.sval, "==") == 1 || cg_streq(e.sval, "!=") == 1)
+        && (cg_streq(l.ty, "%iface_fat") == 1) != (cg_streq(r.ty, "%iface_fat") == 1)) {
+        l = cg_iface_data(g, l); r = cg_iface_data(g, r);
+    }
     // C integer promotions: an integer operand narrower than `int` (bool, char, int8/16,
     // uint8/16) becomes a signed `int` (extended by its own signedness) before any
     // arithmetic, bitwise, shift, or comparison. Mirrors CodeGen::isIntPromotingOp.
@@ -5765,7 +5771,8 @@ void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e) {
 CgVal cg_cond_val(Codegen* g, CgVal c);
 CgVal cg_cond(Codegen* g, *ExprNode e) { return cg_cond_val(g, cg_expr(g, e)); }
 // The truth value (i1) of an already evaluated operand.
-CgVal cg_cond_val(Codegen* g, CgVal c) {
+CgVal cg_cond_val(Codegen* g, CgVal c0) {
+    CgVal c = cg_iface_data(g, c0);
     if (cg_streq(c.ty, "i1") == 1) { return c; }
     string t = cg_tmp(g);
     if (cg_is_float(c.ty) == 1) {                          // float truthiness: une 0.0 (NaN is true)
@@ -5778,6 +5785,15 @@ CgVal cg_cond_val(Codegen* g, CgVal c) {
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = icmp ne "); cg_emit(g, c.ty);
     cg_emit(g, " "); cg_emit(g, c.op); cg_emit(g, ", "); cg_emit(g, zero); cg_emit(g, "\n");
     let r: CgVal; r.op = t; r.ty = "i1"; return r;
+}
+
+// An interface value `{data, vtable}` as its data pointer (null when the value is empty);
+// any other value unchanged.
+CgVal cg_iface_data(Codegen* g, CgVal c) {
+    if (cg_streq(c.ty, "%iface_fat") == 0) { return c; }
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = extractvalue %iface_fat "); cg_emit(g, c.op); cg_emit(g, ", 0\n");
+    let r: CgVal; r.op = t; r.ty = "ptr"; r.ety = "*void"; return r;
 }
 
 // The static type name of a thrown value, used for catch-clause strcmp matching.

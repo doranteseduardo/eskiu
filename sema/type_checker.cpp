@@ -838,6 +838,7 @@ void TypeChecker::warnAssignInCondition(Expr* cond) {
 bool TypeChecker::isConditionType(const std::string& type) {
     std::string n = normalizeType(type);   // a classic enum is its int value
     if (type == "unknown" || n == "bool" || isNumericType(type) || isNumericType(n)) return true;
+    if (interfaceDecls.count(n)) return true;   // an interface value: true when not null
     return isPointerType((!type.empty() && type[0] == '?') ? type.substr(1) : type);
 }
 

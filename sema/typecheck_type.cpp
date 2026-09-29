@@ -43,6 +43,10 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
             return "bool";                       // do not cascade a prior error
         if (l == "void" || r == "void") return "error";   // a void call has no value
         auto ptrish = [&](const std::string& t) { return isPointerType(t) || t == "null"; };
+        // An interface value compares with `null` (its data pointer is null or set).
+        if ((op == "==" || op == "!=") &&
+            ((interfaceDecls.count(l) && r == "null") || (l == "null" && interfaceDecls.count(r))))
+            return "bool";
         // Aggregates (structs, unions, sum types, interface values, arrays, slices,
         // closures) have no built-in comparison (only a user `operator ==`).
         if (isAggregateValue(l) || isAggregateValue(r)) return "error";
@@ -53,7 +57,7 @@ std::string TypeChecker::inferBinaryExprType(const std::string& leftIn, const st
     }
     if (op == "&&" || op == "||") {
         // The operands are truth values: a scalar (number, bool, pointer), not an aggregate.
-        if (isAggregateValue(normalizeType(leftType)) || isAggregateValue(normalizeType(rightType))) return "error";
+        if (!isTruthValue(normalizeType(leftType)) || !isTruthValue(normalizeType(rightType))) return "error";
         if (normalizeType(leftType) == "void" || normalizeType(rightType) == "void") return "error";
         return "bool";
     }
@@ -113,7 +117,7 @@ std::string TypeChecker::inferUnaryExprType(const std::string& op, const std::st
         // Logical not of a scalar (number, bool, pointer). A struct operand is not a
         // truth value: "error" here lets a user `operator !(V)` resolve instead.
         std::string n = normalizeType(operandType);
-        if (isAggregateValue(n) || isVoidValueType(n)) return "error";   // `!v()` of a void call
+        if (!isTruthValue(n) || isVoidValueType(n)) return "error";   // `!v()` of a void call
         return "bool";
     }
     if (op == "-" || op == "+") {
@@ -152,6 +156,12 @@ bool TypeChecker::isAggregateValue(const std::string& t) {
     if (pt.kind == ty::Type::Kind::Pointer || isPointerType(t)) return false;
     if (t.rfind("struct:", 0) == 0 || t.rfind("interface:", 0) == 0) return true;
     return adtEnums.count(t) || interfaceDecls.count(t);
+}
+
+// A (normalized) type usable as a truth value: a scalar, or an interface value (true when
+// it refers to something, false when it is null).
+bool TypeChecker::isTruthValue(const std::string& t) {
+    return !isAggregateValue(t) || interfaceDecls.count(t);
 }
 
 // Type validation
@@ -657,6 +667,7 @@ bool TypeChecker::isValidAssignment(const std::string& lhsType, const std::strin
     // must be an explicit cast. A literal small enough for the target is handled at
     // the call site (it stays valid), so this type-level rule can be strict.
     if (isNumericType(lhs) && isNumericType(rhs)) return !isNarrowingNumeric(lhs, rhs);
+    if (rhs == "null" && interfaceDecls.count(lhs)) return true;   // the empty interface value
     if (lhs == "null" || rhs == "null") return isPointerType(lhs) || isPointerType(rhs);
 
     // Function/closure types carry a fixed call ABI (which registers hold the

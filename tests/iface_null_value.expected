@@ -1,0 +1,14 @@
+a==null 1 a!=null 0
+a empty
+!a
+a==null 0 area 9
+a set
+after reset 1
+none 1
+pick 9 -1
+arg 7
+field 1
+field 1 9
+t 0
+ternary 1 2
+loop 1

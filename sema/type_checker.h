@@ -404,6 +404,7 @@ private:
     // like `Box<void>` holding one): "cannot have type 'void'".
     std::string voidTypeError(const std::string& type);
     bool isAggregateValue(const std::string& normalizedType);
+    bool isTruthValue(const std::string& normalizedType);
     std::set<std::string> unknownTypes;   // names already reported as unknown (no cascades)
     // A bitfield must have an integer type at least `bitWidth` bits wide.
     void checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f);

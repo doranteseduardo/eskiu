@@ -286,6 +286,12 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     if (!left || !right) {
         throw std::runtime_error("Binary expression operand evaluation failed");
     }
+    // An interface value compares with `null` by its data pointer.
+    if ((node->op == "==" || node->op == "!=") &&
+        left->getType()->isStructTy() != right->getType()->isStructTy()) {
+        if (left->getType()->isStructTy()) left = builder->CreateExtractValue(left, 0);
+        else right = builder->CreateExtractValue(right, 0);
+    }
 
     llvm::Value* result = nullptr;
 

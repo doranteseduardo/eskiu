@@ -192,6 +192,10 @@ llvm::Value* CodeGen::emitTruthy(llvm::Value* val) {
         return builder->CreateFCmpUNE(val, llvm::ConstantFP::get(t, 0.0));
     if (t->isPointerTy()) return builder->CreateIsNotNull(val);
     if (t->isIntegerTy()) return builder->CreateICmpNE(val, llvm::ConstantInt::get(t, 0));
+    // An interface value `{data, vtable}` is true when its data pointer is set.
+    if (auto* st = llvm::dyn_cast<llvm::StructType>(t);
+        st && st->getNumElements() == 2 && st->getElementType(0)->isPointerTy())
+        return builder->CreateIsNotNull(builder->CreateExtractValue(val, 0));
     throw std::runtime_error("value cannot be used as a condition");
 }
 

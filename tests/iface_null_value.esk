@@ -1,0 +1,44 @@
+// `null` converts to an interface value ({null, null}) in a declaration, an assignment,
+// a return and an argument, and an interface value compares with `null`.
+extern int printf(string fmt, ...);
+
+interface Shape { int area(); }
+struct Sq { int s; }
+int Sq_area(Sq* self) { return self.s * self.s; }
+
+struct Holder { Shape sh; }
+
+Shape none() { return null; }
+Shape pick(Sq* q, bool b) { if (b) { return q; } return null; }
+
+int area_or(Shape s, int d) {
+    if (s == null) { return d; }
+    return s.area();
+}
+
+int main() {
+    let q: Sq = Sq{ s: 3 };
+    Shape a = null;
+    printf("a==null %d a!=null %d\n", a == null, a != null);
+    if (a) { printf("a set\n"); } else { printf("a empty\n"); }
+    if (!a) { printf("!a\n"); }
+    a = &q;
+    printf("a==null %d area %d\n", a == null, a.area());
+    if (a) { printf("a set\n"); }
+    a = null;
+    printf("after reset %d\n", a == null);
+    printf("none %d\n", none() == null);
+    printf("pick %d %d\n", area_or(pick(&q, true), -1), area_or(pick(&q, false), -1));
+    printf("arg %d\n", area_or(null, 7));
+    Holder h = Holder{ sh: null };
+    printf("field %d\n", h.sh == null);
+    h.sh = &q;
+    printf("field %d %d\n", null != h.sh, h.sh.area());
+    bool t = a != null && a == null;
+    printf("t %d\n", t);
+    Shape m = t ? &q : null;
+    printf("ternary %d %d\n", m == null, m ? 1 : 2);
+    while (a) { a = null; }
+    printf("loop %d\n", a == null);
+    return 0;
+}

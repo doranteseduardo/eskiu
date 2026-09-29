@@ -76,7 +76,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          generic_dot_call_arg_type generic_dot_call_arg_count generic_dot_call_const generic_dot_call_in_generic
          call_global_nonfn unknown_global_type deref_non_pointer unary_struct string_arith struct_arith
          return_no_value assign_struct_to_int switch_case_location
-         nullable_to_ptr_arg nullable_to_ptr_return nullable_to_ptr_assign operator_void_result hex_literal_range hex_literal_range_wide literal_over_64_bits struct_lit_other_struct array_assign_size array_arg_size slice_to_ptr slice_elem_mismatch fn_value_null async_result_as_int await_result_mismatch iface_to_iface iface_null iface_method_ret_mismatch iface_from_int_ptr generic_explicit_arg_type generic_ret_mismatch const_ptr_ternary void_ptr_deref_value
+         nullable_to_ptr_arg nullable_to_ptr_return nullable_to_ptr_assign operator_void_result hex_literal_range hex_literal_range_wide literal_over_64_bits struct_lit_other_struct array_assign_size array_arg_size slice_to_ptr slice_elem_mismatch fn_value_null async_result_as_int await_result_mismatch iface_to_iface iface_method_ret_mismatch iface_from_int_ptr generic_explicit_arg_type generic_ret_mismatch const_ptr_ternary void_ptr_deref_value
          lambda_return_mismatch lambda_void_returns_value lambda_undefined_var lambda_const_capture_assign lambda_dangling_local lambda_dup_param lambda_question_non_result cond_fn_value cond_string cond_struct_while cond_enum_payload ternary_cond_struct fn_value_arith fn_value_deref bnot_float operator_unary_as_binary operator_index_assign operator_operand_order incdec_struct compare_union compare_enum_payload array_plus enum_payload_arith union_unknown_member
          match_payload_arity match_unknown_variant match_other_enum_variant match_binding_type match_arm_undefined_var match_dup_default variant_ctor_arity variant_ctor_type switch_dup_enum_value switch_on_struct catch_undefined_var
          array_lit_elem_type array_lit_elem_float index_negative_literal index_by_float index_by_string alias_array_index_oob method_on_int method_on_generic_prim member_of_array forin_over_int
@@ -99,7 +99,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          index_oob_sizeof_struct switch_dup_sizeof_ptr const_div_zero_sizeof_expr
          enum_value_not_const enum_value_expr_range variant_nullary_parens type_nesting_too_deep
          switch_dup_sizeof_generic switch_dup_sizeof_adt switch_dup_sizeof_bitfield switch_dup_sizeof_iface
-         asm_output_not_lvalue asm_output_constraint asm_output_const asm_output_struct asm_output_bool asm_output_bitfield asm_output_captured asm_input_output_constraint enum_value_ternary_not_const"
+         asm_output_not_lvalue asm_output_constraint asm_output_const asm_output_struct asm_output_bool asm_output_bitfield asm_output_captured asm_input_output_constraint enum_value_ternary_not_const iface_compare_ptr"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

@@ -1,3 +1,0 @@
-// EXPECT-ERROR: does not satisfy interface 'S'
-interface S { int a(); }
-int main() { S s = null; return 0; }

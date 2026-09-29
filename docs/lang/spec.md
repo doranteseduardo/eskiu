@@ -1220,7 +1220,7 @@ if (x > 0) {
 }
 ```
 
-The condition must evaluate to a `bool`, a number (non-zero is true; a float compares with `0.0`, so NaN is true) or a pointer, `string` and `?*T` included (non-null is true). A struct, array, slice, closure or interface value is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (`if (x > 0) n++; else n--;`), and it is its own scope (see §7.8 for what that means for `defer`).
+The condition must evaluate to a `bool`, a number (non-zero is true; a float compares with `0.0`, so NaN is true) or a pointer, `string` and `?*T` included (non-null is true). An interface value is true when it is not `null`. A struct, array, slice or closure is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (`if (x > 0) n++; else n--;`), and it is its own scope (see §7.8 for what that means for `defer`).
 
 ### 7.2 for
 
@@ -1840,7 +1840,7 @@ render(&c);   // &c is auto-boxed into a Drawable fat pointer
 
 The same boxing happens wherever an interface-typed slot receives a struct pointer: a local (`let d: Drawable = &c;`), an assignment, a struct field, and a `return` from a function declared to return the interface. The interface value is held by value, so it can be stored and returned freely; it keeps referring to the struct it was boxed from. Passing the struct itself (`render(c)`) is a compile error: an interface refers to a struct through a pointer, so write `&c`.
 
-An interface value always refers to a struct: `null` does not convert to an interface (there is no way to test an interface value for null, so a null one could only crash when called). A global or `static` interface is initialized with the address of a global struct (`Drawable d = &gc;`), a link-time constant.
+`null` converts to an interface, giving the empty value `{null, null}` (in a declaration, an assignment, a return, an argument or a field). An interface value compares with `null` (`d == null`, `d != null`) and is a condition that is true when it refers to a struct (`if (d)`, `!d`, `d && ...`); it compares with nothing else. Calling a method through an empty interface value crashes, so test it first. A global or `static` interface is initialized with `null` or the address of a global struct (`Drawable d = &gc;`), a link-time constant.
 
 ### 9.5 Implementation Detail: Fat Pointer
 

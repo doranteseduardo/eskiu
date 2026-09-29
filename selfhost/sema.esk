@@ -691,6 +691,18 @@ int sema_is_aggregate(Sema* s, string t0) {
     return 0;
 }
 
+*DeclNode sema_find_iface(Sema* s, string name);
+string sema_canon(Sema* s, string t0);
+// An interface value (not a pointer to one)? It is a truth value (true when not null) and
+// compares with `null` (mirrors the C++ isTruthValue).
+int sema_is_iface_val(Sema* s, string t0) {
+    if (t0 == null || t0[0] == 0) { return 0; }
+    string c = sema_canon(s, sema_strip_nullable(sema_strip_const(t0)));
+    if (sema_has_star(c) == 1) { return 0; }
+    if (sema_find_iface(s, c) != null) { return 1; }
+    return 0;
+}
+
 // A struct value (not a pointer to one, not an array of them)?
 int sema_is_struct_value(Sema* s, string t) {
     if (t[0] == 0 || sema_has_star(t) == 1 || sema_is_arr_ty(t) == 1) { return 0; }
@@ -2273,6 +2285,7 @@ string sema_assign_strict(Sema* s, string t0, string src0) {
     int sp = sema_c_ptr(cs);
     *DeclNode ifc = sema_find_iface(s, ct);
     if (sema_streq(cs, "null") == 1 && tp == 1) { return ""; }
+    if (sema_streq(cs, "null") == 1 && ifc != null) { return ""; }   // the empty interface value
     if (sema_is_fn_type(ct) == 1 || sema_is_fn_type(cs) == 1) {
         return sema_cat(sema_cat(sema_cat(sema_cat("incompatible function type '", src0), "' for '"), t0), "'");
     }
@@ -4040,6 +4053,10 @@ int sema_binop_verdict(Sema* s, string op, string lt0, string rt0) {
         int rp = sema_c_ptr(r); if (sema_streq(r, "null") == 1) { rp = 1; }
         if (sema_is_numeric_ty(l) == 1 && sema_is_numeric_ty(r) == 1) { return 1; }
         if (lp == 1 && rp == 1) { return 1; }
+        // An interface value compares with `null` (its data pointer is null or set).
+        if ((sema_streq(op, "==") == 1 || sema_streq(op, "!=") == 1)
+            && ((sema_is_iface_val(s, lt0) == 1 && sema_streq(r, "null") == 1)
+                || (sema_streq(l, "null") == 1 && sema_is_iface_val(s, rt0) == 1))) { return 1; }
         if (sema_is_aggregate(s, lt0) == 1 || sema_is_aggregate(s, rt0) == 1) { return 0; }   // no built-in == on aggregates
         if (sema_streq(l, r) == 1 && sema_is_agg(s, l) == 0) { return 1; }
         return 0;
@@ -4119,7 +4136,8 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
     }
     // `&&` / `||` take truth values (scalars), not aggregates.
     if ((sema_streq(e.sval, "&&") == 1 || sema_streq(e.sval, "||") == 1)
-        && (sema_is_aggregate(s, lt0) == 1 || sema_is_aggregate(s, rt0) == 1)) {
+        && ((sema_is_aggregate(s, lt0) == 1 && sema_is_iface_val(s, lt0) == 0)
+            || (sema_is_aggregate(s, rt0) == 1 && sema_is_iface_val(s, rt0) == 0))) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
     }
@@ -4455,7 +4473,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_narrow_undo(s, &fins);
         string cty = sema_infer_type(s, e.a);
         string ccn = sema_canon(s, cty);
-        if (sema_judgeable(s, ccn) == 1 && sema_is_numeric_ty(ccn) == 0 && sema_c_ptr(ccn) == 0) {
+        if (sema_judgeable(s, ccn) == 1 && sema_is_numeric_ty(ccn) == 0 && sema_c_ptr(ccn) == 0 && sema_is_iface_val(s, cty) == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: ternary condition must be a bool, integer, or pointer, got %s\n", s.filename, s.line, s.col, cty);
         }
@@ -4643,7 +4661,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (sema_streq(e.sval, "-") == 1 || sema_streq(e.sval, "+") == 1) { ok = sema_is_numeric_ty(uc); }
                 else if (sema_streq(e.sval, "~") == 1) { ok = sema_is_int_ty(uc); }
                 else if (sema_streq(e.sval, "*") == 1) { ok = sema_c_ptr(uc); }
-                else if (sema_streq(e.sval, "!") == 1 && (sema_is_aggregate(s, ut) == 1 || sema_is_void_value(uc) == 1)) { ok = 0; }
+                else if (sema_streq(e.sval, "!") == 1 && ((sema_is_aggregate(s, ut) == 1 && sema_is_iface_val(s, ut) == 0) || sema_is_void_value(uc) == 1)) { ok = 0; }
                 if (ok == 0 && sema_streq(e.sval, "*") == 0 && sema_streq(e.sval, "+") == 0) {
                     string uop = e.sval; if (sema_streq(uop, "-") == 1) { uop = "u-"; }
                     List<string> utys; List_init<string>(&utys, 1); List_push<string>(&utys, ut);
@@ -5534,7 +5552,7 @@ void sema_cond(Sema* s, *ExprNode c) {
     if (c == null) { return; }
     string ct = sema_infer_type(s, c);
     string cc = sema_canon(s, ct);
-    if (sema_judgeable(s, cc) == 1 && sema_is_numeric_ty(cc) == 0 && sema_c_ptr(cc) == 0) {
+    if (sema_judgeable(s, cc) == 1 && sema_is_numeric_ty(cc) == 0 && sema_c_ptr(cc) == 0 && sema_is_iface_val(s, ct) == 0) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: condition must be boolean, numeric, or a pointer, got %s\n", s.filename, s.line, s.col, ct);
     }
