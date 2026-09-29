@@ -409,6 +409,7 @@ public:
     struct Arm {
         std::string variant;                 // variant name, or "" for the `_` default
         std::vector<std::string> bindings;   // payload binding names (for this variant)
+        std::vector<std::string> bindingTypes;   // stamped by the type checker (the async lowering's frame fields)
         StmtPtr body;
     };
     ExprPtr subject;

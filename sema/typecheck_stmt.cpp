@@ -580,9 +580,14 @@ void TypeChecker::visit(MatchStmt* node) {
                 for (const auto& b : arm.bindings)
                     if (b != "_" && !bound.insert(b).second)
                         errorAt(node, "duplicate binding '" + b + "' in match arm '" + arm.variant + "'");
-                for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i)
-                    defineSymbol(arm.bindings[i], normalizeType(substType(payload[i], subs)),
-                                 node->line, node->col, /*isParam=*/false);
+                // The async lowering keeps a binding that lives across an await in a frame
+                // field of this type (a generic body's nodes are shared: not stamped).
+                if (!inInstance) arm.bindingTypes.clear();
+                for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i) {
+                    std::string bt = normalizeType(substType(payload[i], subs));
+                    defineSymbol(arm.bindings[i], bt, node->line, node->col, /*isParam=*/false);
+                    if (!inInstance) arm.bindingTypes.push_back(bt);
+                }
             }
         }
         if (arm.body) arm.body->accept(this);

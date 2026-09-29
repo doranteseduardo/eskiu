@@ -275,6 +275,7 @@ struct ExprNode {
     int ids_done;          // EK_LAMBDA: ids_memo is filled
     string cg_ety;         // EK_MEMBER: codegen's type of this member, valid while cg_stamp is active
     int cg_stamp;
+    string aty;            // in an async function: the type sema inferred (the async lowering types its temporaries by it)
     int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
     int col;
 }
@@ -291,11 +292,12 @@ struct StmtNode {
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
     int is_vol;            // SK_VARDECL: `volatile` (its loads/stores, and those through it, are volatile)
-    int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
+    int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer; SK_TRY: an async lowering wrapper whose finally runs only on unwinding
     int is_range;          // SK_VARDECL: a `for (i in A..B)` desugar decl; sema retypes it to the bounds' common integer type
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
     string resolved_iter;  // SK_FORIN: the iterable's type stamped by sema (the async lowering holds a non-place iterable in a local)
     string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
+    string arm_types;      // SK_ARM: its payload bindings' types, ';'-separated, stamped by sema (null = not stamped)
     int line;              // source position for diagnostics (0 = unknown)
     int col;
 }

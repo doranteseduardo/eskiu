@@ -3990,6 +3990,7 @@ void sema_expr(Sema* s, *ExprNode e) {
     int pl = s.line; int pc = s.col;
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
+    if (s.in_async == 1) { e.aty = sema_infer_type(s, e); }   // the async lowering's temporaries
     // The callee may assign any global: a global's narrowing ends after the call.
     // alloc_with calls the allocator's method and thread_create starts code that may run
     // at once, so they end it too.
@@ -6256,12 +6257,16 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             }
         }
         int bi = 0;
+        string ats = "";                   // the binding types, for the async lowering
         while (bi < List_len<string>(&binds)) {
             string bt = "";
             if (bi < List_len<string>(&fts)) { bt = List_get<string>(&fts, bi); }
             sema_define(s, List_get<string>(&binds, bi), bt, 0);
+            if (bi > 0) { ats = sema_cat(ats, ";"); }
+            ats = sema_cat(ats, bt);
             bi = bi + 1;
         }
+        st.arm_types = ats;
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;
