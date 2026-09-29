@@ -897,6 +897,17 @@ input. What is still open is listed under Known issues.
   or MS rules, per target) and a struct holding an interface value folds in the type
   checker, so a duplicate `case sizeof(T):` is a located error instead of an LLVM or
   clang failure. Tests `sizeof_case_layouts`, `errors/switch_dup_sizeof_{generic,adt,bitfield,iface}`.
+- `await` works in any position of an `async` function, in both compilers: inside a
+  `try` body and a `catch` handler (an exception thrown before or after a suspension
+  reaches the right handler; `finally` runs exactly once on every exit), a `match` arm, a
+  `switch` subject, a `for-in` iterable, a range bound, a compound assignment (its target
+  evaluated once, before the await), a condition, a call argument and any larger
+  expression (operands with side effects keep their order; `&&`, `||` and `?:` evaluate
+  an awaiting operand only when it runs). This replaces the located errors added earlier
+  in this release. A future dropped while suspended now runs the `defer`s and `finally`
+  blocks pending at its await once. An `await` in a `finally` is a located error. Tests
+  `async_try`, `async_try_cancel`, `async_await_positions`, `async_await_edges`,
+  `async_generic_try`, `errors/await_in_finally`, `run_cmd/await_in_defer`, `run_cmd/await_in_generic_match`.
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.
@@ -907,8 +918,10 @@ without a diagnostic, except where the entry says so.
 - A generic variant infers its type arguments only from its payload
   (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
 - A `#undef` line inside a multi-line string literal is read as a directive.
-- `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a
-  compound assignment; bind the awaited value to a local first.
+- An `await` inside a `finally` or a `defer` is rejected (both run, without suspending,
+  when a cancelled future is dropped), and so is one in a generic async function's
+  `match` arm that binds a payload, after a side-effecting operand or inside a `?:` arm;
+  bind the value to a local first.
 - There is no spelling for a pointer to a nullable pointer, inline `asm` has no output
   operands, and `null` does not convert to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.

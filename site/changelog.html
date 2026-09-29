@@ -1012,6 +1012,17 @@ input. What is still open is listed under Known issues.</p>
   or MS rules, per target) and a struct holding an interface value folds in the type
   checker, so a duplicate <code>case sizeof(T):</code> is a located error instead of an LLVM or
   clang failure. Tests <code>sizeof_case_layouts</code>, <code>errors/switch_dup_sizeof_{generic,adt,bitfield,iface}</code>.</li>
+<li><code>await</code> works in any position of an <code>async</code> function, in both compilers: inside a
+  <code>try</code> body and a <code>catch</code> handler (an exception thrown before or after a suspension
+  reaches the right handler; <code>finally</code> runs exactly once on every exit), a <code>match</code> arm, a
+  <code>switch</code> subject, a <code>for-in</code> iterable, a range bound, a compound assignment (its target
+  evaluated once, before the await), a condition, a call argument and any larger
+  expression (operands with side effects keep their order; <code>&amp;&amp;</code>, <code>||</code> and <code>?:</code> evaluate
+  an awaiting operand only when it runs). This replaces the located errors added earlier
+  in this release. A future dropped while suspended now runs the <code>defer</code>s and <code>finally</code>
+  blocks pending at its await once. An <code>await</code> in a <code>finally</code> is a located error. Tests
+  <code>async_try</code>, <code>async_try_cancel</code>, <code>async_await_positions</code>, <code>async_await_edges</code>,
+  <code>async_generic_try</code>, <code>errors/await_in_finally</code>, <code>run_cmd/await_in_defer</code>, <code>run_cmd/await_in_generic_match</code>.</li>
 </ul>
 <h3 id="known-issues">Known issues</h3>
 <p>These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
@@ -1025,8 +1036,10 @@ without a diagnostic, except where the entry says so.</p>
 <li>A generic variant infers its type arguments only from its payload
   (<code>Opt&lt;int64&gt; a = Some(5)</code> needs <code>Some&lt;int64&gt;(5)</code>); write the type arguments.</li>
 <li>A <code>#undef</code> line inside a multi-line string literal is read as a directive.</li>
-<li><code>await</code> is rejected inside <code>try</code>, a <code>match</code> arm, a <code>switch</code> subject, a range bound and a
-  compound assignment; bind the awaited value to a local first.</li>
+<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected (both run, without suspending,
+  when a cancelled future is dropped), and so is one in a generic async function's
+  <code>match</code> arm that binds a payload, after a side-effecting operand or inside a <code>?:</code> arm;
+  bind the value to a local first.</li>
 <li>There is no spelling for a pointer to a nullable pointer, inline <code>asm</code> has no output
   operands, and <code>null</code> does not convert to an interface value.</li>
 <li>A method that mutates a captured value inside a lambda acts on the closure's copy.</li>

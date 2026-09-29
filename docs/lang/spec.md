@@ -1072,14 +1072,36 @@ thread_join(t);
 ### 6.8 Async Functions and `await`
 
 An `async` function lowers to a resumable state machine and executes over the
-`<eventloop>`/`<executor>` runtime. Single and multiple awaits, `return await`,
-`x = await E`, `async void`, and every control-flow construct containing an await
-(`if`/`while`/C-style `for`/`switch`/`for-in`, with `break`/`continue`) are
-supported; a pending future is cancelled with `future_drop`. An `await` inside a `try`
-statement (its body, a `catch` or the `finally`) is a compile error, as are labeled
-`break`/`continue`, an `await` inside a `defer`, and an `await` in a `switch` subject, a
-`for-in` iterable or a range bound (`for (i in 0..await n())`): bind the value first with
-`let v = await ...;`.
+`<eventloop>`/`<executor>` runtime. Single and multiple awaits, `async void`, and every
+control-flow construct containing an await (`if`/`while`/`do`-`while`/C-style
+`for`/`switch`/`match`/`for-in`, with `break`/`continue`, and `try`/`catch`) are
+supported; a pending future is cancelled with `future_drop`.
+
+An `await` may appear anywhere in an expression: a `let` initializer, a `return` value,
+an assignment or compound assignment (`x += await f();`), a call argument, an operand
+(`a + await f()`), a condition (`while (await more())`), a `switch` or `match` subject, a
+`for-in` iterable and a range bound (`for (i in 0..await n())`). Evaluation keeps the
+order of the synchronous expression: an operand with a side effect written before the
+await is evaluated before it, an assignment target (`a[i()] += await f()`) is evaluated
+once, before the await, and an await in the right operand of `&&`/`||` or in an arm of
+`?:` runs only when that operand is evaluated. A switch subject, a `for-in` iterable and
+a range bound are evaluated once, before the statement; a loop condition or step is
+evaluated on every pass.
+
+Inside `try` an await may sit in the body and in a `catch` handler. An exception thrown
+before or after a suspension is caught by the handler of the try it is thrown in, and
+the `finally` runs exactly once on every exit: normal completion, a caught or uncaught
+exception, an early `return`, `break` or `continue`, and cancellation. A future dropped
+while suspended runs the `finally` blocks and `defer`s pending at its await once,
+innermost first, before its frame is freed (a `defer` in a block split by an await runs
+at every exit of that block, as in a plain function).
+
+Rejected with a located error: an `await` inside a `finally` or a `defer` body (both run
+when a cancelled future is dropped, which cannot suspend), labeled `break`/`continue`,
+an `await` in a `sizeof` operand, an `asm` input or a `thread_join`, and in a generic
+async function an await in a `match` arm that binds a payload, or an await after an
+operand with a side effect or inside a `?:` arm (their types differ per instance). Bind
+the value first with `let v = await ...;`.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it

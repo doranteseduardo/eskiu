@@ -15,10 +15,12 @@ AST→state-machine transform (`sema/async_transform.cpp`). Supported: single an
 multiple `await` (fast path + suspend over real reactor reads, values threaded
 through frame fields across N+1 states), `return await`, bare `await`, `async
 void`, cancellation, and all control flow around `await` (`if`/`while`/C-style
-`for`/`do`-`while`/`switch`/`for-in`, with `break`/`continue`), with full closure-env
-ownership, leak-free under `leaks`. A `defer` in a block split by an await is kept
-by the transform and emitted at each exit of that block (fall-through, `return`,
-`break`/`continue`); an `await` inside a defer body is rejected. A lambda that
+`for`/`do`-`while`/`switch`/`match`/`for-in`/`try`-`catch`, with `break`/`continue`),
+with full closure-env ownership, leak-free under `leaks`. An await may sit anywhere in
+an expression: a desugar hoists each one, in evaluation order, into a `let` of its own
+(§4.5). A `defer` in a block split by an await is kept by the transform and emitted at
+each exit of that block (fall-through, `return`, `break`/`continue`); an `await` inside
+a defer body or a `finally` is rejected. A lambda that
 captures a frame-hoisted local gets a block-local copy (`T x = __fr.x;`, `__fr` being the frame pointer) at its
 creation point, so the capture is still a by-value snapshot. Combinators (`spawn`/`select2`/`join2`,
 generic + cast-free) and a `<timer>` leaf future for deadline-based timeouts build
@@ -64,9 +66,10 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
 
 - `select` / `join` combinators. Composable later on this shape; the v1 pieces they
   need, cancellation (to drop losers) and cross-thread completion, are present.
-- Cooperative cancellation that runs cleanup in a *suspended* coroutine (i.e.
-  `finally`-past-`await`). v1 drop frees the frame without resuming it (§7); the
-  forward path is a cancellation token, no contract change.
+- Cooperative cancellation (a coroutine that observes a cancel request and keeps
+  running, e.g. awaiting inside its cleanup). Drop runs the pending `defer`/`finally`
+  code synchronously and frees the frame (§7); the forward path is a cancellation
+  token, no contract change.
 - Work-stealing / load-balancing across executors. The executor abstraction allows
   it later; v1 uses fixed thread affinity.
 
@@ -169,8 +172,9 @@ else { F.on_drop(); }                        // PENDING/WAITING: release + casca
 ```
 
 - A **leaf** future's `on_drop` deregisters its fd/timer from the loop, frees itself.
-- A **coroutine** future's `on_drop` cascades: `if (frame.awaiting) future_drop(frame.awaiting);`
-  then frees the frame. The coroutine is **not** resumed (§7).
+- A **coroutine** future's `on_drop` cascades: `if (frame.awaiting) future_drop(frame.awaiting);`,
+  runs the `defer`/`finally` code pending at the await it is parked at (§7), and the
+  frame is freed. The coroutine does not continue past the await.
 
 ### 3.4 Arbitration (the one invariant)
 
@@ -265,6 +269,60 @@ arguments and the awaited type), choosing a spelling that reproduces every check
 instance. The self-host pass resolves it from the source directly (`al_await_type`). A
 generic async function that is never instantiated is left as is.
 
+### 4.5 Awaits inside expressions
+
+Before the state split, a desugar (`hoist` / self-host `al_hoist`) moves every await,
+in evaluation order, into a `let` of its own, so the lowering only ever sees
+`let x = await E;`:
+
+```eskiu
+x += g() + await f();      // let __sp = g(); let __aw = await f(); x += __sp + __aw;
+a[i()] = await f();        // let __sp = i(); let __aw = await f(); a[__sp] = __aw;
+ok = c() && await f();     // let __sc = false; if (c()) { let __aw = await f(); if (__aw) { __sc = true; } }
+while (await more()) B     // while (true) { let __aw = await more(); if (__aw) {} else break; B }
+```
+
+An operand written before an await is held in a temporary only when it has a side
+effect (a call, an assignment, `++`/`--`); the temporary's type is the one the type
+checker gave the operand (the C++ transform reads the checker's expression types and
+spells them as a declaration would, `declType`; the self-host sema stamps
+`ExprNode.aty` in async functions). An assignment target keeps its place and only the
+parts that compute it (an index, a pointer) are held, so it is evaluated once. `?:`
+with an awaiting arm needs its result type the same way. A `do`/`while` or `for` whose
+condition or step awaits becomes a `while (true)` whose first pass skips the test or
+the step, so `continue` still runs them. A `switch`/`match` subject, a `for-in` iterable
+and a range bound are hoisted before their statement (evaluated once). In a generic
+async function the per-instance types of those operands are not recorded, so a
+temporary for a side-effecting operand, a `?:` arm or a match arm's payload binding
+there is a located error.
+
+### 4.6 `match` and `try`
+
+A `match` whose arms await dispatches in the current state: each arm copies its
+payload bindings to frame fields (typed by the checker's stamp, `bindingTypes` /
+`arm_types`) and selects the arm's entry state.
+
+A `try` whose body or handlers await is split into states grouped in two regions (the
+body's and the handlers'). At the end of lowering, each state of a region is wrapped in
+a synthesized `try`:
+
+```
+try { <state> }
+catch (T x) { <defers pending in the region>; fr.e = x; fr.st = <handler state>; }
+finally-on-unwind { <defers pending in the region>; <the try's finally> }   // then rethrow
+```
+
+innermost region first, so an exception thrown before or after a suspension reaches
+the handler of the try it is thrown in whichever resume runs it. The `finally` of the
+synthesized try (`TryStmt::unwindOnly`, self-host SK_TRY `is_err = 1`) runs only when
+no catch matched. On the other exits the user's `finally` is kept like a `defer`:
+`emitExit` runs it on fall-through, `return`, `break` and `continue`, in a state
+outside the try's regions (an exception it throws is not caught by its own handlers),
+and publishes a completion outside every region. Each state of a region keeps a fixed
+set of pending defers (a `defer` registered inside one starts a new state), so the
+handler runs exactly the defers pending where the exception was thrown. An await inside
+a `finally` is rejected (§7).
+
 ---
 
 ## 5. Field walk: why `{state, waker, on_drop, value}` survives everything
@@ -334,11 +392,16 @@ combinators take part: an unresolved `select2`/`join2` (and `select2v`/`join2v`)
 `on_drop` that drops both inputs (a finished `join2` input is just freed), so a
 cancelled awaiter never leaves an input whose completion would wake freed memory.
 
-**Accepted v1 semantic:** dropping a *suspended* coroutine frees its frame **without
-resuming it**, so statements after the suspend point, including `finally` past an
-`await`, do not run (matches Rust async-drop). Guaranteed cleanup-on-cancel uses a
-cooperative **cancellation token** the coroutine checks (a normal threaded value, no
-contract change), a deliberate later feature.
+**Cleanup on drop:** dropping a *suspended* coroutine does not continue it past the
+await, but the `defer`s and `finally` blocks pending at that await run exactly once,
+innermost first, before the frame is freed (matches a scope exit by unwinding: Rust
+async-drop runs destructors the same way). The transform records, per await, the
+cleanup code pending there and emits it as a state of its own; `on_drop` cascades to
+the awaited future, then sets the resume state to that cleanup state and calls the
+resume function once. Because that runs inside `future_drop`, which cannot suspend, an
+`await` inside a `defer` or a `finally` is rejected. A coroutine that must keep running
+after a cancel request uses a cooperative **cancellation token** it checks (a normal
+threaded value, no contract change), a deliberate later feature.
 
 ---
 

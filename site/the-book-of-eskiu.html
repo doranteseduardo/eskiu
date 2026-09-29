@@ -2583,8 +2583,8 @@ pre.code-block {
    Box&lt;int&gt; are different types, so spell the target type.
  A generic variant infers its type arguments only from its payload:
    Opt&lt;int64&gt; a = Some(5) needs Some&lt;int64&gt;(5).
- await is rejected in a try, a match arm, a switch subject, a range bound and a compound
-   assignment (25.1); bind the value to a local first.
+ await is rejected inside a finally or a defer (25.1), and in a generic async function in
+   a match arm that binds a payload; bind the value to a local first.
  There is no spelling for a pointer to a nullable pointer, inline asm has no output
    operands, and null does not convert to an interface value.
  A method that mutates a captured value inside a lambda acts on the closure's copy.
@@ -2793,10 +2793,19 @@ pre.code-block {
        free_future&lt;int&gt;(r);
        return 0;
  }</pre>
-<p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread. Every control-flow form can contain an await: <code>if</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, <code>for</code>-in and <code>switch</code>. A <code>defer</code> in an async function runs when its block exits, even if the block awaited in between, and a lambda inside it can capture the function&#x27;s locals. Labeled <code>break</code>/<code>continue</code> is not supported inside an async function.</p>
-<p>Where the <code>await</code> sits within a statement is more limited. It must be the whole initializer of a <code>let</code>, the value of a <code>return</code>, or the right side of a plain assignment (<code>x = await f();</code>). The compiler rejects, with an error located at the <code>await</code>, one inside a <code>try</code> statement or a <code>match</code> arm, in a <code>switch</code> subject, a <code>for</code>-in iterable or a range bound (<code>for (i in 0..await f())</code>), in a compound assignment (<code>r += await f();</code>), and inside a larger expression or a condition. In each case the fix is to bind the value first:</p>
-<pre class="code-block"> int n = await produce();        // bind it
- for (i in 0..n) { total += i; } // then use it anywhere</pre>
+<p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread. Every control-flow form can contain an await: <code>if</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, <code>for</code>-in, <code>switch</code>, <code>match</code> and <code>try</code>/<code>catch</code>. A <code>defer</code> in an async function runs when its block exits, even if the block awaited in between, and a lambda inside it can capture the function&#x27;s locals. Labeled <code>break</code>/<code>continue</code> is not supported inside an async function.</p>
+<p>An <code>await</code> can sit anywhere in an expression: a <code>let</code> initializer, a <code>return</code>, an assignment or compound assignment (<code>r += await f();</code>), a call argument, an operand (<code>a + await f()</code>), a condition (<code>while (await more())</code>), a <code>switch</code> or <code>match</code> subject, a <code>for</code>-in iterable and a range bound (<code>for (i in 0..await f())</code>). The order of evaluation is the one the synchronous expression would have: a call written before the await runs before it, the target of <code>a[i()] += await f()</code> is computed once, before the await, and an await on the right of <code>&amp;&amp;</code> or <code>||</code>, or in an arm of <code>?:</code>, runs only when that operand does.</p>
+<p>Inside <code>try</code>, an await may sit in the body and in a <code>catch</code>. An exception thrown before or after the suspension goes to the handler of the try it was thrown in, and the <code>finally</code> runs exactly once however the try is left: normally, by an exception, by <code>return</code>, <code>break</code> or <code>continue</code>, or because the future was cancelled. A future dropped while it waits runs the <code>finally</code> blocks and <code>defer</code>s pending at its await before its memory is freed. Because that cleanup runs at once, it cannot wait: an <code>await</code> inside a <code>finally</code> or a <code>defer</code> is an error located at the <code>await</code>.</p>
+<pre class="code-block"> async int fetch(EventLoop* lp) {
+       try {
+           int n = await timer_after(lp, 10);
+           return n + check(await next_value(lp));  // check may throw
+       } catch (int code) {
+           return -code;
+       } finally {
+           printf("done\n");                        // once, on every exit
+       }
+ }</pre>
 <p>An async function can be generic. It is instantiated per type argument like any template, and each instance returns its own <code>Future</code>:</p>
 <pre class="code-block"> async T twice&lt;T&gt;(T v) {
        int n = await produce();
