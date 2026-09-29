@@ -460,7 +460,13 @@ private:
     // flags a read of a scalar local declared without an initializer and not yet
     // assigned (`int x; return x;`, calling an unassigned fn-pointer). Stops at the
     // first control-flow statement, so branchy code is never a false positive.
-    void checkUninitPrefix(class BlockStmt* body);
+    // Returns whether it reported an error.
+    bool checkUninitPrefix(class BlockStmt* body);
+    // -Wall: warn about a read of such a local that is uninitialized on some path
+    // (a path-sensitive dataflow; see typecheck_decl.cpp).
+    void warnMaybeUninit(class FunctionDecl* node);
+    bool isUninitScalar(const std::string& type);
+    std::set<std::string> maybeUninitWarned;
     bool isPrimitiveType(const std::string& type);
     bool isPointerType(const std::string& type);
     bool isConditionType(const std::string& type);
