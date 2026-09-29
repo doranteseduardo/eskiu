@@ -377,6 +377,7 @@ pre.code-block {
 <a href="#chapter-16" class="toc-ch">Chapter 16</a>
 <a href="#sec-16-1" class="toc-sec">16.1 Simple form</a>
 <a href="#sec-16-2" class="toc-sec">16.2 Extended form with inputs</a>
+<a href="#sec-16-2b" class="toc-sec">16.2b Output operands</a>
 <a href="#sec-16-3" class="toc-sec">16.3 volatile: a reminder</a>
 <a href="#chapter-17" class="toc-ch">Chapter 17</a>
 <a href="#sec-17-1" class="toc-sec">17.1 --target</a>
@@ -2157,6 +2158,25 @@ pre.code-block {
        int64 UART_DR = 0x09000000;
        asm(&quot;strb ${0:w}, [$1]&quot; :: &quot;r&quot;(c), &quot;r&quot;(UART_DR) : &quot;memory&quot;);
  }</pre>
+<h2 class="section" id="sec-16-2b">16.2b Output operands</h2>
+<p>An instruction that produces a value writes it to an output operand, listed before the inputs: <code>asm(&quot;op&quot; : outputs : inputs : clobbers)</code>. The constraints are the ones clang takes. <code>=r</code> writes a register that is then stored into the variable, <code>=&amp;r</code> is the same with an early clobber (the register is written before all inputs are read, so it never shares one with an input), <code>+r</code> reads the variable and writes it back, and <code>=m</code> and <code>+m</code> work on the variable&#x27;s memory directly. Operands are numbered as in clang, outputs first, so with one output <code>$0</code> is the output and <code>$1</code> the first input:</p>
+<pre class="code-block"> int64 a = 40;
+ int64 b = 2;
+ int64 sum;
+ int64 acc = 10;
+ int64 cell = 0;
+ #ifdef __aarch64__
+ asm(&quot;add $0, $1, $2&quot; : &quot;=r&quot;(sum) : &quot;r&quot;(a), &quot;r&quot;(b));
+ asm(&quot;add $0, $0, $1&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(a));
+ asm(&quot;str $1, $0&quot; : &quot;=m&quot;(cell) : &quot;r&quot;(b));
+ #else
+ asm(&quot;leaq ($1,$2), $0&quot; : &quot;=r&quot;(sum) : &quot;r&quot;(a), &quot;r&quot;(b));
+ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(a));
+ asm(&quot;movq $1, $0&quot; : &quot;=m&quot;(cell) : &quot;r&quot;(b));
+ #endif
+ printf(&quot;%lld %lld %lld\n&quot;, sum, acc, cell);        // 42 50 2</pre>
+<p class="output"><em>Output:</em> 42 50 2</p>
+<p>An <code>asm</code> may have several outputs. Each one must be something you could assign to (a variable, a field, an element or a dereference) of an integer type other than <code>bool</code>, a floating-point type or a pointer type, and it may not be a bitfield. A <code>const</code> or a literal there is a compile error, and so is an input constraint that starts with <code>=</code> or <code>+</code>, or an output constraint that does not.</p>
 <h2 class="section" id="sec-16-3">16.3 volatile: a reminder</h2>
 <p>Hardware registers accessed via inline assembly almost always need <code>volatile</code> (covered fully in section 6.9). Without it, the compiler may eliminate a store it considers redundant:</p>
 <pre class="code-block"> volatile let uart_dr: *uint8 = (uint8*) 0x09000000;
