@@ -1,0 +1,17 @@
+// `return null;` in a generic function instantiated with an interface type is the empty
+// interface value (the return converts to the instance's return type, T = Shape).
+extern int printf(string fmt, ...);
+interface Shape { int area(); }
+struct Sq { int s; }
+int Sq_area(*Sq self) { return self.s * self.s; }
+T dflt<T>(T x, int c) { if (c) return x; return null; }
+T pick<T>(T a, T b, bool first) { return first ? a : b; }
+int main() {
+    Sq q = Sq{ s: 3 };
+    Shape d = dflt<Shape>(&q, 0);
+    Shape e = dflt<Shape>(&q, 1);
+    printf("%d %d %d\n", d == null, e == null, e.area());
+    Shape f = pick<Shape>(&q, null, false);
+    printf("%d\n", f == null);
+    return 0;
+}

@@ -415,6 +415,9 @@ void CodeGen::visit(ReturnStmt* node) {
     if (currentFunction) {
         auto rit = funcEskiuReturnType.find(currentFunction->getName().str());
         if (rit != funcEskiuReturnType.end()) retEsk = rit->second;
+        // In a generic instance the declared return type names its type parameters
+        // (`T` with T = an interface: `return null;` is the empty interface value).
+        if (!retEsk.empty() && !typeParamOverride.empty()) retEsk = substType(retEsk, typeParamOverride);
     }
     if (currentSretParam != nullptr) {
         // sret function: store result to hidden pointer, return void
