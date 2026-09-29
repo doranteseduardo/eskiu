@@ -2311,6 +2311,7 @@ string i64_to_str(int64 n) {
     *DeclNode d = new_decl(DK_UNION);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected union name"));
     d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
+    if (g_cur_pack >= 1) { d.pack_align = g_cur_pack; if (g_cur_pack == 1) { d.is_packed = 1; } }
     p_expect(p, LBRACE, "Expected '{'");
     List_init<Param>(&d.params, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {

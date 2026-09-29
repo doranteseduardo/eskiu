@@ -792,8 +792,12 @@ void CodeGen::visit(UnionDecl* node) {
     // alignment, and the union is as aligned as that member. The storage is
     // `{ <most-aligned member>, [pad x i8] }` so LLVM gives it the C alignment
     // (a bare `[N x i8]` would be 1-aligned and pack wrongly inside a struct).
+    // Under `#pragma pack(N)` each member's alignment is capped at N, like a struct's
+    // fields; when that lowers the union's alignment the storage type is a packed LLVM
+    // struct whose C alignment is recorded in cAlignOverride.
     const llvm::DataLayout& DL = module->getDataLayout();
-    uint64_t maxSize = 0, maxAlign = 1;
+    uint64_t maxSize = 0, maxAlign = 1, natAlign = 1;
+    uint64_t cap = node->packAlign >= 1 ? (uint64_t)node->packAlign : 0;
     llvm::Type* anchor = nullptr;
     std::vector<llvm::Type*> memberTys;
     for (const auto& f : node->fields) {
@@ -801,6 +805,8 @@ void CodeGen::visit(UnionDecl* node) {
         memberTys.push_back(ft);
         uint64_t sz = DL.getTypeAllocSize(ft);
         uint64_t al = cAlignOf(ft);
+        natAlign = std::max(natAlign, al);
+        if (cap) al = std::min(al, cap);
         if (sz > maxSize) maxSize = sz;
         if (!anchor || al > maxAlign ||
             (al == maxAlign && sz > DL.getTypeAllocSize(anchor))) {
@@ -816,7 +822,8 @@ void CodeGen::visit(UnionDecl* node) {
         body.push_back(llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), total - used));
 
     std::string mangledName = node->name;
-    auto* namedTy = llvm::StructType::create(*context, body, mangledName + ".union");
+    auto* namedTy = llvm::StructType::create(*context, body, mangledName + ".union",
+                                             /*isPacked=*/maxAlign < natAlign);
     structTypes[mangledName] = namedTy;
     if (maxAlign > DL.getABITypeAlign(namedTy).value()) cAlignOverride[namedTy] = maxAlign;
     unionMemberTypes[namedTy] = memberTys;

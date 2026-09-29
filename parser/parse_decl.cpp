@@ -71,7 +71,9 @@ DeclPtr Parser::parseDeclaration() {
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
-            return withPos(std::make_shared<UnionDecl>(name, fields), unameTok);
+            auto ud = std::make_shared<UnionDecl>(name, fields);
+            ud->packAlign = currentPack;
+            return withPos(ud, unameTok);
         }
         if (match(TokenType::INTERFACE)) {
             Token inameTok = consume(TokenType::IDENT, "Expected interface name");

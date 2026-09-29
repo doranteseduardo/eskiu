@@ -193,6 +193,7 @@ public:
 class UnionDecl : public Decl {
 public:
     std::vector<StructDecl::Field> fields;
+    int packAlign = 0;                   // `#pragma pack(N)`: cap member alignment at N (0 = natural)
 
     UnionDecl(const std::string& name, const std::vector<StructDecl::Field>& fields)
         : Decl(name), fields(fields) {}

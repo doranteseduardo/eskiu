@@ -372,11 +372,10 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
             auto it = structs.find(nm);
             if (it == structs.end()) return false;
             const StructInfo& si = it->second;
-            // `#pragma pack(N>=2)`: each field aligned to min(its alignment, N), the size
-            // and the struct's own alignment the largest of those, as C (a union under
-            // pack(N) is left to codegen).
+            // `#pragma pack(N>=2)`: each field (a union's member) aligned to min(its
+            // alignment, N), the size and the struct's own alignment the largest of those,
+            // as C.
             unsigned long long packN = si.packAlign >= 2 ? (unsigned long long)si.packAlign : 0;
-            if (packN && si.isUnion) return false;
             if (std::any_of(si.fields.begin(), si.fields.end(), [](const StructDecl::Field& f) { return f.bitWidth != 0; }))
                 return !si.isUnion && bitfieldLayout(si, size, align, depth);
             unsigned long long off = 0, maxAl = 1;

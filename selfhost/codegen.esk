@@ -7314,10 +7314,16 @@ int cg_prog_defines(*Program prog, string name) {
 // Anchor choice mirrors the C++ codegen: highest alignment, ties to the larger member.
 void cg_emit_union(Codegen* g, *DeclNode d) {
     int maxsz = 0; int maxal = 1; string anchor = ""; int anchorsz = 0;
+    // Under `#pragma pack(N)` each member's alignment is capped at N; when that lowers the
+    // union's alignment the body is packed (`<{ }>`) with its C alignment recorded.
+    int cap = 0; int natal = 1;
+    if (d.is_packed == 1) { cap = 1; } else if (d.pack_align >= 2) { cap = d.pack_align; }
     int fi = 0;
     while (fi < List_len<Param>(&d.params)) {
         string ft = List_get<Param>(&d.params, fi).ty;
         int sz = cg_size(g, ft); int al = cg_c_align(g, cg_lltype(g, ft));
+        if (al > natal) { natal = al; }
+        if (cap > 0 && al > cap) { al = cap; }
         if (sz > maxsz) { maxsz = sz; }
         if (anchor[0] == 0 || al > maxal || (al == maxal && sz > anchorsz)) {
             anchor = ft; anchorsz = sz; if (al > maxal) { maxal = al; }
@@ -7331,6 +7337,11 @@ void cg_emit_union(Codegen* g, *DeclNode d) {
     if (total > anchorsz) {
         if (anchor[0] != 0) { String_append(&body, ", "); }
         String_append(&body, "["); String_append(&body, cg_itoa(total - anchorsz)); String_append(&body, " x i8]");
+    }
+    if (maxal < natal) {
+        cg_deftype(g, d.name, cg_cat("<{ ", cg_cat((string)String_cstr(&body), " }>")));
+        cg_set_calign(g, d.name, maxal, 1);
+        return;
     }
     cg_deftype(g, d.name, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
     if (anchor[0] != 0) { cg_set_calign(g, d.name, maxal, cg_align(g, anchor)); }

@@ -71,6 +71,7 @@ bool TypeChecker::check(Program* program) {
             StructInfo info;
             info.name = unionDecl->name;
             info.isUnion = true;
+            info.packAlign = unionDecl->packAlign;
             for (const auto& f : unionDecl->fields) info.fields.push_back({f.type, f.name});
             structs[unionDecl->name] = info;
             continue;
