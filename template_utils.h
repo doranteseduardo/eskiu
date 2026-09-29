@@ -26,8 +26,11 @@ inline std::string mangleTemplate(const std::string& type0) {
     std::string type = aliases.empty() ? type0 : ty::dealiasSpelling(type0, aliases);
     std::string out;
     int depth = 0;
+    bool afterArray = false;
     for (size_t i = 0; i < type.size(); ++i) {
         char c = type[i];
+        bool wasAfterArray = afterArray;
+        afterArray = false;
         if (c == '<') ++depth;
         else if (c == '>' && depth) --depth;
         // An array / slice type argument (`Box<int[3]>`, `Box<int[]>`) mangles to an
@@ -36,7 +39,11 @@ inline std::string mangleTemplate(const std::string& type0) {
             if (i + 1 < type.size() && type[i + 1] == ']') { out += "_S"; ++i; }
             else out += "_A";
         }
-        else if (depth > 0 && c == ']') {}
+        else if (depth > 0 && c == ']') afterArray = true;
+        // A pointer to an array or slice argument (`Box<int[3]*>`, from `Box<*A3>` with
+        // `type A3 = int[3]`) marks each star `_P`: a trailing `*` would read as a pointer
+        // to the instance.
+        else if (depth > 0 && c == '*' && wasAfterArray) { out += "_P"; afterArray = true; }
         else if (c == '<' || c == '>' || c == ',') out += '_';
         else if (c != ' ')                   out += c;
     }

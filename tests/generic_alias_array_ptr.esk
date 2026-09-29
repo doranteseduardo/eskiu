@@ -1,0 +1,38 @@
+// A pointer to an array alias as a generic type argument (`List<*A3>`, `Box<*A2>` with
+// `type A2 = int[2][3]`) names its own instance, and `*T[2]` with T an array type is an
+// array of 2 pointers to that array (`int[3]*[2]`) in both compilers.
+import <list>;
+extern int printf(string fmt, ...);
+type A3 = int[3];
+type A2 = int[2][3];
+struct Box<T> { *T p; T v; }
+struct Arr<T> { T v; int k; }
+struct Wrap<T> { Box<T> b; *T[2] ps; }
+int64 sz<T>() { return sizeof(T); }
+int first(*A3 p) { return (*p)[0]; }
+int main() {
+    A3 a = {1, 2, 3};
+    A3 c = {4, 5, 6};
+    printf("%lld\n", sz<*A3>());
+    List<*A3> l; l.init(1); l.push(&a);
+    printf("%d\n", (*l.get(0))[2]);
+    Box<*A3> bp;
+    bp.v = &a;
+    bp.p = &bp.v;
+    printf("%d %lld %d\n", (*bp.v)[1], sz<Box<*A3>>(), (**bp.p)[2]);
+    A2 m;
+    m[1][2] = 9;
+    Box<*A2> bm;
+    bm.v = &m;
+    printf("%d %lld\n", (*bm.v)[1][2], sz<Box<*A2>>());
+    Arr<*A3[2]> ar;
+    ar.v[0] = &a;
+    ar.v[1] = &c;
+    *A3[2] direct;
+    printf("%d %d %lld %lld\n", (*ar.v[1])[2], (*ar.v[0])[0], sz<Arr<*A3[2]>>(), sizeof(direct));
+    Wrap<int[3]> w;
+    w.ps[0] = &a;
+    w.ps[1] = &c;
+    printf("%d %d\n", (*w.ps[1])[0], first(w.ps[0]));
+    return 0;
+}

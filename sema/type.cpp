@@ -52,17 +52,24 @@ size_t topLevelAngle(const std::string& s) {
 // The first top-level '[' that begins an array suffix, ignoring brackets nested
 // inside template `<>` or fn `()`. For `int[N][M]` this is the '[' before N, so the
 // leftmost dimension binds outermost (C order: `int[N][M]` is N arrays of M).
+// When the spelling has two runs of top-level brackets (`int[3]*[2]`, an array of 2
+// pointers to int[3]), the last run is the suffix: the part before it is the element.
 size_t firstArraySuffixBracket(const std::string& s) {
-    int angle = 0, paren = 0;
+    int angle = 0, paren = 0, bracket = 0;
+    size_t run = std::string::npos;
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
-        if (c == '<') ++angle;
-        else if (c == '>' && !(i > 0 && s[i - 1] == '-')) { if (angle) --angle; }
-        else if (c == '(') ++paren;
-        else if (c == ')') { if (paren) --paren; }
-        else if (c == '[' && angle == 0 && paren == 0) return i;
+        if (c == '<' && !bracket) ++angle;
+        else if (c == '>' && !bracket && !(i > 0 && s[i - 1] == '-')) { if (angle) --angle; }
+        else if (c == '(' && !bracket) ++paren;
+        else if (c == ')' && !bracket) { if (paren) --paren; }
+        else if (c == '[' && angle == 0 && paren == 0) {
+            if (bracket == 0 && !(i > 0 && s[i - 1] == ']' && run != std::string::npos)) run = i;
+            ++bracket;
+        }
+        else if (c == ']' && angle == 0 && paren == 0) { if (bracket) --bracket; }
     }
-    return std::string::npos;
+    return run;
 }
 
 // Matching ']' for the '[' at index `open`, respecting nested brackets.
@@ -160,11 +167,15 @@ struct FastParser {
         // An array suffix binds before a pointer or a fn type (see parseCore), and the
         // leftmost bracket group is the outermost dimension.
         if (s[e - 1] == ']') {
+            // The last run of top-level bracket groups (`int[3]*[2]` is 2 of `int[3]*`).
             size_t open = std::string::npos;
             for (size_t i = b; i < e; ++i) {
                 char c = s[i];
                 if ((c == '<' || c == '(') && close[i] != std::string::npos) { i = close[i]; continue; }
-                if (c == '[') { open = i; break; }
+                if (c == '[') {
+                    if (!(open != std::string::npos && i > b && s[i - 1] == ']')) open = i;
+                    if (close[i] != std::string::npos) i = close[i];
+                }
             }
             if (open != std::string::npos && close[open] != std::string::npos && close[open] < e) {
                 // `T[N][M]...`: when the suffix is a run of bracket groups, build the chain
