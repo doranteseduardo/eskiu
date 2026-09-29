@@ -1,0 +1,26 @@
+// An enum member value may use `?:`, `&&`, `||`, `!` and a `const` whose initializer
+// uses them, folded like a global `const` initializer.
+extern int printf(string fmt, ...);
+
+const int K = 3;
+const int T = K > 2 ? 10 : 20;
+const int L = (K > 2 && K < 5) || K == 9;
+
+enum E {
+    A = K > 2 ? 7 : 1,
+    B = (A == 7 && K == 3) ? 100 : 0,
+    C = !(K == 3) || 0,
+    D = T + L,
+    F = !0,
+    G = K < 0 || K > 1 ? A << 1 : 0
+}
+
+int main() {
+    printf("%d %d %d %d %d %d\n", A, B, C, D, F, G);
+    int x = 0;
+    switch (x) {
+        case C: printf("C\n"); break;
+        default: printf("other\n"); break;
+    }
+    return 0;
+}

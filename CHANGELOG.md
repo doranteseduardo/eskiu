@@ -903,6 +903,9 @@ input. What is still open is listed under Known issues.
   `B()`) instead of building the variant, as C++ does. Test `variant_name_shadow`.
 - A keyword after `.` is a member name, so `j.int(5)` and `j.bool(1)` dot-call the `<json>`
   builder's `Json_int` and `Json_bool`. Test `json_keyword_methods`.
+- An enum member value may use `?:`, `&&`, `||` and `!` (short-circuit, as in C) and a
+  `const` whose initializer uses them. Tests `enum_value_logic`,
+  `errors/enum_value_ternary_not_const`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -981,6 +984,8 @@ without a diagnostic, except where the entry says so.
   or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.
 - An enum member value cannot use `?:`, `&&`/`||`, or a `const` whose initializer is a
   ternary, although global `const` initializers accept them.
+- An object-like macro that expands to the name of a function-like macro is not expanded
+  as a call when the `(` is on the next line (`#define G F` then `G` / `(5)`).
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

@@ -785,12 +785,26 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
         long long x;
         if (!foldConstInt(spine.back()->left.get(), x)) return false;
         for (size_t i = spine.size(); i-- > 0;) {
+            const std::string& op = spine[i]->op;
+            // `&&` / `||` short-circuit: an unevaluated right operand need not fold.
+            if (op == "&&" || op == "||") {
+                if ((op == "&&") == (x == 0)) { x = op == "||"; continue; }
+                long long y;
+                if (!foldConstInt(spine[i]->right.get(), y)) return false;
+                x = y != 0;
+                continue;
+            }
             long long y;
             if (!foldConstInt(spine[i]->right.get(), y)) return false;
-            if (!foldConstBinaryOp(spine[i]->op, x, y, x)) return false;
+            if (!foldConstBinaryOp(op, x, y, x)) return false;
         }
         out = x;
         return true;
+    }
+    if (auto* t = dynamic_cast<TernaryExpr*>(e)) {
+        long long c;
+        if (!foldConstInt(t->condition.get(), c)) return false;
+        return foldConstInt(c != 0 ? t->thenExpr.get() : t->elseExpr.get(), out);
     }
     if (auto* c = dynamic_cast<CastExpr*>(e)) {
         std::string to = tyq::strip(normalizeType(c->targetType));

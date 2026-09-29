@@ -1662,7 +1662,7 @@ A union literal initializes exactly one member, named or positional (`Value{f: 1
 
 ### 8.7 Enums
 
-An `enum` declares a set of named integer constants. Members take consecutive values starting at 0; an explicit `= N` resets the running value, and the next member continues from there. `N` is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level `const` ints declared earlier, `sizeof` (§5.8), casts and the integer operators (`enum Flag { A = 1, B = A << 2, C }` gives `C == 5`). A value that is not constant is a compile error, and every value must fit an `int`. The enum type itself is an `int` (`i32`), so enum values work in arithmetic, comparisons, and `switch`.
+An `enum` declares a set of named integer constants. Members take consecutive values starting at 0; an explicit `= N` resets the running value, and the next member continues from there. `N` is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level `const` ints declared earlier, `sizeof` (§5.8), casts, the integer operators, `!`, `&&`, `||` and `?:` (`enum Flag { A = 1, B = A << 2, C }` gives `C == 5`; `D = K > 2 ? 4 : 1`). A value that is not constant is a compile error, and every value must fit an `int`. The enum type itself is an `int` (`i32`), so enum values work in arithmetic, comparisons, and `switch`.
 
 ```eskiu
 enum Color  { Red, Green, Blue }            // 0, 1, 2
