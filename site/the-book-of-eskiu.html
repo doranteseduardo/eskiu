@@ -693,6 +693,9 @@ pre.code-block {
 <p>An explicit value may be any integer constant expression over literals, earlier members, <code>const</code> integers and <code>sizeof</code>, folded like a global initializer. Each value must fit an <code>int</code>:</p>
 <pre class="code-block"> const int SHIFT = 2;
  enum Flag { A = 1, B = A &lt;&lt; SHIFT, C = B | A, D = sizeof(int64) }   // 1, 4, 5, 8</pre>
+<p>The conditional and logical operators work there as well, <code>?:</code>, <code>&amp;&amp;</code>, <code>||</code> and <code>!</code>, with C&#x27;s short-circuit rules, both in the member value and in a <code>const</code> it names:</p>
+<pre class="code-block"> const int WIDE = 1;
+ enum Cfg { Bits = WIDE ? 64 : 32, Fast = WIDE &amp;&amp; Bits &gt; 32, Slow = !Fast || Bits &lt; 16 }   // 64, 1, 0</pre>
 <p>Enum members are global integer constants used directly by name:</p>
 <pre class="code-block"> Color c = Green;
  printf(&quot;%d\n&quot;, c);         // 1</pre>
@@ -724,6 +727,17 @@ pre.code-block {
  free(buf);
  printf(&quot;%d\n&quot;, add(3, 4));      // 7</pre>
 <p class="output"><em>Output:</em> 200 65 66 7</p>
+<p>An alias is its target also inside a larger type. <code>Box&lt;Int&gt;</code> is the same type as <code>Box&lt;int&gt;</code>, and an alias for <code>fn(int)-&gt;Int</code> is the same type as <code>fn(int)-&gt;int</code>, so values pass between the two spellings without a conversion and the compiler generates one copy of the generic code for both:</p>
+<pre class="code-block"> struct Box&lt;T&gt; { T v; }
+ int unbox(Box&lt;int&gt; b) { return b.v; }
+ type Op = fn(int)-&gt;Int;
+ int twice(int x) { return x * 2; }</pre>
+<pre class="code-block"> Box&lt;Int&gt; bx = Box&lt;Int&gt;{ v: 20 };
+ printf(&quot;%d\n&quot;, unbox(bx));      // 20: Box&lt;Int&gt; is Box&lt;int&gt;
+ fn(int)-&gt;int f = twice;
+ Op g = f;
+ printf(&quot;%d\n&quot;, g(21));          // 42</pre>
+<p class="output"><em>Output:</em> 20 42</p>
 <div class="chapter-start" id="chapter-3"><span class="chapter-label">Chapter 3</span>
 <h1 class="chapter-title">Functions</h1><hr class="chapter-rule"></div>
 <p>A function is a named, reusable block of code. You define it once and call it as many times as you need. Functions are the primary tool for breaking a program into manageable pieces. A good function does one job and can be understood on its own.</p>
@@ -3045,6 +3059,25 @@ pre.code-block {
        Left(v)      -&gt; printf(&quot;value: %d\n&quot;, v);          // value: 100
        Right(s) -&gt; printf(&quot;error: %s\n&quot;, s);
  }</pre>
+<p>The explicit type arguments can be left out wherever the type the variant must have is already known: in a declaration, an assignment, a <code>return</code>, and an argument to a non-generic function. The variant then takes that type&#x27;s arguments, so <code>Some(5)</code> builds an <code>Option&lt;int64&gt;</code> when that is what the declaration asks for, and a bare <code>None</code> needs no parentheses or type at all:</p>
+<pre class="code-block"> Option&lt;int64&gt; half(int64 n) {
+       if (n % 2 != 0) { return None; }
+       return Some(n / 2);
+ }</pre>
+<pre class="code-block"> void show(Option&lt;int64&gt; o) {
+       match o {
+            Some(v) -&gt; printf(&quot;some %lld\n&quot;, v);
+            None    -&gt; printf(&quot;none\n&quot;);
+       }
+ }</pre>
+<pre class="code-block"> Option&lt;int64&gt; a = Some(5);
+ Option&lt;int&gt; n = None;
+ Either&lt;int, string&gt; e = Left(4);          // the payload alone could not tell string
+ show(a);                                  // some 5
+ show(half(10));                           // some 5
+ show(half(7));                            // none</pre>
+<p class="output"><em>Output:</em> some 5 some 5 none</p>
+<p>The payload is still checked against those type arguments: <code>Option&lt;int64&gt; b = Some(&quot;x&quot;);</code> is an error (&quot;variant 'Some' argument 1 type mismatch&quot;). With no expected type, as in a call to a generic function or an expression statement, write the arguments out as before (<code>Some&lt;int&gt;(42)</code>).</p>
 <p>Option&lt;T&gt; is the alternative to <code>null</code> pointer checks. Either&lt;T,E&gt; is an alternative to <code>Result</code>&lt;T,E&gt; when you want to handle both cases symmetrically in a match rather than checking .ok.</p>
 <h2 class="section" id="sec-26-4">26.4 Generic enum definitions</h2>
 <p>You can define your own generic enums. The compiler monomorphizes them, one concrete type per set of type arguments:</p>
@@ -3094,6 +3127,7 @@ pre.code-block {
 <pre class="code-block"> thread_create        thread_join       async       await        escaping</pre>
 <pre class="code-block"> try     catch    finally     throw     defer     errdefer</pre>
 <pre class="code-block"> true     false    null</pre>
+<p>A keyword cannot name a variable, parameter, function or type. Right after a <code>.</code>, though, a keyword is read as a member name, so a dot-call can reach a <code>Type_method</code> function whose method part is a keyword: <code>j.int(5)</code> calls <code>Json_int(&amp;j, 5)</code>.</p>
 <div class="chapter-start" id="ref-r2"><span class="chapter-label ref">Ref R2</span>
 <h1 class="chapter-title">Types</h1><hr class="chapter-rule"></div>
 <h3 class="subsection">Primitive Types</h3>
@@ -3307,6 +3341,16 @@ pre.code-block {
  int64 JsonValue_as_int / double JsonValue_as_double / int JsonValue_as_bool / *char JsonValue_as_cstr
  void JsonValue_free(*JsonValue)
  // json_parse is strict RFC 8259 and returns null on malformed input or trailing data</pre>
+<p>The builder functions follow the <code>Type_method</code> convention, so they dot-call on a <code>Json</code>, including the two whose names are keywords, <code>Json_int</code> and <code>Json_bool</code>:</p>
+<pre class="code-block"> let j: Json;
+ j.init();
+ j.obj_begin();
+ j.key(&quot;n&quot;);  j.int((int64)42);
+ j.key(&quot;ok&quot;); j.bool(1);
+ j.obj_end();
+ printf(&quot;%s\n&quot;, j.cstr());       // {&quot;n&quot;:42,&quot;ok&quot;:true}
+ j.free();</pre>
+<p class="output"><em>Output:</em> {&quot;n&quot;:42,&quot;ok&quot;:true}</p>
 <h3 class="subsection">alloc: import &lt;alloc&gt; (explicit allocators over a buffer you own)</h3>
 <pre class="code-block"> // All allocators use: *void T_alloc(T* self, int64 n) -&gt; plugs into alloc_with
  Bump:     Bump_init(buf, cap) / Bump_alloc / Bump_reset
