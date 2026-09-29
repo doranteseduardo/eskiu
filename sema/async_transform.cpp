@@ -1148,6 +1148,12 @@ void AsyncTransform::run(Program* program) {
                 return std::make_shared<BlockStmt>(cb);
             }
             if (auto* es = dynamic_cast<ExprStmt*>(s.get())) { rewrite(es->expr, vars); return s; }
+            // An asm operand naming a local reads or writes its frame field.
+            if (auto* as = dynamic_cast<AsmStmt*>(s.get())) {
+                for (auto& o : as->outputs) rewrite(o.second, vars);
+                for (auto& in : as->inputs) rewrite(in.second, vars);
+                return s;
+            }
             if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
                 rewrite(i->condition, vars);
                 return std::make_shared<IfStmt>(i->condition, rewritePlain(i->thenBranch),

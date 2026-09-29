@@ -813,6 +813,12 @@ int al_has_return(*StmtNode s) {
         return al_complete_block(c, v);
     }
     if (s.kind == SK_EXPR) { al_rewrite(s.expr, &c.vars); return s; }
+    // An asm operand naming a local reads or writes its frame field.
+    if (s.kind == SK_ASM) {
+        int ak = 0;
+        while (ak < List_len<*StmtNode>(&s.items)) { al_rewrite(List_get<*StmtNode>(&s.items, ak).expr, &c.vars); ak = ak + 1; }
+        return s;
+    }
     if (s.kind == SK_IF) {
         al_rewrite(s.expr, &c.vars);
         return al_if(s.expr, al_rewrite_plain(c, s.s1), al_rewrite_plain(c, s.s2));

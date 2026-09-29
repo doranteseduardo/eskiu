@@ -1,0 +1,29 @@
+// Inline asm operands naming locals and parameters of an async function read and write
+// their frame fields, before and after an await.
+import <future>;
+extern int printf(string fmt, ...);
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+async int af(int v) {
+    int r = 0;
+    int w = await rdy<int>(v);
+#ifdef __aarch64__
+    asm("add ${0:w}, ${1:w}, ${2:w}" : "=r"(r) : "r"(w), "r"(v));
+#endif
+#ifdef __x86_64__
+    asm("movl $1, $0; addl $2, $0" : "=&r"(r) : "r"(w), "r"(v));
+#endif
+    int z = await rdy<int>(r);
+#ifdef __aarch64__
+    asm("add ${0:w}, ${0:w}, #1" : "+r"(z));
+#endif
+#ifdef __x86_64__
+    asm("incl $0" : "+r"(z));
+#endif
+    return z;
+}
+int main() {
+    Future<int>* fu = af(3);
+    printf("%d\n", fu.value);
+    free_future<int>(fu);
+    return 0;
+}
