@@ -887,6 +887,13 @@ input. What is still open is listed under Known issues.
   must be a writable lvalue of a non-bool integer, floating-point or pointer type (not a
   bitfield). Tests `inline_asm_out` (x86-64 IR checked by `run.sh` and `cg_parity.sh`),
   `errors/asm_output_*`, `errors/asm_input_output_constraint`.
+- `extern` struct and union arguments and results follow the 32-bit x86 C ABI (cdecl) in
+  both compilers, as clang lowers them: an argument of at most 16 bytes made only of
+  32/64-bit scalars is passed as those scalars, anything else byval; Linux returns every
+  aggregate through sret, while Darwin, Windows and the BSDs return one of 1, 2, 4 or 8
+  bytes in registers (a lone `float`/`double` or pointer as itself, except a floating
+  one under MSVC). `cabi_parity.sh` covers the i686 targets and compares both compilers
+  with clang's IR for the C companions. Test `c_abi_x86_32` (+ `.c`).
 - `http_serve` sends an answer under one `write_ms` deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.
 
 - A slice or array compares by its element type in the C++ type checker, whatever the
@@ -963,6 +970,8 @@ without a diagnostic, except where the entry says so.
   expands for the Darwin `char*` `va_list`, not the AAPCS64 one Linux uses (a miscompile;
   `variadic` and `generic_variadic` fail there). macOS, x86-64 and calls to C variadic
   functions such as `printf` are not affected.
+- Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
+  byte.
 - A few diagnostics report a different column in the two compilers.
 - The type checker does not fold `sizeof` of a struct under `#pragma pack(N)` with N of 2
   or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.

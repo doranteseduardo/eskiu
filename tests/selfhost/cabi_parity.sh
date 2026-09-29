@@ -7,6 +7,9 @@
 # every `declare` (externs) and every `@__cabi_*` callback thunk. Parameter names and
 # the trailing `{` are stripped, so only types and ABI attributes (sret/byval/align/
 # alignstack) are compared. Cross targets can't run here, so this is an IR-level check.
+# For the 32-bit x86 targets each compiler's lowered `declare`s are also compared with
+# the definitions clang emits for the program's C companion (NAME.c), when $CLANG can
+# target them.
 #
 # Usage: tests/selfhost/cabi_parity.sh   (from repo root or anywhere)
 set -u
@@ -30,8 +33,10 @@ fi
 
 TARGETS="arm64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
 x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-w64-windows-gnu
-armv7-none-linux-gnueabihf armv6k-none-eabihf armv7-none-linux-gnueabi"
-INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk tests/c_abi_narrow.esk"
+armv7-none-linux-gnueabihf armv6k-none-eabihf armv7-none-linux-gnueabi
+i686-pc-linux-gnu i386-apple-darwin i686-w64-windows-gnu i686-pc-windows-msvc"
+X86_32="i686-pc-linux-gnu i386-apple-darwin i686-w64-windows-gnu i686-pc-windows-msvc"
+INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk tests/c_abi_narrow.esk tests/c_abi_x86_32.esk"
 
 # The lowered signatures in an IR file, one per line, sorted: `NAME<TAB>signature`. The C++
 # names a union's storage type `%U.union` and the self-host `%U`; only the spelling differs.
@@ -71,9 +76,48 @@ for src in $INPUTS; do
         fi
     done
 done
+# 32-bit x86: the lowered extern signatures equal clang's definitions of the C side, by
+# function name (clang's `noundef`/`dead_on_*`/`noalias`/`writable`/`dso_local`
+# attributes and its `%struct.`/`%union.` prefixes are dropped).
+CLANG="${CLANG:-clang}"
+clang_sigs() {
+    grep -E '^define .*@' "$1" \
+        | sed -E 's/^define //; s/ #[0-9]+//; s/ *\{$//; s/(dso_local|noundef|dead_on_unwind|dead_on_return|noalias|writable|local_unnamed_addr) //g' \
+        | sed -E 's/ %[A-Za-z0-9_.]+([,)])/\1/g; s/%(struct|union)\./%/g' \
+        | sed -E "s/^([^@]*@)([A-Za-z0-9_.]+)(\\(.*)$/\\2$TAB\\1\\2\\3/" | sort
+}
+decl_sigs() {
+    grep -E '^declare .*@' "$1" \
+        | sed -E 's/^declare //; s/ %[A-Za-z0-9_.]+([,)])/\1/g; s/(%[A-Za-z0-9_]+)\.union/\1/g' \
+        | sed -E "s/^([^@]*@)([A-Za-z0-9_.]+)(\\(.*)$/\\2$TAB\\1\\2\\3/" | sort
+}
+for src in $INPUTS; do
+    csrc="${src%.esk}.c"
+    [ -f "$csrc" ] || continue
+    for t in $X86_32; do
+        name="$(basename "$src" .esk)@$t vs clang"
+        if ! "$CLANG" -target "$t" -O0 -S -emit-llvm -o "$WORK/c.ll" "$csrc" 2>/dev/null; then
+            echo "skip  $name  ($CLANG cannot target $t)"; continue
+        fi
+        clang_sigs "$WORK/c.ll" >"$WORK/c.sig"
+        for who in C++ self-host; do
+            n=$((n + 1))
+            if [ "$who" = C++ ]; then ESKIU_ROOT="$(pwd)" "$BIN" "$src" --test-codegen --target "$t" >"$WORK/x.ll" 2>/dev/null
+            else ESKIU_ROOT="$(pwd)" "$ESKMAIN" "$src" --test-codegen --target "$t" >"$WORK/x.ll" 2>/dev/null; fi
+            decl_sigs "$WORK/x.ll" >"$WORK/x.sig"
+            join -t "$TAB" "$WORK/x.sig" "$WORK/c.sig" >"$WORK/both"
+            diffs="$(awk -F"$TAB" '$2 != $3 { print $2 "  vs clang  " $3 }' "$WORK/both")"
+            if [ ! -s "$WORK/both" ] || [ -n "$diffs" ]; then
+                echo "FAIL  $name ($who)"; echo "$diffs" | head -8 | sed 's/^/  /'; fail=1
+            else
+                echo "ok    $name ($who, $(wc -l <"$WORK/both" | tr -d ' ') signatures)"
+            fi
+        done
+    done
+done
 # Type sizes follow each target's data layout (pointer width, i64/double alignment): the
 # `@sz_*` globals of tests/target_sizes.esk fold to the same values in both compilers.
-for t in $TARGETS i686-pc-linux-gnu i686-pc-windows-msvc; do
+for t in $TARGETS; do
     n=$((n + 1))
     name="target_sizes@$t"
     ESKIU_ROOT="$(pwd)" "$BIN" tests/target_sizes.esk --test-codegen --target "$t" 2>&1 | grep '^@sz_' >"$WORK/cpp.sz"

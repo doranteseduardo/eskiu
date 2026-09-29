@@ -378,7 +378,7 @@ private:
     // (unchanged), Coerce (one value of `ty`), Expand (the elements of the literal
     // struct `ty` as separate args), Indirect (pointer to a caller copy), ByVal
     // (pointer + byval), Sret (hidden result pointer).
-    enum class CAbiTarget { None, AArch64, SysV, Win64, ARM32 };
+    enum class CAbiTarget { None, AArch64, SysV, Win64, ARM32, X86 };
     struct CAbiArg {
         enum Kind { Direct, Coerce, Expand, Indirect, ByVal, Sret } kind = Direct;
         llvm::Type* ty = nullptr;
@@ -397,6 +397,12 @@ private:
                     std::vector<std::pair<uint64_t, llvm::Type*>>& out) const;
     CAbiArg classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget tgt,
                          unsigned& freeInt, unsigned& freeSSE) const;
+    // 32-bit x86 (clang's X86_32ABIInfo): the C fields of an aggregate (a union's
+    // members; false for a bitfield struct), whether it is returned in registers, and
+    // the scalar a single-element struct is made of.
+    bool x86Fields(llvm::Type* ty, std::vector<llvm::Type*>& out) const;
+    bool x86RetInRegs(llvm::Type* ty) const;
+    llvm::Type* x86SingleElement(llvm::Type* ty) const;
     // Fill `sig` for `logical`; false when no lowering is needed (no aggregate / target).
     bool buildCAbiSig(llvm::FunctionType* logical, CAbiSig& sig) const;
     void addCAbiAttrs(const CAbiSig& sig,

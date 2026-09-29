@@ -12,8 +12,9 @@
 // calls convert the Eskiu-level (logical) values to and from it.
 //
 // Covered: AArch64 AAPCS64 (Darwin + Linux), x86-64 System V, Windows x64, 32-bit
-// ARM AAPCS (soft- and hard-float). The coerced types mirror clang's for the same C
-// signature. Other targets keep the first-class lowering.
+// ARM AAPCS (soft- and hard-float), 32-bit x86 (cdecl: SysV i386, Darwin, Windows).
+// The coerced types mirror clang's for the same C signature. Other targets keep the
+// first-class lowering.
 // Part of the codegen split; see codegen.h.
 
 CodeGen::CAbiTarget CodeGen::cabiTarget() const {
@@ -22,6 +23,7 @@ CodeGen::CAbiTarget CodeGen::cabiTarget() const {
     if (t.getArch() == llvm::Triple::x86_64)
         return t.isOSWindows() ? CAbiTarget::Win64 : CAbiTarget::SysV;
     if (t.isARM() || t.isThumb()) return CAbiTarget::ARM32;
+    if (t.getArch() == llvm::Triple::x86) return CAbiTarget::X86;
     return CAbiTarget::None;
 }
 
@@ -112,6 +114,64 @@ static llvm::Type* hfaType(const std::vector<std::pair<uint64_t, llvm::Type*>>& 
     if (n > 4 || size != n * esz) return nullptr;
     if (asArray) return llvm::ArrayType::get(base, n);
     return llvm::StructType::get(base->getContext(), std::vector<llvm::Type*>(n, base));
+}
+
+// The C fields of aggregate `ty` for the 32-bit x86 rules: a struct's elements (a
+// `#pragma pack` padding run is a byte array there), a union's members. A bitfield
+// struct has no such list (clang does not expand one, nor treat it as one element).
+bool CodeGen::x86Fields(llvm::Type* ty, std::vector<llvm::Type*>& out) const {
+    auto* st = llvm::dyn_cast<llvm::StructType>(ty);
+    if (!st) return false;
+    auto uit = unionMemberTypes.find(st);
+    if (uit != unionMemberTypes.end()) { out = uit->second; return true; }
+    auto lit = st->hasName() ? structLayout.find(st->getName().str()) : structLayout.end();
+    if (lit != structLayout.end())
+        for (const auto& s : lit->second) if (s.second.isBitfield) return false;
+    out.assign(st->element_begin(), st->element_end());
+    return true;
+}
+
+// clang's shouldReturnTypeInRegister: 1, 2, 4 or 8 bytes, and every non-empty field
+// (an array's element) is itself returned in a register. A bitfield struct's fields
+// have integer types, so only its size decides.
+bool CodeGen::x86RetInRegs(llvm::Type* ty) const {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    uint64_t size = DL.getTypeAllocSize(ty);
+    if (size != 1 && size != 2 && size != 4 && size != 8) return false;
+    if (auto* at = llvm::dyn_cast<llvm::ArrayType>(ty)) return x86RetInRegs(at->getElementType());
+    auto* st = llvm::dyn_cast<llvm::StructType>(ty);
+    if (!st) return true;
+    std::vector<llvm::Type*> fields;
+    if (!x86Fields(ty, fields)) return true;
+    for (llvm::Type* f : fields)
+        if (DL.getTypeAllocSize(f) != 0 && !x86RetInRegs(f)) return false;
+    return true;
+}
+
+// clang's isSingleElementStruct: the one scalar a struct (or union) is made of through
+// nested one-field structs and one-element arrays, with no padding around it; null if
+// none.
+llvm::Type* CodeGen::x86SingleElement(llvm::Type* ty) const {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    std::vector<llvm::Type*> fields;
+    if (!llvm::isa<llvm::StructType>(ty) || !x86Fields(ty, fields)) return nullptr;
+    llvm::Type* found = nullptr;
+    for (llvm::Type* f : fields) {
+        if (DL.getTypeAllocSize(f) == 0) continue;
+        if (found) return nullptr;
+        while (auto* at = llvm::dyn_cast<llvm::ArrayType>(f)) {
+            if (at->getNumElements() != 1) break;
+            f = at->getElementType();
+        }
+        if (llvm::isa<llvm::StructType>(f) || llvm::isa<llvm::ArrayType>(f)) {
+            found = x86SingleElement(f);
+            if (!found) return nullptr;
+        } else {
+            found = f;
+        }
+    }
+    if (found && DL.getTypeAllocSize(found) != DL.getTypeAllocSize(ty)) return nullptr;
+    return found;
 }
 
 CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget tgt,
@@ -255,6 +315,47 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
         r.ty = llvm::StructType::get(ctx, {lo, hi});
         r.kind = isReturn ? CAbiArg::Coerce : CAbiArg::Expand;
         return r;
+    }
+    case CAbiTarget::X86: {
+        // cdecl on the stack. A result: Linux (and the other SysV i386 systems) return
+        // every aggregate through sret; Darwin, Windows and the BSDs return one of 1, 2,
+        // 4 or 8 bytes in registers (EAX:EDX), a single `float`/`double` in ST0 (not
+        // under MSVC's rules), a single pointer as itself.
+        llvm::Triple t(module->getTargetTriple());
+        if (isReturn) {
+            bool inRegs = t.isOSDarwin() || t.isOSWindows() || t.isOSFreeBSD() ||
+                          t.isOSOpenBSD() || t.isOSDragonFly();
+            bool win32Struct = t.isOSWindows() && !t.isOSCygMing();
+            if (inRegs && x86RetInRegs(ty)) {
+                llvm::Type* e = x86SingleElement(ty);
+                r.kind = CAbiArg::Coerce;
+                if (e && ((!win32Struct && e->isFloatingPointTy()) || e->isPointerTy())) r.ty = e;
+                else r.ty = llvm::IntegerType::get(ctx, (unsigned)size * 8);
+                return r;
+            }
+            return indirect(CAbiArg::Sret, align);
+        }
+        // An argument of at most 16 bytes made only of 32- and 64-bit scalars with no
+        // padding is passed as those scalars (clang's expansion); anything else byval,
+        // in a 4-byte-aligned stack slot.
+        std::vector<llvm::Type*> fields;
+        if (size <= 16 && x86Fields(ty, fields)) {
+            uint64_t sum = 0;
+            bool scalar = !fields.empty();
+            for (llvm::Type* f : fields) {
+                uint64_t fs = DL.getTypeAllocSize(f);
+                bool basic = f->isPointerTy() || f->isFloatTy() || f->isDoubleTy() ||
+                             f->isIntegerTy(32) || f->isIntegerTy(64);
+                if (!basic) { scalar = false; break; }
+                sum += fs;
+            }
+            if (scalar && sum == size) {
+                r.kind = CAbiArg::Expand;
+                r.ty = llvm::StructType::get(ctx, fields);
+                return r;
+            }
+        }
+        return indirect(CAbiArg::ByVal, 4);
     }
     case CAbiTarget::None:
         break;

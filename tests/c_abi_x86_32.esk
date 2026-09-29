@@ -1,0 +1,76 @@
+// Structs and unions by value across `extern` in the shapes the 32-bit x86 C ABI tells
+// apart (C side: tests/c_abi_x86_32.c): results of 1, 2, 4 and 8 bytes (in registers on
+// Darwin and Windows, through sret on Linux), single-element structs (a float, a double
+// or a pointer, also nested or as a one-element array), arguments of at most 16 bytes of
+// 32/64-bit scalars (passed as those scalars) and the rest (byval). This runs on the
+// host; cabi_parity.sh compares the i686 lowerings with clang's for this C file.
+extern int printf(string fmt, ...);
+
+struct C1 { char a; }
+struct CC { char a; char b; }
+struct CS { char a; int16 b; }
+struct C3 { char a; char b; char c; }
+struct F1 { float f; }
+struct D1 { double d; }
+struct P1 { *int p; }
+struct NF { F1 inner; }
+struct AF { float[1] a; }
+struct A2 { int16[2] a; }
+struct ID { int a; double d; }
+struct I4 { int a; int b; int c; int d; }
+struct I5 { int a; int b; int c; int d; int e; }
+struct L1 { int64 a; }
+struct CI { char c; int i; }
+union UI { int i; }
+union UF { int i; float f; }
+
+extern C1 x_c1(int v);
+extern int x_c1_get(C1 s);
+extern CC x_cc(int v);
+extern int x_cc_get(CC s);
+extern CS x_cs(int v);
+extern int x_cs_get(CS s);
+extern C3 x_c3(int v);
+extern int x_c3_get(C3 s);
+extern F1 x_f1(float v);
+extern double x_f1_get(F1 s);
+extern D1 x_d1(double v);
+extern double x_d1_get(D1 s);
+extern P1 x_p1(*int p);
+extern int x_p1_get(P1 s);
+extern NF x_nf(float v);
+extern double x_nf_get(NF s);
+extern AF x_af(float v);
+extern double x_af_get(AF s);
+extern A2 x_a2(int v);
+extern int x_a2_get(A2 s);
+extern ID x_id(int a, double d);
+extern double x_id_get(ID s);
+extern I4 x_i4(int v);
+extern int x_i4_get(I4 s);
+extern I5 x_i5(int v);
+extern int x_i5_get(I5 s);
+extern L1 x_l1(int64 v);
+extern int64 x_l1_get(L1 s);
+extern CI x_ci(int v);
+extern int x_ci_get(CI s);
+extern UI x_ui(int v);
+extern int x_ui_get(UI s);
+extern UF x_uf(float v);
+extern double x_uf_get(UF s);
+extern int x_mixed(int a, ID b, char c, C3 d, I4 e);
+
+int main() {
+    int k = 42;
+    printf("c1 %d cc %d cs %d c3 %d\n", x_c1_get(x_c1(5)), x_cc_get(x_cc(5)), x_cs_get(x_cs(5)), x_c3_get(x_c3(5)));
+    printf("f1 %.1f d1 %.1f p1 %d\n", x_f1_get(x_f1(1.5)), x_d1_get(x_d1(2.5)), x_p1_get(x_p1(&k)));
+    printf("nf %.1f af %.1f a2 %d\n", x_nf_get(x_nf(3.5)), x_af_get(x_af(4.5)), x_a2_get(x_a2(7)));
+    printf("id %.1f i4 %d i5 %d\n", x_id_get(x_id(1, 0.5)), x_i4_get(x_i4(1)), x_i5_get(x_i5(1)));
+    printf("l1 %lld ci %d ui %d uf %.1f\n", x_l1_get(x_l1(9000000000)), x_ci_get(x_ci(3)), x_ui_get(x_ui(11)), x_uf_get(x_uf(6.5)));
+    printf("mixed %d\n", x_mixed(1, x_id(2, 3.0), (char)4, x_c3(5), x_i4(6)));
+    F1 f = x_f1(8.25);
+    P1 p = x_p1(&k);
+    AF a = x_af(9.75);
+    printf("fields %.2f %d %.2f\n", f.f, *p.p, a.a[0]);
+    return 0;
+}
