@@ -1793,7 +1793,7 @@ pre.code-block {
 <p>A callback may take or return a struct by value. C then calls it through a small thunk the compiler generates with the target&#x27;s C calling convention, so the struct arrives the way the C side passed it. Your own Eskiu calls to the function are unaffected.</p>
 <div class="chapter-start" id="chapter-15"><span class="chapter-label">Chapter 15</span>
 <h1 class="chapter-title">The Standard Library</h1><hr class="chapter-rule"></div>
-<p>Eskiu&#x27;s standard library ships as 41 plain .esk files with the compiler. There is no magic: they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
+<p>Eskiu&#x27;s standard library ships as 42 plain .esk files with the compiler. There is no magic: they are Eskiu code, readable at lib/eskiu/stdlib/ in your installation. Import each module with an angle-bracket <code>import</code>.</p>
 <h2 class="section" id="sec-15-1">15.1 result: errors as values</h2>
 <p>The most important module. <code>Result</code>&lt;T,E&gt; is a struct with three fields: ok (1 = success, 0 = failure), value (holds T on success), and error (holds E on failure). Two constructor functions create instances:</p>
 <pre class="code-block"> // result.esk: the complete interface
@@ -2061,8 +2061,39 @@ pre.code-block {
  }
  Match_free(&amp;m);
  Regex_free(&amp;re);</pre>
-<p>The syntax covers literals, <code>.</code> (any byte but newline), character classes <code>[a-z]</code> and <code>[^...]</code>, the shorthands <code>\d \w \s</code> (and <code>\D \W \S</code>), the quantifiers <code>* + ? {m} {m,} {m,n}</code>, alternation <code>|</code>, capturing groups <code>( )</code>, and the anchors <code>^</code> and <code>$</code>. Quantifiers are greedy by default; append a <code>?</code> (as in <code>.+?</code>) for the lazy form that matches as little as possible.</p>
-<p>The details follow RE2, working on bytes. Besides the shorthands above there are the ASCII word boundaries <code>\b</code> and <code>\B</code>, the text anchors <code>\A</code> and <code>\z</code>, the escapes <code>\a \f \t \n \r \v</code>, octal <code>\012</code> and hex <code>\x41</code> or <code>\x{41}</code>, and a backslash before any punctuation character for that character (<code>\.</code>). Any other escaped letter or digit (<code>\q</code>, <code>\1</code>) is a compile error rather than the literal letter. Inside brackets the POSIX classes work (<code>[[:alpha:]]</code>, <code>[[:^digit:]]</code> and the other RE2 names), <code>\s</code> is <code>[\t\n\f\r ]</code>, and an inverted range such as <code>[z-a]</code> is an error. A repeat count may be at most 1000, and a <code>{</code> that does not start a valid <code>{n}</code>, <code>{n,}</code> or <code>{n,m}</code> is a literal brace. A loop whose body can match the empty string behaves as in RE2 (<code>(a?|b)*</code> on <code>&quot;b&quot;</code> matches the empty string at 0), and nesting is limited to 512 levels so a hostile pattern fails cleanly. A pattern that does not compile leaves <code>re.ok</code> at 0. <code>\Q..\E</code>, non-capturing groups, flags such as <code>(?i)</code> and Unicode classes are not supported.</p>
+<p>The syntax covers literals, <code>.</code> (any character but newline), character classes <code>[a-z]</code> and <code>[^...]</code>, the shorthands <code>\d \w \s</code> (and <code>\D \W \S</code>), the quantifiers <code>* + ? {m} {m,} {m,n}</code>, alternation <code>|</code>, capturing groups <code>( )</code>, and the anchors <code>^</code> and <code>$</code>. Quantifiers are greedy by default; append a <code>?</code> (as in <code>.+?</code>) for the lazy form that matches as little as possible.</p>
+<p>Patterns and texts are UTF-8, and the semantics are those of RE2 (Go&#x27;s regexp). <code>.</code>, a class and a literal each match a whole code point, so <code>^.$</code> matches <code>&quot;é&quot;</code> even though it is two bytes. Match offsets (<code>m.cap</code>) stay byte offsets into the text, and a byte that is not valid UTF-8 reads as U+FFFD.</p>
+<p>Unicode classes are written <code>\p{..}</code>, and <code>\P{..}</code> is the negation. They name the general categories (<code>\p{Lu}</code>, <code>\p{Nd}</code>), their one-letter groups (<code>\pL</code>, <code>\pN</code>), the scripts (<code>\p{Greek}</code>, <code>\p{Han}</code>) and <code>\p{Any}</code>, from the Unicode 15 tables in <code>&lt;regex_unicode&gt;</code>, and they work inside brackets too (<code>[\p{Greek}\d]</code>). The flags are <code>(?i)</code> for case-insensitive matching (by simple case folding, so <code>k</code>, <code>K</code> and the Kelvin sign are one letter), <code>(?m)</code> for multi-line <code>^</code> and <code>$</code>, <code>(?s)</code> to let <code>.</code> match a newline, and <code>(?U)</code> to swap greedy and lazy. A flag applies to the rest of the enclosing group; <code>(?i:...)</code> scopes it to one group and <code>(?-i)</code> turns it off.</p>
+<p><code>(?:...)</code> groups without capturing. A named group, <code>(?P&lt;name&gt;...)</code> or <code>(?&lt;name&gt;...)</code>, is numbered with the other groups, so you read it with <code>Match_group</code> by its number. <code>\Q...\E</code> matches the text between as written, so <code>\Q1+1\E</code> matches the three characters <code>1+1</code>, and <code>\x{..}</code> names a code point up to <code>\x{10FFFF}</code>:</p>
+<pre class="code-block"> void show(string pat, string text) {
+       Regex re = regex_compile(pat);
+       let m: Match;
+       if (Regex_search(&amp;re, text, &amp;m) == 1) {
+            let s: String;
+            String_init(&amp;s, 16);
+            Match_group(&amp;m, text, 0, &amp;s);
+            printf(&quot;%s  -&gt;  %s (bytes %d..%d)\n&quot;, pat, String_cstr(&amp;s), m.cap[0], m.cap[1]);
+            String_free(&amp;s);
+       } else {
+            printf(&quot;%s  -&gt;  no match\n&quot;, pat);
+       }
+       Match_free(&amp;m);
+       Regex_free(&amp;re);
+ }</pre>
+<pre class="code-block"> show(&quot;^.$&quot;, &quot;é&quot;);
+ show(&quot;\\p{Greek}+&quot;, &quot;abc αβγ def&quot;);
+ show(&quot;(?i)straße&quot;, &quot;STRAßE&quot;);
+ show(&quot;(?:ab)+(?P&lt;n&gt;\\d+)&quot;, &quot;xabab42&quot;);
+ show(&quot;\\Q1+1\\E&quot;, &quot;is 1+1=2&quot;);
+ show(&quot;\\x{1F600}&quot;, &quot;hi 😀&quot;);</pre>
+<pre class="code-block"> ^.$  -&gt;  é (bytes 0..2)
+ \p{Greek}+  -&gt;  αβγ (bytes 4..10)
+ (?i)straße  -&gt;  STRAßE (bytes 0..7)
+ (?:ab)+(?P&lt;n&gt;\d+)  -&gt;  abab42 (bytes 1..7)
+ \Q1+1\E  -&gt;  1+1 (bytes 3..6)
+ \x{1F600}  -&gt;  😀 (bytes 3..7)</pre>
+<p>The byte offsets show the UTF-8 at work: <code>é</code> is two bytes, each Greek letter two, and the emoji four.</p>
+<p>The rest of the syntax also follows RE2. Besides the shorthands above there are the ASCII word boundaries <code>\b</code> and <code>\B</code>, the text anchors <code>\A</code> and <code>\z</code>, the escapes <code>\a \f \t \n \r \v</code>, octal <code>\012</code> and hex <code>\x41</code> or <code>\x{41}</code>, and a backslash before any punctuation character for that character (<code>\.</code>). Any other escaped letter or digit (<code>\q</code>, <code>\1</code>) is a compile error rather than the literal letter. Inside brackets the POSIX classes work (<code>[[:alpha:]]</code>, <code>[[:^digit:]]</code> and the other RE2 names), <code>\s</code> is <code>[\t\n\f\r ]</code>, and an inverted range such as <code>[z-a]</code> is an error. A repeat count may be at most 1000, and a <code>{</code> that does not start a valid <code>{n}</code>, <code>{n,}</code> or <code>{n,m}</code> is a literal brace. A loop whose body can match the empty string behaves as in RE2 (<code>(a?|b)*</code> on <code>&quot;b&quot;</code> matches the empty string at 0), and nesting is limited to 512 levels so a hostile pattern fails cleanly. A pattern that does not compile leaves <code>re.ok</code> at 0, with the reason in <code>re.err</code>; an unknown class such as <code>\p{Foo}</code> is one of these. The engine was checked against Go&#x27;s regexp on 60 000 generated patterns and texts, and every result agreed.</p>
 <h2 class="section" id="sec-15-12">15.12 Additional stdlib: quick reference</h2>
 <pre class="code-block"> // net: TCP sockets (see Chapter 23)
  import &lt;net&gt;;      net_tcp_listen      net_accept      net_tcp_connect
@@ -3256,7 +3287,7 @@ pre.code-block {
  import &lt;base64&gt;;   base64_encode/decode(*uint8 src, int n, *uint8 out)
  import &lt;path&gt;;     path_join   path_basename     path_dirname   path_extension</pre>
 <h3 class="subsection">the rest of the library</h3>
-<p>The full standard library is 41 modules; the ones above are the most-referenced. Each of the rest is importable by name and readable at <code>lib/eskiu/stdlib/</code>: <code>&lt;result&gt;</code>, <code>&lt;list&gt;</code>, <code>&lt;string&gt;</code>, <code>&lt;math&gt;</code>, <code>&lt;io&gt;</code>, <code>&lt;mem&gt;</code>, <code>&lt;fs&gt;</code>, <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code>, <code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, <code>&lt;uuid&gt;</code>, <code>&lt;ctype&gt;</code>, <code>&lt;json&gt;</code>, <code>&lt;http&gt;</code>, <code>&lt;http_async&gt;</code>, <code>&lt;http2&gt;</code>, <code>&lt;hpack&gt;</code>, <code>&lt;tls&gt;</code>, <code>&lt;net_async&gt;</code>, <code>&lt;eventloop&gt;</code>, <code>&lt;future&gt;</code>, <code>&lt;channel&gt;</code>, <code>&lt;executor&gt;</code>, <code>&lt;sysheap&gt;</code>, and <code>&lt;multipart&gt;</code>.</p>
+<p>The full standard library is 42 modules; the ones above are the most-referenced. Each of the rest is importable by name and readable at <code>lib/eskiu/stdlib/</code>: <code>&lt;result&gt;</code>, <code>&lt;list&gt;</code>, <code>&lt;string&gt;</code>, <code>&lt;math&gt;</code>, <code>&lt;io&gt;</code>, <code>&lt;mem&gt;</code>, <code>&lt;fs&gt;</code>, <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code> (with its Unicode tables in <code>&lt;regex_unicode&gt;</code>), <code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, <code>&lt;uuid&gt;</code>, <code>&lt;ctype&gt;</code>, <code>&lt;json&gt;</code>, <code>&lt;http&gt;</code>, <code>&lt;http_async&gt;</code>, <code>&lt;http2&gt;</code>, <code>&lt;hpack&gt;</code>, <code>&lt;tls&gt;</code>, <code>&lt;net_async&gt;</code>, <code>&lt;eventloop&gt;</code>, <code>&lt;future&gt;</code>, <code>&lt;channel&gt;</code>, <code>&lt;executor&gt;</code>, <code>&lt;sysheap&gt;</code>, and <code>&lt;multipart&gt;</code>.</p>
 <div class="chapter-start" id="ref-r9"><span class="chapter-label ref">Ref R9</span>
 <h1 class="chapter-title">CLI Reference</h1><hr class="chapter-rule"></div>
 <pre class="code-block">        Flag                                     Effect</pre>
