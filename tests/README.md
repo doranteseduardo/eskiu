@@ -267,6 +267,7 @@ when you add a test.
 | `regex_repeat_groups` | Counted or repeated groups duplicate SAVE instructions; the Pike VM must still find the match (capture storage used to run out and report a silent no-match). |
 | `regex_posix_class` | RE2 POSIX classes in brackets (`[[:alpha:]]`, `[[:^space:]]`, all 14 names; an unknown name is an error, `[:` without `:]` a literal `[`), and a `{` that starts no `{n}`/`{n,}`/`{n,m}` is a literal (`a{,2}`); checked against Go regexp. |
 | `regex_space_class` | `\s` is `[\t\n\f\r ]` as in RE2: it matched `\v` too (and `\S`, `[^\s]` missed it); `[[:space:]]` keeps `\v`. |
+| `regex_unicode` | UTF-8 as in Go regexp: `.` and classes match whole code points (offsets stay byte offsets, an invalid byte reads as U+FFFD), `\p{..}`/`\P{..}` categories and scripts, `(?i)` by simple case folding (`k`, `K`, U+212A), `(?m)` `(?s)` `(?U)` for the rest of a group or scoped `(?flags:..)`, `(?:..)`, named groups, `\Q..\E`; each case checked against Go. |
 | `rvalue_member` | Member access, indexing and method calls work on rvalue aggregates (call results, operator results, ternaries, fields of temporaries), not just on variables. |
 | `self_append` | Appending a String or Bytes to itself must copy from the live buffer, not from the one freed when the append grows it. |
 | `static_local_closure` | A `static` local has static storage: a closure refers to that one cell (like a global) rather than capturing a copy, and an uninitialized static starts at zero. |
@@ -839,6 +840,29 @@ input to `stdlib_<target>_<seed>_<n>.bin`.
 python3 tests/fuzz/stdlib_fuzz.py --inputs 1500 --seed 1   # the CI gate (a few seconds a target)
 python3 tests/fuzz/stdlib_fuzz.py --seconds 300 --seed 7   # five minutes per target
 python3 tests/fuzz/stdlib_fuzz.py --targets hpack --replay tests/fuzz/findings/x.bin
+```
+
+## Linux smoke from a Mac (pre-release)
+
+`tests/linux_docker.sh` checks a release on Linux without a Linux build of `eskiuc`. It is
+a manual pre-release check, not a CI gate (it needs Docker). The compiler cross-compiles
+every run and smoke test and the self-hosted drivers for `$TRIPLE` (default
+`aarch64-unknown-linux-gnu`), and a container (`ubuntu:24.04` plus gcc, built once and
+cached) links and runs them:
+
+- each run test must print exactly its `.expected`, each smoke test must exit 0;
+- `esk_main --test-typechecker` (over `tests/*.esk` and `tests/errors/*.esk`) and
+  `--test-codegen` (over `tests/*.esk`) must not crash or time out;
+- `cg_main` compiles `cg_main.esk` on Linux, the host clang assembles that IR, and the
+  result must emit the same IR again (the bootstrap fixpoint, on Linux).
+
+A test that is a known failure on the target (listed in the script, with its CHANGELOG
+entry) is reported as XFAIL and does not fail the run.
+
+```bash
+CLANG=$(brew --prefix llvm@22)/bin/clang ESKIUC=build/eskiuc tests/linux_docker.sh
+TRIPLE=x86_64-unknown-linux-gnu tests/linux_docker.sh    # x86-64, emulated on Apple silicon
+TESTS="regex http2_server" tests/linux_docker.sh         # only these tests
 ```
 
 ## Adding a test
