@@ -1,0 +1,29 @@
+// An object-like macro that names a function-like one is invoked when the `(` is on a
+// following line, as in C. A line inside a multi-line string literal is string text:
+// a `#undef` or any other `#` line there is not a directive, and no macro expands in it.
+extern int printf(string fmt, ...);
+
+#define F(x) ((x) * 10)
+#define G F
+#define H G
+#define K 7
+
+int F = 3;
+
+int main() {
+    int a = G
+        (5);
+    int b = H   // two levels, then a comment
+    (a);
+    int c = G;
+    string s = "one
+#undef K
+K F(1) \t two";
+    printf("%d %d %d %d\n", a, b, c, K);
+    printf("%s\n", s);
+    string t = "x
+  #define K 9
+y"; int d = K;
+    printf("%s %d line %d\n", t, d, __LINE__);
+    return 0;
+}

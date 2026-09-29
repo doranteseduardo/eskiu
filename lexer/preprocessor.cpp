@@ -16,8 +16,9 @@
 // import / multi-file compilation; an import is preprocessed at its import line
 // (see PPImportHook), in C's textual order. Substitution is identifier-aware (skips
 // string/char literals and line comments) and recursive (a macro is not
-// re-expanded within its own expansion). Function-like macro calls must fit on
-// one line.
+// re-expanded within its own expansion). A function-like macro call may span lines,
+// and a string literal may too: a line that starts inside one is string text up to
+// its closing quote (never a directive).
 
 static std::string ppTrim(const std::string& s) {
     size_t a = s.find_first_not_of(" \t");
@@ -235,9 +236,10 @@ static std::string ppExpand(const std::string& input,
                     if (s0 < t && ppIdentStart(res[s0])) {
                         std::string tid = res.substr(s0, t - s0);
                         auto ft = defines.find(tid);
-                        size_t k2 = ppSkipBlank(text, after);
-                        if (ft != defines.end() && ft->second.isFunction && !expanding.count(tid)
-                            && k2 < n && text[k2] == '(') {
+                        size_t k2 = ppSkipBlankNL(text, after);
+                        bool fnName = ft != defines.end() && ft->second.isFunction && !expanding.count(tid);
+                        if (fnName && k2 >= n && ctx && ctx->depth == 0) ctx->trailingFnName = true;
+                        if (fnName && k2 < n && text[k2] == '(') {
                             out += res.substr(0, s0);
                             colShift += (long long)after - (long long)tid.size();
                             text = tid + text.substr(after);
@@ -266,8 +268,8 @@ static std::string ppExpand(const std::string& input,
 // inside comment text). On a directive line (`directive`) a '\' inside a string or char
 // literal splices too, as in C, so a #define body's literal may span lines.
 // Precondition: line.back() == '\\'.
-static bool backslashContinuesLine(const std::string& line, bool directive) {
-    bool inStr = false, inChr = false, inBlock = false;
+static bool backslashContinuesLine(const std::string& line, bool directive, bool startInStr) {
+    bool inStr = startInStr, inChr = false, inBlock = false;
     for (size_t i = 0; i < line.size(); ++i) {
         char c = line[i];
         if (inBlock) {
@@ -292,6 +294,42 @@ static bool backslashContinuesLine(const std::string& line, bool directive) {
     // The trailing '\' is reached in this state: code context splices (and a literal
     // on a directive line).
     return !inBlock && (directive || (!inStr && !inChr));
+}
+
+// Where a string literal open at the start of `line` closes: the index just past its
+// closing quote, or npos when it continues onto the next line (the lexer's string
+// literals may span lines).
+static size_t ppStringClose(const std::string& line) {
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (line[i] == '\\') { ++i; continue; }
+        if (line[i] == '"') return i + 1;
+    }
+    return std::string::npos;
+}
+
+// Does `text` (code, starting in a `/* */` comment when `blk`) end inside a string
+// literal? Scanned in the order ppExpand applies: comments, then literals, then `//`.
+static bool ppEndsInString(const std::string& text, bool blk) {
+    size_t n = text.size();
+    for (size_t i = 0; i < n; ++i) {
+        char c = text[i];
+        if (blk) {
+            if (c == '*' && i + 1 < n && text[i + 1] == '/') { blk = false; ++i; }
+            continue;
+        }
+        if (c == '/' && i + 1 < n && text[i + 1] == '*') { blk = true; ++i; continue; }
+        if (c == '/' && i + 1 < n && text[i + 1] == '/') {
+            size_t e = text.find('\n', i);
+            if (e == std::string::npos) return false;
+            i = e; continue;
+        }
+        if (c == '"' || c == '\'') {
+            char q = c; ++i;
+            while (i < n && text[i] != q) { if (text[i] == '\\') ++i; ++i; }
+            if (i >= n) return q == '"';
+        }
+    }
+    return false;
 }
 
 // Scan `line` for comment state: starting inside a `/* */` comment when `inBlock`,
@@ -691,6 +729,9 @@ void preprocess(const std::string& src,
     std::string line; bool first = true;
     int curLine = 0;
     bool inBlockComment = false;     // a /* */ comment is open at the start of this line
+    // A string literal is open at the start of this line (the lexer's strings may span
+    // lines): the line is string text up to the closing quote, never a directive.
+    bool inString = false;
     // CRLF input: getline leaves the '\r', which would hide a trailing '\'
     // continuation and leak into directive operands. Drop it up front.
     auto stripCR = [](std::string& l) { if (!l.empty() && l.back() == '\r') l.pop_back(); };
@@ -704,8 +745,8 @@ void preprocess(const std::string& src,
         // keeping every later source line on its original line number.
         int extra = 0;
         size_t dh = line.find_first_not_of(" \t");
-        bool directive = !inBlockComment && dh != std::string::npos && line[dh] == '#';
-        while (!line.empty() && line.back() == '\\' && backslashContinuesLine(line, directive)) {
+        bool directive = !inBlockComment && !inString && dh != std::string::npos && line[dh] == '#';
+        while (!line.empty() && line.back() == '\\' && backslashContinuesLine(line, directive, inString)) {
             line.pop_back();
             std::string cont;
             if (!std::getline(in, cont)) break;
@@ -723,7 +764,7 @@ void preprocess(const std::string& src,
         // A `#!` first line is a shebang (`#!/usr/bin/env eskiuc run`), not a directive.
         bool shebang = lineNo == 1 && line.compare(0, 2, "#!") == 0;
         bool dirOpen = false;            // the directive line leaves a /* comment open
-        if (!inBlockComment && h != std::string::npos && line[h] == '#') {
+        if (!inBlockComment && !inString && h != std::string::npos && line[h] == '#') {
             handled = true;
             if (!shebang) line = ppStripComments(line, dirOpen);
             int col = (int)h + 1;
@@ -823,6 +864,16 @@ void preprocess(const std::string& src,
         }
 
         if (!handled && active()) {
+            // The text of a string open at the start of the line is kept as is.
+            std::string lead;
+            bool strOpen = false;
+            if (inString) {
+                size_t e = ppStringClose(line);
+                strOpen = e == std::string::npos;
+                if (strOpen) e = line.size();
+                lead = line.substr(0, e);
+                line = line.substr(e);
+            }
             { Macro m; m.body = std::to_string(lineNo); defines["__LINE__"] = m; }
             std::set<std::string> expanding;
             PPExpandCtx ctx;
@@ -848,8 +899,9 @@ void preprocess(const std::string& src,
                 inBlockComment = blk;
                 break;
             }
-            if (!ctx.err.empty()) ppError(lineNo, (int)ctx.errCol, ctx.err);
-            out << expanded;
+            inString = strOpen || ppEndsInString(line, blkStart);
+            if (!ctx.err.empty()) ppError(lineNo, (int)(ctx.errCol + lead.size()), ctx.err);
+            out << lead << expanded;
             extra -= (int)std::count(expanded.begin(), expanded.end(), '\n');
             if (importHook) {
                 ppScanImports(expanded, blkStart, *importHook);

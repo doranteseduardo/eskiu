@@ -443,18 +443,21 @@ string pp_expand(string input, List<PPMacro>* tbl, List<string>* expanding, *int
                     if (s0 < t && pp_is_alpha((int)res[s0]) == 1) {
                         string tid = pp_sub(res, s0, t - s0);
                         int fi = pp_find(tbl, tid);
-                        int k2 = pp_skip_blank(text, after, n);
-                        if (fi >= 0 && pp_in_set(expanding, tid) == 0 && k2 < n && (int)text[k2] == 40) {
-                            if (List_get<PPMacro>(tbl, fi).is_function == 1) {
-                                String_append(&out, pp_sub(res, 0, s0));
-                                int tl = t - s0;
-                                col_shift = col_shift + after - tl;
-                                text = pp_cat(tid, pp_sub(text, after, n - after));
-                                keep_top = tl;
-                                i = 0;
-                                n = pp_clen(text);
-                                continue;
-                            }
+                        int k2 = pp_skip_blank_nl(text, after, n);
+                        int fn_name = 0;
+                        if (fi >= 0 && pp_in_set(expanding, tid) == 0) {
+                            if (List_get<PPMacro>(tbl, fi).is_function == 1) { fn_name = 1; }
+                        }
+                        if (fn_name == 1 && k2 >= n && ctx.depth == 0) { ctx.trailing_fn = 1; }
+                        if (fn_name == 1 && k2 < n && (int)text[k2] == 40) {
+                            String_append(&out, pp_sub(res, 0, s0));
+                            int tl = t - s0;
+                            col_shift = col_shift + after - tl;
+                            text = pp_cat(tid, pp_sub(text, after, n - after));
+                            keep_top = tl;
+                            i = 0;
+                            n = pp_clen(text);
+                            continue;
                         }
                     }
                     String_append(&out, res);
@@ -469,6 +472,46 @@ string pp_expand(string input, List<PPMacro>* tbl, List<string>* expanding, *int
     }
     blk[0] = inb;
     return (string)String_cstr(&out);
+}
+
+// Where a string literal open at the start of `line` (n bytes) closes: the index just
+// past its closing quote, or -1 when it continues onto the next line (mirrors
+// ppStringClose).
+int pp_string_close(string line, int n) {
+    int i = 0;
+    while (i < n) {
+        int c = (int)line[i];
+        if (c == 92) { i = i + 2; continue; }
+        if (c == 34) { return i + 1; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// Does `text` (n bytes of code, starting in a /* */ comment when `blk`) end inside a
+// string literal (mirrors ppEndsInString)?
+int pp_ends_in_string(string text, int n, int blk) {
+    int i = 0;
+    while (i < n) {
+        int c = (int)text[i];
+        if (blk == 1) {
+            if (c == 42 && i + 1 < n && (int)text[i + 1] == 47) { blk = 0; i = i + 1; }
+            i = i + 1; continue;
+        }
+        if (c == 47 && i + 1 < n && (int)text[i + 1] == 42) { blk = 1; i = i + 2; continue; }
+        if (c == 47 && i + 1 < n && (int)text[i + 1] == 47) {
+            while (i < n && (int)text[i] != 10) { i = i + 1; }
+            if (i >= n) { return 0; }
+            i = i + 1; continue;
+        }
+        if (c == 34 || c == 39) {
+            int q = c; i = i + 1;
+            while (i < n && (int)text[i] != q) { if ((int)text[i] == 92) { i = i + 1; } i = i + 1; }
+            if (i >= n) { if (q == 34) { return 1; } return 0; }
+        }
+        i = i + 1;
+    }
+    return 0;
 }
 
 // Does `line` end inside a /* */ comment, given whether one was open at its start
@@ -498,8 +541,8 @@ int pp_ends_in_block(string line, int inb) {
 // Precondition: the trailing char is '\'. Returns 0 if that '\' is inside a //
 // comment, an open block comment, or (unless `directive`, a directive line where it
 // splices as in C) a string/char literal.
-int pp_bs_continues(string line, int directive) {
-    int in_str = 0;
+int pp_bs_continues(string line, int directive, int start_str) {
+    int in_str = start_str;
     int in_chr = 0;
     int in_block = 0;
     int n = pp_clen(line);
@@ -1139,6 +1182,7 @@ string pp_run(string src, int len, string filename, *int had_err) {
     if (len >= 3 && (int)(uint8)src[0] == 239 && (int)(uint8)src[1] == 187 && (int)(uint8)src[2] == 191) { i = 3; }
     int cur_line = 0;
     int in_block = 0;                                // a /* */ comment is open at line start
+    int in_str = 0;                                  // a string literal is open at line start
 
     while (i < len) {
         // Read one physical line [start, i) excluding '\n' (getline semantics).
@@ -1156,10 +1200,10 @@ string pp_run(string src, int len, string filename, *int had_err) {
         int dh = 0;
         while (dh < String_len(&line) && pp_is_sp((int)String_char_at(&line, dh)) == 1) { dh = dh + 1; }
         int directive = 0;
-        if (in_block == 0 && dh < String_len(&line) && (int)String_char_at(&line, dh) == 35) { directive = 1; }
+        if (in_block == 0 && in_str == 0 && dh < String_len(&line) && (int)String_char_at(&line, dh) == 35) { directive = 1; }
         while (String_len(&line) > 0
                && (int)String_char_at(&line, String_len(&line) - 1) == 92
-               && pp_bs_continues((string)String_cstr(&line), directive) == 1) {
+               && pp_bs_continues((string)String_cstr(&line), directive, in_str) == 1) {
             pp_pop(&line);                           // drop the '\'
             if (i >= len) { break; }                 // no continuation line (getline fail)
             while (i < len && (int)src[i] != 10) { String_push(&line, (char)src[i]); i = i + 1; }
@@ -1185,7 +1229,7 @@ string pp_run(string src, int len, string filename, *int had_err) {
         int shebang = 0;
         if (line_no == 1 && ln >= 2 && (int)ls[0] == 35 && (int)ls[1] == 33) { shebang = 1; }
         let dir_open: int = 0;                       // the directive leaves a /* comment open
-        if (in_block == 0 && h < ln && (int)ls[h] == 35) {   // '#'
+        if (in_block == 0 && in_str == 0 && h < ln && (int)ls[h] == 35) {   // '#'
             handled = 1;
             if (shebang == 0) { ls = pp_strip_comments(ls, &dir_open); ln = pp_clen(ls); }
             int col = h + 1;
@@ -1303,6 +1347,18 @@ string pp_run(string src, int len, string filename, *int had_err) {
         }
 
         if (handled == 0 && active == 1) {
+            // The text of a string open at the start of the line is kept as is.
+            int lead = 0;
+            int str_open = 0;
+            if (in_str == 1) {
+                lead = pp_string_close(ls, ln);
+                if (lead < 0) { lead = ln; str_open = 1; }
+                int li = 0;
+                while (li < lead) { String_push(&out, (char)ls[li]); li = li + 1; }
+                ls = pp_sub(ls, lead, ln - lead);
+                ln = ln - lead;
+            }
+            int blk_line = in_block;
             // Refresh __LINE__ for this logical line, then expand.
             String nb;
             String_init(&nb, 12);
@@ -1338,8 +1394,8 @@ string pp_run(string src, int len, string filename, *int had_err) {
                     extra = extra + 1;
                     cur_line = cur_line + 1;
                     joins = joins + 1;
-                    ls = (string)String_cstr(&line);
-                    ln = String_len(&line);
+                    ls = pp_sub((string)String_cstr(&line), lead, String_len(&line) - lead);
+                    ln = String_len(&line) - lead;
                     pp_ctx_init(&ctx);
                     continue;
                 }
@@ -1354,7 +1410,9 @@ string pp_run(string src, int len, string filename, *int had_err) {
                 }
                 s0 = e0 + 1;
             }
-            if (ctx.err[0] != 0) { pp_error(filename, line_no, ctx.err_col, ctx.err, had_err); }
+            in_str = str_open;
+            if (str_open == 0) { in_str = pp_ends_in_string(ls, ln, blk_line); }
+            if (ctx.err[0] != 0) { pp_error(filename, line_no, ctx.err_col + lead, ctx.err, had_err); }
         } else {
             // Inactive and directive lines emit blank; one that opens or closes a
             // `/* */` comment emits just the delimiter (mirrors the C++).

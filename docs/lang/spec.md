@@ -2616,7 +2616,7 @@ Reading a scalar local (a number, `bool`, `char`, pointer, `string` or fn value)
 
 ## 18. Preprocessor
 
-A small text pass runs before lexing. It supports **object-like and function-like macros** and **conditional compilation**. Directives occupy their own line (the first non-blank character is `#`), and both directive lines and skipped lines are blanked out so reported line numbers match the original source.
+A small text pass runs before lexing. It supports **object-like and function-like macros** and **conditional compilation**. Directives occupy their own line (the first non-blank character is `#`); a line inside a string literal that spans lines is string text, never a directive, and no macro expands in it. Both directive lines and skipped lines are blanked out so reported line numbers match the original source.
 
 | Directive | Effect |
 |---|---|
@@ -2651,7 +2651,7 @@ character literals stay whole) and are macro-expanded before substitution, so
 has parameters (a one-parameter macro accepts `F()` as one empty argument), and an
 argument list left open at the end of the line is an error. A replacement that ends
 in the name of a function-like macro picks up the `(...)` that follows it, so after
-`#define CALLF F`, `CALLF(2)` expands `F(2)`. Comments count as whitespace: a `//`
+`#define CALLF F`, `CALLF(2)` expands `F(2)`, also when the `(` is on a later line. Comments count as whitespace: a `//`
 or `/* */` comment in a directive is not part of the macro body, and one inside an
 argument list does not end the argument. Files with CRLF line endings are handled,
 including `\` continuations.

@@ -871,6 +871,11 @@ input. What is still open is listed under Known issues.
 - `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size, so
   32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
   `run_cmd/net_timeval` (IR checked by `run.sh` for armv7 and x86-64).
+- An object-like macro that expands to the name of a function-like macro is invoked when
+  the `(` is on a following line (`#define G F`, then `G` and `(5)` on the next line), as
+  in C. A line inside a multi-line string literal is string text in both preprocessors:
+  a `#undef` or other `#` line there is not a directive and no macro expands in it; `fmt`
+  keeps such a line's bytes. Tests `pp_string_lines`, `fmt_cases/string_hash_line`.
 - `http_serve` sends an answer under one `write_ms` deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.
 
 - A slice or array compares by its element type in the C++ type checker, whatever the
@@ -934,6 +939,8 @@ without a diagnostic, except where the entry says so.
   when a cancelled future is dropped), and so is one in a generic async function's
   `match` arm that binds a payload, after a side-effecting operand or inside a `?:` arm;
   bind the value to a local first.
+- `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a
+  compound assignment; bind the awaited value to a local first.
 - There is no spelling for a pointer to a nullable pointer, inline `asm` has no output
   operands, and `null` does not convert to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
@@ -952,8 +959,6 @@ without a diagnostic, except where the entry says so.
   or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.
 - An enum member value cannot use `?:`, `&&`/`||`, or a `const` whose initializer is a
   ternary, although global `const` initializers accept them.
-- An object-like macro that expands to the name of a function-like macro is not expanded
-  as a call when the `(` is on the next line (`#define G F` then `G` / `(5)`).
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

@@ -114,11 +114,14 @@ String format_source(*uint8 src, int n) {
     int prevCont = 0;      // the previous line ends with `\`: this one continues it
     int ppCont = 0;        // the continued line is a preprocessor line (no nesting)
     int pendingBlank = 0;  // blank lines buffered (dropped only at the end of the file)
-    // The preprocessor's view (mirrors the C++): a `#` line outside a block comment is a
-    // directive even inside a multi-line string, each branch of a conditional and the
-    // code after `#endif` start from the string state at the `#if`, and a directive that
-    // leaves a `/*` open opens a comment for the following lines.
+    // The preprocessor's view (mirrors the C++): a `#` line inside a multi-line string is
+    // string text, each branch of a conditional and the code after `#endif` start from
+    // the string state at the `#if`, and a directive that leaves a `/*` open opens a
+    // comment for the following lines. In a string opened inside a conditional (maybe a
+    // branch that is not compiled) a `#` line keeps its bytes but counts as a directive.
     List<int> condStr; List_init<int>(&condStr, 4);
+    int strSeen = 0;       // inStr was already set at the start of the previous line
+    int strInCond = 0;     // the open string began inside a conditional
     let ppLine: String;    // the directive's logical line (continuations joined)
     String_init(&ppLine, 64);
     int firstLine = 1;
@@ -152,10 +155,15 @@ String format_source(*uint8 src, int n) {
         firstLine = 0;
         prevCont = 0;
         if (rlen > 0 && rb[rlen - 1] == 92) { prevCont = 1; }
+        if (inStr == 1 && strSeen == 0) {
+            strInCond = 0;
+            if (List_len<int>(&condStr) > 0) { strInCond = 1; }
+        }
+        strSeen = inStr;
         int h0 = 0;
         while (h0 < rlen && (rb[h0] == 32 || rb[h0] == 9)) { h0 = h0 + 1; }
         int directive = 0;
-        if (inBlock == 0 && cont == 0 && h0 < rlen && rb[h0] == 35) { directive = 1; }
+        if (inBlock == 0 && cont == 0 && (inStr == 0 || strInCond == 1) && h0 < rlen && rb[h0] == 35) { directive = 1; }
 
         if (inBlock == 1) {         // verbatim until the comment closes
             int a = 0;
@@ -214,7 +222,8 @@ String format_source(*uint8 src, int n) {
             int full = tlen;
             tlen = fmt_rtrim(tb, 0, tlen);
             int a = 0;
-            while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; }
+            if (inStr == 1) { while (a < rlen) { String_push(&out, (char)rb[a]); a = a + 1; } }
+            else { while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; } }
             fmt_eol(&out, crlf);
             int k2 = 1;
             while (k2 < full && (tb[k2] == 32 || tb[k2] == 9)) { k2 = k2 + 1; }

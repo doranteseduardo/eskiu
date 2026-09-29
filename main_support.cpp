@@ -141,12 +141,16 @@ std::string formatSource(const std::string& src) {
     bool inStr = false;       // a string literal continues onto the next line
     bool prevCont = false;    // the previous line ends with `\`: this one continues it
     bool ppCont = false;      // the continued line is a preprocessor line (no nesting)
-    // The preprocessor's view, which decides what the lexer sees: a `#` line outside a
-    // block comment is a directive even inside a multi-line string, only one branch of a
-    // conditional reaches the lexer (so each branch, and the code after `#endif`, starts
-    // from the string state at the `#if`), and a directive that leaves a `/*` open opens
-    // a comment for the following lines.
+    // The preprocessor's view, which decides what the lexer sees: a `#` line inside a
+    // multi-line string is string text, only one branch of a conditional reaches the
+    // lexer (so each branch, and the code after `#endif`, starts from the string state
+    // at the `#if`), and a directive that leaves a `/*` open opens a comment for the
+    // following lines. A string opened inside a conditional may be in a branch that is
+    // not compiled (a stray quote in `#if 0`), so there a `#` line keeps its bytes but
+    // still counts as a directive.
     std::vector<bool> condStr;
+    bool strSeen = false;     // inStr was already set at the start of the previous line
+    bool strInCond = false;   // the open string began inside a conditional
     std::string ppLine;       // the directive's logical line (continuations joined)
     bool firstLine = true;
     auto directiveOpensComment = [](const std::string& l) {
@@ -203,8 +207,10 @@ std::string formatSource(const std::string& src) {
         bool shebang = firstLine && raw.compare(0, 2, "#!") == 0;
         firstLine = false;
         prevCont = !raw.empty() && raw.back() == '\\';
+        if (inStr && !strSeen) strInCond = !condStr.empty();
+        strSeen = inStr;
         size_t h0 = raw.find_first_not_of(" \t");
-        bool directive = !inBlock && !cont && h0 != std::string::npos && raw[h0] == '#';
+        bool directive = !inBlock && !cont && (!inStr || strInCond) && h0 != std::string::npos && raw[h0] == '#';
         if (inBlock) {                       // verbatim until the comment closes
             out += raw; out += eol;
             for (size_t i = 0; i + 1 < raw.size(); ++i)
@@ -237,7 +243,7 @@ std::string formatSource(const std::string& src) {
 
         ppCont = t[0] == '#';
         if (t[0] == '#') {                   // preprocessor line: column 0, no nesting change
-            out += rtrim(t); out += eol;
+            out += inStr ? raw : rtrim(t); out += eol;
             size_t k = 1;
             while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) k++;
             size_t ks = k;
