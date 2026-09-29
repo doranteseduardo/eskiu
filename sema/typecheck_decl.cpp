@@ -1071,7 +1071,7 @@ void TypeChecker::visit(VarDecl* node) {
                 lam->returnType = dt.ret->str();
         }
         hintIfaceTarget(node->initializer.get(), node->type);
-        inferVariantTarget(node->initializer, node->type);
+        inferVariantTarget(node->initializer, node->type, true);
         node->initializer->accept(this);
         // A lambda bound to a local that is only ever called does not outlive the call.
         if (auto* lam = dynamic_cast<LambdaExpr*>(node->initializer.get());

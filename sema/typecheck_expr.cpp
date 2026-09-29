@@ -341,15 +341,26 @@ static std::string literalArmType(Expr* e, const std::string& t) {
 }
 
 // A generic variant built where a known instance of its enum is expected (`Opt<int64> a =
-// Some(5)`, `return None;`, an argument, an assignment) takes that instance's type
-// arguments: the node is rewritten to the explicit form (`Some<int64>(5)`, `None<int>()`),
-// which codegen lowers as written. A `?:` passes the target to both arms. Skipped in a
-// generic instance, whose body is shared by every instance.
-void TypeChecker::inferVariantTarget(ExprPtr& e, const std::string& target) {
-    if (!e || inInstance || target.empty() || target == "unknown") return;
+// Some(5)`, `return None;`, an argument, an assignment, a struct-literal field, an array
+// literal element, a variant's payload) takes that instance's type arguments: the node is
+// rewritten to the explicit form (`Some<int64>(5)`, `None<int>()`), which codegen lowers
+// as written. A `?:` passes the target to both arms, an array literal its element type
+// to each element. In a generic instance, whose body every instance shares, only a
+// `raw` target (as written in the source: a declared type, the declared return type)
+// is used, and its argument spellings are kept (`return None;` in an `Opt<T>` function
+// is `None<T>()`).
+void TypeChecker::inferVariantTarget(ExprPtr& e, const std::string& target, bool raw) {
+    if (!e || (inInstance && !raw) || target.empty() || target == "unknown") return;
     if (auto* t = dynamic_cast<TernaryExpr*>(e.get())) {
-        inferVariantTarget(t->thenExpr, target);
-        inferVariantTarget(t->elseExpr, target);
+        inferVariantTarget(t->thenExpr, target, raw);
+        inferVariantTarget(t->elseExpr, target, raw);
+        return;
+    }
+    if (auto* al = dynamic_cast<ArrayLitExpr*>(e.get())) {
+        ty::Type at = ty::Type::parse(tyq::strip(target));
+        if (at.kind != ty::Type::Kind::Array || !at.elem) return;
+        std::string et = at.elem->str();
+        for (auto& el : al->elements) inferVariantTarget(el, et, raw);
         return;
     }
     std::string name;
@@ -367,13 +378,22 @@ void TypeChecker::inferVariantTarget(ExprPtr& e, const std::string& target) {
     }
     auto gv = genericVariants.find(name);
     if (gv == genericVariants.end() || !lookupSymbol(name).empty()) return;
-    std::string n = normalizeType(tyq::strip(target));
-    if (!n.empty() && n[0] == '?') return;
-    auto ia = templateInstanceArgs.find(n);
-    if (ia == templateInstanceArgs.end() || ia->second.first != gv->second.first) return;
     auto ge = genericEnumDecls.find(gv->second.first);
-    if (ge == genericEnumDecls.end() || ia->second.second.size() != ge->second->typeParams.size()) return;
-    auto tc = std::make_shared<TemplateCallExpr>(name, ia->second.second, std::move(args));
+    if (ge == genericEnumDecls.end()) return;
+    std::vector<std::string> targs;
+    if (inInstance) {
+        ty::Type rt = ty::Type::parse(tyq::strip(target));
+        if (rt.kind != ty::Type::Kind::Template || rt.nullable || rt.name != gv->second.first) return;
+        for (const auto& a : rt.args) targs.push_back(a.str());
+    } else {
+        std::string n = normalizeType(tyq::strip(target));
+        if (!n.empty() && n[0] == '?') return;
+        auto ia = templateInstanceArgs.find(n);
+        if (ia == templateInstanceArgs.end() || ia->second.first != gv->second.first) return;
+        targs = ia->second.second;
+    }
+    if (targs.size() != ge->second->typeParams.size()) return;
+    auto tc = std::make_shared<TemplateCallExpr>(name, targs, std::move(args));
     tc->line = e->line;
     tc->col = e->col;
     e = tc;
@@ -1870,6 +1890,10 @@ void TypeChecker::visit(TemplateCallExpr* node) {
         for (size_t i = 0; i < ge->typeParams.size() && i < node->typeArgs.size(); ++i)
             subs[ge->typeParams[i]] = node->typeArgs[i];
         const auto& payload = ge->payloads[gv->second.second];
+        // A generic variant payload takes the payload's instance (`Some(Some(5))` as an
+        // `Opt<Opt<int64>>`: the inner one is an `Opt<int64>`).
+        for (size_t i = 0; i < node->args.size() && i < payload.size(); ++i)
+            inferVariantTarget(node->args[i], substType(payload[i], subs), true);
         for (auto& a : node->args) a->accept(this);
         if (node->args.size() != payload.size())
             errorAt(node, "variant '" + node->templateName + "' expects " +
@@ -1918,8 +1942,13 @@ void TypeChecker::visit(TemplateCallExpr* node) {
 
     checkConstraints(node, fd->constraints, subs);
 
-    // Type-check arguments
+    // Type-check arguments. A generic variant argument takes the parameter's instance
+    // (`get<int64>(Some(8))`), from the type arguments as written.
+    std::map<std::string, std::string> writtenSubs;
+    for (size_t i = 0; i < tp.size() && i < node->typeArgs.size(); ++i) writtenSubs[tp[i]] = node->typeArgs[i];
     for (size_t i = 0; i < node->args.size() && i < fixed; ++i) {
+        if (node->typeArgs.size() == tp.size())
+            inferVariantTarget(node->args[i], substType(fd->params[i].first, writtenSubs), true);
         node->args[i]->accept(this);
         std::string expected = substType(fd->params[i].first, subs);
         std::string got      = getExpressionType(node->args[i].get());
@@ -2041,6 +2070,14 @@ void TypeChecker::visit(StructInitExpr* node) {
                       "' literal has " + std::to_string(node->fieldInits.size()) + ")");
 
     for (size_t i = 0; i < node->fieldInits.size(); ++i) {
+        // A generic variant field value takes the field's instance (`S{ o: Some(3) }`). The
+        // declared field types of a non-generic struct are the same in every instance.
+        if (node->structName.find('<') == std::string::npos && !templateDecls.count(node->structName)) {
+            std::string ft;
+            if (named) { for (const auto& f : fields) if (f.name == node->fieldInits[i].first) { ft = f.type; break; } }
+            else if (i < fields.size()) ft = fields[i].type;
+            if (!ft.empty()) inferVariantTarget(node->fieldInits[i].second, ft, true);
+        }
         const auto& [fname, expr] = node->fieldInits[i];
         expr->accept(this);
         ASTNode* at = (expr->line > 0) ? static_cast<ASTNode*>(expr.get()) : node;

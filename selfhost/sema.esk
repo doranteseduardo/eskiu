@@ -62,6 +62,7 @@ struct Sema {
     int in_variadic;        // the function being checked has a variadic parameter (`...`)?
     int await_seen;         // has an `await` appeared in the current function?
     string cur_ret;         // current function's return type (for `?` propagation)
+    string cur_ret_raw;     // the same as written (a generic body: in terms of its type params)
     string match_ty;        // subject type of the `match` whose arms are being checked
     string lam_ret;         // return type a lambda initializer is reconciled to ("" = its own)
     List<string> watched;   // non-escaping fn-type params of the current function
@@ -465,7 +466,7 @@ void sema_init(Sema* s, string filename) {
     s.had_error = 0;
     s.in_async = 0;
     s.await_seen = 0;
-    s.cur_ret = "";
+    s.cur_ret = ""; s.cur_ret_raw = "";
     s.match_ty = "";
     s.lam_ret = "";
     List_init<string>(&s.watched, 4);
@@ -3521,15 +3522,30 @@ string sema_flat_name(string t) {
 *DeclNode sema_variant_enum(Sema* s, string name);
 int sema_variant_index(*DeclNode d, string name);
 // A generic variant built where a known instance of its enum is expected (`Opt<int64> a =
-// Some(5)`, `return None;`, an argument, an assignment) takes that instance's type
-// arguments: the node becomes the explicit form (`Some<int64>(5)`, `None<int>()`), which
-// codegen lowers as written. A `?:` passes the target to both arms. Skipped in a generic
-// body (mirrors the C++ inferVariantTarget, which skips generic instances).
-void sema_infer_variant(Sema* s, *ExprNode x, string t) {
-    if (x == null || t == null || t[0] == 0 || s.in_inst == 1 || List_len<string>(&s.tparams) > 0) { return; }
+// Some(5)`, `return None;`, an argument, an assignment, a struct-literal field, an array
+// literal element, a variant's payload) takes that instance's type arguments: the node
+// becomes the explicit form (`Some<int64>(5)`, `None<int>()`), which codegen lowers as
+// written. A `?:` passes the target to both arms, an array literal its element type to
+// each element. In a generic body, which every instance shares, only a `raw` target (as
+// written: a declared type, the declared return type) is used and its argument spellings
+// are kept (`return None;` in an `Opt<T>` function is `None<T>()`). Mirrors the C++
+// inferVariantTarget.
+void sema_infer_variant_r(Sema* s, *ExprNode x, string t, int raw) {
+    int generic = 0;
+    if (s.in_inst == 1 || List_len<string>(&s.tparams) > 0) { generic = 1; }
+    if (x == null || t == null || t[0] == 0 || (generic == 1 && raw == 0)) { return; }
     if (x.kind == EK_TERNARY) {
-        sema_infer_variant(s, x.b, t);
-        if (List_len<*ExprNode>(&x.kids) > 0) { sema_infer_variant(s, List_get<*ExprNode>(&x.kids, 0), t); }
+        sema_infer_variant_r(s, x.b, t, raw);
+        if (List_len<*ExprNode>(&x.kids) > 0) { sema_infer_variant_r(s, List_get<*ExprNode>(&x.kids, 0), t, raw); }
+        return;
+    }
+    if (x.kind == EK_ARRAYLIT) {
+        string at = sema_strip_const(t);
+        int an = sema_slen(at);
+        if (an == 0 || (int)at[an - 1] != 93 || sema_arr_bracket(at) <= 0) { return; }
+        string et = sema_arr_elem(at);
+        int ai = 0;
+        while (ai < List_len<*ExprNode>(&x.kids)) { sema_infer_variant_r(s, List_get<*ExprNode>(&x.kids, ai), et, raw); ai = ai + 1; }
         return;
     }
     string name = "";
@@ -3539,7 +3555,8 @@ void sema_infer_variant(Sema* s, *ExprNode x, string t) {
     if (sema_sym_depth(s, name) > 0) { return; }
     *DeclNode ve = sema_variant_enum(s, name);
     if (ve == null || List_len<TypeParam>(&ve.type_params) == 0 || sema_variant_index(ve, name) < 0) { return; }
-    string c = sema_canon(s, t);
+    string c = sema_strip_const(t);
+    if (generic == 0) { c = sema_canon(s, t); }
     if (c[0] == 0 || (int)c[0] == 63 || sema_has_lt(c) == 0 || sema_streq(sema_base_name(c), ve.name) == 0) { return; }
     List<string> targs; List_init<string>(&targs, 2);
     sema_parse_targs(c, &targs);
@@ -3554,6 +3571,50 @@ void sema_infer_variant(Sema* s, *ExprNode x, string t) {
     sig = sema_cat(sig, ">");
     if (x.kind == EK_IDENT) { List_init<*ExprNode>(&x.kids, 1); }
     x.kind = EK_TEMPLATECALL; x.sval = sig; x.a = null;
+}
+void sema_infer_variant(Sema* s, *ExprNode x, string t) { sema_infer_variant_r(s, x, t, 0); }
+
+// The payload arguments of a generic variant built with type arguments `targs` (as
+// written) take the payload's instance: `Some<Opt<int64>>(Some(5))`.
+void sema_infer_variant_payload(Sema* s, *ExprNode e, string v, List<string>* targs) {
+    *DeclNode ed = sema_variant_enum(s, v);
+    if (ed == null || List_len<TypeParam>(&ed.type_params) == 0) { return; }
+    int vi = sema_variant_index(ed, v);
+    if (vi < 0 || vi >= List_len<List<string>>(&ed.payloads)) { return; }
+    if (List_len<string>(targs) != List_len<TypeParam>(&ed.type_params)) { return; }
+    List<string> pl = List_get<List<string>>(&ed.payloads, vi);
+    List<string> names; List_init<string>(&names, 2);
+    int k = 0;
+    while (k < List_len<TypeParam>(&ed.type_params)) { List_push<string>(&names, List_get<TypeParam>(&ed.type_params, k).name); k = k + 1; }
+    int i = 0;
+    while (i < List_len<string>(&pl) && i < List_len<*ExprNode>(&e.kids)) {
+        sema_infer_variant_r(s, List_get<*ExprNode>(&e.kids, i), sema_subst_names(List_get<string>(&pl, i), &names, targs), 1);
+        i = i + 1;
+    }
+}
+
+// A struct literal's generic-variant field values take the field's instance (`S{ o:
+// Some(3) }`); the declared field types of a non-generic struct are the same in every
+// instance.
+void sema_infer_struct_fields(Sema* s, *ExprNode e) {
+    List<string> targs; List_init<string>(&targs, 2);
+    sema_parse_targs(e.sval, &targs);
+    if (List_len<string>(&targs) > 0) { return; }
+    *DeclNode d = sema_find_struct(s, sema_base_name(e.sval));
+    if (d == null || List_len<TypeParam>(&d.type_params) > 0) { return; }
+    int nf = List_len<Param>(&d.params);
+    int i = 0;
+    while (i < List_len<*ExprNode>(&e.kids)) {
+        string nm = "";
+        if (i < List_len<string>(&e.names)) { nm = List_get<string>(&e.names, i); }
+        string ft = "";
+        if (nm[0] != 0) {
+            int fi = 0;
+            while (fi < nf) { if (sema_streq(List_get<Param>(&d.params, fi).name, nm) == 1) { ft = List_get<Param>(&d.params, fi).ty; } fi = fi + 1; }
+        } else if (i < nf) { ft = List_get<Param>(&d.params, i).ty; }
+        if (ft[0] != 0) { sema_infer_variant_r(s, List_get<*ExprNode>(&e.kids, i), ft, 1); }
+        i = i + 1;
+    }
 }
 
 // A `?:` whose value goes to an interface (a declaration, assignment, return or argument):
@@ -5421,6 +5482,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: struct '%s' is not generic: write %s{...}\n", s.filename, s.line, s.col, base, base);
         }
+        sema_infer_struct_fields(s, e);
         sema_check_struct_init(s, e);
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
@@ -5458,6 +5520,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (fd == null && sema_is_variant_name(s, tbase) == 1) {
             List<string> vtargs; List_init<string>(&vtargs, 2);
             sema_parse_targs(e.sval, &vtargs);
+            sema_infer_variant_payload(s, e, tbase, &vtargs);
             sema_check_variant_args(s, e, tbase, &vtargs);
         }
         if (fd == null && sema_streq(tbase, "va_arg") == 0 && sema_is_variant_name(s, tbase) == 0) {
@@ -5478,6 +5541,14 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             if (sema_check_generic_arity(s, fd, e) == 0) { inst_ok = 0; }
             if (na == tn && sema_check_constraints(s, &fd.type_params, &targs) == 0) { inst_ok = 0; }
             if (inst_ok == 1 && tn > 0) {
+                // A generic variant argument takes the parameter's instance
+                // (`get<int64>(Some(8))`), from the type arguments as written.
+                int vai = 0;
+                while (vai < List_len<*ExprNode>(&e.kids) && vai < List_len<Param>(&fd.params)) {
+                    sema_infer_variant_r(s, List_get<*ExprNode>(&e.kids, vai),
+                                         sema_subst_params(List_get<Param>(&fd.params, vai).ty, &fd.type_params, &targs), 1);
+                    vai = vai + 1;
+                }
                 // The arguments against the instantiated parameter types.
                 List<string> ctargs; List_init<string>(&ctargs, 4);
                 int ci2 = 0;
@@ -5561,8 +5632,10 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     // The body runs later, when a global (or `static` local) may have been nulled.
     sema_drop_global_keys(&s.narrowed);
     sema_bump(s);
+    string saved_ret_raw = s.cur_ret_raw;
     s.cur_ret = sema_isub(s, sema_lambda_ret(e.sval));
-    if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; }
+    s.cur_ret_raw = sema_lambda_ret(e.sval);
+    if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; s.cur_ret_raw = s.lam_ret; }
     s.lam_ret = "";
     s.in_async = 0; s.sw_depth = 0;
     List_push<int>(&s.lam_bounds, s.depth);
@@ -5590,7 +5663,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_remove<int>(&s.lam_bounds, List_len<int>(&s.lam_bounds) - 1);
     List_remove<int>(&s.lam_esc, List_len<int>(&s.lam_esc) - 1);
     List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
-    s.cur_ret = saved_ret; s.in_async = saved_async; s.await_seen = saved_seen;
+    s.cur_ret = saved_ret; s.cur_ret_raw = saved_ret_raw; s.in_async = saved_async; s.await_seen = saved_seen;
     s.fin_depth = saved_fin;
     s.sw_depth = saved_sw; s.param_depth = saved_pd; s.in_variadic = saved_var;
     s.loop_lbls = saved_lbls;
@@ -5914,7 +5987,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             s.lam_local = st.name;
         }
         sema_hint_iface(s, st.expr, st.type);
-        sema_infer_variant(s, st.expr, st.type);
+        sema_infer_variant_r(s, st.expr, st.type, 1);
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         s.lam_ret = "";
         s.lam_local = "";
@@ -6007,7 +6080,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             dprintf(2, "error: %s:%d:%d: 'return' is not allowed inside a finally block\n", s.filename, s.line, s.col);
         }
         sema_hint_iface(s, st.expr, s.cur_ret);
-        sema_infer_variant(s, st.expr, s.cur_ret);
+        sema_infer_variant_r(s, st.expr, s.cur_ret_raw, 1);
         sema_expr(s, st.expr);
         if (st.expr != null && sema_streq(s.cur_ret, "void") == 1) {
             string rvt = sema_infer_type(s, st.expr);
@@ -7296,6 +7369,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     if (vpn > 0 && sema_streq(List_get<Param>(&f.params, vpn - 1).ty, "...") == 1) { s.in_variadic = 1; }
     s.await_seen = 0;
     s.cur_ret = sema_isub(s, f.ret_type);
+    s.cur_ret_raw = f.ret_type;
     // Escape soundness: watch non-escaping fn-type params for the body walk. (Not in a
     // generic instance: as in the C++ checker, it is enforced on non-generic functions.)
     List_init<string>(&s.watched, 4);
