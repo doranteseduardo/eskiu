@@ -442,6 +442,7 @@ void sema_fold_enum(Sema* s, *DeclNode d, int report) {
 }
 
 void sema_init(Sema* s, string filename) {
+    memset((*void)s, 0, sizeof(Sema));   // every field starts as a valid empty value
     s.ptrsz = 8; s.i64al = 8; s.msbf = 0;
 #ifdef _WIN32
     s.msbf = 1;

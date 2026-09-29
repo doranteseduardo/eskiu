@@ -247,6 +247,11 @@ uint64 cg_int_lit_mag(string s) {
 }
 
 void cg_init(Codegen* g) {
+    // Start from all zeros: every field (a List a later change forgets to init
+    // included) is then a valid empty value on every platform, not stack garbage.
+    memset((*void)g, 0, sizeof(Codegen));
+    List_init<string>(&g.topfns, 16);
+    List_init<CgSub>(&g.opcanon, 4);
     g.bf_vol = "";
     g.mstamp = 0;
     g.mactive = 0;
