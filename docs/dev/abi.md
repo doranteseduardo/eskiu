@@ -124,7 +124,11 @@ A `union` lowers to `{ M, [P x i8] }`, where `M` is its most-aligned member
 largest member rounded to that alignment. So the union has C's size and
 alignment, and lands at the C offset inside a struct (`struct { int tag; union {
 int64 l; int i; } u; }` puts `u` at 8). All members share offset 0; a member
-access reinterprets the storage at that type.
+access reinterprets the storage at that type. Under `#pragma pack(N)` each member's
+alignment is capped at `N` (as C); when that lowers the union's alignment the storage
+is the packed `<{ M, [P x i8] }>` with its C alignment recorded (`cAlignOverride` /
+`cg_set_calign`), so it lands at the C offset in a struct and the C ABI lowering sees
+the C size and alignment.
 
 ---
 

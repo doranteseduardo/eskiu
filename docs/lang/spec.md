@@ -730,7 +730,7 @@ sizeof(Grid)   // 12  (3 float fields)
 
 The operand may also be an expression: `sizeof(*p)`, `sizeof(a[0])`, `sizeof(s.field)` give the size of the expression's type, and the expression is not evaluated (`sizeof(f())` does not call `f`). The operand is read as a type when it is a bare name or a spelling built over a primitive or an already declared type (`sizeof(*Node)`, `sizeof(int[4])`); otherwise it is an expression.
 
-The type checker folds `sizeof` of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and `#pragma pack(N)` included), using the target's layout (`--target`), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate `case`) and `enum` member values see it. The size of a union declared under `#pragma pack(N)` with `N > 1` is known only to code generation, which still folds it to a constant.
+The type checker folds `sizeof` of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and `#pragma pack(N)` included), using the target's layout (`--target`), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate `case`) and `enum` member values see it. A union declared under `#pragma pack(N)` folds too.
 
 ### 5.9 Conditional (ternary)
 
@@ -1662,7 +1662,7 @@ A union literal initializes exactly one member, named or positional (`Value{f: 1
 
 ### 8.7 Enums
 
-An `enum` declares a set of named integer constants. Members take consecutive values starting at 0; an explicit `= N` resets the running value, and the next member continues from there. `N` is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level `const` ints declared earlier, `sizeof` (§5.8), casts, the integer operators, `!`, `&&`, `||` and `?:` (`enum Flag { A = 1, B = A << 2, C }` gives `C == 5`; `D = K > 2 ? 4 : 1`). A value that is not constant is a compile error, and every value must fit an `int`. The enum type itself is an `int` (`i32`), so enum values work in arithmetic, comparisons, and `switch`.
+An `enum` declares a set of named integer constants. Members take consecutive values starting at 0; an explicit `= N` resets the running value, and the next member continues from there. `N` is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level `const` ints declared earlier, `sizeof` (§5.8), casts, the integer operators, `!`, `&&`, `||` and `?:` (`enum Flag { A = 1, B = A << 2, C }` gives `C == 5`; `D = K > 2 ? 4 : 1`). The expression is evaluated with C's typed integer rules (§3.1: the usual arithmetic conversions, 32-bit wraparound, unsigned comparison and division, the arithmetic right shift of a signed value, `sizeof` as an unsigned size), as are array dimensions and `case` labels: `((uint)3 - (uint)5) / 2 > 100` is 1 and `(1 << 31) >> 31` is -1. A value that is not constant is a compile error, and every value must fit an `int`. The enum type itself is an `int` (`i32`), so enum values work in arithmetic, comparisons, and `switch`.
 
 ```eskiu
 enum Color  { Red, Green, Blue }            // 0, 1, 2
@@ -1711,14 +1711,18 @@ Shape a = Circle(2.0);          // construct; payload-free variants are bare (`U
 
 Algebraic enums may be **generic** and are monomorphized per instantiation, like
 template structs. Where an instance of the variant's enum is expected (a declaration,
-an assignment, a `return`, or an argument of a non-generic function), the variant takes
-that instance's type arguments, and its payload is checked against them: `Option<int64>
-a = Some(42)` builds an `Option<int64>`, and a bare `None` or an under-determining
-`Left(7)` is accepted there. Elsewhere the type arguments are inferred from the payload
-arguments when they determine them (`Some(42)` → `Option<int>`); otherwise (a
-payload-free variant like `None`, or one that under-determines the type like `Either`'s
-`Left`) write them explicitly (`None<int>()`, `Left<int, string>(7)`). Inside a generic
-function the expected type is not used, so write the type arguments there too:
+an assignment, a `return`, an argument of a function or of a generic function called
+with explicit type arguments, a struct-literal field, an array-literal element, or the
+payload of another variant), the variant takes that instance's type arguments, and its
+payload is checked against them: `Option<int64> a = Some(42)` builds an
+`Option<int64>`, `Option<Option<int64>> b = Some(Some(5))` an `Option<int64>` inside,
+and a bare `None` or an under-determining `Left(7)` is accepted there. Elsewhere the type
+arguments are inferred from the payload arguments when they determine them (`Some(42)`
+→ `Option<int>`); otherwise (a payload-free variant like `None`, or one that
+under-determines the type like `Either`'s `Left`) write them explicitly (`None<int>()`,
+`Left<int, string>(7)`). Inside a generic function only a type as written is used (a
+declared type, the declared return type): `return None;` in an `Option<T>` function is
+`None<T>()`; an assignment or an argument there needs the type arguments written:
 
 ```eskiu
 enum Option<T>    { None, Some(T) }
@@ -1782,7 +1786,7 @@ struct WireHeader {     // packed (sizeof == 5)
 #pragma pack(pop)       // subsequent structs use natural alignment again
 ```
 
-`#pragma pack(1)` and `packed struct` are equivalent (fully packed, no padding). `#pragma pack(N)` for `N > 1` caps each field's alignment at `N`: a field whose natural alignment exceeds `N` is aligned to `N` instead, and the struct's total size rounds up to its own alignment (`min(max-field-alignment, N)`). This matches the C `#pragma pack(N)` ABI. For example, under `pack(4)` a `struct { char a; int64 b; int16 c; }` lays out `a@0`, `b@4`, `c@12` with `sizeof == 16`. `N` must be 1, 2, 4, 8 or 16 (as in C); any other alignment is a compile error at the pragma. Packed layout (any `N`) composes with bitfields and is reflected by `sizeof` and by every field access. A struct declared under `pack(N)` keeps its alignment `min(max-field-alignment, N)` wherever it is used, as in C: as a field or array element of another struct (declared under any packing that does not cap it lower) and as a union member.
+`#pragma pack(1)` and `packed struct` are equivalent (fully packed, no padding). `#pragma pack(N)` for `N > 1` caps each field's alignment at `N`: a field whose natural alignment exceeds `N` is aligned to `N` instead, and the struct's total size rounds up to its own alignment (`min(max-field-alignment, N)`). This matches the C `#pragma pack(N)` ABI. For example, under `pack(4)` a `struct { char a; int64 b; int16 c; }` lays out `a@0`, `b@4`, `c@12` with `sizeof == 16`. `N` must be 1, 2, 4, 8 or 16 (as in C); any other alignment is a compile error at the pragma. Packed layout (any `N`) composes with bitfields and is reflected by `sizeof` and by every field access. A struct declared under `pack(N)` keeps its alignment `min(max-field-alignment, N)` wherever it is used, as in C: as a field or array element of another struct (declared under any packing that does not cap it lower) and as a union member. A union declared under `pack(N)` caps each member's alignment at `N` the same way: `#pragma pack(2) union U { char[5] c; int x; }` is 6 bytes and 2-aligned.
 
 ---
 
