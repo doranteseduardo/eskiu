@@ -6,7 +6,7 @@
 | Flag        | Purpose                                                                          |
 | ----------- | -------------------------------------------------------------------------------- |
 | `--target`  | Target triple (e.g. `x86_64-linux-gnu`, `armv6k-none-eabihf`). Empty = host.     |
-| `--mcpu`    | Target CPU passed to LLVM (e.g. `mpcore`). Empty = `generic` when cross, host CPU when native. |
+| `--mcpu`    | Target CPU passed to LLVM (e.g. `mpcore`). Empty = `generic`, native builds included (as in clang). |
 | `--mattr`   | LLVM feature string, `-mattr` syntax (e.g. `+vfp2`).                              |
 | `--reloc`   | Relocation model: `pic` (default), `static`, or `dynamic-no-pic`.                |
 

@@ -196,7 +196,7 @@ public:
     llvm::Module* getModule() const;                               // non-owning
 
     std::string targetTriple;     // target triple override (empty = native)
-    std::string targetCPU;        // --mcpu (empty = "generic" when cross, host CPU when native)
+    std::string targetCPU;        // --mcpu (empty = "generic", native builds included)
     std::string targetFeatures;   // --mattr feature string (LLVM -mattr syntax, e.g. "+vfp2")
     std::string relocModel;       // --reloc: "static" | "dynamic-no-pic" | "" ("pic", default)
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of calloc/free
@@ -225,7 +225,7 @@ Configure the run before calling `generateCode()`:
   `__APPLE__` nor `__linux__`.
 - `targetCPU` / `targetFeatures`: `--mcpu` / `--mattr` overrides, forwarded to the
   `TargetMachine` (e.g. `mpcore` + `+vfp2` for the 3DS's ARM11). Empty CPU means
-  `generic` when cross-compiling, the host CPU when native.
+  `generic`, for native builds too (as in clang; pass `--mcpu` to tune for a CPU).
 - `relocModel`: `--reloc` selects the relocation model. `static` (or `dynamic-no-pic`)
   instead of the default PIC; the 3DS `.3dsx` loader applies static relocations and has
   no dynamic loader to populate a GOT.
