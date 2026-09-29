@@ -1,6 +1,7 @@
 #include "type.h"
 #include <cctype>
 #include <cstdint>
+#include <climits>
 
 namespace ty {
 
@@ -573,10 +574,92 @@ std::string rangeVarType(const std::string& a, const std::string& b) {
     return u ? "uint" : "int";
 }
 
+CInt cintMake(long long v, int rank, bool uns) {
+    CInt r;
+    r.rank = rank == 64 ? 64 : 32;
+    r.uns = uns;
+    if (r.rank == 32) r.v = uns ? (long long)(uint32_t)v : (long long)(int32_t)v;
+    else r.v = v;
+    return r;
+}
+
+CInt cintLiteral(unsigned long long v) {
+    if (v <= 0x7fffffffULL) return cintMake((long long)v, 32, false);
+    if (v <= 0x7fffffffffffffffULL) return cintMake((long long)v, 64, false);
+    return cintMake((long long)v, 64, true);
+}
+
+bool cintCast(const std::string& t, const CInt& x, CInt& out) {
+    long long v = x.v;
+    if (t == "bool") { out = cintMake(v != 0, 32, false); return true; }
+    if (t == "int8")  { out = cintMake((int8_t)v, 32, false); return true; }
+    if (t == "uint8" || t == "char") { out = cintMake((uint8_t)v, 32, false); return true; }
+    if (t == "int16") { out = cintMake((int16_t)v, 32, false); return true; }
+    if (t == "uint16") { out = cintMake((uint16_t)v, 32, false); return true; }
+    if (t == "int" || t == "int32") { out = cintMake(v, 32, false); return true; }
+    if (t == "uint" || t == "uint32") { out = cintMake(v, 32, true); return true; }
+    if (t == "int64") { out = cintMake(v, 64, false); return true; }
+    if (t == "uint64") { out = cintMake(v, 64, true); return true; }
+    return false;
+}
+
+bool cintUnary(const std::string& op, const CInt& x, CInt& out) {
+    if (op == "-") { out = cintMake((long long)(0ULL - (unsigned long long)x.v), x.rank, x.uns); return true; }
+    if (op == "~") { out = cintMake(~x.v, x.rank, x.uns); return true; }
+    if (op == "!") { out = cintMake(x.v == 0, 32, false); return true; }
+    if (op == "+") { out = x; return true; }
+    return false;
+}
+
+bool cintBinary(const std::string& op, const CInt& x, const CInt& y, CInt& out) {
+    if (op == "&&") { out = cintMake(x.v != 0 && y.v != 0, 32, false); return true; }
+    if (op == "||") { out = cintMake(x.v != 0 || y.v != 0, 32, false); return true; }
+    if (op == "<<" || op == ">>") {
+        // The result has the (promoted) left operand's type; the count must fit its width.
+        int w = x.rank;
+        if (!y.uns && y.v < 0) return false;
+        if ((unsigned long long)y.v >= (unsigned long long)w) return false;
+        unsigned n = (unsigned)y.v;
+        if (op == "<<") out = cintMake((long long)((unsigned long long)x.v << n), x.rank, x.uns);
+        else if (x.uns) out = cintMake((long long)((unsigned long long)x.v >> n), x.rank, x.uns);
+        else out = cintMake(x.v >> n, x.rank, x.uns);
+        return true;
+    }
+    // The usual arithmetic conversions: the wider rank wins, unsigned at equal rank.
+    int r = x.rank > y.rank ? x.rank : y.rank;
+    bool u = x.rank == y.rank ? (x.uns || y.uns) : (x.rank > y.rank ? x.uns : y.uns);
+    CInt a = cintMake(x.v, r, u), b = cintMake(y.v, r, u);
+    unsigned long long ua = (unsigned long long)a.v, ub = (unsigned long long)b.v;
+    if (op == "==") { out = cintMake(a.v == b.v, 32, false); return true; }
+    if (op == "!=") { out = cintMake(a.v != b.v, 32, false); return true; }
+    if (op == "<")  { out = cintMake(u ? ua < ub : a.v < b.v, 32, false); return true; }
+    if (op == ">")  { out = cintMake(u ? ua > ub : a.v > b.v, 32, false); return true; }
+    if (op == "<=") { out = cintMake(u ? ua <= ub : a.v <= b.v, 32, false); return true; }
+    if (op == ">=") { out = cintMake(u ? ua >= ub : a.v >= b.v, 32, false); return true; }
+    long long v;
+    if (op == "+") v = (long long)(ua + ub);
+    else if (op == "-") v = (long long)(ua - ub);
+    else if (op == "*") v = (long long)(ua * ub);
+    else if (op == "&") v = a.v & b.v;
+    else if (op == "|") v = a.v | b.v;
+    else if (op == "^") v = a.v ^ b.v;
+    else if (op == "/" || op == "%") {
+        if (b.v == 0) return false;
+        if (u) v = (long long)(op == "/" ? ua / ub : ua % ub);
+        else {
+            long long mn = r == 64 ? LLONG_MIN : (long long)INT32_MIN;
+            if (a.v == mn && b.v == -1) return false;
+            v = op == "/" ? a.v / b.v : a.v % b.v;
+        }
+    }
+    else return false;
+    out = cintMake(v, r, u);
+    return true;
+}
 
 namespace {
 
-// Recursive descent over a dimension's text (see foldDim); C precedence, 64-bit values.
+// Recursive descent over a dimension's text (see foldDim); C precedence, typed values.
 struct DimFolder {
     const std::string& s;
     const std::function<bool(const std::string&, long long&)>& name;
@@ -590,40 +673,33 @@ struct DimFolder {
         while (i < s.size() && (std::isalnum((unsigned char)s[i]) || s[i] == '_')) ++i;
         return s.substr(b, i - b);
     }
-    static bool castTo(const std::string& t, long long v, long long& r) {
-        if (t == "int8")   { r = (int8_t)v;  return true; }
-        if (t == "uint8" || t == "char") { r = (uint8_t)v; return true; }
-        if (t == "int16")  { r = (int16_t)v; return true; }
-        if (t == "uint16") { r = (uint16_t)v; return true; }
-        if (t == "int" || t == "int32")   { r = (int32_t)v; return true; }
-        if (t == "uint" || t == "uint32") { r = (uint32_t)v; return true; }
-        if (t == "int64" || t == "uint64") { r = v; return true; }
-        if (t == "bool")   { r = v != 0; return true; }
-        return false;
-    }
-    long long unary() {
-        if (!ok || i >= s.size()) { ok = false; return 0; }
+    CInt fail() { ok = false; return CInt{}; }
+    CInt unary() {
+        if (!ok || i >= s.size()) return fail();
         char c = s[i];
-        if (c == '-') { ++i; return -unary(); }
-        if (c == '+') { ++i; return unary(); }
-        if (c == '~') { ++i; return ~unary(); }
-        if (c == '!') { ++i; return !unary(); }
+        if (c == '-' || c == '+' || c == '~' || c == '!') {
+            ++i;
+            CInt x = unary(), r;
+            if (!ok || !cintUnary(std::string(1, c), x, r)) return fail();
+            return r;
+        }
         if (c == '(') {
             ++i;
             size_t save = i;
             if (i < s.size() && identStart(s[i])) {           // `(type)x`, a cast
                 std::string t = ident();
-                long long probe = 0;
-                if (at(")") && castTo(t, 0, probe)) {
+                CInt probe;
+                if (at(")") && cintCast(t, CInt{}, probe)) {
                     ++i;
-                    long long r = 0;
-                    castTo(t, unary(), r);
+                    CInt x = unary(), r;
+                    if (!ok) return fail();
+                    cintCast(t, x, r);
                     return r;
                 }
                 i = save;
             }
-            long long v = ternary();
-            if (!at(")")) { ok = false; return 0; }
+            CInt v = ternary();
+            if (!at(")")) return fail();
             ++i;
             return v;
         }
@@ -637,29 +713,32 @@ struct DimFolder {
             try {
                 size_t used = 0;
                 unsigned long long v = std::stoull(lit, &used, base);
-                if (used != lit.size()) ok = false;
-                return (long long)v;
-            } catch (...) { ok = false; return 0; }
+                if (used != lit.size()) return fail();
+                return cintLiteral(v);
+            } catch (...) { return fail(); }
         }
         if (identStart(c)) {
             long long v = 0;
             std::string n = ident();
-            // `sizeof(T)` goes to `name` whole, as the text "sizeof(T)".
+            // `sizeof(T)` goes to `name` whole, as the text "sizeof(T)"; its value is a
+            // size (unsigned 64-bit, C's size_t).
+            bool isSize = false;
             if (n == "sizeof" && at("(")) {
                 size_t b = i, depth = 0;
                 for (; i < s.size(); ++i) {
                     if (s[i] == '(') ++depth;
                     else if (s[i] == ')' && --depth == 0) break;
                 }
-                if (i >= s.size()) { ok = false; return 0; }
+                if (i >= s.size()) return fail();
                 ++i;
                 n += s.substr(b, i - b);
+                isSize = true;
             }
-            if (!name(n, v)) ok = false;
-            return v;
+            if (!name(n, v)) return fail();
+            if (isSize) return cintMake(v, 64, true);
+            return v >= INT32_MIN && v <= INT32_MAX ? cintMake(v, 32, false) : cintMake(v, 64, false);
         }
-        ok = false;
-        return 0;
+        return fail();
     }
     // The binary operator at the cursor for precedence `level`, or "".
     std::string opAt(int level) const {
@@ -676,36 +755,31 @@ struct DimFolder {
         }
         return "";
     }
-    long long binary(int level) {
+    CInt binary(int level) {
         if (level == 10) return unary();
-        long long l = binary(level + 1);
+        CInt l = binary(level + 1);
         for (;;) {
-            if (!ok) return 0;
+            if (!ok) return fail();
             std::string o = opAt(level);
             if (o.empty()) return l;
             i += o.size();
-            long long r = binary(level + 1);
-            if (o == "||") l = l || r;       else if (o == "&&") l = l && r;
-            else if (o == "|") l |= r;       else if (o == "^") l ^= r;   else if (o == "&") l &= r;
-            else if (o == "==") l = l == r;  else if (o == "!=") l = l != r;
-            else if (o == "<=") l = l <= r;  else if (o == ">=") l = l >= r;
-            else if (o == "<") l = l < r;    else if (o == ">") l = l > r;
-            else if (o == "<<") { if (r < 0 || r > 63) ok = false; else l = (long long)((unsigned long long)l << r); }
-            else if (o == ">>") { if (r < 0 || r > 63) ok = false; else l >>= r; }
-            else if (o == "+") l += r;       else if (o == "-") l -= r;   else if (o == "*") l *= r;
-            else if (r == 0) ok = false;
-            else if (o == "/") l /= r;       else l %= r;
+            CInt r = binary(level + 1);
+            if (!ok || !cintBinary(o, l, r, l)) return fail();
         }
     }
-    long long ternary() {
-        long long c = binary(0);
+    CInt ternary() {
+        CInt c = binary(0);
         if (!ok || !at("?")) return c;
         ++i;
-        long long a = ternary();
-        if (!at(":")) { ok = false; return 0; }
+        CInt a = ternary();
+        if (!at(":")) return fail();
         ++i;
-        long long b = ternary();
-        return c ? a : b;
+        CInt b = ternary();
+        if (!ok) return fail();
+        // The arms meet at their common type (the usual arithmetic conversions).
+        int r = a.rank > b.rank ? a.rank : b.rank;
+        bool u = a.rank == b.rank ? (a.uns || b.uns) : (a.rank > b.rank ? a.uns : b.uns);
+        return cintMake(c.v ? a.v : b.v, r, u);
     }
 };
 
@@ -717,9 +791,9 @@ bool foldDim(const std::string& dim, const std::function<bool(const std::string&
     for (char c : dim) if (!std::isspace((unsigned char)c)) t += c;
     if (t.empty()) return false;
     DimFolder f{t, name};
-    long long v = f.ternary();
+    CInt v = f.ternary();
     if (!f.ok || f.i != t.size()) return false;
-    out = v;
+    out = v.v;
     return true;
 }
 

@@ -358,6 +358,7 @@ private:
     // A switch `case` label codegen can fold to an integer constant.
     bool isConstIntExpr(Expr* e);
     bool foldConstInt(Expr* e, long long& out);
+    bool foldConstIntT(Expr* e, ty::CInt& out);
     // Fold a classic enum's member value expressions (`B = A << 2`) into its members, in
     // order (a member's value may use the members before it). `report` diagnoses a value that is
     // not an integer constant expression (the declaration-order pass).
@@ -375,8 +376,8 @@ private:
     // Fold an arithmetic constant expression that may involve floating values (C rules:
     // integer operands stay integer); isInt says which of i / d holds the value.
     bool foldConstNum(Expr* e, bool& isInt, long long& i, double& d);
+    bool foldConstNumT(Expr* e, bool& isInt, ty::CInt& i, double& d);
     static long long truncConstInt(const std::string& raw, long long v);
-    static bool foldConstBinaryOp(const std::string& op, long long x, long long y, long long& out);
     int foldDepth = 0;
     bool hasErrors = false;
 

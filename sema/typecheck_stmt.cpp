@@ -745,98 +745,132 @@ bool TypeChecker::isSliceLen(Expr* e) {
 // and binary operators and casts. Returns false when the value is not known here
 // (`sizeof`, a non-constant name, division by zero), so callers never guess.
 bool TypeChecker::foldConstInt(Expr* e, long long& out) {
+    ty::CInt c;
+    if (!foldConstIntT(e, c)) return false;
+    out = c.v;
+    return true;
+}
+
+// The typed fold behind foldConstInt: the value keeps its C type (after promotion), so
+// the operators follow C's usual arithmetic conversions (ty::cintBinary).
+bool TypeChecker::foldConstIntT(Expr* e, ty::CInt& out) {
     if (auto* l = dynamic_cast<LiteralExpr*>(e)) {
         if (l->kind == LiteralExpr::Kind::INT) {
-            try { out = (long long)std::stoull(l->value, nullptr, 0); return true; }
+            // A negative literal (`-1`) is the negated magnitude, typed as C types `1`.
+            bool neg = !l->value.empty() && l->value[0] == '-';
+            try { out = ty::cintLiteral(std::stoull(neg ? l->value.substr(1) : l->value, nullptr, 0)); }
             catch (...) { return false; }
+            if (neg) ty::cintUnary("-", out, out);
+            return true;
         }
-        if (l->kind == LiteralExpr::Kind::CHAR) { out = l->value.empty() ? 0 : (unsigned char)l->value[0]; return true; }
-        if (l->kind == LiteralExpr::Kind::BOOL) { out = l->value == "true" ? 1 : 0; return true; }
+        if (l->kind == LiteralExpr::Kind::CHAR) { out = ty::cintMake(l->value.empty() ? 0 : (unsigned char)l->value[0], 32, false); return true; }
+        if (l->kind == LiteralExpr::Kind::BOOL) { out = ty::cintMake(l->value == "true" ? 1 : 0, 32, false); return true; }
         return false;
     }
     if (auto* id = dynamic_cast<IdentExpr*>(e)) {
         if (const Symbol* sym = findSymbol(id->name)) {
             // A `const` integer folds through its initializer (bounded, so a
-            // self-referential const can't recurse forever).
-            if (!sym->isConst || !sym->constInit || !isIntType(normalizeType(sym->type))) return false;
+            // self-referential const can't recurse forever), converted to its type.
+            std::string st = normalizeType(sym->type);
+            if (!sym->isConst || !sym->constInit || !isIntType(st)) return false;
             if (foldDepth > 64) return false;
             ++foldDepth;
-            bool ok = foldConstInt(sym->constInit, out);
+            ty::CInt v;
+            bool ok = foldConstIntT(sym->constInit, v);
             --foldDepth;
-            if (ok) out = truncConstInt(normalizeType(sym->type), out);
-            return ok;
+            if (!ok) return false;
+            if (!ty::cintCast(tyq::strip(st), v, out)) out = v;
+            return true;
         }
         auto it = enumConstants.find(id->name);
         if (it == enumConstants.end()) return false;
-        out = it->second;
+        out = it->second >= INT32_MIN && it->second <= INT32_MAX ? ty::cintMake(it->second, 32, false)
+                                                                 : ty::cintMake(it->second, 64, false);
         return true;
     }
     if (auto* u = dynamic_cast<UnaryExpr*>(e)) {
-        long long v;
-        if (!foldConstInt(u->operand.get(), v)) return false;
-        if (u->op == "-") { out = (long long)(0ULL - (unsigned long long)v); return true; }
-        if (u->op == "~") { out = ~v; return true; }
-        if (u->op == "!") { out = v == 0; return true; }
-        return false;
+        ty::CInt v;
+        if (!foldConstIntT(u->operand.get(), v)) return false;
+        return ty::cintUnary(u->op, v, out);
     }
     if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
         // A left-leaning chain (`A + B + C ...`) is folded along its spine with a loop.
         std::vector<BinaryExpr*> spine{b};
         while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) spine.push_back(l);
-        long long x;
-        if (!foldConstInt(spine.back()->left.get(), x)) return false;
+        ty::CInt x;
+        if (!foldConstIntT(spine.back()->left.get(), x)) return false;
         for (size_t i = spine.size(); i-- > 0;) {
             const std::string& op = spine[i]->op;
             // `&&` / `||` short-circuit: an unevaluated right operand need not fold.
             if (op == "&&" || op == "||") {
-                if ((op == "&&") == (x == 0)) { x = op == "||"; continue; }
-                long long y;
-                if (!foldConstInt(spine[i]->right.get(), y)) return false;
-                x = y != 0;
+                if ((op == "&&") == (x.v == 0)) { x = ty::cintMake(op == "||", 32, false); continue; }
+                ty::CInt y;
+                if (!foldConstIntT(spine[i]->right.get(), y)) return false;
+                x = ty::cintMake(y.v != 0, 32, false);
                 continue;
             }
-            long long y;
-            if (!foldConstInt(spine[i]->right.get(), y)) return false;
-            if (!foldConstBinaryOp(op, x, y, x)) return false;
+            ty::CInt y;
+            if (!foldConstIntT(spine[i]->right.get(), y)) return false;
+            if (!ty::cintBinary(op, x, y, x)) return false;
         }
         out = x;
         return true;
     }
     if (auto* t = dynamic_cast<TernaryExpr*>(e)) {
-        long long c;
-        if (!foldConstInt(t->condition.get(), c)) return false;
-        return foldConstInt(c != 0 ? t->thenExpr.get() : t->elseExpr.get(), out);
+        ty::CInt c, a, other;
+        if (!foldConstIntT(t->condition.get(), c)) return false;
+        if (!foldConstIntT(c.v != 0 ? t->thenExpr.get() : t->elseExpr.get(), a)) return false;
+        // The arms meet at their common type (when the other one folds too).
+        out = a;
+        if (foldConstIntT(c.v != 0 ? t->elseExpr.get() : t->thenExpr.get(), other)) {
+            int r = a.rank > other.rank ? a.rank : other.rank;
+            bool un = a.rank == other.rank ? (a.uns || other.uns) : (a.rank > other.rank ? a.uns : other.uns);
+            out = ty::cintMake(a.v, r, un);
+        }
+        return true;
     }
     if (auto* c = dynamic_cast<CastExpr*>(e)) {
         std::string to = tyq::strip(normalizeType(c->targetType));
-        bool isInt = true; long long i = 0; double d = 0;
-        if (!foldConstNum(c->expr.get(), isInt, i, d)) return false;
+        bool isInt = true; ty::CInt i; double d = 0;
+        if (!foldConstNumT(c->expr.get(), isInt, i, d)) return false;
         if (!isInt) {
             // A floating value converts toward zero; out of range it has no value (C).
             if (!isIntType(to) || (to != "bool" && !floatConstFitsInt(d, to))) return false;
-            if (to == "bool") i = d != 0;
-            else i = d >= 9223372036854775808.0 ? (long long)(unsigned long long)d : (long long)d;
+            long long iv;
+            if (to == "bool") iv = d != 0;
+            else iv = d >= 9223372036854775808.0 ? (long long)(unsigned long long)d : (long long)d;
+            i = ty::cintMake(iv, 64, to == "uint64");
         }
-        out = truncConstInt(to, i);
+        if (!ty::cintCast(to, i, out)) out = i;
         return true;
     }
     if (auto* z = dynamic_cast<SizeofExpr*>(e)) {
         // A type whose target layout is known here (scalars, pointers, arrays, structs
-        // and unions of those) folds; the rest is left to codegen.
+        // and unions of those) folds; the rest is left to codegen. A size is unsigned
+        // 64-bit (C's size_t).
         if (inInstance || z->operand) return false;
         std::string zt = z->typeName;
         if (!isPrimitiveType(zt) && !structs.count(zt) && !typeAliases.count(zt) && !enumTypes.count(zt)) {
             std::string vt = lookupSymbol(zt);
             if (!vt.empty() && vt != "unknown" && vt != "struct:" + zt) zt = tyq::strip(vt);
         }
-        out = constSizeof(zt);
-        return out != 0;
+        long long sz = constSizeof(zt);
+        out = ty::cintMake(sz, 64, true);
+        return sz != 0;
     }
     return false;
 }
 
 bool TypeChecker::foldConstNum(Expr* e, bool& isInt, long long& i, double& d) {
+    ty::CInt c;
+    if (!foldConstNumT(e, isInt, c, d)) return false;
+    i = c.v;
+    return true;
+}
+
+bool TypeChecker::foldConstNumT(Expr* e, bool& isInt, ty::CInt& i, double& d) {
     auto toFloat = [](const std::string& t, double v) { return t == "float" ? (double)(float)v : v; };
+    auto asDouble = [](const ty::CInt& c) { return c.uns ? (double)(unsigned long long)c.v : (double)c.v; };
     if (auto* l = dynamic_cast<LiteralExpr*>(e); l && l->kind == LiteralExpr::Kind::FLOAT) {
         isInt = false; d = std::strtod(l->value.c_str(), nullptr);
         return true;
@@ -847,32 +881,33 @@ bool TypeChecker::foldConstNum(Expr* e, bool& isInt, long long& i, double& d) {
         if (sym && sym->isConst && sym->constInit && (t == "float" || t == "double")) {
             if (foldDepth > 64) return false;
             ++foldDepth;
-            bool ok = foldConstNum(sym->constInit, isInt, i, d);
+            bool ok = foldConstNumT(sym->constInit, isInt, i, d);
             --foldDepth;
             if (!ok) return false;
-            if (isInt) d = (double)i;
+            if (isInt) d = asDouble(i);
             isInt = false; d = toFloat(t, d);
             return true;
         }
     }
     if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "-") {
-        if (!foldConstNum(u->operand.get(), isInt, i, d)) return false;
-        if (isInt) i = (long long)(0ULL - (unsigned long long)i); else d = -d;
+        if (!foldConstNumT(u->operand.get(), isInt, i, d)) return false;
+        if (isInt) return ty::cintUnary("-", i, i);
+        d = -d;
         return true;
     }
     if (auto* b = dynamic_cast<BinaryExpr*>(e)) {
         std::vector<BinaryExpr*> spine{b};
         while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) spine.push_back(l);
-        if (!foldConstNum(spine.back()->left.get(), isInt, i, d)) return false;
+        if (!foldConstNumT(spine.back()->left.get(), isInt, i, d)) return false;
         for (size_t k = spine.size(); k-- > 0;) {
-            bool yInt = true; long long yi = 0; double yd = 0;
+            bool yInt = true; ty::CInt yi; double yd = 0;
             const std::string& op = spine[k]->op;
-            if (!foldConstNum(spine[k]->right.get(), yInt, yi, yd)) return false;
+            if (!foldConstNumT(spine[k]->right.get(), yInt, yi, yd)) return false;
             if (isInt && yInt) {
-                if (!foldConstBinaryOp(op, i, yi, i)) return false;
+                if (!ty::cintBinary(op, i, yi, i)) return false;
                 continue;
             }
-            double x = isInt ? (double)i : d, y = yInt ? (double)yi : yd;
+            double x = isInt ? asDouble(i) : d, y = yInt ? asDouble(yi) : yd;
             if (op == "+") d = x + y;
             else if (op == "-") d = x - y;
             else if (op == "*") d = x * y;
@@ -885,14 +920,14 @@ bool TypeChecker::foldConstNum(Expr* e, bool& isInt, long long& i, double& d) {
     if (auto* c = dynamic_cast<CastExpr*>(e)) {
         std::string to = tyq::strip(normalizeType(c->targetType));
         if (to == "float" || to == "double") {
-            if (!foldConstNum(c->expr.get(), isInt, i, d)) return false;
-            if (isInt) d = (double)i;
+            if (!foldConstNumT(c->expr.get(), isInt, i, d)) return false;
+            if (isInt) d = asDouble(i);
             isInt = false; d = toFloat(to, d);
             return true;
         }
     }
     isInt = true;
-    return foldConstInt(e, i);
+    return foldConstIntT(e, i);
 }
 
 // `v` converted to the integer type `raw` (C: truncate, then sign- or zero-extend);
@@ -907,32 +942,6 @@ long long TypeChecker::truncConstInt(const std::string& raw, long long v) {
     if (t == "uint" || t == "uint32") return (long long)(uint32_t)v;
     if (t == "int" || t == "int32") return (long long)(int32_t)v;
     return v;
-}
-
-// `x op y` over folded integer operands (two's-complement wrap); false when `op` does
-// not fold or the operation is undefined.
-bool TypeChecker::foldConstBinaryOp(const std::string& op, long long x, long long y, long long& out) {
-    unsigned long long ux = (unsigned long long)x, uy = (unsigned long long)y;
-    if (op == "+") out = (long long)(ux + uy);
-    else if (op == "-") out = (long long)(ux - uy);
-    else if (op == "*") out = (long long)(ux * uy);
-    else if (op == "/" || op == "%") {
-        if (y == 0 || (x == LLONG_MIN && y == -1)) return false;
-        out = op == "/" ? x / y : x % y;
-    }
-    else if (op == "&") out = x & y;
-    else if (op == "|") out = x | y;
-    else if (op == "^") out = x ^ y;
-    else if (op == "<<") { if (y < 0 || y > 63) return false; out = (long long)(ux << y); }
-    else if (op == ">>") { if (y < 0 || y > 63) return false; out = x >> y; }
-    else if (op == "==") out = x == y;
-    else if (op == "!=") out = x != y;
-    else if (op == "<") out = x < y;
-    else if (op == ">") out = x > y;
-    else if (op == "<=") out = x <= y;
-    else if (op == ">=") out = x >= y;
-    else return false;
-    return true;
 }
 
 bool TypeChecker::isConstIntExpr(Expr* e) {
