@@ -996,41 +996,19 @@ input. What is still open is listed under Known issues.
 - A native build targets the `generic` CPU unless `--mcpu` is given, as clang does. It used the host CPU's name without its feature list, which could select instructions a VM or a masked host does not support (a SIGILL), and made the binary depend on the build machine.
 
 ### Known issues
-These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
-without a diagnostic, except where the entry says so.
+These are open in 0.9.2. None of them miscompiles a valid program.
 
-- The C++ compiler does not treat a type alias inside a composite type as its target, so
-  `Box<F>` and `Box<int>` (with `type F = int`) are different types there and a valid
-  assignment between them is rejected. Spell the target type.
-- A local read that is uninitialized on only some paths is accepted, as in C (the check
-  only catches a read with no assignment on any path).
-- A `#undef` line inside a multi-line string literal is read as a directive.
-- An `await` inside a `finally` or a `defer` is rejected (both run, without suspending,
-  when a cancelled future is dropped), and so is one in a generic async function's
-  `match` arm that binds a payload, after a side-effecting operand or inside a `?:` arm;
-  bind the value to a local first.
-- `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a
-  compound assignment; bind the awaited value to a local first.
-- There is no spelling for a pointer to a nullable pointer, and `null` does not convert
-  to an interface value.
-- There is no spelling for a pointer to a nullable pointer, and inline `asm` has no output
-  operands.
-- Inline `asm` has no output operands.
-- A method that mutates a captured value inside a lambda acts on the closure's copy.
-- The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
-- The self-hosted compiler type-checks deeply nested `?:` expressions in time quadratic
-  in their depth (5000 levels take about ten seconds; the C++ compiler is linear).
-- The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
-  x86 (not a supported C ABI target).
-- Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
-  byte.
-- A few diagnostics report a different column in the two compilers.
-- The type checker does not fold `sizeof` of a struct with a `: 0` bitfield, so
-  constant-expression checks do not see it.
-- An enum member value cannot use `?:`, `&&`/`||`, or a `const` whose initializer is a
-  ternary, although global `const` initializers accept them.
-- An object-like macro that expands to the name of a function-like macro is not expanded
-  as a call when the `(` is on the next line (`#define G F` then `G` / `(5)`).
+- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an `await` is also
+  rejected in a `match` arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
+- A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value); write through a pointer to share state.
+- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so
+  constant-expression checks do not see it (codegen gets its size right).
+- The self-hosted compiler generates code for deeply nested binary expressions
+  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
+  compiler is linear.
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

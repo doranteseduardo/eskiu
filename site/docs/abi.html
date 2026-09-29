@@ -219,6 +219,15 @@ and the total size rounded up to the struct's alignment (<code>min(max-field-ali
 N)</code>). The result is emitted as a packed LLVM struct (padding is explicit) and
 matches the C <code>#pragma pack(N)</code> ABI. Field access goes through a
 logical→physical index map (padding shifts indices).</p>
+<p>LLVM sees such a struct as 1-aligned, so its C alignment (<code>min(max-field-align,
+N)</code>) is recorded beside the type (<code>cAlignOverride</code> / <code>cg_set_calign</code>) and read
+through <code>cAlignOf</code> / <code>cg_c_align</code> wherever C alignment matters: a struct with a
+field (or array element) whose C alignment is above LLVM's is laid out the same
+way by hand (no cap) and records its own alignment, and so do a bitfield struct
+and a union holding one; the C ABI lowering classifies the aggregate with that
+alignment and takes the leaves of a hand-laid struct from its fields, not its
+padding runs. The type checker's <code>constLayout</code> / <code>sema_const_layout</code> fold
+<code>sizeof</code> with the same alignment.</p>
 <h3 id="bitfields">Bitfields</h3>
 <p>A struct with bitfields is laid out the way the target's C compiler does it.</p>
 <ul>
@@ -317,10 +326,16 @@ converts to and from it, so it links against C compiled by clang/gcc:</p>
 <td>hard-float HFA → <code>{ fp, ... }</code>; ≤ 64 bytes → <code>[N x i32]</code> (<code>[N x i64]</code> if 8-aligned); larger → <code>byval</code></td>
 <td>hard-float HFA → <code>{ fp, ... }</code>; ≤ 4 bytes → <code>i32</code>; otherwise <code>sret</code></td>
 </tr>
+<tr>
+<td>32-bit x86 (cdecl: i386 SysV, Darwin, Windows)</td>
+<td>≤ 16 bytes made only of 32/64-bit scalars (<code>int</code>, <code>int64</code>, <code>float</code>, <code>double</code>, pointers) with no padding → those scalars as separate arguments (<code>{ int, double }</code> → <code>i32, double</code>; not on Windows, where <code>double</code> is 8-aligned and leaves padding); anything else → <code>byval</code> in a 4-byte-aligned stack slot</td>
+<td>Linux (and other SysV i386 systems): always <code>sret</code>. Darwin, Windows and the BSDs: 1, 2, 4 or 8 bytes whose fields are each register-sized → <code>iN</code> in EAX:EDX, except a single-element struct of a <code>float</code>/<code>double</code> (in ST0; not under MSVC's rules, mingw keeps it) or a pointer, returned as that scalar; otherwise <code>sret</code></td>
+</tr>
 </tbody>
 </table></div>
-<p>The coerced types match what clang emits for the same C signature. Other
-targets keep the first-class lowering. Fat values (closures, slices) and
+<p>The coerced types match what clang emits for the same C signature
+(<code>tests/selfhost/cabi_parity.sh</code> checks the 32-bit x86 ones against clang's IR
+for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
 <code>va_list</code> are not C aggregates and keep their own layout.</p>
 <p><strong>Narrow integers.</strong> Like clang, an <code>extern</code>'s <code>int8</code>/<code>int16</code>/<code>uint8</code>/<code>uint16</code>/
 <code>bool</code>/<code>char</code> parameters and results are declared <code>signext</code> or <code>zeroext</code> (by the
@@ -345,8 +360,15 @@ other argument there, since a closure's environment cannot cross into C.</p>
 <p><strong>Variadics.</strong> A <code>...</code> parameter makes the LLVM function <code>isVarArg</code>. The built-in
 <code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
-both; <code>va_start</code>/<code>va_arg&lt;T&gt;</code>/<code>va_end</code> lower to the corresponding LLVM
-intrinsics/instruction. An <code>extern</code> parameter of type <code>va_list</code> (<code>vprintf</code>,
+both; <code>va_start</code>/<code>va_end</code> lower to the LLVM intrinsics. <code>va_arg&lt;T&gt;</code> is the
+LLVM <code>va_arg</code> instruction, except on AArch64 outside Darwin and Windows, whose
+backend does not expand it for the AAPCS64 <code>va_list</code> <code>{__stack, __gr_top,
+__vr_top, __gr_offs, __vr_offs}</code>: there the compiler emits the read as clang does
+(an integer or pointer from the general-register save area while <code>__gr_offs</code> is
+negative, a <code>float</code>/<code>double</code> from the FP/SIMD save area in 16-byte steps while
+<code>__vr_offs</code> is, then <code>__stack</code> in 8-byte slots; <code>emitVaArg</code> / <code>cg_va_arg</code>). On
+x86-64 System V LLVM expands the instruction itself for the scalars <code>va_arg</code>
+reads. An <code>extern</code> parameter of type <code>va_list</code> (<code>vprintf</code>,
 <code>vsnprintf</code>) is declared <code>ptr</code> and gets what C passes for its <code>va_list</code>: the
 address of the storage on x86-64 System V and AArch64 outside Darwin and Windows
 (an array/struct type there), and the <code>char*</code> that <code>llvm.va_start</code> stored at

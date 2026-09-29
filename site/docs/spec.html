@@ -394,7 +394,7 @@ if (q != null) {
 <p>A non-null <code>*T</code> converts to <code>?*T</code> implicitly (widening); going the other way (<code>?*T</code> to
 <code>*T</code>) drops the check and so requires narrowing (or an explicit cast). <code>?*T</code> has the same
 representation as <code>*T</code> (a bare pointer); the checking is entirely at compile time. The
-<code>?</code> marks a pointer type only: <code>?int</code> is an error. The <code>?</code> applies to the whole type it starts, so <code>?*T*</code> is a nullable pointer to <code>*T</code>. A pointer to a nullable pointer has no spelling; use <code>**T</code> and narrow the loaded value.</p>
+<code>?</code> marks a pointer type only: <code>?int</code> is an error. The <code>?</code> applies to the whole type it starts, so <code>?*T*</code> is a nullable pointer to <code>*T</code>. A <code>?</code> after a leading <code>*</code> and before another one makes the inner pointer nullable: <code>*?*T</code> is a pointer to a nullable pointer to <code>T</code> (an out-parameter that may receive <code>null</code>). Dereferencing it once gives a <code>?*T</code>, which must be checked before it is dereferenced again, and it does not convert to <code>**T</code>, which would drop that check (<code>&amp;p</code> of a <code>?*T</code> variable <code>p</code> is a <code>*?*T</code>).</p>
 <p>A null-check narrows in these forms: the then-branch of <code>if (x != null)</code> (and the else of
 <code>if (x == null)</code>), <code>if (x)</code>, <code>!(x == null)</code>, the right operand of <code>x != null &amp;&amp; ...</code> and of
 <code>x == null || ...</code>, either arm of a <code>?:</code> on such a condition, the body of
@@ -934,7 +934,7 @@ sizeof(Grid)   // 12  (3 float fields)
 </code></pre>
 <p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code. As in C, <code>sizeof(x)</code> where <code>x</code> names a variable (or a parameter or global) gives the size of that variable's type; a name that is neither a type nor a variable is an error.</p>
 <p>The operand may also be an expression: <code>sizeof(*p)</code>, <code>sizeof(a[0])</code>, <code>sizeof(s.field)</code> give the size of the expression's type, and the expression is not evaluated (<code>sizeof(f())</code> does not call <code>f</code>). The operand is read as a type when it is a bare name or a spelling built over a primitive or an already declared type (<code>sizeof(*Node)</code>, <code>sizeof(int[4])</code>); otherwise it is an expression.</p>
-<p>The type checker folds <code>sizeof</code> of a scalar, a pointer, a closure, an interface, a slice, a fixed array, and a struct or union of those, using the target's layout (<code>--target</code>), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate <code>case</code>) and <code>enum</code> member values see it. The size of a generic instance, a sum type, a bitfield struct or a <code>#pragma pack(N)</code> struct with <code>N &gt; 1</code> is known only to code generation, which still folds it to a constant.</p>
+<p>The type checker folds <code>sizeof</code> of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and <code>#pragma pack(N)</code> included), using the target's layout (<code>--target</code>), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate <code>case</code>) and <code>enum</code> member values see it. The size of a union declared under <code>#pragma pack(N)</code> with <code>N &gt; 1</code> is known only to code generation, which still folds it to a constant.</p>
 <h3 id="59-conditional-ternary">5.9 Conditional (ternary)</h3>
 <p><code>cond ? a : b</code> evaluates <code>cond</code>, then evaluates and yields <strong>exactly one</strong> of the two
 arms (so side effects in the unused arm never run). The condition may be a bool,
@@ -1355,7 +1355,7 @@ a combinator before it resolves drops its inputs with it), and
     printf(&quot;zero\n&quot;);
 }
 </code></pre>
-<p>The condition must evaluate to a <code>bool</code>, a number (non-zero is true; a float compares with <code>0.0</code>, so NaN is true) or a pointer, <code>string</code> and <code>?*T</code> included (non-null is true). A struct, array, slice, closure or interface value is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (<code>if (x &gt; 0) n++; else n--;</code>), and it is its own scope (see §7.8 for what that means for <code>defer</code>).</p>
+<p>The condition must evaluate to a <code>bool</code>, a number (non-zero is true; a float compares with <code>0.0</code>, so NaN is true) or a pointer, <code>string</code> and <code>?*T</code> included (non-null is true). An interface value is true when it is not <code>null</code>. A struct, array, slice or closure is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (<code>if (x &gt; 0) n++; else n--;</code>), and it is its own scope (see §7.8 for what that means for <code>defer</code>).</p>
 <h3 id="72-for">7.2 for</h3>
 <p>C-style three-part form:</p>
 <pre><code class="language-eskiu">for (int i = 0; i &lt; 10; i += 1) {
@@ -1682,7 +1682,7 @@ printf(&quot;%f\n&quot;, u.f); // prints 1.0
 <p><code>sizeof(Value)</code> returns the size of the largest field: <code>sizeof(*uint8)</code> = 8 on a 64-bit target in this example.</p>
 <p>A union literal initializes exactly one member, named or positional (<code>Value{f: 1.5}</code>, <code>Value{7}</code> sets <code>i</code>); the remaining bytes are zero. Naming two members is an error. A union literal is a constant initializer for a global or <code>static</code> when its member value is constant.</p>
 <h3 id="87-enums">8.7 Enums</h3>
-<p>An <code>enum</code> declares a set of named integer constants. Members take consecutive values starting at 0; an explicit <code>= N</code> resets the running value, and the next member continues from there. <code>N</code> is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level <code>const</code> ints declared earlier, <code>sizeof</code> (§5.8), casts and the integer operators (<code>enum Flag { A = 1, B = A &lt;&lt; 2, C }</code> gives <code>C == 5</code>). A value that is not constant is a compile error, and every value must fit an <code>int</code>. The enum type itself is an <code>int</code> (<code>i32</code>), so enum values work in arithmetic, comparisons, and <code>switch</code>.</p>
+<p>An <code>enum</code> declares a set of named integer constants. Members take consecutive values starting at 0; an explicit <code>= N</code> resets the running value, and the next member continues from there. <code>N</code> is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level <code>const</code> ints declared earlier, <code>sizeof</code> (§5.8), casts, the integer operators, <code>!</code>, <code>&amp;&amp;</code>, <code>||</code> and <code>?:</code> (<code>enum Flag { A = 1, B = A &lt;&lt; 2, C }</code> gives <code>C == 5</code>; <code>D = K &gt; 2 ? 4 : 1</code>). A value that is not constant is a compile error, and every value must fit an <code>int</code>. The enum type itself is an <code>int</code> (<code>i32</code>), so enum values work in arithmetic, comparisons, and <code>switch</code>.</p>
 <pre><code class="language-eskiu">enum Color  { Red, Green, Blue }            // 0, 1, 2
 enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
 
@@ -1719,20 +1719,23 @@ float area(Shape s) {
 Shape a = Circle(2.0);          // construct; payload-free variants are bare (`Unit`)
 </code></pre>
 <p>Algebraic enums may be <strong>generic</strong> and are monomorphized per instantiation, like
-template structs. The type arguments of a generic variant are inferred from the
-payload arguments when they determine them (<code>Some(42)</code> → <code>Option&lt;int&gt;</code>); otherwise
-(a payload-free variant like <code>None</code>, or one that under-determines the type like
-<code>Either</code>'s <code>Left</code>) write them explicitly. They are not inferred from the target
-type: a bare <code>None</code> is a compile error, and <code>Some(42)</code> is an <code>Option&lt;int&gt;</code> even where
-an <code>Option&lt;int64&gt;</code> is expected (write <code>Some&lt;int64&gt;(42)</code>):</p>
+template structs. Where an instance of the variant's enum is expected (a declaration,
+an assignment, a <code>return</code>, or an argument of a non-generic function), the variant takes
+that instance's type arguments, and its payload is checked against them: <code>Option&lt;int64&gt;
+a = Some(42)</code> builds an <code>Option&lt;int64&gt;</code>, and a bare <code>None</code> or an under-determining
+<code>Left(7)</code> is accepted there. Elsewhere the type arguments are inferred from the payload
+arguments when they determine them (<code>Some(42)</code> → <code>Option&lt;int&gt;</code>); otherwise (a
+payload-free variant like <code>None</code>, or one that under-determines the type like <code>Either</code>'s
+<code>Left</code>) write them explicitly (<code>None&lt;int&gt;()</code>, <code>Left&lt;int, string&gt;(7)</code>). Inside a generic
+function the expected type is not used, so write the type arguments there too:</p>
 <pre><code class="language-eskiu">enum Option&lt;T&gt;    { None, Some(T) }
 enum Either&lt;A, B&gt; { Left(A), Right(B) }
 
-Option&lt;int&gt; x = Some&lt;int&gt;(42);
-Option&lt;int&gt; y = None&lt;int&gt;();
-Either&lt;int, string&gt; e = Left&lt;int, string&gt;(7);
+Option&lt;int64&gt; x = Some(42);
+Option&lt;int&gt; y = None;
+Either&lt;int, string&gt; e = Left(7);
 
-match x { Some(v) -&gt; printf(&quot;%d\n&quot;, v);  None -&gt; printf(&quot;none\n&quot;); }
+match x { Some(v) -&gt; printf(&quot;%lld\n&quot;, v);  None -&gt; printf(&quot;none\n&quot;); }
 </code></pre>
 <p>A <code>match</code> must be <strong>exhaustive</strong>: every variant must have an arm, or there must be
 a <code>_</code> default. Otherwise it is a compile error naming the missing variants. A
@@ -1771,7 +1774,7 @@ struct WireHeader {     // packed (sizeof == 5)
 }
 #pragma pack(pop)       // subsequent structs use natural alignment again
 </code></pre>
-<p><code>#pragma pack(1)</code> and <code>packed struct</code> are equivalent (fully packed, no padding). <code>#pragma pack(N)</code> for <code>N &gt; 1</code> caps each field's alignment at <code>N</code>: a field whose natural alignment exceeds <code>N</code> is aligned to <code>N</code> instead, and the struct's total size rounds up to its own alignment (<code>min(max-field-alignment, N)</code>). This matches the C <code>#pragma pack(N)</code> ABI. For example, under <code>pack(4)</code> a <code>struct { char a; int64 b; int16 c; }</code> lays out <code>a@0</code>, <code>b@4</code>, <code>c@12</code> with <code>sizeof == 16</code>. <code>N</code> must be 1, 2, 4, 8 or 16 (as in C); any other alignment is a compile error at the pragma. Packed layout (any <code>N</code>) composes with bitfields and is reflected by <code>sizeof</code> and by every field access.</p>
+<p><code>#pragma pack(1)</code> and <code>packed struct</code> are equivalent (fully packed, no padding). <code>#pragma pack(N)</code> for <code>N &gt; 1</code> caps each field's alignment at <code>N</code>: a field whose natural alignment exceeds <code>N</code> is aligned to <code>N</code> instead, and the struct's total size rounds up to its own alignment (<code>min(max-field-alignment, N)</code>). This matches the C <code>#pragma pack(N)</code> ABI. For example, under <code>pack(4)</code> a <code>struct { char a; int64 b; int16 c; }</code> lays out <code>a@0</code>, <code>b@4</code>, <code>c@12</code> with <code>sizeof == 16</code>. <code>N</code> must be 1, 2, 4, 8 or 16 (as in C); any other alignment is a compile error at the pragma. Packed layout (any <code>N</code>) composes with bitfields and is reflected by <code>sizeof</code> and by every field access. A struct declared under <code>pack(N)</code> keeps its alignment <code>min(max-field-alignment, N)</code> wherever it is used, as in C: as a field or array element of another struct (declared under any packing that does not cap it lower) and as a union member.</p>
 <hr>
 <h2 id="9-interfaces">9. Interfaces</h2>
 <h3 id="91-declaration">9.1 Declaration</h3>
@@ -1811,7 +1814,7 @@ c.radius = 5.0;
 render(&amp;c);   // &amp;c is auto-boxed into a Drawable fat pointer
 </code></pre>
 <p>The same boxing happens wherever an interface-typed slot receives a struct pointer: a local (<code>let d: Drawable = &amp;c;</code>), an assignment, a struct field, and a <code>return</code> from a function declared to return the interface. The interface value is held by value, so it can be stored and returned freely; it keeps referring to the struct it was boxed from. Passing the struct itself (<code>render(c)</code>) is a compile error: an interface refers to a struct through a pointer, so write <code>&amp;c</code>.</p>
-<p>An interface value always refers to a struct: <code>null</code> does not convert to an interface (there is no way to test an interface value for null, so a null one could only crash when called). A global or <code>static</code> interface is initialized with the address of a global struct (<code>Drawable d = &amp;gc;</code>), a link-time constant.</p>
+<p><code>null</code> converts to an interface, giving the empty value <code>{null, null}</code> (in a declaration, an assignment, a return, an argument or a field). An interface value compares with <code>null</code> (<code>d == null</code>, <code>d != null</code>) and is a condition that is true when it refers to a struct (<code>if (d)</code>, <code>!d</code>, <code>d &amp;&amp; ...</code>); it compares with nothing else. Calling a method through an empty interface value crashes, so test it first. A global or <code>static</code> interface is initialized with <code>null</code> or the address of a global struct (<code>Drawable d = &amp;gc;</code>), a link-time constant.</p>
 <h3 id="95-implementation-detail-fat-pointer">9.5 Implementation Detail: Fat Pointer</h3>
 <p>Under the hood, an interface value is a two-word fat pointer:</p>
 <pre><code>{ i8* data_ptr, i8* vtable_ptr }
@@ -2231,7 +2234,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/regex.esk</code></td>
-<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code> with POSIX names inside (<code>[[:alpha:]]</code>, <code>[[:^space:]]</code>), <code>\d \w \s</code> (and negations; <code>\s</code> is <code>[\t\n\f\r ]</code>), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>; any other <code>{</code> is a literal), <code>|</code>, groups, <code>^</code> / <code>$</code>, <code>\A</code> / <code>\z</code>, the word boundaries <code>\b</code> / <code>\B</code>, <code>\xHH</code> and octal escapes (RE2 syntax; any other escaped letter or digit is an error)</td>
+<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. RE2 syntax and semantics (as Go's regexp) over UTF-8: <code>.</code>, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code> with POSIX names inside (<code>[[:alpha:]]</code>, <code>[[:^space:]]</code>), the ASCII shorthands <code>\d \w \s</code> (and negations; <code>\s</code> is <code>[\t\n\f\r ]</code>), Unicode classes <code>\pL</code>, <code>\p{Lu}</code>, <code>\p{Greek}</code>, <code>\P{..}</code>, <code>\p{^..}</code> (general categories, scripts, <code>Any</code>; the Unicode 15 tables are <code>stdlib/regex_unicode.esk</code>), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>; any other <code>{</code> is a literal), <code>|</code>, groups, non-capturing <code>(?:...)</code>, named <code>(?P&lt;name&gt;...)</code> / <code>(?&lt;name&gt;...)</code>, the flags <code>(?i)</code> (simple case folding) <code>(?m)</code> <code>(?s)</code> <code>(?U)</code> for the rest of a group or scoped <code>(?flags:...)</code>, <code>^</code> / <code>$</code>, <code>\A</code> / <code>\z</code>, the ASCII word boundaries <code>\b</code> / <code>\B</code>, <code>\xHH</code> / <code>\x{10FFFF}</code> and octal escapes, literal text <code>\Q...\E</code> (any other escaped letter or digit is an error)</td>
 </tr>
 <tr>
 <td><code>stdlib/sort.esk</code></td>
@@ -2347,7 +2350,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 </tbody>
 </table></div>
-<p>Modules built around a struct name their operations <code>Type_method</code>, so they can also be called with dot syntax (<code>rng.next()</code> calls <code>Rng_next(&amp;rng)</code>). Functions that create a value keep a lowercase module name (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>, <code>regex_compile</code>). Release 0.9.2 renamed the older lowercase forms: <code>rng_*</code> to <code>Rng_*</code>, <code>regex_search</code>/<code>regex_free</code>/<code>match_*</code> to <code>Regex_*</code>/<code>Match_*</code>, <code>heap_*</code> to <code>Heap_*</code>, <code>el_*</code> to <code>EventLoop_*</code>, <code>executor_*</code> to <code>Executor_*</code>, <code>chan_*</code> to <code>Chan_*</code>, <code>hpack_decoder_init</code>/<code>hpack_decoder_free</code> and <code>hpack_huff_build</code>/<code>hpack_huff_free</code> to <code>HpackDecoder_init</code>/<code>HpackDecoder_free</code> and <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (the other <code>hpack_huff_*</code> functions, <code>hpack_huff_code</code>, <code>hpack_huff_len</code>, <code>hpack_huff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code>, keep their names), <code>h2_conn_init</code>/<code>h2_stream_init</code>/<code>h2_can_send</code> to <code>H2Conn_init</code>/<code>H2Stream_init</code>/<code>H2Conn_can_send</code>, and <code>time_from_utc</code>/<code>time_format_iso</code> to <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>. The old names still work as deprecated wrappers and will be removed in a later release.</p>
+<p>Modules built around a struct name their operations <code>Type_method</code>, so they can also be called with dot syntax (<code>rng.next()</code> calls <code>Rng_next(&amp;rng)</code>). A keyword after <code>.</code> is a member name, so <code>j.int(5)</code> and <code>j.bool(1)</code> call <code>&lt;json&gt;</code>'s <code>Json_int</code> and <code>Json_bool</code>. Functions that create a value keep a lowercase module name (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>, <code>regex_compile</code>). Release 0.9.2 renamed the older lowercase forms: <code>rng_*</code> to <code>Rng_*</code>, <code>regex_search</code>/<code>regex_free</code>/<code>match_*</code> to <code>Regex_*</code>/<code>Match_*</code>, <code>heap_*</code> to <code>Heap_*</code>, <code>el_*</code> to <code>EventLoop_*</code>, <code>executor_*</code> to <code>Executor_*</code>, <code>chan_*</code> to <code>Chan_*</code>, <code>hpack_decoder_init</code>/<code>hpack_decoder_free</code> and <code>hpack_huff_build</code>/<code>hpack_huff_free</code> to <code>HpackDecoder_init</code>/<code>HpackDecoder_free</code> and <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (the other <code>hpack_huff_*</code> functions, <code>hpack_huff_code</code>, <code>hpack_huff_len</code>, <code>hpack_huff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code>, keep their names), <code>h2_conn_init</code>/<code>h2_stream_init</code>/<code>h2_can_send</code> to <code>H2Conn_init</code>/<code>H2Stream_init</code>/<code>H2Conn_can_send</code>, and <code>time_from_utc</code>/<code>time_format_iso</code> to <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>. The old names still work as deprecated wrappers and will be removed in a later release.</p>
 <h3 id="result">Result<T,E></h3>
 <pre><code class="language-eskiu">import &lt;result&gt;;
 extern int printf(string fmt, ...);
@@ -2507,22 +2510,24 @@ asm(&quot;nop&quot;);
 <p>The string is passed verbatim to the assembler. No inputs, outputs, or clobbers are specified.</p>
 <h3 id="152-extended-form">15.2 Extended Form</h3>
 <p>The extended form follows GCC-compatible inline assembly syntax:</p>
-<pre><code>asm(&quot;template&quot; :: inputs : clobbers);
+<pre><code>asm(&quot;template&quot; : outputs : inputs : clobbers);
 </code></pre>
 <pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+asm(&quot;add $0, $1, $2&quot; : &quot;=r&quot;(sum) : &quot;r&quot;(a), &quot;r&quot;(b));     // AArch64
+asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));                // x86-64
 </code></pre>
 <ul>
-<li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>.</li>
-<li><strong>Outputs</strong>: not yet supported. The output section must be empty, so the extended form always begins with <code>::</code> (the parser has no output-operand rule and <code>AsmStmt</code> has no output field). Return results through a clobbered register or memory instead.</li>
-<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs. Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
+<li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>. The outputs are numbered first, then the inputs, as in GCC and clang.</li>
+<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs, written by the asm. A constraint starts with <code>=</code> (written only: <code>"=r"</code>, the early-clobber <code>"=&amp;r"</code>, a specific register such as <code>"=a"</code>, or memory <code>"=m"</code>) or <code>+</code> (read and written: <code>"+r"</code>, <code>"+m"</code>). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a <code>const</code>) of an integer type other than <code>bool</code>, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A <code>+r</code> output also feeds the lvalue's current value in through an input tied to it.</li>
+<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs (a constraint may not start with <code>=</code> or <code>+</code>). Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
 <li><strong>Clobbers</strong>: comma-separated list of clobbered resources. <code>"memory"</code> tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).</li>
 </ul>
 <p>Sections are separated by <code>:</code>. Trailing sections may be omitted if empty.</p>
 <h3 id="153-notes">15.3 Notes</h3>
 <ul>
 <li>Inline assembly is only meaningful when targeting a platform whose assembler understands the instructions. Use <code>--target</code> to select the appropriate triple (see §16).</li>
-<li><code>asm</code> is a statement, not an expression. It does not produce a value.</li>
-<li>The compiler performs no validation of the assembly template or constraints beyond forwarding them to LLVM.</li>
+<li><code>asm</code> is a statement, not an expression. It does not produce a value; results come back through output operands.</li>
+<li>Beyond the output rules above, the compiler performs no validation of the assembly template or constraints; they are forwarded to LLVM.</li>
 </ul>
 <hr>
 <h2 id="16-cli-flags">16. CLI Flags</h2>
@@ -2576,7 +2581,7 @@ asm(&quot;nop&quot;);
 </tr>
 <tr>
 <td><code>eskiuc file.esk -Wall -o prog</code></td>
-<td>Enable lint warnings: unused vars/params/functions, assignment-in-condition</td>
+<td>Enable lint warnings: unused vars/params/functions, assignment-in-condition, a local that may be used uninitialized</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -Wextra -o prog</code></td>
@@ -2701,9 +2706,10 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 error: file.esk:14:5: type mismatch: expected int, got float
 </code></pre>
 <p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>. Every mode, including the <code>--test-*</code> modes, exits with a non-zero status when it reports an error.</p>
+<p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable") when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>
 <hr>
 <h2 id="18-preprocessor">18. Preprocessor</h2>
-<p>A small text pass runs before lexing. It supports <strong>object-like and function-like macros</strong> and <strong>conditional compilation</strong>. Directives occupy their own line (the first non-blank character is <code>#</code>), and both directive lines and skipped lines are blanked out so reported line numbers match the original source.</p>
+<p>A small text pass runs before lexing. It supports <strong>object-like and function-like macros</strong> and <strong>conditional compilation</strong>. Directives occupy their own line (the first non-blank character is <code>#</code>); a line inside a string literal that spans lines is string text, never a directive, and no macro expands in it. Both directive lines and skipped lines are blanked out so reported line numbers match the original source.</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -2773,7 +2779,7 @@ character literals stay whole) and are macro-expanded before substitution, so
 has parameters (a one-parameter macro accepts <code>F()</code> as one empty argument), and an
 argument list left open at the end of the line is an error. A replacement that ends
 in the name of a function-like macro picks up the <code>(...)</code> that follows it, so after
-<code>#define CALLF F</code>, <code>CALLF(2)</code> expands <code>F(2)</code>. Comments count as whitespace: a <code>//</code>
+<code>#define CALLF F</code>, <code>CALLF(2)</code> expands <code>F(2)</code>, also when the <code>(</code> is on a later line. Comments count as whitespace: a <code>//</code>
 or <code>/* */</code> comment in a directive is not part of the macro body, and one inside an
 argument list does not end the argument. Files with CRLF line endings are handled,
 including <code>\</code> continuations.</p>

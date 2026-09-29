@@ -293,8 +293,6 @@ input. What is still open is listed under Known issues.</p>
   through <code>...</code> (<code>printf("%d", f())</code>); these were codegen crashes or invalid IR. <code>return
   f();</code> of a <code>void</code> <code>f</code> in a <code>void</code> function, and <code>c ? f() : g()</code> with <code>void</code> arms as a
   statement, compile and run.</li>
-<li><code>await</code> inside a <code>try</code> statement of an <code>async</code> function is a located error (it was
-  invalid IR in the self-host and "expected at least one <code>await</code>" in C++).</li>
 <li>A user operator (<code>s + s</code>, <code>s[i]</code>, <code>-s</code>, <code>s += s</code>, an overloaded <code>==</code> in a condition)
   is a call, so it ends a global's <code>?*T</code> narrowing like a plain call. A lambda body does
   not see a global's narrowing from where the lambda is written (it runs later), and a
@@ -330,9 +328,6 @@ input. What is still open is listed under Known issues.</p>
 <li>Inside a lambda, taking the address of a captured variable's storage (<code>&amp;n</code>, <code>&amp;p.a</code>,
   <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error, like assigning to
   it: the address is the closure's copy, so a write through it was silently lost.</li>
-<li>An <code>await</code> in a <code>switch</code> subject, a <code>for-in</code> iterable or a range bound
-  (<code>for (i in 0..await f())</code>) is a located type error in both compilers. The self-host
-  miscompiled the first two, and C++ failed in the async lowering without a location.</li>
 <li><code>alloc_with</code> (a call to the alloc method), <code>thread_create</code> and <code>thread_join</code> end a
   global's <code>?*T</code> narrowing like a call, and the rest of a block after an early-exit guard
   is not narrowed when the branch that falls through assigns the variable
@@ -871,8 +866,6 @@ input. What is still open is listed under Known issues.</p>
 <li>A closure param of an async function is retained by the coroutine frame, so the
   call's lambda gets a heap environment even when the body only calls it. C++ rejected
   the program with an internal error. Test <code>async_closure_param</code>.</li>
-<li>An <code>await</code> the async lowering can't place (<code>r += await f()</code>) is an error located at
-  that await, in both compilers (C++ reported "expected at least one <code>await</code>").</li>
 </ul>
 <h4 id="eighth-audit-round">Eighth audit round</h4>
 <ul>
@@ -931,13 +924,34 @@ input. What is still open is listed under Known issues.</p>
 <li>The self-host accepts returning a slice of a slice parameter (<code>return s[1..s.len];</code>)
   and the address of an element of a slice parameter or slice field (<code>&amp;s[1]</code>,
   <code>&amp;p.sl[2]</code>); they were rejected as dangling. Test <code>slice_return_nonlocal</code>.</li>
-<li>An <code>await</code> inside a <code>match</code> arm is an error located at the await with an accurate
-  message in both compilers. Test <code>run_cmd/await_in_match</code> (<code>run.sh</code>, <code>cg_parity.sh</code>).</li>
 <li>A struct literal accepts a trailing comma (<code>P{ x: 5, y: 6, }</code>), like an array
   literal. Test <code>struct_lit_trailing_comma</code>.</li>
 </ul>
 <h4 id="final-additions">Final additions</h4>
 <ul>
+<li>A generic struct's <code>*T</code> field with an array or slice type argument (<code>Box&lt;int[3]&gt;</code>,
+  <code>Box&lt;int[]&gt;</code>, or an alias such as <code>type IS = int[]</code>) is a pointer to that array or
+  slice: the C++ type checker rejected <code>Box&lt;int[3]&gt;{ p: &amp;a }</code> and the self-hosted
+  compiler emitted invalid IR for <code>Box&lt;IS&gt;{ p: &amp;s }</code> (it read the field as a slice of
+  pointers). A <code>T[2]</code> field with <code>T = int[3]</code> is two arrays of three in both. Test
+  <code>generic_alias_slice_ptr</code>.</li>
+<li>A struct declared under <code>#pragma pack(N)</code> with N of 2 or more is aligned to the smaller
+  of N and its largest field alignment, as C does, also as a field or array element of
+  another struct, a union member, next to bitfields and as a generic type argument (it was
+  aligned to 1 there, so the outer struct could be smaller than clang's; a layout change
+  for such structs). The type checker folds <code>sizeof</code> the same way, and the C ABI lowering
+  uses that alignment and skips the padding of a struct laid out by hand. Tests
+  <code>pack_nested_c</code> (+ <code>.c</code>, also in <code>cabi_parity.sh</code>), <code>sizeof_pack_n_fold</code>.</li>
+<li>On AArch64 Linux (and other non-Darwin, non-Windows AArch64 targets) a variadic
+  function written in Eskiu reads its arguments right: <code>va_arg&lt;T&gt;</code> walks the AAPCS64
+  <code>va_list</code> (general-register and FP/SIMD save areas, then the stack) as clang does,
+  where LLVM's <code>va_arg</code> instruction read it as a Darwin <code>char*</code> list. Tests
+  <code>variadic_regs</code> (+ <code>.c</code>), and <code>variadic</code>, <code>generic_variadic</code> under <code>linux_docker.sh</code>.</li>
+<li><code>-Wall</code> warns about a scalar local that may be used uninitialized: a read that some
+  path through <code>if</code>/<code>else</code>, loops, <code>switch</code> fall-through, <code>match</code>, <code>try</code>/<code>catch</code>/<code>finally</code>,
+  <code>defer</code>, early exits or a lambda capture reaches without an assignment (<code>&amp;x</code> assigns;
+  aggregates set field by field are not tracked). A read no path assigns stays an error.
+  C++ compiler only. Tests <code>warnings/maybe_uninit</code>, <code>warnings/maybe_uninit_ok</code>.</li>
 <li>The stdlib HTTP servers (<code>http_serve</code>, <code>http_serve_async</code>, <code>http2_serve_async</code>, the
   TLS servers) disconnect a client that sends nothing, trickles its bytes or stops
   reading: a request head (or the HTTP/2 preface and SETTINGS) must arrive within
@@ -992,6 +1006,29 @@ input. What is still open is listed under Known issues.</p>
 <li><code>&lt;net&gt;</code>'s socket timeouts pass a <code>struct timeval</code> of two C <code>long</code>s with its own size, so
   32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
   <code>run_cmd/net_timeval</code> (IR checked by <code>run.sh</code> for armv7 and x86-64).</li>
+<li>An object-like macro that expands to the name of a function-like macro is invoked when
+  the <code>(</code> is on a following line (<code>#define G F</code>, then <code>G</code> and <code>(5)</code> on the next line), as
+  in C. A line inside a multi-line string literal is string text in both preprocessors:
+  a <code>#undef</code> or other <code>#</code> line there is not a directive and no macro expands in it; <code>fmt</code>
+  keeps such a line's bytes. Tests <code>pp_string_lines</code>, <code>fmt_cases/string_hash_line</code>.</li>
+<li>The self-hosted compiler types each <code>?:</code> of a deeply nested one once, in the type
+  checker (memoized per node while no binding, scope or narrowing changes) and in codegen
+  (stamped bottom-up when the outermost one is emitted): 5000 levels took about ten
+  seconds to type-check, 20000 now compile in about a second. <code>tests/deep/gen.sh</code> gains
+  <code>ternary_mixed_20k</code>.</li>
+<li>Inline <code>asm</code> takes output operands, in both compilers: <code>asm("op" : "=r"(y) : "r"(x))</code>
+  with register outputs (<code>=r</code>, <code>=&amp;r</code>, several at once), read-write <code>+r</code>, and memory
+  <code>=m</code>/<code>+m</code>, numbered like clang (outputs first) and lowered as clang does. An output
+  must be a writable lvalue of a non-bool integer, floating-point or pointer type (not a
+  bitfield). Tests <code>inline_asm_out</code> (x86-64 IR checked by <code>run.sh</code> and <code>cg_parity.sh</code>),
+  <code>errors/asm_output_*</code>, <code>errors/asm_input_output_constraint</code>.</li>
+<li><code>extern</code> struct and union arguments and results follow the 32-bit x86 C ABI (cdecl) in
+  both compilers, as clang lowers them: an argument of at most 16 bytes made only of
+  32/64-bit scalars is passed as those scalars, anything else byval; Linux returns every
+  aggregate through sret, while Darwin, Windows and the BSDs return one of 1, 2, 4 or 8
+  bytes in registers (a lone <code>float</code>/<code>double</code> or pointer as itself, except a floating
+  one under MSVC). <code>cabi_parity.sh</code> covers the i686 targets and compares both compilers
+  with clang's IR for the C companions. Test <code>c_abi_x86_32</code> (+ <code>.c</code>).</li>
 <li>
 <p><code>http_serve</code> sends an answer under one <code>write_ms</code> deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.</p>
 </li>
@@ -1002,6 +1039,40 @@ input. What is still open is listed under Known issues.</p>
 </li>
 <li>The self-host calls a local or parameter of fn type named like an ADT variant (<code>A(1)</code>,
   <code>B()</code>) instead of building the variant, as C++ does. Test <code>variant_name_shadow</code>.</li>
+<li>A keyword after <code>.</code> is a member name, so <code>j.int(5)</code> and <code>j.bool(1)</code> dot-call the <code>&lt;json&gt;</code>
+  builder's <code>Json_int</code> and <code>Json_bool</code>. Test <code>json_keyword_methods</code>.</li>
+<li>An enum member value may use <code>?:</code>, <code>&amp;&amp;</code>, <code>||</code> and <code>!</code> (short-circuit, as in C) and a
+  <code>const</code> whose initializer uses them. Tests <code>enum_value_logic</code>,
+  <code>errors/enum_value_ternary_not_const</code>.</li>
+<li><code>null</code> converts to an interface value (<code>{null, null}</code>) in a declaration, an assignment, a
+  return, an argument and a field, and an interface value compares with <code>null</code> and is a
+  condition (<code>if (i)</code>, <code>!i</code>, <code>i &amp;&amp; ...</code>). Tests <code>iface_null_value</code>, <code>errors/iface_compare_ptr</code>.</li>
+<li>A pointer to a nullable pointer is spelled <code>*?*T</code> (<code>&amp;p</code> of a <code>?*T</code> is one); <code>?*T*</code> is
+  still a nullable pointer to <code>*T</code>. Its pointee must be checked before a second
+  dereference, and it does not convert to <code>**T</code>. Tests <code>nullable_ptr_to_ptr</code>,
+  <code>errors/nullable_ptr_to_ptr_deref</code>, <code>errors/nullable_ptr_to_ptr_drop</code>.</li>
+<li>The type checker folds <code>sizeof</code> of a struct under <code>#pragma pack(N)</code> with N of 2 or more,
+  with or without bitfields, per target as code generation lays it out, so enum values,
+  array dimensions and <code>case</code> labels may use it. (A named <code>: 0</code> bitfield stays an error.)
+  Test <code>sizeof_pack_n_fold</code>.</li>
+<li>A type alias inside a composite type is its target in the C++ compiler too: <code>Box&lt;F&gt;</code> is
+  <code>Box&lt;int&gt;</code> with <code>type F = int</code>, <code>List&lt;Vec&gt;</code> is <code>List&lt;V&gt;</code>, <code>fn(int)-&gt;IF</code> is <code>fn(int)-&gt;int</code>.
+  Type arguments are canonicalized before an instance is named, so both spellings share
+  one monomorph in both compilers (<code>unbox&lt;F&gt;</code> no longer adds an <code>unbox_F</code>). Tests
+  <code>alias_in_composite</code>, <code>errors/alias_in_composite_mismatch</code>.</li>
+<li>A generic variant takes its type arguments from the expected type: in a declaration,
+  an assignment, a <code>return</code> and an argument of a non-generic function, <code>Some(5)</code> builds
+  the expected <code>Opt&lt;int64&gt;</code>, and a bare <code>None</code> or an under-determining <code>Left(4)</code> is
+  accepted (<code>Opt&lt;int&gt; n = None;</code>). The payload is checked against those arguments; the
+  explicit forms still work. Tests <code>variant_expected_type</code>, <code>errors/variant_expected_payload</code>.</li>
+<li>The two compilers report a diagnostic at the same line and column: the self-hosted parser
+  stamps each node with the token the C++ parser uses (an operator at its operator, a cast
+  at its <code>(</code>, a member access at its <code>.</code>, a declaration at its name, a statement at its
+  keyword), and its checker points at the same node (a callee, a struct literal field's
+  value, a range bound, a method). <code>tests/selfhost/tc_parity.sh</code> now also compares the
+  line:col of the expected error with the C++ one over the error corpus. A <code>throw</code>
+  statement is located at its keyword (it was at the <code>;</code>), and <code>static</code> on a global is
+  reported by the self-hosted checker, not as a parse error.</li>
 <li>The self-host emits a double literal too large for double as infinity in LLVM hex form
   (<code>0x7FF0000000000000</code>), as C++ does; a global initializer <code>1e400</code> was rejected by clang.
   <code>float_literal_range</code> now covers the global case, so <code>corpus_parity.sh</code> checks it.</li>
@@ -1018,45 +1089,46 @@ input. What is still open is listed under Known issues.</p>
   <code>switch</code> subject, a <code>for-in</code> iterable, a range bound, a compound assignment (its target
   evaluated once, before the await), a condition, a call argument and any larger
   expression (operands with side effects keep their order; <code>&amp;&amp;</code>, <code>||</code> and <code>?:</code> evaluate
-  an awaiting operand only when it runs). This replaces the located errors added earlier
+  an awaiting operand only when it runs). This replaces the located errors added earlier in this cycle
   in this release. A future dropped while suspended now runs the <code>defer</code>s and <code>finally</code>
   blocks pending at its await once. An <code>await</code> in a <code>finally</code> is a located error. Tests
   <code>async_try</code>, <code>async_try_cancel</code>, <code>async_await_positions</code>, <code>async_await_edges</code>,
   <code>async_generic_try</code>, <code>errors/await_in_finally</code>, <code>run_cmd/await_in_defer</code>, <code>run_cmd/await_in_generic_match</code>.</li>
+<li><code>&lt;regex&gt;</code> reads patterns and texts as UTF-8, with the semantics of Go's regexp (RE2):
+  <code>.</code>, classes and literals match whole code points (match offsets stay byte offsets, and
+  a byte that is not valid UTF-8 reads as U+FFFD), <code>\x{..}</code> goes up to <code>\x{10FFFF}</code>, and
+  it gains <code>\p{..}</code> / <code>\P{..}</code> (the general categories, their one-letter groups, the
+  scripts and <code>Any</code>, Unicode 15 tables generated from Go's by
+  <code>tools/gen_regex_unicode.go</code> into <code>&lt;regex_unicode&gt;</code>), the flags <code>(?i)</code> (simple case
+  folding), <code>(?m)</code>, <code>(?s)</code> and <code>(?U)</code> for the rest of a group or scoped as
+  <code>(?flags:...)</code>, non-capturing groups <code>(?:...)</code>, named groups <code>(?P&lt;name&gt;...)</code> and
+  <code>(?&lt;name&gt;...)</code>, and literal text <code>\Q...\E</code>. A differential against Go's regexp over
+  60 000 generated patterns and texts agrees on every result. Test <code>regex_unicode</code>; the
+  stdlib fuzzer's regex dictionary covers the new syntax.</li>
+<li><code>&lt;eventloop&gt;</code> on AArch64 Linux: <code>struct epoll_event</code> was declared packed as on x86-64,
+  so each event read the wrong descriptor and the async servers spun at full CPU (the
+  <code>http2_*</code> tests hung). It is packed only on x86-64 now.</li>
+<li><code>tests/linux_docker.sh</code> runs a Linux smoke of a release from a Mac: it cross-compiles
+  the run and smoke tests and the self-hosted drivers for AArch64 (or x86-64) Linux,
+  links and runs them in <code>ubuntu:24.04</code> with gcc, runs the self-hosted type checker and
+  code generator over the corpus, and checks the bootstrap fixpoint on Linux. A
+  pre-release check, not a CI gate.</li>
+<li>A native build targets the <code>generic</code> CPU unless <code>--mcpu</code> is given, as clang does. It used the host CPU's name without its feature list, which could select instructions a VM or a masked host does not support (a SIGILL), and made the binary depend on the build machine.</li>
 </ul>
 <h3 id="known-issues">Known issues</h3>
-<p>These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
-without a diagnostic, except where the entry says so.</p>
+<p>These are open in 0.9.2. None of them miscompiles a valid program.</p>
 <ul>
-<li>A local read that is uninitialized on only some paths is accepted, as in C (the check
-  only catches a read with no assignment on any path).</li>
-<li>The C++ compiler does not treat a type alias inside a composite type as its target, so
-  <code>Box&lt;F&gt;</code> and <code>Box&lt;int&gt;</code> (with <code>type F = int</code>) are different types there and a valid
-  assignment between them is rejected. Spell the target type.</li>
-<li>A generic variant infers its type arguments only from its payload
-  (<code>Opt&lt;int64&gt; a = Some(5)</code> needs <code>Some&lt;int64&gt;(5)</code>); write the type arguments.</li>
-<li>A <code>#undef</code> line inside a multi-line string literal is read as a directive.</li>
-<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected (both run, without suspending,
-  when a cancelled future is dropped), and so is one in a generic async function's
-  <code>match</code> arm that binds a payload, after a side-effecting operand or inside a <code>?:</code> arm;
-  bind the value to a local first.</li>
-<li>There is no spelling for a pointer to a nullable pointer, inline <code>asm</code> has no output
-  operands, and <code>null</code> does not convert to an interface value.</li>
-<li>A method that mutates a captured value inside a lambda acts on the closure's copy.</li>
-<li>The <code>&lt;json&gt;</code> methods named <code>int</code> and <code>bool</code> cannot be called with dot syntax.</li>
-<li>The self-hosted compiler type-checks deeply nested <code>?:</code> expressions in time quadratic
-  in their depth (5000 levels take about ten seconds; the C++ compiler is linear).</li>
-<li>The C ABI lowering of <code>extern</code> struct and union arguments is not implemented for 32-bit
-  x86 (not a supported C ABI target).</li>
-<li>Regex does not support <code>\Q..\E</code>, <code>(?:...)</code>, <code>(?i)</code>, <code>\p{...}</code> or code points above one
-  byte.</li>
-<li>A few diagnostics report a different column in the two compilers.</li>
-<li>The type checker does not fold <code>sizeof</code> of a struct under <code>#pragma pack(N)</code> with N of 2
-  or more, or of one with a <code>: 0</code> bitfield, so constant-expression checks do not see it.</li>
-<li>An enum member value cannot use <code>?:</code>, <code>&amp;&amp;</code>/<code>||</code>, or a <code>const</code> whose initializer is a
-  ternary, although global <code>const</code> initializers accept them.</li>
-<li>An object-like macro that expands to the name of a function-like macro is not expanded
-  as a call when the <code>(</code> is on the next line (<code>#define G F</code> then <code>G</code> / <code>(5)</code>).</li>
+<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an <code>await</code> is also
+  rejected in a <code>match</code> arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a <code>?:</code> arm. Bind the awaited value to a local first.</li>
+<li>A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value); write through a pointer to share state.</li>
+<li>The type checker does not fold <code>sizeof</code> of a struct with an unnamed <code>: 0</code> bitfield, so
+  constant-expression checks do not see it (codegen gets its size right).</li>
+<li>The self-hosted compiler generates code for deeply nested binary expressions
+  (<code>a + (a + (...))</code>, thousands of levels) in time quadratic in their depth; the C++
+  compiler is linear.</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_1">Fixed</h3>
