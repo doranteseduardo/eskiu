@@ -899,6 +899,25 @@ input. What is still open is listed under Known issues.
   blocks pending at its await once. An `await` in a `finally` is a located error. Tests
   `async_try`, `async_try_cancel`, `async_await_positions`, `async_await_edges`,
   `async_generic_try`, `errors/await_in_finally`, `run_cmd/await_in_defer`, `run_cmd/await_in_generic_match`.
+- `<regex>` reads patterns and texts as UTF-8, with the semantics of Go's regexp (RE2):
+  `.`, classes and literals match whole code points (match offsets stay byte offsets, and
+  a byte that is not valid UTF-8 reads as U+FFFD), `\x{..}` goes up to `\x{10FFFF}`, and
+  it gains `\p{..}` / `\P{..}` (the general categories, their one-letter groups, the
+  scripts and `Any`, Unicode 15 tables generated from Go's by
+  `tools/gen_regex_unicode.go` into `<regex_unicode>`), the flags `(?i)` (simple case
+  folding), `(?m)`, `(?s)` and `(?U)` for the rest of a group or scoped as
+  `(?flags:...)`, non-capturing groups `(?:...)`, named groups `(?P<name>...)` and
+  `(?<name>...)`, and literal text `\Q...\E`. A differential against Go's regexp over
+  60 000 generated patterns and texts agrees on every result. Test `regex_unicode`; the
+  stdlib fuzzer's regex dictionary covers the new syntax.
+- `<eventloop>` on AArch64 Linux: `struct epoll_event` was declared packed as on x86-64,
+  so each event read the wrong descriptor and the async servers spun at full CPU (the
+  `http2_*` tests hung). It is packed only on x86-64 now.
+- `tests/linux_docker.sh` runs a Linux smoke of a release from a Mac: it cross-compiles
+  the run and smoke tests and the self-hosted drivers for AArch64 (or x86-64) Linux,
+  links and runs them in `ubuntu:24.04` with gcc, runs the self-hosted type checker and
+  code generator over the corpus, and checks the bootstrap fixpoint on Linux. A
+  pre-release check, not a CI gate.
 ### Known issues
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.
@@ -921,8 +940,11 @@ without a diagnostic, except where the entry says so.
   in their depth (5000 levels take about ten seconds; the C++ compiler is linear).
 - The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
   x86 (not a supported C ABI target).
-- Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
-  byte.
+- On AArch64 Linux a variadic function written in Eskiu reads its arguments wrong: both
+  compilers lower `va_arg<T>` to LLVM's `va_arg` instruction, which the AArch64 backend
+  expands for the Darwin `char*` `va_list`, not the AAPCS64 one Linux uses (a miscompile;
+  `variadic` and `generic_variadic` fail there). macOS, x86-64 and calls to C variadic
+  functions such as `printf` are not affected.
 - A few diagnostics report a different column in the two compilers.
 - The type checker does not fold `sizeof` of a struct under `#pragma pack(N)` with N of 2
   or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.
