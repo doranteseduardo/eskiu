@@ -176,11 +176,19 @@ extern int epoll_create1(int flags);
 extern int epoll_ctl(int epfd, int op, int fd, *void ev);
 extern int epoll_wait(int epfd, *void events, int maxevents, int timeout);
 
-// struct epoll_event is packed on x86-64: { u32 events; u64 data; } = 12 bytes.
+// struct epoll_event { u32 events; u64 data; } is packed (12 bytes) only on x86-64;
+// elsewhere (AArch64, ARM) `data` is 8-aligned and the struct is 16 bytes.
+#ifdef __x86_64__
 packed struct EvNative {
     uint32 events;
     uint64 data;
 }
+#else
+struct EvNative {
+    uint32 events;
+    uint64 data;
+}
+#endif
 
 extern int close(int fd);
 
