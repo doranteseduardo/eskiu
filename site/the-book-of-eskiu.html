@@ -407,6 +407,7 @@ pre.code-block {
 <a href="#chapter-21" class="toc-ch">Chapter 21</a>
 <a href="#sec-21-1" class="toc-sec">21.1 Test functions</a>
 <a href="#sec-21-2" class="toc-sec">21.2 The .esk + .expected pattern</a>
+<a href="#sec-21-3" class="toc-sec">21.3 Testing on Linux from a Mac</a>
 <a href="#chapter-22" class="toc-ch">Chapter 22</a>
 <a href="#sec-22-1" class="toc-sec">22.1 Use-after-free</a>
 <a href="#sec-22-2" class="toc-sec">22.2 Double-free</a>
@@ -1722,6 +1723,15 @@ pre.code-block {
  }                              // sizeof = 8</pre>
 <pre class="code-block"> printf(&quot;%lld %lld\n&quot;, sizeof(Wire), sizeof(Natural));           // 5 8</pre>
 <p class="output"><em>Output:</em> 5 8</p>
+<p>A larger N caps the alignment instead of removing it. A struct declared under <code>pack(N)</code> aligns each field to the smaller of N and the field&#x27;s own alignment, and the struct as a whole to the smaller of N and its largest field alignment, as C does. That alignment also holds when the struct sits inside another struct, an array, a union or a generic type argument, so the outer layout matches clang&#x27;s. The type checker knows these sizes, so a <code>sizeof</code> of such a struct can size an array or set an enum value:</p>
+<pre class="code-block"> #pragma pack(push, 2)
+ struct P2 { char a; int b; }          // b at offset 2, sizeof 6, aligned to 2
+ #pragma pack(pop)
+ struct Outer { char c; P2 p; char e; } // p at offset 2, e at 8, sizeof 10</pre>
+<pre class="code-block"> enum Sizes { SZ_P2 = sizeof(P2), SZ_OUTER = sizeof(Outer) }
+ uint8[sizeof(Outer)] raw;
+ printf(&quot;%d %d %lld\n&quot;, SZ_P2, SZ_OUTER, sizeof(raw));           // 6 10 10</pre>
+<p class="output"><em>Output:</em> 6 10 10</p>
 <p>The compiler predefines a macro for the host OS: __APPLE__ on macOS, __linux__ on Linux, and _WIN32 (plus _WIN64 on a 64-bit arch) on Windows. A bare-metal (none) target predefines none of them. An architecture macro follows the target the same way: __aarch64__ on 64-bit ARM, __x86_64__ on x86-64, and __arm__ on 32-bit ARM. Use them to write portable code that compiles correctly on both platforms:</p>
 <pre class="code-block"> #ifdef __APPLE__
        printf(&quot;macOS\n&quot;);
@@ -1790,13 +1800,14 @@ pre.code-block {
  shared_counter = shared_counter + 1;
  printf(&quot;%d\n&quot;, shared_counter);   // read and write the C global</pre>
 <p>The compiler emits an external-linkage declaration with no initializer; the linker resolves it against the real definition. This is how Eskiu shares mutable state with a C library, not only calls into it.</p>
-<p>A struct or union can cross the boundary by value in either direction. The compiler lowers such a call to the platform&#x27;s C calling convention (on AArch64, x86-64 Linux and macOS, Windows x64 and 32-bit ARM), so it passes the struct in the same registers or memory that clang would use for the matching C prototype:</p>
+<p>A struct or union can cross the boundary by value in either direction. The compiler lowers such a call to the platform&#x27;s C calling convention (on AArch64, x86-64 Linux and macOS, Windows x64, 32-bit ARM and 32-bit x86), so it passes the struct in the same registers or memory that clang would use for the matching C prototype:</p>
 <pre class="code-block"> struct Vec2 { double x; double y; }
  extern Vec2 vec2_add(Vec2 a, Vec2 b);     // C: struct Vec2 vec2_add(struct Vec2, struct Vec2);</pre>
 <pre class="code-block"> Vec2 a = Vec2 { x: 1.0, y: 2.0 };
  Vec2 s = vec2_add(a, Vec2 { x: 0.5, y: 0.5 });
  printf(&quot;%.1f %.1f\n&quot;, s.x, s.y);          // 1.5 2.5</pre>
 <p>Keep the field types and order identical on both sides. Unions follow C layout too, so a union field inside such a struct lines up with its C counterpart.</p>
+<p>On 32-bit x86 (cdecl) the rules differ by operating system, and the compiler follows clang&#x27;s. A struct argument of at most 16 bytes made only of 32- and 64-bit scalars is passed as those scalars, and any other struct is copied onto the stack. Linux returns every struct through a hidden pointer, while macOS, Windows and the BSDs return a struct of 1, 2, 4 or 8 bytes in registers.</p>
 <h2 class="section" id="sec-14-2">14.2 Calling OpenSSL: a real example</h2>
 <pre class="code-block"> extern *void EVP_CIPHER_CTX_new();
  extern void    EVP_CIPHER_CTX_free(*void ctx);
@@ -2244,7 +2255,9 @@ pre.code-block {
 <pre class="code-block"> x86_64-unknown-none                        Bare-metal x86-64, no OS, no libc</pre>
 <pre class="code-block"> x86_64-pc-windows-gnu                      Windows on Intel/AMD 64-bit (COFF object)</pre>
 <pre class="code-block"> armv6k-none-eabihf                         32-bit ARM (Nintendo 3DS), hard-float</pre>
+<pre class="code-block"> i686-pc-linux-gnu                          Linux on 32-bit x86</pre>
 <p>A 32-bit ARM triple reaches smaller and older hardware. Three flags tune the machine: <code>--mcpu</code> (for example <code>mpcore</code> for the 3DS's ARM11), <code>--mattr</code> (an LLVM feature string like <code>+vfp2</code>), and <code>--reloc</code> (<code>static</code> for a loader that applies fixed relocations). A triple ending in <code>hf</code> (like <code>armv6k-none-eabihf</code>) selects the hard-float ABI, so the object carries the <code>Tag_ABI_VFP_args</code> attribute and links against hard-float libraries. An object built this way links into a Nintendo 3DS <code>.3dsx</code> homebrew through the devkitARM toolchain, with its logic in Eskiu running on the ARM11.</p>
+<p>Without <code>--mcpu</code> every build targets the <code>generic</code> CPU of its architecture, a native build included, as clang does. The binary then runs on any machine of that architecture, including a VM or a host that hides some CPU features. To use the instructions of a particular processor, name it: <code>--mcpu apple-m1</code>, or <code>--mcpu x86-64-v3</code> for recent x86-64.</p>
 <p>Windows is a hosted target, not a bare-metal one. The compiler emits a COFF object with the Microsoft x64 calling convention, and the preprocessor predefines <code>_WIN32</code> and <code>_WIN64</code> so the standard library takes its Windows branches. Link the object with a mingw <code>g++</code> and the whole stdlib runs there: exceptions unwind through the SEH personality, <code>&lt;sysheap&gt;</code> maps pages with <code>VirtualAlloc</code>, <code>&lt;net&gt;</code> talks to Winsock, and the async reactor in <code>&lt;eventloop&gt;</code> runs on <code>WSAPoll</code>. So both a blocking and an async server build and run on Windows the same as on Linux or macOS.</p>
 <h2 class="section" id="sec-17-2">17.2 --freestanding</h2>
 <p>When targeting bare-metal there is no libc. --freestanding redirects <code>alloc</code> and <code>free</code> to your own esk_alloc and esk_free:</p>
@@ -2566,6 +2579,13 @@ pre.code-block {
  echo &quot;$PASS passed, $FAIL failed&quot;</pre>
 <pre class="code-block"> eskiuc run compiles to a temp binary, runs it, and deletes it. No Makefile step needed for running
  individual tests.</pre>
+<h2 class="section" id="sec-21-3">21.3 Testing on Linux from a Mac</h2>
+<p>Because <code>eskiuc</code> cross-compiles, a Mac can test a program on Linux without a Linux build of the compiler. Build an object for the Linux target and link and run it in a container that has a C compiler:</p>
+<pre class="code-block"> eskiuc prog.esk --target aarch64-unknown-linux-gnu -c -o prog.o
+ docker run --rm -v &quot;$PWD&quot;:/w -w /w gcc:14 sh -c &#x27;gcc prog.o -o prog &amp;&amp; ./prog&#x27;</pre>
+<p>Link the libraries the program needs yourself here (<code>-lm</code>, <code>-lpthread</code>, <code>-lstdc++</code> for exceptions), since an object file carries no link step. The compiler&#x27;s own repository does this at scale in <code>tests/linux_docker.sh</code>, its pre-release Linux smoke. It cross-compiles every run and smoke test and the self-hosted drivers for AArch64 Linux (or x86-64 with <code>TRIPLE=x86_64-unknown-linux-gnu</code>), links and runs them in <code>ubuntu:24.04</code> with gcc, compares each run test with its <code>.expected</code>, runs the self-hosted type checker and code generator over the corpus, and checks the bootstrap fixpoint on Linux. It needs Docker, so it is a manual check before a release rather than a CI gate:</p>
+<pre class="code-block"> CLANG=$(brew --prefix llvm@22)/bin/clang ESKIUC=build/eskiuc tests/linux_docker.sh
+ TESTS=&quot;regex http2_server&quot; tests/linux_docker.sh      # only these tests</pre>
 <div class="chapter-start" id="chapter-22"><span class="chapter-label">Chapter 22</span>
 <h1 class="chapter-title">Common Bugs</h1><hr class="chapter-rule"></div>
 <p>Systems programming bugs are in a class of their own. They do not always crash immediately. They corrupt memory silently, produce wrong results only under specific conditions, and sometimes disappear when you add a print statement. This chapter names the six most common bugs, shows what they look like in Eskiu, and tells you how to avoid them.</p>
@@ -3413,7 +3433,7 @@ pre.code-block {
 <pre class="code-block">        eskiuc run file.esk [args...]            Compile to a temp exe, run it, delete it</pre>
 <pre class="code-block">        eskiuc fmt file.esk [--check]            Reformat in place, or --check formatting</pre>
 <pre class="code-block">        eskiuc file.esk --target TRIPLE          Cross-compile for target triple</pre>
-<pre class="code-block">        eskiuc ... --mcpu CPU --mattr F --reloc R   Tune the cross target (CPU, features, relocation)</pre>
+<pre class="code-block">        eskiuc ... --mcpu CPU --mattr F --reloc R   Tune the target (CPU, features, relocation)</pre>
 <pre class="code-block">        eskiuc file.esk --freestanding           No libc; alloc/free → esk_alloc/esk_free</pre>
 <pre class="code-block">        eskiuc file.esk --test-lexer             Dump token stream</pre>
 <pre class="code-block">        eskiuc file.esk --test-parser            Dump AST</pre>
@@ -3430,6 +3450,7 @@ pre.code-block {
 <pre class="code-block">        x86_64-unknown-none                      Bare-metal x86-64: no OS, no libc</pre>
 <pre class="code-block">        x86_64-pc-windows-gnu                    Windows x86-64 (COFF, mingw runtime)</pre>
 <pre class="code-block">        armv6k-none-eabihf                       32-bit ARM, hard-float (Nintendo 3DS)</pre>
+<pre class="code-block">        i686-pc-linux-gnu                        Linux 32-bit x86</pre>
 <h3 class="subsection">Linker detection order</h3>
 <p><code>eskiuc</code> finds the system linker via: $CC → cc → clang → gcc. A C toolchain must be installed for linking. With --freestanding or a .o output, no linking occurs.</p>
 <div class="chapter-start" id="ref-r10"><span class="chapter-label ref">Ref R10</span>
@@ -3475,7 +3496,7 @@ pre.code-block {
  eskiuc file.esk --safe -o prog      # runtime slice-bounds checks (traps on violation)
  eskiuc file.esk -O2 -o prog         # optimization level (-O0 through -O3)
  eskiuc file.esk --target TRIPLE     # cross-compile
- eskiuc file.esk --target T --mcpu CPU --mattr FEAT --reloc static   # tune the cross target
+ eskiuc file.esk --target T --mcpu CPU --mattr FEAT --reloc static   # tune the target
  eskiuc file.esk --freestanding      # esk_alloc/esk_free, no libc
  eskiuc file.esk --test-lexer        # dump token stream
  eskiuc file.esk --test-parser       # dump AST
