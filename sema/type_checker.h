@@ -268,11 +268,6 @@ private:
     void markAddrTaken(const std::set<std::string>& names);
     // A call (or an await) may run code that assigns any global: its narrowing ends.
     void dropGlobalNarrowings();
-    // Whether `e` contains an `await` (a lambda body is its own function). The async
-    // lowering splits only a whole-statement await, so one in a switch subject or a loop
-    // bound is rejected here, where it has a location.
-    static bool exprHasAwait(Expr* e);
-    void rejectAwaitIn(Expr* e, ASTNode* at, const char* where);
     static void dropGlobalKeys(std::vector<std::string>& keys);
     bool exprHasCall(Expr* e) const;
     // A `?:` whose value goes to an interface (a declaration, assignment, return or
@@ -320,9 +315,8 @@ private:
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;
     void checkVariadicArg(Expr* call, Expr* arg, size_t i);
-    // `try` statements enclosing the current point (an `await` can't be inside one).
-    int tryDepth = 0;
-    // `finally` blocks enclosing the current point (a `return` may not leave one).
+    // `finally` blocks enclosing the current point (a `return` or an `await` may not
+    // leave or suspend one).
     int finallyDepth = 0;
     // Whether the function being checked has a variadic parameter (`...`): only there
     // can `va_start` begin reading the variadic arguments.

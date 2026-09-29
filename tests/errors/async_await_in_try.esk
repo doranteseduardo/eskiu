@@ -1,9 +1,0 @@
-// EXPECT-ERROR: await inside a 'try' statement is not supported in an async function
-import <future>;
-Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
-async int w() {
-    int r = 0;
-    try { int q = await produce(3); r = q; } catch (int e) { r = 0; }
-    return r;
-}
-int main() { Future<int>* a = w(); return a.value; }

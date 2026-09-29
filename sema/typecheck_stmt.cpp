@@ -97,7 +97,6 @@ void TypeChecker::visit(IfStmt* node) {
 
 void TypeChecker::visit(ForInStmt* node) {
     node->iterable->accept(this);
-    rejectAwaitIn(node->iterable.get(), node, "a for-in iterable");
     std::string itType = getExpressionType(node->iterable.get());
 
     // Determine the element type the loop variable will bind.
@@ -410,7 +409,6 @@ void TypeChecker::visit(ThrowStmt* node) {
 }
 
 void TypeChecker::visit(TryStmt* node) {
-    struct TryDepth { int& d; TryDepth(int& x) : d(x) { ++d; } ~TryDepth() { --d; } } inTry{tryDepth};
     if (node->body) node->body->accept(this);
     for (auto& c : node->catches) {
         pushScope();
@@ -621,7 +619,6 @@ static bool caseValueFits(const std::string& raw, long long v) {
 
 void TypeChecker::visit(SwitchStmt* node) {
     node->subject->accept(this);
-    rejectAwaitIn(node->subject.get(), node, "a switch subject");
     std::string subjType = getExpressionType(node->subject.get());
     if (subjType != "unknown" && !isIntType(normalizeType(subjType)))   // a classic enum counts as int
         errorAt(node,"switch subject must be integer type, got " + subjType);

@@ -1,0 +1,38 @@
+// A generic async function whose awaits sit in a try (with a compound assignment) and a
+// switch subject, and a match on a computed subject whose arms await, in both compilers.
+import <future>;
+extern int printf(string fmt, ...);
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+int boom(int v) { if (v < 0) { throw v; } return v; }
+async T pick<T>(T a, int v) {
+    T r = a;
+    try {
+        T x = await rdy<T>(a);
+        boom(v);
+        r = x;
+        r += await rdy<T>(a);
+    } catch (int e) {
+        printf("pick caught %d\n", e);
+    } finally {
+        printf("pick finally\n");
+    }
+    switch (await rdy<int>(v)) { case 1: printf("one\n"); break; default: printf("other\n"); }
+    return r;
+}
+async int plain_match(int k) {
+    int r = 0;
+    match k > 0 ? Some(k) : None {
+        Some(n) -> { r = await rdy<int>(n) + 1; }
+        None -> { r = await rdy<int>(-1); }
+    }
+    return r;
+}
+enum Opt { Some(int), None }
+int main() {
+    Future<int>* a = pick<int>(20, 1); printf("= %d\n", a.value); free_future<int>(a);
+    Future<int>* b = pick<int>(20, -4); printf("= %d\n", b.value); free_future<int>(b);
+    Future<double>* d = pick<double>(1.5, 2); printf("= %.1f\n", d.value); free_future<double>(d);
+    Future<int>* m = plain_match(5); printf("= %d\n", m.value); free_future<int>(m);
+    Future<int>* n = plain_match(0); printf("= %d\n", n.value); free_future<int>(n);
+    return 0;
+}

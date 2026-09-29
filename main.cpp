@@ -252,7 +252,7 @@ static int testCodegen(const std::string& filename) {
             std::cerr << "Type checking failed!" << std::endl;
             return 1;
         }
-        AsyncTransform().run(program.get());
+        AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
         TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = filename;
         if (!postTc.check(program.get())) {
@@ -480,7 +480,7 @@ static int compilerMain(int argc, char** argv) {
             return 1;
         }
 
-        AsyncTransform().run(program.get());
+        AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
         TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = std::string(InputFilename);
         if (!postTc.check(program.get())) {

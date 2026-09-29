@@ -154,6 +154,11 @@ when you add a test.
 | `async_for` | C-style `for` loop containing an await |
 | `async_break` | `break`/`continue` inside an awaiting `while`/`for` (state transitions; `for` continue runs the step) |
 | `async_switch` | `switch` containing an await: fall-through + suspending case + `default` + `break` |
+| `async_try` | `await` in a `try` body and a `catch`: exceptions before/after a suspension reach the right handler, nested try, `finally` once on every exit (early return, break/continue, unmatched exception), a body `defer` before the handler |
+| `async_try_cancel` | a future dropped while suspended in try/finally (by `select2` + timer, or by hand, also inside a handler) runs its pending finally blocks and defers once |
+| `async_await_positions` | `await` in a match arm, a switch subject, a for-in iterable, a range bound, a compound assignment (target once), larger expressions and call arguments (side-effect order), `&&`/`||`/`?:`, and while/do/for conditions and steps |
+| `async_await_edges` | awaits in a return and a loop condition inside try, a plain try returning inside a split one, break from a match arm, lambdas in a try and its handler, a catch variable, nested awaits, struct/array literals, a static local, a switch in a try |
+| `async_generic_try` | a generic async function awaiting in a try (with a compound assignment) and a switch subject; a match on a computed subject whose arms await |
 | `async_for_in` | `for-in` containing an await, over a fixed-size array and a `List`-like struct (suspending) |
 | `async_timer` | `<timer>` `timer_after` leaf future: a delayed await + read-with-timeout via `select2(read, timer)` |
 | `async_frame_expr` | frame-hoisted locals used in a struct literal / index / call after an await are renamed to `fr.x` (shared child-enumeration) |
@@ -410,6 +415,8 @@ when you add a test.
 | `c_abi_narrow` | narrow integer params and results across `extern` (+ `.c`): `signext`/`zeroext`, callbacks and C calling Eskiu |
 | `va_list_c` | a `va_list` handed to `vprintf`/`vsnprintf`, also through an Eskiu `va_list` param |
 | `volatile_access` | volatile loads/stores through a volatile local or global (`*p`, `p[i]`, `p.f`, `++`, `+=`); IR count checked |
+| `run_cmd/await_in_defer` | an `await` in a defer body of an async function: an error located at the await (`run.sh`, `cg_parity.sh`) |
+| `run_cmd/await_in_generic_match` | an `await` in a payload-binding `match` arm of a generic async function: an error located at the await |
 | `run_cmd/net_timeval` | `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size: `{i32, i32}` and optlen 8 on 32-bit ARM, `{i64, i64}` and 16 on x86-64 (it was always 16 bytes); IR checked by `run.sh` per target |
 | `inline_asm_ext` | extended inline asm with inputs and a clobber (AArch64 and x86-64 spellings) |
 | `async_arm_locals` | an async fn declaring locals in `match` arms and `try`/`catch`/`finally` bodies |
@@ -711,9 +718,6 @@ when you add a test.
 | `errors/nullable_global_thread_create` | `thread_create` ends a global's narrowing |
 | `errors/nullable_guard_else_assign` | an early-exit guard whose `else if` branch assigns the pointer |
 | `errors/nullable_guard_then_assign` | an early-exit guard (else exits) whose then branch assigns the pointer |
-| `errors/await_in_switch_subject` | `switch (await f())` in an async function |
-| `errors/await_in_range_bound` | `for (i in 0..await f())` |
-| `errors/await_in_forin_iterable` | `for (x in await f())` |
 | `errors/not_void_call` | `!i.m()` of a void interface call |
 | `errors/throw_void` | `throw v()` of a void call |
 | `errors/deref_void_ptr` | `*x;` of a `*void` |
@@ -726,7 +730,7 @@ when you add a test.
 | `errors/finally_return` | a `return` inside a `finally` block |
 | `errors/finally_question` | a `?` inside a `finally` block (it would swallow the exception being unwound) |
 | `errors/match_alias_nonexhaustive` | a `match` on an alias of a classic enum missing a member |
-| `errors/async_await_in_try` | `await` inside a `try` in an `async` function |
+| `errors/await_in_finally` | `await` inside a `finally` in an `async` function |
 | `errors/void_logical_operand` | a `void` call as an operand of `&&` |
 | `errors/void_compare` | comparing two `void` calls |
 | `errors/void_variadic_arg` | a `void` call passed through `...` (`printf("%d", hi())`) |

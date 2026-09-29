@@ -75,18 +75,18 @@ if [ "$#" -eq 0 ]; then
     vb="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/volatile_bitfield.esk 2>/dev/null | grep -c 'volatile i16')"
     if [ "$vb" = 12 ]; then echo "ok    volatile_bitfield  (IR: 12 volatile accesses)"
     else echo "FAIL  volatile_bitfield  (IR: $vb volatile i16 accesses, expected 12)"; fail=1; fi
-    # An await the async lowering can't place is an error located at that await.
+    # An await the async lowering can't place is a located error.
     total=$((total + 1))
-    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_expr.esk 2>&1 >/dev/null)"
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_defer.esk 2>&1 >/dev/null)"
     case "$aw" in
-        *"await_in_expr.esk:7:10: async function 'worker': 'await' is only supported"*) echo "ok    await_in_expr  (located error)" ;;
-        *) echo "FAIL  await_in_expr  ($aw)"; fail=1 ;;
+        *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"*) echo "ok    await_in_defer  (located error)" ;;
+        *) echo "FAIL  await_in_defer  ($aw)"; fail=1 ;;
     esac
     total=$((total + 1))
-    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_match.esk 2>&1 >/dev/null)"
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_generic_match.esk 2>&1 >/dev/null)"
     case "$aw" in
-        *"await_in_match.esk:8:29: async function 'w': 'await' is not supported inside a 'match'"*) echo "ok    await_in_match  (located error)" ;;
-        *) echo "FAIL  await_in_match  ($aw)"; fail=1 ;;
+        *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"*) echo "ok    await_in_generic_match  (located error)" ;;
+        *) echo "FAIL  await_in_generic_match  ($aw)"; fail=1 ;;
     esac
 fi
 

@@ -532,19 +532,6 @@ void TypeChecker::dropGlobalKeys(std::vector<std::string>& keys) {
     }), keys.end());
 }
 
-bool TypeChecker::exprHasAwait(Expr* e) {
-    if (!e || dynamic_cast<LambdaExpr*>(e)) return false;
-    if (dynamic_cast<AwaitExpr*>(e)) return true;
-    bool found = false;
-    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = exprHasAwait(c.get()); });
-    return found;
-}
-
-void TypeChecker::rejectAwaitIn(Expr* e, ASTNode* at, const char* where) {
-    if (inAsyncFn && exprHasAwait(e))
-        errorAt(at, std::string("'await' is not supported in ") + where + "; bind it first (`let v = await ...;`)");
-}
-
 // Whether evaluating `e` makes a call (a lambda body is not evaluated there).
 bool TypeChecker::exprHasCall(Expr* e) const {
     if (!e || dynamic_cast<LambdaExpr*>(e)) return false;
@@ -1655,9 +1642,8 @@ void TypeChecker::visit(LambdaExpr* node) {
     // A lambda is its own (non-async) function: an `await` in its body does not belong to
     // an enclosing async function.
     bool savedAsync = inAsyncFn, savedAwait = awaitSeenInFn, savedVariadic = inVariadicFn;
-    int savedTry = tryDepth, savedFinally = finallyDepth;
+    int savedFinally = finallyDepth;
     inAsyncFn = false;
-    tryDepth = 0;
     finallyDepth = 0;
     inVariadicFn = false;
     // Captures are by value: an assignment to a captured name inside the body changes the
@@ -1687,7 +1673,6 @@ void TypeChecker::visit(LambdaExpr* node) {
     loopLabelStack = std::move(savedLoops);
     switchDepth = savedSwitch;
     inAsyncFn = savedAsync;
-    tryDepth = savedTry;
     finallyDepth = savedFinally;
     inVariadicFn = savedVariadic;
     awaitSeenInFn = savedAwait;
@@ -1750,8 +1735,9 @@ void TypeChecker::visit(AwaitExpr* node) {
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     if (!inAsyncFn)
         errorAt(node, "await is only allowed inside an async function");
-    else if (tryDepth > 0)
-        errorAt(node, "await inside a 'try' statement is not supported in an async function");
+    else if (finallyDepth > 0)
+        errorAt(node, "await inside a 'finally' block is not supported in an async function "
+                      "(a cancelled future runs its pending finally without suspending)");
     awaitSeenInFn = true;
     node->operand->accept(this);
     std::string t = getExpressionType(node->operand.get());

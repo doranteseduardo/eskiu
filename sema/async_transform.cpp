@@ -2,6 +2,7 @@
 #include "../ast/ast_walk.h"
 #include "../template_utils.h"
 #include <stdexcept>
+#include <cctype>
 #include <set>
 #include <map>
 #include <memory>
@@ -137,6 +138,11 @@ bool stmtHasLabeledBreak(const StmtPtr& s) {
         for (auto& arm : m->arms) if (stmtHasLabeledBreak(arm.body)) return true;
         return false;
     }
+    if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+        if (stmtHasLabeledBreak(t->body) || stmtHasLabeledBreak(t->finally)) return true;
+        for (auto& c : t->catches) if (stmtHasLabeledBreak(c.body)) return true;
+        return false;
+    }
     return false;
 }
 
@@ -147,10 +153,11 @@ void collectAwaits(Expr* e, std::vector<AwaitExpr*>& out) {
     if (auto* a = dynamic_cast<AwaitExpr*>(e)) out.push_back(a);
     astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { collectAwaits(c.get(), out); });
 }
-void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out) {
+// With `deferOnly`, only those inside a defer body.
+void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out, bool deferOnly = false) {
     if (!s) return;
-    auto E = [&](const ExprPtr& e) { collectAwaits(e.get(), out); };
-    auto S = [&](const StmtPtr& st) { collectAwaits(st.get(), out); };
+    auto E = [&](const ExprPtr& e) { if (!deferOnly) collectAwaits(e.get(), out); };
+    auto S = [&](const StmtPtr& st) { collectAwaits(st.get(), out, deferOnly); };
     if (auto* b = dynamic_cast<BlockStmt*>(s)) {
         for (auto& it : b->items) {
             if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
@@ -176,35 +183,58 @@ void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out) {
     else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
     else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
     else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
-    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
+    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { collectAwaits(d->body.get(), out); }
     else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
 }
 
-// The first await inside a `match` (the lowering cannot split a match into states).
-AwaitExpr* firstAwaitInMatch(Stmt* s) {
-    if (!s) return nullptr;
-    if (dynamic_cast<MatchStmt*>(s)) {
-        std::vector<AwaitExpr*> aws;
-        collectAwaits(s, aws);
-        return aws.empty() ? nullptr : aws.front();
+// Whether evaluating `e` may have a side effect: a call (a user operator counts), an
+// assignment, `++`/`--`, an await, `?` (it may return), `alloc_with`, `thread_create` or
+// `free_closure`. A lambda body is not evaluated there; `sizeof` never evaluates.
+bool isAssignOp(const std::string& op) {
+    return op == "=" || (op.size() >= 2 && op.back() == '=' && op != "==" && op != "!=" && op != "<=" && op != ">=");
+}
+bool hasSideEffects(Expr* e) {
+    if (!e || dynamic_cast<LambdaExpr*>(e) || dynamic_cast<SizeofExpr*>(e)) return false;
+    if (dynamic_cast<CallExpr*>(e) || dynamic_cast<TemplateCallExpr*>(e) || dynamic_cast<AwaitExpr*>(e)
+        || dynamic_cast<IncDecExpr*>(e) || dynamic_cast<QuestionExpr*>(e) || dynamic_cast<AllocWithExpr*>(e)
+        || dynamic_cast<ThreadCreateExpr*>(e) || dynamic_cast<FreeClosureExpr*>(e)) return true;
+    if (auto* b = dynamic_cast<BinaryExpr*>(e); b && (isAssignOp(b->op) || !b->opFunc.empty())) return true;
+    if (auto* u = dynamic_cast<UnaryExpr*>(e); u && !u->opFunc.empty()) return true;
+    if (auto* ix = dynamic_cast<IndexExpr*>(e); ix && !ix->opFunc.empty()) return true;
+    bool found = false;
+    astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { if (!found) found = hasSideEffects(c.get()); });
+    return found;
+}
+
+// Whether a statement contains a `return` (a lambda is an expression: not descended).
+bool stmtHasReturn(const StmtPtr& s) {
+    if (!s) return false;
+    if (dynamic_cast<ReturnStmt*>(s.get())) return true;
+    auto items = [](const std::vector<BlockItem>& its) {
+        for (auto& it : its)
+            if (std::holds_alternative<StmtPtr>(it) && stmtHasReturn(std::get<StmtPtr>(it))) return true;
+        return false;
+    };
+    if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return items(b->items);
+    if (auto* i = dynamic_cast<IfStmt*>(s.get())) return stmtHasReturn(i->thenBranch) || stmtHasReturn(i->elseBranch);
+    if (auto* w = dynamic_cast<WhileStmt*>(s.get())) return stmtHasReturn(w->body);
+    if (auto* d = dynamic_cast<DoWhileStmt*>(s.get())) return stmtHasReturn(d->body);
+    if (auto* f = dynamic_cast<ForStmt*>(s.get())) return stmtHasReturn(f->body);
+    if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) return stmtHasReturn(fi->body);
+    if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+        for (auto& c : sw->cases) if (items(c.stmts)) return true;
+        return false;
     }
-    AwaitExpr* r = nullptr;
-    auto S = [&](const StmtPtr& st) { if (!r) r = firstAwaitInMatch(st.get()); };
-    if (auto* b = dynamic_cast<BlockStmt*>(s)) {
-        for (auto& it : b->items) if (std::holds_alternative<StmtPtr>(it)) S(std::get<StmtPtr>(it));
+    if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+        for (auto& a : m->arms) if (stmtHasReturn(a.body)) return true;
+        return false;
     }
-    else if (auto* i = dynamic_cast<IfStmt*>(s))        { S(i->thenBranch); S(i->elseBranch); }
-    else if (auto* f = dynamic_cast<ForStmt*>(s))       { S(f->init); S(f->body); }
-    else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { S(fi->body); }
-    else if (auto* w = dynamic_cast<WhileStmt*>(s))     { S(w->body); }
-    else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); }
-    else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
-        for (auto& c : sw->cases)
-            for (auto& it : c.stmts) if (std::holds_alternative<StmtPtr>(it)) S(std::get<StmtPtr>(it));
+    if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+        if (stmtHasReturn(t->body) || stmtHasReturn(t->finally)) return true;
+        for (auto& c : t->catches) if (stmtHasReturn(c.body)) return true;
+        return false;
     }
-    else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
-    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
-    return r;
+    return false;
 }
 
 // `t` with every subtree spelled `from` replaced by `to`.
@@ -395,6 +425,36 @@ struct ShadowRenamer {
 
 } // namespace
 
+// A checked type as a declaration spells it: the `struct:`/`interface:` tags dropped and
+// a generic instance's mangled name (`List_int`) written as the template (`List<int>`).
+std::string AsyncTransform::declType(const std::string& checked) const {
+    std::string out;
+    size_t i = 0, n = checked.size();
+    auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+    while (i < n) {
+        if (!isId(checked[i])) { out += checked[i++]; continue; }
+        size_t j = i;
+        while (j < n && isId(checked[j])) ++j;
+        std::string id = checked.substr(i, j - i);
+        i = j;
+        if ((id == "struct" || id == "interface") && i < n && checked[i] == ':') { ++i; continue; }
+        const std::pair<std::string, std::vector<std::string>>* inst = nullptr;
+        if (instanceArgs) {
+            auto it = instanceArgs->find(id);
+            if (it != instanceArgs->end()) inst = &it->second;
+        }
+        if (inst) {
+            out += inst->first + "<";
+            for (size_t k = 0; k < inst->second.size(); ++k)
+                out += (k ? "," : "") + declType(inst->second[k]);
+            out += ">";
+        } else {
+            out += id;
+        }
+    }
+    return out;
+}
+
 void AsyncTransform::run(Program* program) {
     std::vector<DeclPtr> out;
     std::set<std::string> topNames;   // top-level declarations (the frame type / resume fn avoid them)
@@ -426,7 +486,7 @@ void AsyncTransform::run(Program* program) {
             }
         }
         auto awType = [&](AwaitExpr* aw) -> std::string {
-            return generic ? genAwTy[aw] : aw->resolvedType;
+            return generic ? genAwTy[aw] : declType(aw->resolvedType);
         };
         // Every synthesized name avoids the names already spelled in the function (and
         // the program's top-level names, for the frame type and resume function).
@@ -456,10 +516,6 @@ void AsyncTransform::run(Program* program) {
         if (stmtHasLabeledBreak(fn->body))
             throw std::runtime_error("async function '" + name + "': labeled 'break'/'continue' "
                 "is not supported inside an async function");
-        if (AwaitExpr* ma = firstAwaitInMatch(fn->body.get()))
-            throw std::runtime_error(fn->sourceFile + ":" + std::to_string(ma->line) + ":" +
-                std::to_string(ma->col) + ": async function '" + name + "': 'await' is not "
-                "supported inside a 'match' (supported: if/else, while, do/while, for, for-in, switch)");
         std::vector<DeclPtr> statics;
         {
             ShadowRenamer sr;
@@ -470,77 +526,293 @@ void AsyncTransform::run(Program* program) {
             statics = std::move(sr.statics);
         }
 
-        // ── Desugar awaits not already bound in a `let`, recursing into control
-        //    flow, so afterwards every await is the direct initializer of a let:
-        //    `return await E;`   -> `let __awN = await E; return __awN;`
-        //    `await E;`          -> `let __awN = await E;`            (discarded)
-        //    `x = await E;`      -> `let __awN = await E; x = __awN;`
+        // A lowering error at `at`: `file:line:col: async function 'f': msg`.
+        auto locError = [&](ASTNode* at, const std::string& msg) {
+            int ln = (at && at->line) ? at->line : fn->line, cl = (at && at->line) ? at->col : fn->col;
+            return std::runtime_error(fn->sourceFile + ":" + std::to_string(ln) + ":" +
+                std::to_string(cl) + ": async function '" + name + "': " + msg);
+        };
+        // The checked type of `e` ("" when unknown: a generic body's per-instance types
+        // are not kept).
+        auto typeOf = [&](Expr* e) -> std::string {
+            if (generic || !exprTypes || !e) return "";
+            auto it = exprTypes->find(e);
+            if (it == exprTypes->end()) return "";
+            const std::string& t = it->second;
+            if (t.empty() || t == "unknown" || t == "null" || t == "void") return "";
+            return declType(t);
+        };
+        auto boolLit = [](bool v) { return std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, v ? "true" : "false"); };
+        auto blockOf = [](std::vector<BlockItem> its) -> StmtPtr { return std::make_shared<BlockStmt>(std::move(its)); };
+
+        // ── Hoist every await into a `let` of its own, in evaluation order, recursing
+        //    into control flow, so afterwards every await is the whole initializer of a let:
+        //    `return await E;`       -> `let __awN = await E; return __awN;`
+        //    `x += g() + await E;`   -> `let __spN = g(); let __awN = await E; x += __spN + __awN;`
+        //    An operand evaluated before an await in the same expression is held in a
+        //    temporary first when it has a side effect, so effects keep the order of the
+        //    synchronous expression; an assignment target's parts (an index, a pointer)
+        //    are evaluated once, before the await. `&&`/`||` and `?:` become ifs, so an
+        //    await in a conditional operand runs only when that operand is evaluated. A
+        //    loop condition or step that awaits is re-evaluated at the top of each pass.
         int tmpN = 0;
         int forinSeq = 0;
+        auto fresh = [&](const std::string& base) { return astwalk::freshName(base + std::to_string(tmpN++), used); };
+        auto letTmp = [&](std::vector<BlockItem>& pre, const std::string& tn, const std::string& ty, ExprPtr init) {
+            pre.push_back(DeclPtr(std::make_shared<VarDecl>(tn, ty, std::move(init))));
+        };
+        std::function<void(ExprPtr&, std::vector<BlockItem>&)> hoist;
+        auto spill = [&](ExprPtr& c, std::vector<BlockItem>& pre) {
+            std::string t = typeOf(c.get());
+            if (t.empty())
+                throw locError(c.get(), "an operand with a side effect is evaluated before an 'await' "
+                    "in the same expression and its type is not known here; bind it to a local first");
+            std::string tn = fresh("__sp_t");
+            letTmp(pre, tn, t, c);
+            c = ident(tn);
+        };
+        auto rval = [&](ExprPtr& c, std::vector<BlockItem>& pre) {
+            if (hasAwait(c)) hoist(c, pre);
+            else if (hasSideEffects(c.get())) spill(c, pre);
+        };
+        auto placeShaped = [](Expr* x) {
+            if (dynamic_cast<IdentExpr*>(x) || dynamic_cast<MemberExpr*>(x) || dynamic_cast<IndexExpr*>(x)) return true;
+            auto* u = dynamic_cast<UnaryExpr*>(x);
+            return u && u->op == "*";
+        };
+        // An assignment target keeps its place; the sub-expressions that compute it are
+        // hoisted, or held when a later await follows (`spillParts`).
+        std::function<void(ExprPtr&, std::vector<BlockItem>&, bool)> place =
+            [&](ExprPtr& e, std::vector<BlockItem>& pre, bool spillParts) {
+                auto sub = [&](ExprPtr& c) {
+                    if (hasAwait(c)) hoist(c, pre);
+                    else if (spillParts && hasSideEffects(c.get())) spill(c, pre);
+                };
+                if (dynamic_cast<IdentExpr*>(e.get())) return;
+                if (auto* m = dynamic_cast<MemberExpr*>(e.get())) {
+                    if (placeShaped(m->base.get())) place(m->base, pre, spillParts); else sub(m->base);
+                    return;
+                }
+                if (auto* ix = dynamic_cast<IndexExpr*>(e.get()); ix && ix->opFunc.empty() && !ix->highIndex) {
+                    if (placeShaped(ix->base.get())) place(ix->base, pre, spillParts); else sub(ix->base);
+                    sub(ix->index);
+                    return;
+                }
+                if (auto* u = dynamic_cast<UnaryExpr*>(e.get()); u && u->op == "*" && u->opFunc.empty()) {
+                    sub(u->operand);
+                    return;
+                }
+                if (hasAwait(e) || (spillParts && hasSideEffects(e.get())))
+                    throw locError(e.get(), "'await' is not supported with this assignment target; "
+                        "bind the value to a local first");
+            };
+        hoist = [&](ExprPtr& e, std::vector<BlockItem>& pre) {
+            if (auto* aw = dynamic_cast<AwaitExpr*>(e.get())) {
+                if (hasAwait(aw->operand)) hoist(aw->operand, pre);
+                std::string tn = fresh("__aw_t");
+                letTmp(pre, tn, awType(aw), e);
+                e = ident(tn);
+                return;
+            }
+            if (dynamic_cast<LambdaExpr*>(e.get()) || dynamic_cast<SizeofExpr*>(e.get())) return;   // not evaluated here
+            if (auto* b = dynamic_cast<BinaryExpr*>(e.get())) {
+                if ((b->op == "&&" || b->op == "||") && hasAwait(b->right)) {
+                    if (hasAwait(b->left)) hoist(b->left, pre);
+                    std::string tn = fresh("__sc_t");
+                    letTmp(pre, tn, "bool", boolLit(false));
+                    auto setTrue = [&]() { return blockOf({ assign(ident(tn), boolLit(true)) }); };
+                    std::vector<BlockItem> rp;
+                    ExprPtr r = b->right;
+                    hoist(r, rp);
+                    rp.push_back(StmtPtr(std::make_shared<IfStmt>(r, setTrue())));
+                    if (b->op == "&&") pre.push_back(StmtPtr(std::make_shared<IfStmt>(b->left, blockOf(rp))));
+                    else pre.push_back(StmtPtr(std::make_shared<IfStmt>(b->left, setTrue(), blockOf(rp))));
+                    e = ident(tn);
+                    return;
+                }
+                if (isAssignOp(b->op)) {
+                    bool rAwait = hasAwait(b->right);
+                    place(b->left, pre, rAwait);
+                    if (rAwait) hoist(b->right, pre);
+                    return;
+                }
+            }
+            if (auto* te = dynamic_cast<TernaryExpr*>(e.get()); te && (hasAwait(te->thenExpr) || hasAwait(te->elseExpr))) {
+                std::string t = typeOf(e.get());
+                if (t.empty())
+                    throw locError(e.get(), "an 'await' in a '?:' arm needs the expression's type, which is "
+                        "not known here; use an 'if' statement");
+                if (hasAwait(te->condition)) hoist(te->condition, pre);
+                std::string tn = fresh("__tn_t");
+                letTmp(pre, tn, t, nullptr);
+                auto arm = [&](ExprPtr a) {
+                    std::vector<BlockItem> ap;
+                    if (hasAwait(a)) hoist(a, ap);
+                    ap.push_back(assign(ident(tn), a));
+                    return blockOf(ap);
+                };
+                pre.push_back(StmtPtr(std::make_shared<IfStmt>(te->condition, arm(te->thenExpr), arm(te->elseExpr))));
+                e = ident(tn);
+                return;
+            }
+            if (auto* id = dynamic_cast<IncDecExpr*>(e.get())) { place(id->operand, pre, false); return; }
+            if (auto* u = dynamic_cast<UnaryExpr*>(e.get()); u && u->op == "&" && u->opFunc.empty()) {
+                place(u->operand, pre, false);
+                return;
+            }
+            // Any other node: its operands in evaluation order. Those before the last one
+            // that awaits are held when they have an effect; those after it run after it.
+            std::vector<ExprPtr*> ch;
+            if (auto* call = dynamic_cast<CallExpr*>(e.get())) {
+                if (auto* m = dynamic_cast<MemberExpr*>(call->callee.get())) ch.push_back(&m->base);   // a method's receiver
+                else if (!dynamic_cast<IdentExpr*>(call->callee.get())) ch.push_back(&call->callee);
+                for (auto& a : call->args) ch.push_back(&a);
+            } else {
+                astwalk::forEachChildExpr(e.get(), [&](ExprPtr& c) { ch.push_back(&c); });
+            }
+            int last = -1;
+            for (size_t k = 0; k < ch.size(); ++k) if (hasAwait(*ch[k])) last = (int)k;
+            for (int k = 0; k < last; ++k) rval(*ch[k], pre);
+            if (last >= 0) hoist(*ch[last], pre);
+        };
+
         std::function<StmtPtr(const StmtPtr&)> desugarStmt;
         std::function<std::vector<BlockItem>(const std::vector<BlockItem>&)> desugarItems =
             [&](const std::vector<BlockItem>& its) {
                 std::vector<BlockItem> out2;
                 for (auto& it : its) {
-                    if (std::holds_alternative<StmtPtr>(it)) {
-                        auto stmt = std::get<StmtPtr>(it);
-                        if (auto* rs = dynamic_cast<ReturnStmt*>(stmt.get())) {
-                            if (auto* aw = dynamic_cast<AwaitExpr*>(rs->value.get())) {
-                                std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
-                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, awType(aw), rs->value)));
-                                out2.push_back(StmtPtr(std::make_shared<ReturnStmt>(ident(tn))));
-                                continue;
+                    if (std::holds_alternative<DeclPtr>(it)) {
+                        auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
+                        if (vd && vd->initializer && hasAwait(vd->initializer)) {
+                            if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
+                                if (hasAwait(aw->operand)) hoist(aw->operand, out2);
+                            } else {
+                                hoist(vd->initializer, out2);
                             }
-                        } else if (auto* es = dynamic_cast<ExprStmt*>(stmt.get())) {
-                            if (auto* aw = dynamic_cast<AwaitExpr*>(es->expr.get())) {
-                                std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
-                                out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, awType(aw), es->expr)));
-                                continue;          // discard
-                            }
-                            // x = await E;  ->  let __awN = await E; x = __awN;
-                            if (auto* b = dynamic_cast<BinaryExpr*>(es->expr.get()))
-                                if (b->op == "=")
-                                    if (auto* aw = dynamic_cast<AwaitExpr*>(b->right.get())) {
-                                        std::string tn = astwalk::freshName("__aw_t" + std::to_string(tmpN++), used);
-                                        out2.push_back(DeclPtr(std::make_shared<VarDecl>(tn, awType(aw), b->right)));
-                                        out2.push_back(StmtPtr(std::make_shared<ExprStmt>(
-                                            binop(b->left, "=", ident(tn)))));
-                                        continue;
-                                    }
                         }
-                        out2.push_back(StmtPtr(desugarStmt(stmt)));
+                        out2.push_back(it);
                     } else {
-                        out2.push_back(it);        // a plain decl (incl. `let x = await E`)
+                        out2.push_back(StmtPtr(desugarStmt(std::get<StmtPtr>(it))));
                     }
                 }
                 return out2;
             };
+        // `if (c) {} else break;` : leave the enclosing loop when `c` is false.
+        auto breakUnless = [&](ExprPtr c) -> StmtPtr {
+            return std::make_shared<IfStmt>(std::move(c), blockOf({}), blockOf({ StmtPtr(std::make_shared<BreakStmt>()) }));
+        };
         desugarStmt = [&](const StmtPtr& s) -> StmtPtr {
+            if (!s) return s;
+            std::vector<BlockItem> pre;
+            auto withPre = [&](StmtPtr st) -> StmtPtr {
+                if (pre.empty()) return st;
+                pre.push_back(st);
+                return blockOf(pre);
+            };
+            if (auto* es = dynamic_cast<ExprStmt*>(s.get())) {
+                if (!hasAwait(es->expr)) return s;
+                ExprPtr ex = es->expr;
+                if (auto* aw = dynamic_cast<AwaitExpr*>(ex.get())) {      // `await E;`: the value is discarded
+                    if (hasAwait(aw->operand)) hoist(aw->operand, pre);
+                    letTmp(pre, fresh("__aw_t"), awType(aw), ex);
+                    return blockOf(pre);
+                }
+                hoist(ex, pre);
+                if (!dynamic_cast<IdentExpr*>(ex.get())) pre.push_back(StmtPtr(std::make_shared<ExprStmt>(ex)));
+                return blockOf(pre);
+            }
+            if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) {
+                if (!rs->value || !hasAwait(rs->value)) return s;
+                ExprPtr v = rs->value;
+                hoist(v, pre);
+                return withPre(std::make_shared<ReturnStmt>(v));
+            }
+            if (auto* ts = dynamic_cast<ThrowStmt*>(s.get())) {
+                if (!hasAwait(ts->value)) return s;
+                ExprPtr v = ts->value;
+                hoist(v, pre);
+                auto nt = std::make_shared<ThrowStmt>(v);
+                nt->line = ts->line; nt->col = ts->col;
+                return withPre(nt);
+            }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get()))
-                return std::make_shared<BlockStmt>(desugarItems(b->items));
-            if (auto* i = dynamic_cast<IfStmt*>(s.get()))
-                return std::make_shared<IfStmt>(i->condition,
-                    i->thenBranch ? desugarStmt(i->thenBranch) : nullptr,
-                    i->elseBranch ? desugarStmt(i->elseBranch) : nullptr);
-            if (auto* w = dynamic_cast<WhileStmt*>(s.get()))
-                return std::make_shared<WhileStmt>(w->condition, desugarStmt(w->body));
-            if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get()))
-                return std::make_shared<DoWhileStmt>(desugarStmt(dw->body), dw->condition);
-            if (auto* f = dynamic_cast<ForStmt*>(s.get()))
-                return std::make_shared<ForStmt>(f->init, f->condition, f->step, desugarStmt(f->body));
+                return blockOf(desugarItems(b->items));
+            if (auto* i = dynamic_cast<IfStmt*>(s.get())) {
+                ExprPtr c = i->condition;
+                if (hasAwait(c)) hoist(c, pre);
+                return withPre(std::make_shared<IfStmt>(c, desugarStmt(i->thenBranch), desugarStmt(i->elseBranch)));
+            }
+            if (auto* w = dynamic_cast<WhileStmt*>(s.get())) {
+                if (!hasAwait(w->condition))
+                    return std::make_shared<WhileStmt>(w->condition, desugarStmt(w->body));
+                // while (C) B  ->  while (true) { <C's awaits>; if (C) {} else break; B }
+                ExprPtr c = w->condition;
+                std::vector<BlockItem> body;
+                hoist(c, body);
+                body.push_back(breakUnless(c));
+                body.push_back(desugarStmt(w->body));
+                return std::make_shared<WhileStmt>(boolLit(true), blockOf(body));
+            }
+            // A do/while or for whose condition or step awaits: a `while (true)` whose first
+            // pass skips the test (do/while) or the step (for), so `continue` still runs them.
+            if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get())) {
+                if (!hasAwait(dw->condition))
+                    return std::make_shared<DoWhileStmt>(desugarStmt(dw->body), dw->condition);
+                std::string first = fresh("__first");
+                ExprPtr c = dw->condition;
+                std::vector<BlockItem> test;
+                hoist(c, test);
+                test.push_back(breakUnless(c));
+                std::vector<BlockItem> body;
+                body.push_back(StmtPtr(std::make_shared<IfStmt>(ident(first),
+                    blockOf({ assign(ident(first), boolLit(false)) }), blockOf(test))));
+                body.push_back(desugarStmt(dw->body));
+                std::vector<BlockItem> outer;
+                letTmp(outer, first, "bool", boolLit(true));
+                outer.push_back(StmtPtr(std::make_shared<WhileStmt>(boolLit(true), blockOf(body))));
+                return blockOf(outer);
+            }
+            if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
+                StmtPtr init = f->init ? desugarStmt(f->init) : nullptr;
+                if (!hasAwait(f->condition) && !hasAwait(f->step))
+                    return std::make_shared<ForStmt>(init, f->condition, f->step, desugarStmt(f->body));
+                std::string first = fresh("__first");
+                std::vector<BlockItem> step;
+                if (f->step) {
+                    ExprPtr st = f->step;
+                    if (hasAwait(st)) hoist(st, step);
+                    if (!dynamic_cast<IdentExpr*>(st.get())) step.push_back(StmtPtr(std::make_shared<ExprStmt>(st)));
+                }
+                std::vector<BlockItem> body;
+                body.push_back(StmtPtr(std::make_shared<IfStmt>(ident(first),
+                    blockOf({ assign(ident(first), boolLit(false)) }), blockOf(step))));
+                if (f->condition) {
+                    ExprPtr c = f->condition;
+                    if (hasAwait(c)) hoist(c, body);
+                    body.push_back(breakUnless(c));
+                }
+                body.push_back(desugarStmt(f->body));
+                std::vector<BlockItem> outer;
+                if (init) outer.push_back(init);
+                letTmp(outer, first, "bool", boolLit(true));
+                outer.push_back(StmtPtr(std::make_shared<WhileStmt>(boolLit(true), blockOf(body))));
+                return blockOf(outer);
+            }
             if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) {
+                // The iterable is evaluated once, before the loop (an await in it is hoisted).
+                ExprPtr iterable = fi->iterable;
+                if (hasAwait(iterable)) hoist(iterable, pre);
                 // Desugar `for (x in it)` into a counted C-style for, mirroring codegen
                 // but using the type checker's stamp (this pass has no types). Then the
                 // ordinary for lowering handles the await + break/continue. The index
                 // and element vars are hoisted to frame fields like any other local.
                 if (fi->resolvedElemType.empty())
-                    return std::make_shared<ForInStmt>(fi->varName, fi->iterable, desugarStmt(fi->body));
+                    return withPre(std::make_shared<ForInStmt>(fi->varName, iterable, desugarStmt(fi->body)));
                 std::string idxName = astwalk::freshName("__forin_i_" + std::to_string(forinSeq++), used);
                 auto idx = [&]() { return ident(idxName); };
                 ExprPtr lengthExpr, elemExpr;
                 // The iterable is evaluated once (a call is held in a local).
                 std::vector<BlockItem> initItems;
-                ExprPtr iterable = fi->iterable;
                 if (!astwalk::isStablePlace(iterable.get()) && !fi->resolvedIterType.empty()) {
                     std::string itName = astwalk::freshName(idxName + "_v", used);
                     initItems.push_back(DeclPtr(std::make_shared<VarDecl>(itName, fi->resolvedIterType, iterable)));
@@ -565,23 +837,50 @@ void AsyncTransform::run(Program* program) {
                 std::vector<BlockItem> bodyItems;
                 bodyItems.push_back(DeclPtr(std::make_shared<VarDecl>(fi->varName, fi->resolvedElemType, elemExpr)));
                 bodyItems.push_back(StmtPtr(desugarStmt(fi->body)));
-                return std::make_shared<ForStmt>(init, cond, step,
-                    std::make_shared<BlockStmt>(bodyItems));
+                return withPre(std::make_shared<ForStmt>(init, cond, step,
+                    std::make_shared<BlockStmt>(bodyItems)));
             }
             if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
-                // Normalize awaits inside each case. Wrap the case body in a block so
-                // its statements run through desugarItems (which let-binds awaits and
-                // may introduce VarDecls); all locals are hoisted to frame fields
-                // anyway, so the extra block does not change fall-through visibility.
-                auto out = std::make_shared<SwitchStmt>(sw->subject, std::vector<SwitchStmt::Case>{});
+                // The subject is evaluated once, before the dispatch. Normalize awaits inside
+                // each case. Wrap the case body in a block so its statements run through
+                // desugarItems (which let-binds awaits and may introduce VarDecls); all
+                // locals are hoisted to frame fields anyway, so the extra block does not
+                // change fall-through visibility.
+                ExprPtr subj = sw->subject;
+                if (hasAwait(subj)) hoist(subj, pre);
+                auto out = std::make_shared<SwitchStmt>(subj, std::vector<SwitchStmt::Case>{});
                 for (auto& c : sw->cases) {
                     SwitchStmt::Case nc; nc.value = c.value;
                     nc.stmts.push_back(StmtPtr(std::make_shared<BlockStmt>(desugarItems(c.stmts))));
                     out->cases.push_back(nc);
                 }
-                return out;
+                return withPre(out);
             }
-            return s;
+            if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+                ExprPtr subj = m->subject;
+                if (hasAwait(subj)) hoist(subj, pre);
+                auto out = std::make_shared<MatchStmt>(subj, std::vector<MatchStmt::Arm>{});
+                out->enumName = m->enumName;
+                out->line = m->line; out->col = m->col;
+                for (auto& arm : m->arms) {
+                    MatchStmt::Arm na = arm;
+                    na.body = desugarStmt(arm.body);
+                    out->arms.push_back(na);
+                }
+                return withPre(out);
+            }
+            if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+                std::vector<TryStmt::CatchClause> cs;
+                for (auto& c : t->catches) {
+                    TryStmt::CatchClause nc = c;
+                    nc.body = desugarStmt(c.body);
+                    cs.push_back(nc);
+                }
+                auto nt = std::make_shared<TryStmt>(desugarStmt(t->body), cs, t->finally);
+                nt->line = t->line; nt->col = t->col;
+                return nt;
+            }
+            return s;   // a defer (an await there is an error below), break/continue, asm, ...
         };
         std::vector<BlockItem> items = desugarItems(block->items);
 
@@ -636,22 +935,24 @@ void AsyncTransform::run(Program* program) {
             }
         };
         scanB(items);
-        if (awaits.empty()) {
-            // Every await is in a place the lowering can't split (`r += await f()`).
-            std::vector<AwaitExpr*> aws;
-            collectAwaits(fn->body.get(), aws);
-            if (!aws.empty())
-                throw std::runtime_error(fn->sourceFile + ":" + std::to_string(aws.front()->line) + ":" +
-                    std::to_string(aws.front()->col) + ": async function '" + name + "': 'await' is "
-                    "only supported as the whole initializer of a 'let', a 'return', or an assignment "
-                    "(not in a condition or a larger expression)");
+        {
+            // Every await is now the initializer of a let, except where it can't be placed.
+            auto body = blockOf(items);
+            std::vector<AwaitExpr*> inDefer, all;
+            collectAwaits(body.get(), inDefer, /*deferOnly=*/true);
+            if (!inDefer.empty())
+                throw locError(inDefer.front(), "'await' is not supported inside a defer");
+            collectAwaits(body.get(), all);
+            for (auto* aw : all)
+                if (!awIdx.count(aw))
+                    throw locError(aw, "'await' is not supported here (a 'sizeof' operand, an 'asm' "
+                        "input or a 'thread_join'); bind the value to a local first");
         }
         if (awaits.empty())
             throw std::runtime_error("async function '" + name + "': expected at least one `await`");
 
         // ── State graph ──────────────────────────────────────────────────────
         std::vector<std::vector<BlockItem>> states;
-        auto newState = [&]() -> int { states.push_back({}); return (int)states.size() - 1; };
         auto goTo = [&](int s, int target) { states[s].push_back(assign(fr(frn.st), intlit(target))); };
 
         // break/continue inside an await-split loop can't stay literal — they would
@@ -664,9 +965,36 @@ void AsyncTransform::run(Program* program) {
         // (innermost last), and emitted LIFO at each exit: the block's fall-through end,
         // a `return` (every frame), and a `break`/`continue` (the frames above the
         // target's depth, kept parallel to brkTargets/contTargets). errdefer only runs on
-        // a `?` error exit, which async lowering does not produce, so it is dropped.
+        // a `?` error exit, which async lowering does not produce, so it is dropped. A
+        // split `try`'s `finally` is a frame of its own (below its body's frames).
         std::vector<std::vector<StmtPtr>> deferFrames;
         std::vector<size_t> brkDeferDepth, contDeferDepth;
+
+        // A `try` split into states: the states of its body form one region, those of its
+        // handlers another. Each state of a region is wrapped, at the end, in
+        //   try { <state> } catch (T x) { <pending defers>; fr.e = x; fr.st = <handler>; }
+        //   <finally, on unwinding only> { <pending defers>; <the try's finally> }
+        // (innermost region first), so an exception thrown before or after a suspension
+        // reaches the right handler. `startDepth` is the defer depth of the try (its
+        // `finally` frame sits there), `base` the depth where the region's frames begin.
+        struct CatchInfo { std::string type, var; int state; };
+        struct Region { int parent; size_t startDepth, base; std::vector<CatchInfo> catches; StmtPtr fin; };
+        std::vector<Region> regions;
+        int curRegion = -1;
+        std::vector<int> stateRegion;
+        std::vector<std::vector<std::vector<StmtPtr>>> stateFrames;   // defer frames pending in each state
+        auto newStateIn = [&](int region, size_t depth) -> int {
+            states.push_back({});
+            stateRegion.push_back(region);
+            stateFrames.emplace_back(deferFrames.begin(),
+                deferFrames.begin() + (long)std::min(depth, deferFrames.size()));
+            return (int)states.size() - 1;
+        };
+        auto newState = [&]() -> int { return newStateIn(curRegion, deferFrames.size()); };
+        // Each await a future can be dropped at, with the defers and finally blocks pending
+        // there (innermost first): a cancelled future runs them once, in its on_drop.
+        std::vector<std::pair<int, std::vector<StmtPtr>>> dropSites;
+
         auto enterLoop = [&](int brk, int cont) {
             brkTargets.push_back(brk); contTargets.push_back(cont);
             brkDeferDepth.push_back(deferFrames.size()); contDeferDepth.push_back(deferFrames.size());
@@ -680,23 +1008,38 @@ void AsyncTransform::run(Program* program) {
                 for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
                     st.push_back(*it);
         };
-        // Does `s` contain a `break`/`continue` that binds to an *enclosing* loop —
-        // i.e. one not shadowed by a nested loop/switch? Such a statement can't be
-        // emitted verbatim by rewritePlain inside a split loop; it must be lowered
-        // structurally so the break/continue reach the transitions above. (Descends
-        // if/block; stops at nested while/for/for-in/switch, which capture their own.)
-        std::function<bool(const StmtPtr&)> loopEscapes = [&](const StmtPtr& s) -> bool {
+        // Does `s` contain a `break`/`continue` that binds to an *enclosing* loop, i.e.
+        // one not shadowed by a nested loop/switch? Such a statement can't be emitted
+        // verbatim by rewritePlain inside a split loop; it must be lowered structurally so
+        // the break/continue reach the transitions above. (A switch captures only `break`.)
+        std::function<bool(const StmtPtr&, bool)> escapesIn = [&](const StmtPtr& s, bool contOnly) -> bool {
             if (!s) return false;
-            if (dynamic_cast<BreakStmt*>(s.get()) || dynamic_cast<ContinueStmt*>(s.get())) return true;
-            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) {
-                for (auto& it : b->items)
-                    if (std::holds_alternative<StmtPtr>(it) && loopEscapes(std::get<StmtPtr>(it))) return true;
+            if (dynamic_cast<ContinueStmt*>(s.get())) return true;
+            if (dynamic_cast<BreakStmt*>(s.get())) return !contOnly;
+            auto items = [&](const std::vector<BlockItem>& its, bool co) {
+                for (auto& it : its)
+                    if (std::holds_alternative<StmtPtr>(it) && escapesIn(std::get<StmtPtr>(it), co)) return true;
+                return false;
+            };
+            if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return items(b->items, contOnly);
+            if (auto* i = dynamic_cast<IfStmt*>(s.get()))
+                return escapesIn(i->thenBranch, contOnly) || escapesIn(i->elseBranch, contOnly);
+            if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) {
+                for (auto& c : sw->cases) if (items(c.stmts, true)) return true;
                 return false;
             }
-            if (auto* i = dynamic_cast<IfStmt*>(s.get()))
-                return loopEscapes(i->thenBranch) || loopEscapes(i->elseBranch);
+            if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+                for (auto& a : m->arms) if (escapesIn(a.body, contOnly)) return true;
+                return false;
+            }
+            if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+                if (escapesIn(t->body, contOnly) || escapesIn(t->finally, contOnly)) return true;
+                for (auto& c : t->catches) if (escapesIn(c.body, contOnly)) return true;
+                return false;
+            }
             return false;
         };
+        auto loopEscapes = [&](const StmtPtr& s) { return escapesIn(s, false); };
 
         // Does `s` definitely transfer control away (so nothing after it in the
         // same state is reachable)? A `return`/`throw`, a block that reaches one,
@@ -717,11 +1060,8 @@ void AsyncTransform::run(Program* program) {
             return false;
         };
 
-        // Complete the future with `v` (already rewritten), then return. Pending defers
-        // run after the value is computed, before the completion is published.
-        auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
-            st.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "value"), v));
-            emitDefers(st, 0);
+        // Publish the completion (the value is already in fr.ret.value), then return.
+        auto publish = [&](std::vector<BlockItem>& st) {
             ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
                 std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
                     std::make_shared<MemberExpr>(fr(frn.ret), "state")), intlit(2) });
@@ -731,6 +1071,35 @@ void AsyncTransform::run(Program* program) {
             st.push_back(std::make_shared<IfStmt>(binop(swap, "==", intlit(1)),
                 std::make_shared<BlockStmt>(wk)));
             st.push_back(ret(nullptr));
+        };
+        // Complete the future with `v` (already rewritten), then return. Pending defers
+        // run after the value is computed, before the completion is published.
+        auto completeInto = [&](std::vector<BlockItem>& st, ExprPtr v) {
+            st.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "value"), v));
+            emitDefers(st, 0);
+            publish(st);
+        };
+        // Leave state `st` for the enclosing depth `downTo`: run the pending defer frames
+        // above it, innermost first (a split try's `finally` is one), each in a state of
+        // the region it belongs to, so an exception a `finally` throws is not caught by
+        // its own try's handlers; then jump to `target`, or (`complete`) publish the
+        // completion outside every region.
+        auto emitExit = [&](int st, size_t downTo, int target, bool complete) {
+            int reg = stateRegion[st];
+            auto leave = [&](size_t depth) {
+                int p = regions[reg].parent;
+                int s2 = newStateIn(p, depth);
+                goTo(st, s2);
+                st = s2; reg = p;
+            };
+            for (size_t f = deferFrames.size(); f-- > downTo;) {
+                while (reg != -1 && f < regions[reg].base) leave(f);
+                for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
+                    states[st].push_back(*it);
+            }
+            if (!complete) { goTo(st, target); return; }
+            while (reg != -1) leave(downTo);
+            publish(states[st]);
         };
 
         // `let x = E` of a hoisted local: `fr.x = E`. An array literal `{...}` is only a
@@ -853,6 +1222,12 @@ void AsyncTransform::run(Program* program) {
                     states[cur].push_back(std::make_shared<IfStmt>(binop(poll, "==", intlit(0)),
                         std::make_shared<BlockStmt>(pk)));
                     goTo(cur, next);
+                    // Dropped while parked here: the pending defers and finally blocks run.
+                    std::vector<StmtPtr> pending;
+                    for (size_t f = deferFrames.size(); f-- > 0;)
+                        for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
+                            pending.push_back(*it);
+                    if (!pending.empty()) dropSites.push_back({cur, pending});
                     // extract into `next`
                     states[next].push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
                     states[next].push_back(assign(fr(vd->name), std::make_shared<MemberExpr>(fr(awf), "value")));
@@ -880,16 +1255,22 @@ void AsyncTransform::run(Program* program) {
                 if (cur == -1) break;            // rest is unreachable
                 if (std::holds_alternative<StmtPtr>(it))
                     if (auto* ds = dynamic_cast<DeferStmt*>(std::get<StmtPtr>(it).get())) {
-                        if (stmtHasAwait(ds->body))
-                            throw std::runtime_error("async function '" + name + "': await is not "
-                                "supported inside a defer");
-                        if (!ds->isErr) deferFrames.back().push_back(rewritePlain(ds->body));
+                        if (!ds->isErr) {
+                            deferFrames.back().push_back(rewritePlain(ds->body));
+                            // In a split try a state's pending defers are fixed: begin a new one.
+                            if (stateRegion[cur] != -1) { int n = newStateIn(stateRegion[cur], deferFrames.size()); goTo(cur, n); cur = n; }
+                        }
                         continue;
                     }
                 BlockItem copy = it; cur = lowerItem(copy, cur);
             }
+            bool hadDefers = !deferFrames.back().empty();
             if (cur != -1) emitDefers(states[cur], deferFrames.size() - 1);   // fall-through exit
             deferFrames.pop_back();
+            if (cur != -1 && hadDefers && stateRegion[cur] != -1) {
+                int n = newStateIn(stateRegion[cur], deferFrames.size());
+                goTo(cur, n); cur = n;
+            }
             return cur;
         };
         lowerStmt = [&](const StmtPtr& s, int cur) -> int {
@@ -899,25 +1280,27 @@ void AsyncTransform::run(Program* program) {
                     throw std::runtime_error("async function '" + name + "': `return await ...` "
                         "must be bound first (`let r = await ...; return r;`)");
                 ExprPtr v = rs->value ? rs->value : intlit(0); rewrite(v, vars);
-                completeInto(states[cur], v);
+                states[cur].push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "value"), v));
+                emitExit(cur, 0, 0, true);
                 return -1;
             }
             // break/continue bind to the enclosing split loop -> state transition.
             if (dynamic_cast<BreakStmt*>(s.get())) {
                 if (brkTargets.empty())
                     throw std::runtime_error("async function '" + name + "': `break` outside a loop");
-                emitDefers(states[cur], brkDeferDepth.back());
-                goTo(cur, brkTargets.back()); return -1;
+                emitExit(cur, brkDeferDepth.back(), brkTargets.back(), false);
+                return -1;
             }
             if (dynamic_cast<ContinueStmt*>(s.get())) {
                 if (contTargets.empty())
                     throw std::runtime_error("async function '" + name + "': `continue` outside a loop");
-                emitDefers(states[cur], contDeferDepth.back());
-                goTo(cur, contTargets.back()); return -1;
+                emitExit(cur, contDeferDepth.back(), contTargets.back(), false);
+                return -1;
             }
             // Emit verbatim only if there's no await AND no break/continue that would
-            // escape into the resume loop; otherwise fall through to structural lowering.
-            if (!stmtHasAwait(s) && !loopEscapes(s)) {
+            // escape into the resume loop, and (in a split try) no `return`, whose exit
+            // must leave the try's region; otherwise fall through to structural lowering.
+            if (!stmtHasAwait(s) && !loopEscapes(s) && !(stateRegion[cur] != -1 && stmtHasReturn(s))) {
                 states[cur].push_back(rewritePlain(s));
                 return stmtTerminates(s) ? -1 : cur;   // -1: control left this state
             }
@@ -967,7 +1350,14 @@ void AsyncTransform::run(Program* program) {
             if (auto* f = dynamic_cast<ForStmt*>(s.get())) {
                 // for (init; cond; step) body  — init/step run as plain code; the
                 // loop is header(cond) -> body -> step -> back-edge -> header.
-                if (f->init) states[cur].push_back(rewritePlain(f->init));
+                if (f->init) {
+                    if (stmtHasAwait(f->init)) {            // a range bound that awaits
+                        cur = lowerStmt(f->init, cur);
+                        if (cur == -1) return -1;
+                    } else {
+                        states[cur].push_back(rewritePlain(f->init));
+                    }
+                }
                 // header(cond) -> body -> step -> back-edge -> header. The step gets
                 // its own state so `continue` runs it before re-testing (C semantics).
                 int header = newState(), bodyE = newState(), step = newState(), after = newState();
@@ -1019,9 +1409,88 @@ void AsyncTransform::run(Program* program) {
                 brkTargets.pop_back(); brkDeferDepth.pop_back();
                 return join;
             }
+            if (auto* m = dynamic_cast<MatchStmt*>(s.get())) {
+                // Dispatch on the subject in `cur`: each arm copies its payload bindings to
+                // frame fields and selects the arm's entry state; the arms join after.
+                rewrite(m->subject, vars);
+                int n = (int)m->arms.size();
+                std::vector<int> entry(n);
+                for (int k = 0; k < n; ++k) entry[k] = newState();
+                int join = newState();
+                auto disp = std::make_shared<MatchStmt>(m->subject, std::vector<MatchStmt::Arm>{});
+                disp->enumName = m->enumName;
+                disp->line = m->line; disp->col = m->col;
+                for (int k = 0; k < n; ++k) {
+                    const auto& arm = m->arms[k];
+                    if (arm.bindingTypes.size() != arm.bindings.size()) {
+                        std::vector<AwaitExpr*> aws;
+                        collectAwaits(s.get(), aws);
+                        throw locError(aws.empty() ? (ASTNode*)m : (ASTNode*)aws.front(), "'await' in a 'match' "
+                            "arm that binds a payload is not supported in a generic async function");
+                    }
+                    MatchStmt::Arm na;
+                    na.variant = arm.variant;
+                    na.bindingTypes = arm.bindingTypes;
+                    std::vector<BlockItem> bi;
+                    for (size_t b = 0; b < arm.bindings.size(); ++b) {
+                        const std::string& bn = arm.bindings[b];
+                        if (bn == "_") { na.bindings.push_back(bn); continue; }
+                        if (!vars.count(bn)) { vars.insert(bn); fields.push_back({arm.bindingTypes[b], bn}); }
+                        std::string tn = astwalk::freshName("__mb", used);
+                        na.bindings.push_back(tn);
+                        bi.push_back(assign(fr(bn), ident(tn)));
+                    }
+                    bi.push_back(assign(fr(frn.st), intlit(entry[k])));
+                    na.body = std::make_shared<BlockStmt>(bi);
+                    disp->arms.push_back(na);
+                }
+                goTo(cur, join);                     // a value no arm names (a classic enum)
+                states[cur].push_back(disp);
+                for (int k = 0; k < n; ++k) {
+                    int e = m->arms[k].body ? lowerStmt(m->arms[k].body, entry[k]) : entry[k];
+                    if (e != -1) goTo(e, join);
+                }
+                return join;
+            }
+            if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+                // The body's states form one region and the handlers' another (see Region);
+                // the `finally` is a defer frame run on every exit, outside both regions.
+                if (t->finally && (stmtHasAwait(t->finally) || loopEscapes(t->finally) || stmtHasReturn(t->finally)))
+                    throw locError(t, "a 'finally' that awaits or leaves by 'break'/'continue' is not "
+                        "supported in an async function");
+                StmtPtr fin = t->finally ? rewritePlain(t->finally) : nullptr;
+                int after = newState();
+                size_t startDepth = deferFrames.size();
+                if (fin) deferFrames.push_back({fin});
+                int parent = curRegion;
+                int rb = (int)regions.size();
+                regions.push_back({parent, startDepth, deferFrames.size(), {}, fin});
+                int rh = (int)regions.size();
+                regions.push_back({parent, startDepth, deferFrames.size(), {}, fin});
+                curRegion = rh;
+                std::vector<int> centry;
+                for (auto& c : t->catches) {
+                    if (!c.name.empty() && !vars.count(c.name)) { vars.insert(c.name); fields.push_back({c.type, c.name}); }
+                    centry.push_back(newState());
+                    regions[rb].catches.push_back({c.type, c.name, centry.back()});
+                }
+                curRegion = rb;
+                int bodyE = newState();
+                goTo(cur, bodyE);
+                bool reach = false;
+                int be = t->body ? lowerStmt(t->body, bodyE) : bodyE;
+                if (be != -1) { emitExit(be, startDepth, after, false); reach = true; }
+                curRegion = rh;
+                for (size_t k = 0; k < t->catches.size(); ++k) {
+                    int ce = t->catches[k].body ? lowerStmt(t->catches[k].body, centry[k]) : centry[k];
+                    if (ce != -1) { emitExit(ce, startDepth, after, false); reach = true; }
+                }
+                curRegion = parent;
+                if (fin) deferFrames.pop_back();
+                return reach ? after : -1;
+            }
             if (auto* b = dynamic_cast<BlockStmt*>(s.get())) return lowerSeq(b->items, cur);
-            throw std::runtime_error("async function '" + name + "': await is not supported "
-                "inside this statement (supported: if/else, while, do/while, for, for-in, switch)");
+            throw locError(s.get(), "'await' is not supported inside this statement");
         };
 
         int entry = newState();                 // state 0
@@ -1031,6 +1500,51 @@ void AsyncTransform::run(Program* program) {
         if (exit != -1) {
             if (isVoid) completeInto(states[exit], intlit(0));
             else        states[exit].push_back(ret(nullptr));
+        }
+
+        // ── Cancellation: dropped while parked at an await, the future runs the defers
+        //    and finally blocks pending there once, in a state of their own (the on_drop
+        //    closure resumes into it), before the frame is freed.
+        std::vector<std::pair<int, int>> dropStates;   // parked state -> its cleanup state
+        for (auto& ds : dropSites) {
+            int d = newStateIn(-1, 0);
+            for (auto& p : ds.second) states[d].push_back(p);
+            states[d].push_back(ret(nullptr));
+            dropStates.push_back({ds.first, d});
+        }
+
+        // ── Each state of a split try runs inside its regions' handlers (see Region),
+        //    innermost first. A handler first runs the defers pending in that state inside
+        //    the region, as an exception leaving a block does.
+        const std::string cxName = astwalk::freshName("__cx", used);
+        for (size_t si = 0; si < states.size(); ++si) {
+            int r = stateRegion[si];
+            if (r == -1) continue;
+            const auto& frames = stateFrames[si];
+            size_t top = frames.size();
+            StmtPtr x = std::make_shared<BlockStmt>(states[si]);
+            for (; r != -1; r = regions[r].parent) {
+                const Region& rg = regions[r];
+                std::vector<BlockItem> pend;
+                for (size_t f = top; f-- > rg.base;)
+                    for (auto it = frames[f].rbegin(); it != frames[f].rend(); ++it) pend.push_back(*it);
+                std::vector<TryStmt::CatchClause> cs;
+                for (auto& c : rg.catches) {
+                    std::vector<BlockItem> hb = pend;
+                    if (!c.var.empty()) hb.push_back(assign(fr(c.var), ident(cxName)));
+                    hb.push_back(assign(fr(frn.st), intlit(c.state)));
+                    cs.push_back({c.type, cxName, std::make_shared<BlockStmt>(hb)});
+                }
+                std::vector<BlockItem> ub = pend;
+                if (rg.fin) ub.push_back(rg.fin);
+                if (!cs.empty() || !ub.empty()) {
+                    auto t = std::make_shared<TryStmt>(x, cs, ub.empty() ? nullptr : StmtPtr(std::make_shared<BlockStmt>(ub)));
+                    t->unwindOnly = true;
+                    x = t;
+                }
+                top = rg.startDepth;
+            }
+            states[si] = { x };
         }
 
         // ── Lambdas capturing a frame-hoisted local. The resume function has no local of
@@ -1084,6 +1598,10 @@ void AsyncTransform::run(Program* program) {
                 for (auto& arm : m->arms) arm.body = wrapCaps(arm.body);
             } else if (auto* ds = dynamic_cast<DeferStmt*>(s.get())) {
                 ds->body = wrapCaps(ds->body);
+            } else if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+                t->body = wrapCaps(t->body);
+                for (auto& c : t->catches) c.body = wrapCaps(c.body);
+                t->finally = wrapCaps(t->finally);
             } else if (auto* rs = dynamic_cast<ReturnStmt*>(s.get())) {
                 lambdaCaps(rs->value, caps);
             } else if (auto* es = dynamic_cast<ExprStmt*>(s.get())) {
@@ -1142,6 +1660,16 @@ void AsyncTransform::run(Program* program) {
             dropBody.push_back(std::make_shared<IfStmt>(
                 binop(fr(frn.awaiting), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
                 std::make_shared<BlockStmt>(cascade)));
+            // Then the cleanups pending at the await it is parked at run once.
+            StmtPtr cleanup = nullptr;
+            for (auto it = dropStates.rbegin(); it != dropStates.rend(); ++it) {
+                std::vector<BlockItem> go;
+                go.push_back(assign(fr(frn.st), intlit(it->second)));
+                go.push_back(exprStmt(resumeCall(resumeN, tps)));
+                cleanup = std::make_shared<IfStmt>(binop(fr(frn.st), "==", intlit(it->first)),
+                    std::make_shared<BlockStmt>(go), cleanup);
+            }
+            if (cleanup) dropBody.push_back(cleanup);
             // NOTE: do not free the frame here — future_drop frees it (== free &ret)
             // after this on_drop returns, and frees this closure's env too.
             auto dropLam = std::make_shared<LambdaExpr>(

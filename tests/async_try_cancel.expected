@@ -1,0 +1,17 @@
+slow 1: inner finally
+slow 1: outer finally
+slow 1: defer
+race lost: 100
+cleanups=3
+slow 1: woke
+slow 1: inner finally
+slow 1: outer finally
+slow 1: defer
+race won: 1
+cleanups=3
+in_handler: finally
+dropped in handler: cleanups=1
+slow 2: inner finally
+slow 2: outer finally
+slow 2: defer
+dropped: cleanups=3

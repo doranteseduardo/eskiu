@@ -27,7 +27,7 @@ fi
 # Grows per slice; the rest are reported as skipped.
 HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_await switch_dup_case switch_dup_folded switch_dup_const unknown_intrinsic undefined_field match_duplicate match_nonexhaustive
          dup_enum_member_located bitfield_located alias_unknown_type missing_return_located uninit_located undefined_fn_located struct_redef_located int64_literal_range enum_value_overflow enum_value_too_big switch_case_range switch_case_range_int shift_count_range shift_count_negative index_oob_expr index_oob_enum index_oob_const struct_init_mixed array_size_negative array_size_zero compare_slice compare_array compare_iface compare_closure not_slice logical_struct slice_len_assign method_value_self method_wrong_self iface_ptr_to_ptr iface_from_nullable method_on_nullable iface_const_receiver nullable_cond_assign nullable_ptr_arith const_param_assign const_array_slice dangling_element dangling_field dangling_slice generic_redefinition generic_nongeneric_clash generic_proto_clash struct_value_cycle_array call_shadowed_fn method_ptr_ptr operator_on_primitives operator_on_pointers dup_type_param dup_iface_method extern_conflict match_dup_binding variant_struct_clash must_use_ternary must_use_for_step must_use_operator must_use_void main_bad_params lambda_missing_return async_main
-         async_await_in_try void_logical_operand void_compare void_variadic_arg
+         await_in_finally void_logical_operand void_compare void_variadic_arg
          const_reassign const_no_init const_field const_ptr_write const_ptr_drop
          trait_unsatisfied trait_primitive_unsat question_bad_return escaping_param
          missing_return missing_return_if
@@ -92,7 +92,7 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          ternary_unrelated_ptrs iface_ternary_nonconforming
          va_arg_float va_arg_narrow_int
          array_dim_cast_zero
-         nullable_global_alloc_with nullable_global_thread_join nullable_global_thread_create nullable_guard_else_assign nullable_guard_then_assign array_dim_sizeof_zero await_in_switch_subject await_in_range_bound await_in_forin_iterable not_void_call throw_void deref_void_ptr cast_void_call cast_int_to_struct_generic cast_array_literal generic_void_param closure_captured_address closure_captured_slice finally_return match_alias_nonexhaustive finally_question
+         nullable_global_alloc_with nullable_global_thread_join nullable_global_thread_create nullable_guard_else_assign nullable_guard_then_assign array_dim_sizeof_zero not_void_call throw_void deref_void_ptr cast_void_call cast_int_to_struct_generic cast_array_literal generic_void_param closure_captured_address closure_captured_slice finally_return match_alias_nonexhaustive finally_question
          generic_deduce_conflict generic_ptr_arg_mismatch generic_struct_param_arg slice_temporary_array addr_of_rvalue_member assign_rvalue_element operator_ptr_arg_mismatch
          const_div_zero_name const_rem_zero_sizeof const_div_float_cast const_shift_sizeof const_shift_float_cast const_div_overflow const_rem_overflow_int64 float_cast_const_name_range float_cast_unsigned_negative index_oob_sizeof dangling_cast dangling_ternary struct_cycle_generic_alias assign_array_literal cast_fn_name_to_int escape_unknown escape_octal_range escape_hex_empty
          case_decl_redefined case_decl_out_of_scope

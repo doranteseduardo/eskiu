@@ -281,18 +281,19 @@ else
     bad "codegen/net-timeval-width" "timeval layout or optlen wrong for armv7 or x86-64"
 fi
 
-# An await inside a larger expression is an error located at the await.
-aw_out="$("$ESKIUC" "$here/run_cmd/await_in_expr.esk" -o "$work/await_in_expr" 2>&1)"
-if [[ "$aw_out" == *"await_in_expr.esk:7:10: async function 'worker': 'await' is only supported"* ]]; then
-    ok "cli/await-in-expr-located"
+# An await the async lowering cannot place is an error located at the await (a defer
+# body, or a payload-binding match arm in a generic async function).
+aw_out="$("$ESKIUC" "$here/run_cmd/await_in_defer.esk" -o "$work/await_in_defer" 2>&1)"
+if [[ "$aw_out" == *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"* ]]; then
+    ok "cli/await-in-defer-located"
 else
-    bad "cli/await-in-expr-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
+    bad "cli/await-in-defer-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
-aw_out="$("$ESKIUC" "$here/run_cmd/await_in_match.esk" -o "$work/await_in_match" 2>&1)"
-if [[ "$aw_out" == *"await_in_match.esk:8:29: async function 'w': 'await' is not supported inside a 'match'"* ]]; then
-    ok "cli/await-in-match-located"
+aw_out="$("$ESKIUC" "$here/run_cmd/await_in_generic_match.esk" -o "$work/await_in_generic_match" 2>&1)"
+if [[ "$aw_out" == *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"* ]]; then
+    ok "cli/await-in-generic-match-located"
 else
-    bad "cli/await-in-match-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
+    bad "cli/await-in-generic-match-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
 
 # A successful compile prints nothing to stdout (no output-file echo).

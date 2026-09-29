@@ -1,0 +1,43 @@
+await 4
+match circle: 12
+await 5
+match rect: 7
+match empty: -1
+await 2
+switch: 20
+for-in: 30
+await 4
+range: 6
+idx 2
+await 5
+compound: 8 4 calls=1
+log 1
+await 2
+log 3
+expr: 7
+log 4
+await 5
+log 6
+call: 456
+log 0
+log 1
+log 1
+await 9
+and/or: 0 1 1
+await 11
+ternary: 11
+await 0
+await 1
+await 2
+while: 2
+await 1
+await 2
+do: 2
+await 2
+await 1
+await 2
+await 1
+await 2
+for: 20
+await 1
+positions: 21

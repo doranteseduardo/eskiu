@@ -1,0 +1,12 @@
+// An await in a `match` arm that binds a payload, in a generic async function (whose
+// binding types differ per instance), is an error located at the await (tests/run.sh,
+// tests/selfhost/cg_parity.sh): line 9, column 29.
+import <future>;
+enum E { A(int), B }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+async T w<T>(E e, T d) {
+    T r = d;
+    match e { A(n) -> { r = await rdy<T>(d); } B -> { r = d; } }
+    return r;
+}
+int main() { Future<int>* f = w<int>(A(4), 3); return f.value; }

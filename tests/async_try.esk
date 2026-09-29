@@ -1,0 +1,149 @@
+// `await` inside `try` / `catch` in an async function: an exception thrown before or
+// after a suspension reaches the handler of the try it is thrown in, a handler may
+// await, `finally` runs exactly once on every exit (fall-through, caught and uncaught
+// exceptions, early `return`, `break`/`continue`), and a nested try hands an exception
+// no inner catch matches to the outer handler after the inner finally.
+import <future>;
+import <timer>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+EventLoop* g;
+
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+int boom(int v) { if (v < 0) { throw v; } return v; }
+Future<int>* boom_f(int v) { if (v < 0) { throw v; } return rdy<int>(v); }
+
+// Thrown after a real suspension (the timer parks the frame; the loop resumes it).
+async int after_await(int v) {
+    int r = 0;
+    try {
+        int t = await timer_after(g, 2);
+        r = boom(v) + t;
+        printf("after_await(%d): no throw\n", v);
+    } catch (int e) {
+        printf("after_await(%d): caught %d\n", v, e);
+        r = e * 10;
+    } finally {
+        printf("after_await(%d): finally\n", v);
+    }
+    return r;
+}
+
+// Thrown by the call that produces the awaited future, before any suspension.
+async int before_await(int v) {
+    try {
+        int x = await boom_f(v);
+        return x;
+    } catch (int e) {
+        printf("before_await(%d): caught %d\n", v, e);
+    }
+    return -1;
+}
+
+// An await inside a handler; the handler throws after it; nested finally blocks.
+async int nested(int v) {
+    try {
+        try {
+            int a = await timer_after(g, 1);
+            boom(v - a);
+            printf("nested(%d): no throw\n", v);
+        } catch (int e) {
+            printf("nested(%d): inner caught %d\n", v, e);
+            int b = await timer_after(g, 1);
+            boom(e - 1 + b);
+        } finally {
+            printf("nested(%d): inner finally\n", v);
+        }
+    } catch (int e2) {
+        printf("nested(%d): outer caught %d\n", v, e2);
+        return e2;
+    } finally {
+        printf("nested(%d): outer finally\n", v);
+    }
+    return 0;
+}
+
+// An early return after an await: finally runs once, before the completion.
+async int early(int v) {
+    try {
+        int x = await timer_after(g, 1);
+        if (v > 0) { return v + x; }
+        printf("early(%d): fell through\n", v);
+    } finally {
+        printf("early(%d): finally\n", v);
+    }
+    return 0;
+}
+
+// No catch of the inner try matches: its finally runs, then the outer handler.
+async int unmatched() {
+    int r = 0;
+    try {
+        try {
+            int x = await timer_after(g, 1);
+            if (x == 0) { throw "bad"; }
+        } catch (int e) {
+            printf("unmatched: wrong handler %d\n", e);
+        } finally {
+            printf("unmatched: inner finally\n");
+        }
+    } catch (string s) {
+        printf("unmatched: outer caught %s\n", s);
+        r = 7;
+    }
+    return r;
+}
+
+// continue / break through a try whose body awaits: finally once per pass.
+async int loop_try() {
+    int sum = 0;
+    for (int i = 0; i < 5; i = i + 1) {
+        try {
+            int x = await rdy<int>(i);
+            if (x == 1) { continue; }
+            if (x == 3) { break; }
+            sum = sum + x;
+        } finally {
+            printf("loop_try: finally %d\n", i);
+        }
+    }
+    return sum;
+}
+
+// A defer in the try body runs before the handler, as in synchronous code.
+async int defer_in_try() {
+    int r = 0;
+    try {
+        defer printf("defer_in_try: defer\n");
+        int x = await timer_after(g, 1);
+        boom(x - 5);
+    } catch (int e) {
+        printf("defer_in_try: caught %d\n", e);
+        r = e;
+    }
+    return r;
+}
+
+int run(Future<int>* f) {
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    int v = f.value;
+    free_future_polled<int>(f);
+    return v;
+}
+
+int main() {
+    g = el_new(64);
+    printf("= %d\n", run(after_await(4)));
+    printf("= %d\n", run(after_await(-3)));
+    printf("= %d\n", run(before_await(5)));
+    printf("= %d\n", run(before_await(-2)));
+    printf("= %d\n", run(nested(3)));
+    printf("= %d\n", run(nested(-1)));
+    printf("= %d\n", run(early(6)));
+    printf("= %d\n", run(early(0)));
+    printf("= %d\n", run(unmatched()));
+    printf("= %d\n", run(loop_try()));
+    printf("= %d\n", run(defer_in_try()));
+    EventLoop_free(g);
+    return 0;
+}

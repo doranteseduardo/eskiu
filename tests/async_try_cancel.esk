@@ -1,0 +1,79 @@
+// A future dropped while suspended runs the `finally` blocks and defers pending at
+// its await exactly once (innermost first), then its frame is freed: here `select2`
+// drops the slow worker when the short timer wins, and `future_drop` cancels one by
+// hand. A worker that finishes normally runs its finally once, on the normal path.
+import <future>;
+import <timer>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+EventLoop* g;
+int cleanups = 0;
+
+async int slow(int id, int64 ms) {
+    defer { printf("slow %d: defer\n", id); cleanups = cleanups + 1; }
+    try {
+        try {
+            int x = await timer_after(g, ms);
+            printf("slow %d: woke\n", id);
+            return x + id;
+        } finally {
+            printf("slow %d: inner finally\n", id);
+            cleanups = cleanups + 1;
+        }
+    } catch (int e) {
+        printf("slow %d: caught %d\n", id, e);
+    } finally {
+        printf("slow %d: outer finally\n", id);
+        cleanups = cleanups + 1;
+    }
+    return -1;
+}
+
+// Suspended in a catch handler when dropped: the try's finally still runs.
+async int in_handler(int64 ms) {
+    try {
+        throw 3;
+    } catch (int e) {
+        int x = await timer_after(g, ms);
+        printf("in_handler: woke %d\n", x + e);
+    } finally {
+        printf("in_handler: finally\n");
+        cleanups = cleanups + 1;
+    }
+    return 0;
+}
+
+async int race(int64 slow_ms, int64 quick_ms) {
+    Future<int>* a = slow(1, slow_ms);
+    Future<int>* b = timer_after(g, quick_ms);
+    int w = await select2(a, b);            // the loser is dropped by select2
+    if (w == 0) { int v = a.value; free_future<int>(a); return v; }
+    free_future<int>(b);
+    return 100;
+}
+
+int run(Future<int>* f) {
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    int v = f.value;
+    free_future_polled<int>(f);
+    return v;
+}
+
+int main() {
+    g = el_new(64);
+    printf("race lost: %d\n", run(race((int64)200, (int64)5)));
+    printf("cleanups=%d\n", cleanups);
+    cleanups = 0;
+    printf("race won: %d\n", run(race((int64)1, (int64)200)));
+    printf("cleanups=%d\n", cleanups);
+    cleanups = 0;
+    Future<int>* h = in_handler((int64)200);
+    future_drop((FutureHdr*)h);
+    printf("dropped in handler: cleanups=%d\n", cleanups);
+    cleanups = 0;
+    Future<int>* s = slow(2, (int64)200);
+    future_drop((FutureHdr*)s);
+    printf("dropped: cleanups=%d\n", cleanups);
+    EventLoop_free(g);
+    return 0;
+}
