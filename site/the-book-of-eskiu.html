@@ -974,7 +974,7 @@ pre.code-block {
  V3 operator *(V3 a, double s) { let r: V3; r.x = a.x*(float)s; r.y = a.y*(float)s; r.z = a.z*(float)s; return r; }</pre>
 <pre class="code-block"> V3 p = (a + b) * 2.0;          // uses operator + then operator *</pre>
 <p>You can overload the binary operators (<code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>), the unary <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) reuses your <code>operator +</code>. Overloads coexist by operand type, so <code>V3 * V3</code> and <code>V3 * double</code> are different operators selected by the right-hand side. The short-circuit <code>&amp;&amp;</code> and <code>||</code>, pointer <code>*</code>/<code>&amp;</code>, assignment <code>=</code>, and member access <code>.</code> cannot be overloaded.</p>
-<p>Structs, arrays, slices, closures and interface values have no built-in <code>==</code>, <code>&lt;</code> or truth value. <code>a == b</code> on two <code>V3</code> values is a compile error (&quot;invalid operands for operator&quot;) until you declare <code>bool operator ==(V3 a, V3 b)</code>, which then also works in an <code>if</code>. An overload must have at least one operand of a user-defined type, so the operators on the built-in types cannot be redefined.</p>
+<p>Structs, arrays, slices and closures have no built-in <code>==</code>, <code>&lt;</code> or truth value. (An interface value has only one: it compares with <code>null</code> and tests as a condition, see 7.4.) <code>a == b</code> on two <code>V3</code> values is a compile error (&quot;invalid operands for operator&quot;) until you declare <code>bool operator ==(V3 a, V3 b)</code>, which then also works in an <code>if</code>. An overload must have at least one operand of a user-defined type, so the operators on the built-in types cannot be redefined.</p>
 <p>Resolution is fully static: an <code>operator</code> is an ordinary function, and <code>a op b</code> compiles to a direct call to it. There is no dynamic dispatch and no boxing, so the cost is exactly that of writing the call by hand, which keeps it fit for hot numeric code.</p>
 <h2 class="section" id="sec-5-4">5.4 Fixed-size array fields</h2>
 <pre class="code-block"> struct Packet {
@@ -1129,6 +1129,19 @@ pre.code-block {
  }</pre>
 <p>A narrowed pointer can be passed or assigned where a plain <code>*T</code> is expected. Narrowing ends when the variable is reassigned (the new value is unchecked again) or when an inner block declares a new variable with the same name. A variable whose address has been taken is never narrowed, since a write through that address could null it. A global <code>?*T</code> stays narrowed only until the next call or <code>await</code> (a call to a user operator counts), because the code that runs there could change the global; check it again after the call, or copy it into a local first.</p>
 <p>A non-null <code>*T</code> converts to <code>?*T</code> freely (it is always safe to forget non-nullness); going the other way requires a null-check. <code>?*T</code> has the same representation as a bare pointer, so the safety is entirely at compile time with no runtime cost. Use <code>?*T</code> at the boundaries where <code>null</code> is a real possibility (a lookup that can miss, an optional field) and keep <code>*T</code> where the value is always present.</p>
+<p>A pointer to a nullable pointer is spelled <code>*?*T</code>, and <code>&amp;p</code> of a <code>?*int p</code> has that type. It is how a function hands back a pointer that may be missing through an out-parameter. The outer pointer is plain, so <code>*out = null</code> is fine, but what it points to may be null, so <code>**pp</code> is rejected until you check <code>*pp</code>, and a <code>*?*int</code> does not convert to <code>**int</code> (&quot;conversion drops the nullable pointee&quot;). The other order, <code>?*T*</code>, still means a nullable pointer to a <code>*T</code>:</p>
+<pre class="code-block"> int g = 7;</pre>
+<pre class="code-block"> void lookup(bool hit, *?*int out) {
+       if (hit) { *out = &amp;g; } else { *out = null; }
+ }</pre>
+<pre class="code-block"> ?*int p = null;
+ lookup(true, &amp;p);
+ ?*int r = p;                    // p had its address taken, so check a copy
+ if (r != null) { printf(&quot;%d\n&quot;, *r); }       // 7
+ lookup(false, &amp;p);
+ r = p;
+ if (r == null) { printf(&quot;miss\n&quot;); }         // miss</pre>
+<p class="output"><em>Output:</em> 7 miss</p>
 <h2 class="section" id="sec-6-8">6.8 Pointer constness</h2>
 <p><code>const</code> T* is a pointer to read-only data: you can read through it and rebind it, but cannot write through it. T* <code>const</code> is a read-only pointer: you can write through it but cannot rebind it. Adding <code>const</code> is always safe; removing it is a compile error:</p>
 <pre class="code-block"> int x = 10;        int y = 20;
@@ -1213,6 +1226,28 @@ pre.code-block {
  }</pre>
 <p class="output"><em>Output:</em> 3.14 6.00 Circle r=1.00 area=3.14</p>
 <p>The interface value does not own the struct. Keep the struct alive for as long as any interface value refers to it, just as you would with a plain pointer.</p>
+<p><code>null</code> is an interface value too, one that refers to nothing. You can initialize, assign, return or pass <code>null</code> where an interface is expected, and put it in an interface field. An interface value compares with <code>null</code> (<code>s == null</code>, <code>s != null</code>) and works as a condition, so <code>if (s)</code>, <code>!s</code> and <code>s &amp;&amp; ...</code> test whether it refers to a struct:</p>
+<pre class="code-block"> Shape find(bool found, *Circle c) {
+       if (found) { return c; }
+       return null;
+ }</pre>
+<pre class="code-block"> void show(Shape s) {
+       if (s == null) { printf(&quot;nothing to draw\n&quot;); return; }
+       s.describe();
+ }</pre>
+<pre class="code-block"> int main() {
+       Circle c = Circle { radius: 1.0 };
+       Shape s = null;
+       show(s);                                 // nothing to draw
+       s = find(true, &amp;c);
+       if (s) { show(s); }                      // Circle r=1.00 area=3.14
+       Scene sc = Scene { main: null, layer: 0 };
+       if (!sc.main) { printf(&quot;empty scene\n&quot;); }
+       show(find(false, &amp;c));                   // nothing to draw
+       return 0;
+ }</pre>
+<p class="output"><em>Output:</em> nothing to draw Circle r=1.00 area=3.14 empty scene nothing to draw</p>
+<p>Calling a method on a null interface value is a null dereference, so test it first when it may be empty. Comparing an interface value with anything other than <code>null</code>, such as a struct pointer or another interface value, is still a compile error.</p>
 <div class="chapter-start" id="chapter-8"><span class="chapter-label">Chapter 8</span>
 <h1 class="chapter-title">Templates</h1><hr class="chapter-rule"></div>
 <p>A template is a blueprint the compiler fills in with a concrete type when you use it. You write the logic once, parameterised by a type placeholder, and the compiler generates a separate, fully optimised version for each type you actually use. There is no runtime overhead: templates are entirely a compile-time mechanism.</p>
