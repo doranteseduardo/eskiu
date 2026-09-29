@@ -395,7 +395,11 @@ ExprPtr Parser::parsePostfix() {
             expr = withPos(std::make_shared<IndexExpr>(expr, index, highIndex), idxTok);
         } else if (match(TokenType::DOT)) {
             Token dotTok = tokens[current - 1];
-            std::string member = consume(TokenType::IDENT, "Expected member name").value;
+            std::string member;
+            if (static_cast<int>(peek().type) <= static_cast<int>(TokenType::UINT64))
+                member = advance().value;
+            else
+                member = consume(TokenType::IDENT, "Expected member name").value;
             expr = withPos(std::make_shared<MemberExpr>(expr, member), dotTok);
         } else if (check(TokenType::QUESTION) && !ternaryColonAhead()) {
             // Postfix Result-propagation `expr?` — but only when this `?` does not open

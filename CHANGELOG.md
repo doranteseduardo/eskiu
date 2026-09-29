@@ -901,6 +901,8 @@ input. What is still open is listed under Known issues.
   generic instance or of a trailing-star pointer. Test `slice_elem_spelling`.
 - The self-host calls a local or parameter of fn type named like an ADT variant (`A(1)`,
   `B()`) instead of building the variant, as C++ does. Test `variant_name_shadow`.
+- A keyword after `.` is a member name, so `j.int(5)` and `j.bool(1)` dot-call the `<json>`
+  builder's `Json_int` and `Json_bool`. Test `json_keyword_methods`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -963,6 +965,8 @@ without a diagnostic, except where the entry says so.
   to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
+- The self-hosted compiler type-checks deeply nested `?:` expressions in time quadratic
+  in their depth (5000 levels take about ten seconds; the C++ compiler is linear).
 - The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
   x86 (not a supported C ABI target).
 - On AArch64 Linux a variadic function written in Eskiu reads its arguments wrong: both

@@ -1141,7 +1141,8 @@ int lambda_ahead(Parser* p) {
             e = ix;
         } else if (t == DOT) {
             p_adv(p);
-            Token m = p_expect_ident(p, "Expected member name");                // member name
+            Token m = p_peek(p);
+            if (m.type <= UINT64) { p_adv(p); } else { m = p_expect_ident(p, "Expected member name"); }
             *ExprNode mb = ast_new_expr();
             mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
             e = mb;

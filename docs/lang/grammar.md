@@ -251,7 +251,7 @@ postfix         = primary postfix-op*
 postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
                 | '[' expr '..' expr ']'     // slice (half-open) → a `T[]` fat pointer
-                | '.' IDENT                  // member
+                | '.' (IDENT | keyword)      // member (a keyword is a name here: `j.int(5)`)
                 | '?'                        // error propagation (Result)
                 | '++' | '--'                // post-increment / decrement
 arg-list        = expr (',' expr)*
