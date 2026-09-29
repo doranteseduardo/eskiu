@@ -254,7 +254,7 @@ public:
     llvm::Module* getModule() const;                               // non-owning
 
     std::string targetTriple;     // target triple override (empty = native)
-    std::string targetCPU;        // --mcpu (empty = &quot;generic&quot;, native builds included)
+    std::string targetCPU;        // --mcpu (empty = the target baseline: apple-m1 on arm64 Apple, else generic)
     std::string targetFeatures;   // --mattr feature string (LLVM -mattr syntax, e.g. &quot;+vfp2&quot;)
     std::string relocModel;       // --reloc: &quot;static&quot; | &quot;dynamic-no-pic&quot; | &quot;&quot; (&quot;pic&quot;, default)
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of calloc/free
@@ -281,7 +281,7 @@ non-owningly.</p>
   <code>__APPLE__</code> nor <code>__linux__</code>.</li>
 <li><code>targetCPU</code> / <code>targetFeatures</code>: <code>--mcpu</code> / <code>--mattr</code> overrides, forwarded to the
   <code>TargetMachine</code> (e.g. <code>mpcore</code> + <code>+vfp2</code> for the 3DS's ARM11). Empty CPU means
-  <code>generic</code>, for native builds too (as in clang; pass <code>--mcpu</code> to tune for a CPU).</li>
+  the target baseline for native builds too, as in clang: <code>apple-m1</code> on arm64 Apple targets, <code>generic</code> elsewhere (pass <code>--mcpu</code> to tune for a CPU).</li>
 <li><code>relocModel</code>: <code>--reloc</code> selects the relocation model. <code>static</code> (or <code>dynamic-no-pic</code>)
   instead of the default PIC; the 3DS <code>.3dsx</code> loader applies static relocations and has
   no dynamic loader to populate a GOT.</li>

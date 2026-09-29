@@ -115,7 +115,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 </tr>
 <tr>
 <td><code>--mcpu</code></td>
-<td>Target CPU passed to LLVM (e.g. <code>mpcore</code>). Empty = <code>generic</code>, native builds included (as in clang).</td>
+<td>Target CPU passed to LLVM (e.g. <code>mpcore</code>). Empty = the target baseline, native builds included (as in clang): <code>apple-m1</code> on arm64 Apple targets, <code>generic</code> elsewhere.</td>
 </tr>
 <tr>
 <td><code>--mattr</code></td>
