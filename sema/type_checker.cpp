@@ -59,6 +59,7 @@ bool TypeChecker::check(Program* program) {
         }
         if (auto aliasDecl = dynamic_cast<TypeAliasDecl*>(decl.get())) {
             typeAliases[aliasDecl->name] = aliasDecl->aliased;
+            templateTypeAliases()[aliasDecl->name] = aliasDecl->aliased;
             continue;
         }
         if (auto ifaceDecl = dynamic_cast<InterfaceDecl*>(decl.get())) {
@@ -204,6 +205,7 @@ bool TypeChecker::check(Program* program) {
             errorAtDecl(aliasDecls[n], "type alias '" + n + "' refers to itself (a cyclic alias names no type)");
         }
         for (const auto& n : cyclic) typeAliases[n] = "unknown";   // resolves to the error sentinel
+        for (const auto& n : cyclic) templateTypeAliases()[n] = "unknown";
     }
 
     // An extern the program also defines is an Eskiu function, not a C one.

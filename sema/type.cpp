@@ -478,6 +478,63 @@ Type Type::substitute(const std::map<std::string, std::string>& subs) const {
 }
 
 namespace {
+bool isIdentChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
+
+// Does `s` contain `name` as a whole identifier?
+bool mentionsName(const std::string& s, const std::string& name) {
+    for (size_t p = s.find(name); p != std::string::npos; p = s.find(name, p + 1)) {
+        bool startOk = p == 0 || !isIdentChar(s[p - 1]);
+        bool endOk = p + name.size() >= s.size() || !isIdentChar(s[p + name.size()]);
+        if (startOk && endOk) return true;
+    }
+    return false;
+}
+
+Type dealiasType(const Type& t, const std::map<std::string, std::string>& aliases, int depth) {
+    if (depth > 32) return t;
+    Type r = t;
+    switch (t.kind) {
+        case Type::Kind::Named:
+            if (t.args.empty()) {
+                auto it = aliases.find(t.name);
+                if (it == aliases.end()) return t;
+                Type d = dealiasType(Type::parse(it->second), aliases, depth + 1);
+                if (t.nullable) d.nullable = true;
+                d.leadingQuals = t.leadingQuals + d.leadingQuals;
+                return d;
+            }
+            break;
+        case Type::Kind::Pointer:
+            if (t.pointee) r.pointee = std::make_shared<Type>(dealiasType(*t.pointee, aliases, depth + 1));
+            break;
+        case Type::Kind::Array:
+        case Type::Kind::Slice:
+            if (t.elem) r.elem = std::make_shared<Type>(dealiasType(*t.elem, aliases, depth + 1));
+            break;
+        case Type::Kind::Fn:
+            r.params.clear();
+            for (const auto& p : t.params) r.params.push_back(dealiasType(p, aliases, depth + 1));
+            if (t.ret) r.ret = std::make_shared<Type>(dealiasType(*t.ret, aliases, depth + 1));
+            break;
+        case Type::Kind::Template:
+            r.args.clear();
+            for (const auto& a : t.args) r.args.push_back(dealiasType(a, aliases, depth + 1));
+            break;
+        default: break;
+    }
+    return r;
+}
+}  // namespace
+
+std::string dealiasSpelling(const std::string& s, const std::map<std::string, std::string>& aliases) {
+    bool any = false;
+    for (const auto& kv : aliases)
+        if (mentionsName(s, kv.first)) { any = true; break; }
+    if (!any) return s;
+    return dealiasType(Type::parse(s), aliases, 0).str();
+}
+
+namespace {
 // Integer rank (32 = int/uint, 64 = int64/uint64) after promotion; 0 = not an integer.
 int promotedRank(const std::string& t, bool& isUnsigned) {
     isUnsigned = false;

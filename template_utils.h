@@ -12,8 +12,18 @@
 // were previously duplicated verbatim in sema/ and codegen/.
 // ============================================================================
 
+// The program's type aliases (name -> target), registered by the type checker and codegen
+// as they meet each `type` declaration: a template argument that names an alias mangles
+// as its target, so `Box<F>` (`type F = int`) and `Box<int>` are one instance.
+inline std::map<std::string, std::string>& templateTypeAliases() {
+    static std::map<std::string, std::string> aliases;
+    return aliases;
+}
+
 // "Result<int,string>" -> "Result_int_string"
-inline std::string mangleTemplate(const std::string& type) {
+inline std::string mangleTemplate(const std::string& type0) {
+    const auto& aliases = templateTypeAliases();
+    std::string type = aliases.empty() ? type0 : ty::dealiasSpelling(type0, aliases);
     std::string out;
     int depth = 0;
     for (size_t i = 0; i < type.size(); ++i) {

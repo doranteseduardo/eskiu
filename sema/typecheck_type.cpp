@@ -1019,6 +1019,10 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
     // type machinery is const-agnostic. (const survives only in stored declared
     // types, read back by the const-correctness checks.)
     std::string type = tyq::strip(rawType);
+    // A type alias inside a composite type is its target (`Box<F>` is `Box<int>`,
+    // `fn(int)->IF` is `fn(int)->int`), so both spellings are one type.
+    if (!typeAliases.empty() && (type.find('<') != std::string::npos || type.find("fn(") != std::string::npos))
+        type = ty::dealiasSpelling(type, typeAliases);
     // Inside a generic instance, the template's type parameters name its concrete
     // arguments. Substituted once, at the outermost call (the arguments are concrete).
     if (inInstance && !substituting && !instSubs.empty() &&

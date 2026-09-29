@@ -1,0 +1,8 @@
+// EXPECT-ERROR: incompatible function type
+// An alias inside a fn type is its target, so a different target still mismatches.
+type IF = int;
+float half(int x) { return (float)x / 2.0; }
+int main() {
+    fn(int)->IF f = half;
+    return f(2);
+}

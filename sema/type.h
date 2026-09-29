@@ -92,6 +92,11 @@ struct Type {
     }
 };
 
+// `s` with every type alias in it replaced by its target (`aliases`: name -> spelling),
+// recursively, inside pointers, arrays, template arguments and fn types: `Box<F>` with
+// `type F = int` is `Box<int>`. `s` itself is returned when it names no alias.
+std::string dealiasSpelling(const std::string& s, const std::map<std::string, std::string>& aliases);
+
 // The loop-variable type of `for (i in a..b)` given the two bound types: C's usual
 // arithmetic conversions over integers (each bound promoted to at least `int`, then the
 // wider rank wins, and unsigned wins at equal rank). "" when a bound is not an integer.

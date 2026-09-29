@@ -1,0 +1,52 @@
+// A type alias inside a composite type is its target: `Box<F>` is `Box<int>` with
+// `type F = int`, `List<Vec>` is `List<V>` with `type Vec = V`, and `fn(int)->IF` is
+// `fn(int)->int`. One monomorph serves both spellings.
+import <list>;
+extern int printf(string fmt, ...);
+
+type F = int;
+type IF = int;
+struct V { int x; int y; }
+type Vec = V;
+type PV = *V;
+
+struct Box<T> { T v; }
+
+T unbox<T>(Box<T> b) { return b.v; }
+int sum(List<V>* l) {
+    int s = 0;
+    for (int i = 0; i < l.size; i++) { s = s + l.get(i).x; }
+    return s;
+}
+
+int twice(int x) { return x * 2; }
+int apply(fn(int)->IF f, int x) { return f(x); }
+
+Box<F> make(F v) { return Box<int>{ v: v }; }
+
+int main() {
+    Box<int> a = make(5);
+    Box<F> b = a;
+    a = b;
+    printf("%d %d %d\n", a.v, b.v, unbox(b) + unbox<F>(a));
+
+    List<Vec> l;
+    l.init(2);
+    l.push(Vec{ x: 3, y: 4 });
+    l.push(V{ x: 7, y: 1 });
+    printf("%d %d\n", sum(&l), l.size);
+    List<V>* lp = &l;
+    printf("%d\n", lp.get(1).x);
+    l.free();
+
+    fn(int)->IF f = twice;
+    fn(int)->int g = f;
+    printf("%d %d\n", apply(g, 4), apply(f, 5));
+
+    PV pv = &l.data[0];
+    *Vec pv2 = pv;
+    Vec[2] arr = { V{ x: 1, y: 2 }, V{ x: 3, y: 4 } };
+    V[2] arr2 = arr;
+    printf("%d\n", arr2[1].x + (pv2 == pv));
+    return 0;
+}

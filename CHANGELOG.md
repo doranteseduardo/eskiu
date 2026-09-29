@@ -917,6 +917,11 @@ input. What is still open is listed under Known issues.
   with or without bitfields, per target as code generation lays it out, so enum values,
   array dimensions and `case` labels may use it. (A named `: 0` bitfield stays an error.)
   Test `sizeof_pack_n_fold`.
+- A type alias inside a composite type is its target in the C++ compiler too: `Box<F>` is
+  `Box<int>` with `type F = int`, `List<Vec>` is `List<V>`, `fn(int)->IF` is `fn(int)->int`.
+  Type arguments are canonicalized before an instance is named, so both spellings share
+  one monomorph in both compilers (`unbox<F>` no longer adds an `unbox_F`). Tests
+  `alias_in_composite`, `errors/alias_in_composite_mismatch`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -966,6 +971,8 @@ without a diagnostic, except where the entry says so.
 - The C++ compiler does not treat a type alias inside a composite type as its target, so
   `Box<F>` and `Box<int>` (with `type F = int`) are different types there and a valid
   assignment between them is rejected. Spell the target type.
+- A local read that is uninitialized on only some paths is accepted, as in C (the check
+  only catches a read with no assignment on any path).
 - A generic variant infers its type arguments only from its payload
   (`Opt<int64> a = Some(5)` needs `Some<int64>(5)`); write the type arguments.
 - A `#undef` line inside a multi-line string literal is read as a directive.

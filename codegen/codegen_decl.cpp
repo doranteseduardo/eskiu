@@ -740,6 +740,7 @@ void CodeGen::visit(IntrinsicDecl* node) {
 
 void CodeGen::visit(TypeAliasDecl* node) {
     typeAliases[node->name] = node->aliased;
+    templateTypeAliases()[node->name] = node->aliased;
 }
 
 void CodeGen::visit(UnionDecl* node) {
