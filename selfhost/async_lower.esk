@@ -757,6 +757,9 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
             al_goto(c, cur, next);
             al_push(c, next, al_assign(al_fr(al_fawt), mk_cast("*FutureHdr", al_int(0))));
             al_push(c, next, al_assign(al_fr(s.name), al_member(al_fr(awf), "value")));
+            *ExprNode fw = ast_new_expr();                // the waker's env (C++: free_closure too)
+            fw.kind = EK_FREECLOSURE; fw.a = al_member(al_fr(awf), "waker");
+            al_push(c, next, al_exprstmt(fw));
             List<*ExprNode> fa; List_init<*ExprNode>(&fa, 1); List_push<*ExprNode>(&fa, al_fr(awf));
             al_push(c, next, al_exprstmt(al_tcall(str_concat("free_future<", str_concat(Ti, ">")), &fa)));
             return next;
