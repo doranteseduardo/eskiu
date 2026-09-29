@@ -946,8 +946,8 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
     }
     if (d.kind != DK_STRUCT && d.kind != DK_UNION) { return (int64)0; }
     // `#pragma pack(N>=2)`: each alignment capped at N and bitfields packed back to back;
-    // codegen makes it an LLVM packed type, so as a field it is placed at alignment 1
-    // (mirrors the C++ constLayout). A union under pack(N) is left to codegen.
+    // the struct is as aligned as its most aligned (capped) field, as C (mirrors the C++
+    // constLayout). A union under pack(N) is left to codegen.
     int64 packn = (int64)0;
     if (d.is_packed == 0 && d.pack_align >= 2) { packn = (int64)d.pack_align; }
     if (packn > (int64)0 && d.kind == DK_UNION) { return (int64)0; }
@@ -1002,7 +1002,6 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
     }
     if (hasbits == 1 && s.msbf == 0) { off = (bitpos + (int64)7) / (int64)8; }
     al[0] = maxal;
-    if (packn > (int64)0) { al[0] = (int64)1; }
     return sema_up(off, maxal);
 }
 int64 sema_const_sizeof(Sema* s, string t) {

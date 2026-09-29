@@ -145,6 +145,7 @@ struct Codegen {
     String entry_buf;        // local allocas for the fn/lambda being emitted, hoisted to entry
     string bf_vol;           // "volatile " while a bitfield access goes through a volatile root
     List<CgSub> tydefs;      // emitted named LLVM types: name (no '%') → body text ("{ i32, ptr }")
+    List<CgSub> caligns;     // C alignment (decimal) of a named type LLVM sees as less aligned
     List<*DeclNode> tydecls; // non-generic struct/union/ADT decls whose type line is emitted on demand
     int abi;                 // target C ABI: 0 none, 1 AArch64 Darwin, 2 AArch64 AAPCS64, 3 x86-64 SysV,
                              // 4 Windows x64, 5 32-bit ARM AAPCS (soft-float), 6 ARM AAPCS-VFP (hard-float)
@@ -312,6 +313,7 @@ void cg_init(Codegen* g) {
     List_init<*DeclNode>(&g.gstructs, 8);
     List_init<*DeclNode>(&g.genums, 4);
     List_init<CgSub>(&g.tydefs, 16);
+    List_init<CgSub>(&g.caligns, 4);
     List_init<*DeclNode>(&g.tydecls, 16);
     List_init<CgCabi>(&g.cabis, 4);
     List_init<string>(&g.vols, 4);
@@ -681,6 +683,8 @@ int cg_seen_inst(Codegen* g, string mangled) {
 // the mangled name. Idempotent (deduped via inst_seen).
 void cg_emit_tydecl(Codegen* g, *DeclNode d);
 int cg_struct_has_bf(*DeclNode d);
+int cg_c_align(Codegen* g, string t);            // fwd: the C alignment of an LLVM type
+int cg_ll_align_of(Codegen* g, string t);        // fwd
 string cg_ensure_struct_inst(Codegen* g, string spelling) {
     spelling = cg_apply_sub(g, spelling);                 // resolve T→concrete before mangling
     string mangled = cg_mangle(cg_dealias(g, spelling));  // an alias arg is its target (one instance)
@@ -721,9 +725,19 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
         fi = fi + 1;
     }
     List_push<CgStruct>(&g.structs, s);                   // register before emitting the line
-    if (cg_struct_has_bf(gd) == 1 || gd.is_packed == 1 || gd.pack_align >= 2) {
-        // Bitfields / packing: lay the instance out like a plain struct of the concrete
-        // field types (same widths and packing as the generic decl).
+    int manual = 0;
+    if (gd.is_packed == 0) {
+        int mi = 0;
+        while (mi < nf) {
+            string mlt = cg_lltype(g, List_get<string>(&s.fetys, mi));
+            if (cg_c_align(g, mlt) != cg_ll_align_of(g, mlt)) { manual = 1; }
+            mi = mi + 1;
+        }
+    }
+    if (cg_struct_has_bf(gd) == 1 || gd.is_packed == 1 || gd.pack_align >= 2 || manual == 1) {
+        // Bitfields / packing (or a field holding a pack(N) struct): lay the instance out
+        // like a plain struct of the concrete field types (same widths and packing as the
+        // generic decl).
         *DeclNode cd = alloc<DeclNode>(1);
         cd.kind = DK_STRUCT; cd.name = mangled;
         cd.is_packed = gd.is_packed; cd.pack_align = gd.pack_align;
@@ -6987,6 +7001,8 @@ int cg_is_bf_struct(Codegen* g, string sname) {
 
 void cg_bf_layout_ms(Codegen* g, *DeclNode d);   // fwd: the Windows (MS) rules
 int cg_ll_align_of(Codegen* g, string t);         // fwd
+int cg_c_align(Codegen* g, string t);             // fwd
+int cg_needs_manual(Codegen* g, *DeclNode d);     // fwd
 int cg_ll_size_of(Codegen* g, string t);          // fwd
 
 // A byte range [off, end) of a bitfield struct: a storage unit (ty = its integer type,
@@ -7034,7 +7050,7 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         string lty = cg_lltype(g, pm.ty);
         int size = cg_size(g, pm.ty);
         int nal = cg_align(g, pm.ty);
-        int al = nal; if (cap > 0 && al > cap) { al = cap; }
+        int al = cg_c_align(g, lty); if (cap > 0 && al > cap) { al = cap; }
         if (al > salign) { salign = al; }
         let slot: CgBF; slot.sname = d.name; slot.fname = pm.name; slot.fety = pm.ty;
         slot.fidx = 0; slot.sty = lty; slot.aal = 0; slot.aty = lty; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
@@ -7107,13 +7123,23 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         else if (o < nsp.end) { let rest: CgSpan; rest.off = o; rest.end = nsp.end; rest.ty = ""; cg_span_insert(&elems, rest, 0); }
         i = i + 1;
     }
+    // The elements' natural LLVM layout gives the C one unless it is less aligned than C
+    // (a field whose C alignment is above LLVM's): then the type is packed, padded by hand.
+    int llal = 1;
+    i = 0;
+    while (i < List_len<CgSpan>(&elems)) {
+        CgSpan le = List_get<CgSpan>(&elems, i);
+        if (le.ty[0] != 0) { int ea = cg_ll_align_of(g, le.ty); if (ea > llal) { llal = ea; } }
+        i = i + 1;
+    }
+    int byhand = contig; if (llal < salign) { byhand = 1; }
     String body; String_init(&body, 32);
     int cur = 0;
     i = 0;
     while (i < List_len<CgSpan>(&elems)) {
         CgSpan e = List_get<CgSpan>(&elems, i);
         string t = e.ty; if (t[0] == 0) { t = cg_bytes_ty(e.end - e.off); }
-        int a = 1; if (contig == 0) { a = cg_ll_align_of(g, t); }
+        int a = 1; if (byhand == 0) { a = cg_ll_align_of(g, t); }
         if (cg_align_up(cur, a) < e.off) {
             if (String_len(&body) > 0) { String_append(&body, ", "); }
             String_append(&body, cg_bytes_ty(e.off - cur));
@@ -7123,21 +7149,22 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         cur = e.end;
         i = i + 1;
     }
-    if (contig == 1 && cur < total) {
+    if (byhand == 1 && cur < total) {
         if (String_len(&body) > 0) { String_append(&body, ", "); }
         String_append(&body, cg_bytes_ty(total - cur));
     }
     string op = "{ "; string cl = " }";
-    if (contig == 1) { op = "<{ "; cl = " }>"; }
+    if (byhand == 1) { op = "<{ "; cl = " }>"; llal = 1; }
     cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
+    cg_set_calign(g, d.name, salign, llal);
 }
 
 // Append element `t` to an MS-layout struct body; returns its LLVM index. Under
 // #pragma pack(N>=2) (packn) it is placed by hand at alignment min(align, N), with a
 // `[k x i8]` filler before it, tracking the byte offset and the struct alignment.
-int cg_ms_elem(Codegen* g, String* body, int* count, int* off, int* salign, int packn, string t) {
-    if (packn >= 2) {
-        int a = cg_ll_align_of(g, t); if (a > packn) { a = packn; }
+int cg_ms_elem(Codegen* g, String* body, int* count, int* off, int* salign, int packn, int manual, string t) {
+    if (manual == 1) {
+        int a = cg_c_align(g, t); if (packn >= 2 && a > packn) { a = packn; }
         if (a > salign[0]) { salign[0] = a; }
         int at = cg_align_up(off[0], a);
         if (at > off[0]) {
@@ -7162,6 +7189,7 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
     String body; String_init(&body, 32);
     int nf = List_len<Param>(&d.params);
     int packn = 0; if (d.is_packed == 0) { packn = d.pack_align; }
+    int manual = 0; if (packn >= 2 || cg_needs_manual(g, d) == 1) { manual = 1; }
     int llcount = 0;          // number of LLVM fields emitted so far
     int off = 0; int salign = 1;
     int curword = 0 - 1;      // open bitfield word's LLVM index (-1 = none)
@@ -7178,7 +7206,7 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
             string uty = sty; if (cg_streq(sty, "i1") == 1) { uty = "i8"; }   // a bool's unit is its byte
             int stb = cg_int_w(uty);
             if (curword < 0 || curbits != stb || curoff + bw > stb) {   // open a fresh word
-                curword = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, uty);
+                curword = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, manual, uty);
                 curbits = stb; curoff = 0;
             }
             slot.fidx = curword; slot.boff = curoff; slot.bw = bw; slot.sty = sty; slot.aty = uty;
@@ -7187,7 +7215,7 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
         } else {
             curword = 0 - 1; curbits = 0; curoff = 0;      // a normal field closes the word
             string fty = cg_lltype(g, pm.ty);
-            slot.fidx = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, fty);
+            slot.fidx = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, manual, fty);
             slot.boff = 0; slot.bw = 0; slot.sgn = 0; slot.sty = fty; slot.aty = fty;
         }
         List_push<CgBF>(&g.bitfields, slot);
@@ -7195,28 +7223,30 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
     }
     string op = "{ "; string cl = " }";
     if (d.is_packed == 1) { op = "<{ "; cl = " }>"; }
-    if (packn >= 2) {
+    if (manual == 1) {
         int total = cg_align_up(off, salign);
         if (total > off) { String_append(&body, ", "); String_append(&body, cg_bytes_ty(total - off)); }
         op = "<{ "; cl = " }>";
     }
     cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
+    if (manual == 1) { cg_set_calign(g, d.name, salign, 1); }
 }
 
-// Lay out a `#pragma pack(N>=2)` struct: each field at min(natural align, N), with explicit
-// `[K x i8]` padding fillers, emitted as an LLVM packed struct `<{ … }>` (so LLVM adds no
-// padding of its own). Records a phys-index slot per field (reusing the bitfield machinery,
-// so member GEP / struct-init pick up the physical index). The logical CgStruct field-list
-// is already registered by pass 1a; this only emits the type + the phys slots.
-void cg_emit_pack2(Codegen* g, *DeclNode d) {
-    int N = d.pack_align;
+// Lay out a struct by hand (C++ CodeGen::buildPackedLayout): each field at its C alignment
+// (cg_c_align), capped at N for `#pragma pack(N>=2)` (N = 0: no cap, a struct holding a
+// pack(N) one), with explicit `[K x i8]` padding fillers, emitted as an LLVM packed struct
+// `<{ … }>` (so LLVM adds no padding of its own) whose C alignment is recorded. Records a
+// phys-index slot per field (reusing the bitfield machinery, so member GEP / struct-init
+// pick up the physical index). The logical CgStruct field-list is already registered by
+// pass 1a; this only emits the type + the phys slots.
+void cg_emit_manual(Codegen* g, *DeclNode d, int N) {
     String body; String_init(&body, 32);
     int nf = List_len<Param>(&d.params);
     int offset = 0; int structAlign = 1; int physIdx = 0; int emitted = 0;
     int i = 0;
     while (i < nf) {
         Param pm = List_get<Param>(&d.params, i);
-        int al = cg_align(g, pm.ty); if (al > N) { al = N; }
+        int al = cg_c_align(g, cg_lltype(g, pm.ty)); if (N > 0 && al > N) { al = N; }
         if (al > structAlign) { structAlign = al; }
         int aligned = cg_align_up(offset, al);
         if (aligned > offset) {                              // alignment padding filler
@@ -7241,6 +7271,7 @@ void cg_emit_pack2(Codegen* g, *DeclNode d) {
         String_append(&body, "["); String_append(&body, cg_itoa(total - offset)); String_append(&body, " x i8]");
     }
     cg_deftype(g, d.name, cg_cat("<{ ", cg_cat((string)String_cstr(&body), " }>")));
+    cg_set_calign(g, d.name, structAlign, 1);
 }
 
 // 1 if the program also defines `name` with a body (an `extern` then a definition
@@ -7275,7 +7306,7 @@ void cg_emit_union(Codegen* g, *DeclNode d) {
     int fi = 0;
     while (fi < List_len<Param>(&d.params)) {
         string ft = List_get<Param>(&d.params, fi).ty;
-        int sz = cg_size(g, ft); int al = cg_align(g, ft);
+        int sz = cg_size(g, ft); int al = cg_c_align(g, cg_lltype(g, ft));
         if (sz > maxsz) { maxsz = sz; }
         if (anchor[0] == 0 || al > maxal || (al == maxal && sz > anchorsz)) {
             anchor = ft; anchorsz = sz; if (al > maxal) { maxal = al; }
@@ -7291,6 +7322,7 @@ void cg_emit_union(Codegen* g, *DeclNode d) {
         String_append(&body, "["); String_append(&body, cg_itoa(total - anchorsz)); String_append(&body, " x i8]");
     }
     cg_deftype(g, d.name, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
+    if (anchor[0] != 0) { cg_set_calign(g, d.name, maxal, cg_align(g, anchor)); }
 }
 
 // The architecture macro to predefine for programs this compiler builds (the host's, as
@@ -7311,6 +7343,28 @@ string cg_host_arch_macro() {
 // the target C signature and its calls convert the Eskiu-level values to and from it, like
 // the C++ codegen (codegen_cabi.cpp): AArch64 AAPCS64 (Darwin + Linux), x86-64 SysV, Windows
 // x64 and 32-bit ARM AAPCS (soft- and hard-float), for the --target triple (cg_set_target).
+
+// Byte offset of element `idx` of the struct body `{ … }` / `<{ … }>`.
+int cg_elem_offset(Codegen* g, string body, int idx) {
+    int pos = 0; cg_ll_ws(body, &pos);
+    int pk = 0;
+    if ((int)body[pos] == 60) { pk = 1; pos = pos + 1; cg_ll_ws(body, &pos); }
+    if ((int)body[pos] != 123) { return 0; }
+    pos = pos + 1; cg_ll_ws(body, &pos);
+    int off = 0; int k = 0;
+    while (body[pos] != 0 && (int)body[pos] != 125) {
+        int fal = 1;
+        int fsz = cg_ll_layout(g, body, &pos, &fal);
+        if (pk == 1) { fal = 1; }
+        off = cg_align_up(off, fal);
+        if (k == idx) { return off; }
+        off = off + fsz; k = k + 1;
+        cg_ll_ws(body, &pos);
+        if ((int)body[pos] == 44) { pos = pos + 1; }
+        cg_ll_ws(body, &pos);
+    }
+    return off;
+}
 
 // Push the scalar leaves (offset, type) of the LLVM type at s[*pos] placed at `base`;
 // returns its size (*al = its alignment). A union contributes every member's leaves.
@@ -7391,6 +7445,30 @@ int cg_ll_leaves(Codegen* g, string s, int* pos, int base, List<CgLeaf>* out, in
         }
         if (bfc == 1) { return sz; }
         string body = cg_tydef_body(g, name);
+        // A struct laid out by hand (#pragma pack(N>=2), or holding one): its fields, not
+        // the padding runs between them (CodeGen::cabiLeaves).
+        int pfc = 0;
+        bi = 0;
+        while (bi < List_len<CgBF>(&g.bitfields)) {
+            CgBF ps = List_get<CgBF>(&g.bitfields, bi);
+            if (cg_streq(ps.sname, name) == 1) {
+                if (ps.bw > 0) { pfc = 2; }
+                else if (pfc == 0) { pfc = 1; }
+            }
+            bi = bi + 1;
+        }
+        if (pfc == 1) {
+            bi = 0;
+            while (bi < List_len<CgBF>(&g.bitfields)) {
+                CgBF ps = List_get<CgBF>(&g.bitfields, bi);
+                if (cg_streq(ps.sname, name) == 1) {
+                    string pft = cg_lltype(g, ps.fety);
+                    int pp = 0; int pal = 1; cg_ll_leaves(g, pft, &pp, base + cg_elem_offset(g, body, ps.fidx), out, &pal);
+                }
+                bi = bi + 1;
+            }
+            return sz;
+        }
         int p3 = 0; int dal2 = 1;
         if (body[0] != 0) { cg_ll_leaves(g, body, &p3, base, out, &dal2); }
         return sz;
@@ -7404,6 +7482,52 @@ int cg_ll_leaves(Codegen* g, string s, int* pos, int base, List<CgLeaf>* out, in
 
 int cg_ll_size_of(Codegen* g, string t) { int al = 1; int p = 0; return cg_ll_layout(g, t, &p, &al); }
 int cg_ll_align_of(Codegen* g, string t) { int al = 1; int p = 0; cg_ll_layout(g, t, &p, &al); return al; }
+
+// Record the C alignment `al` of the named type `name` when LLVM aligns it less (C++
+// CodeGen::cAlignOverride): a `#pragma pack(N>=2)` struct, a struct or union holding one.
+void cg_set_calign(Codegen* g, string name, int al, int llal) {
+    if (al <= llal) { return; }
+    let c: CgSub; c.param = name; c.arg = cg_itoa(al);
+    List_push<CgSub>(&g.caligns, c);
+}
+
+// The C alignment of the LLVM type `t` (C++ CodeGen::cAlignOf): its recorded override (an
+// array's element's), else its LLVM alignment.
+int cg_c_align(Codegen* g, string t) {
+    int a = cg_ll_align_of(g, t);                  // also emits a pending named type
+    int p = 0;
+    while ((int)t[p] == 91) {                      // '[N x T]' → T
+        p = p + 1; cg_ll_ws(t, &p); cg_ll_num(t, &p); cg_ll_ws(t, &p); cg_ll_kw(t, &p, "x"); cg_ll_ws(t, &p);
+    }
+    if ((int)t[p] != 37) { return a; }
+    int st = p + 1; int e = st;
+    while (t[e] != 0) {
+        int ch = (int)t[e];
+        if ((ch >= 97 && ch <= 122) || (ch >= 65 && ch <= 90) || (ch >= 48 && ch <= 57) || ch == 95 || ch == 46) { e = e + 1; }
+        else { break; }
+    }
+    string name = cg_sub_str(t, st, e);
+    int i = 0; int n = List_len<CgSub>(&g.caligns);
+    while (i < n) {
+        CgSub c = List_get<CgSub>(&g.caligns, i);
+        if (cg_streq(c.param, name) == 1) { int q = 0; return cg_ll_num(c.arg, &q); }
+        i = i + 1;
+    }
+    return a;
+}
+
+// 1 when a field of `d` has a C alignment LLVM does not give it (a pack(N) struct), so
+// the struct must be laid out by hand (cg_emit_manual).
+int cg_needs_manual(Codegen* g, *DeclNode d) {
+    if (d.is_packed == 1) { return 0; }
+    int i = 0;
+    while (i < List_len<Param>(&d.params)) {
+        string lt = cg_lltype(g, List_get<Param>(&d.params, i).ty);
+        if (cg_c_align(g, lt) != cg_ll_align_of(g, lt)) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
 int cg_ll_is_fp(string t) { return cg_streq(t, "float") | cg_streq(t, "double"); }
 
 // A by-value C aggregate: a named user struct/union type (not the closure / interface /
@@ -7579,6 +7703,7 @@ CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
     List<CgLeaf> lv; List_init<CgLeaf>(&lv, 8);
     int al = 1; int p = 0;
     int size = cg_ll_leaves(g, lt, &p, 0, &lv, &al);
+    if (cg_abi_is_agg(lt) == 1) { al = cg_c_align(g, lt); }
     if (cg_abi_is_agg(lt) == 0) {
         if (g.abi == 3 && isret == 0) {                // a scalar still takes a register
             int i = 0;
@@ -8056,7 +8181,8 @@ void cg_emit_tydecl(Codegen* g, *DeclNode d) {
     if (d.kind == DK_UNION) { cg_emit_union(g, d); return; }
     if (d.kind == DK_ENUM) { cg_emit_adt_type(g, d); return; }
     if (cg_struct_has_bf(d) == 1) { cg_bf_layout(g, d); return; }
-    if (d.pack_align >= 2) { cg_emit_pack2(g, d); return; }   // #pragma pack(N>=2): padding + phys slots
+    if (d.pack_align >= 2) { cg_emit_manual(g, d, d.pack_align); return; }   // #pragma pack(N>=2): padding + phys slots
+    if (cg_needs_manual(g, d) == 1) { cg_emit_manual(g, d, 0); return; }      // holds a pack(N) struct
     // Build the body first: a generic field type instantiates into g.globals and must
     // precede this line, not interleave (see cg_ensure_struct_inst).
     String body; String_init(&body, 32);

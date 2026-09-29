@@ -127,7 +127,15 @@ private:
     // physical element types and the per-field slots; `llvmPacked` = emit `<{ }>`.
     void layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
                               unsigned packN, std::vector<llvm::Type*>& phys,
-                              std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked);
+                              std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked,
+                              uint64_t& cAlign);
+    // The C alignment of a struct type LLVM lays out as packed (explicit padding) though
+    // C aligns it: a `#pragma pack(N>=2)` struct (min(N, largest field alignment)), a
+    // struct or union holding one, a bitfield struct laid out by hand. Only entries
+    // above 1.
+    std::map<llvm::StructType*, uint64_t> cAlignOverride;
+    // The C alignment of `t`: its cAlignOverride (an array's element's), else LLVM's.
+    uint64_t cAlignOf(llvm::Type* t) const;
     // Address of a field of a bitfield-layout struct `sname` at `base`.
     llvm::Value* layoutFieldAddr(const std::string& sname, llvm::Value* base,
                                  const BitfieldSlot& slot, const llvm::Twine& name = "");
@@ -642,13 +650,14 @@ private:
     void declareStructType(StructDecl* node);
     void layoutStruct(const std::string& name, const std::vector<StructDecl::Field>& fields,
                       bool isPacked, int packAlign);
-    // #pragma pack(N>=2): manual layout capping each field's alignment at packN.
-    // Fills `phys` with field types interleaved with i8 padding and `slots` with
-    // one non-bitfield entry per field (physIndex into `phys`). Returns true if a
-    // layout was produced (always, for packN>=2 with no bitfields).
+    // Manual layout at the C alignment of each field (cAlignOf), capped at packN for
+    // #pragma pack(N>=2) (0 = no cap): used for a pack(N) struct and for one holding a
+    // field LLVM would place at another offset. Fills `phys` with field types interleaved
+    // with i8 padding and `slots` with one non-bitfield entry per field (physIndex into
+    // `phys`); `align` is the struct's C alignment. False when a field is a bitfield.
     bool buildPackedLayout(const std::vector<StructDecl::Field>& fields, unsigned packN,
                            std::vector<llvm::Type*>& phys,
-                           std::map<std::string, BitfieldSlot>& slots);
+                           std::map<std::string, BitfieldSlot>& slots, uint64_t& align);
 
     // Expression evaluation (returns LLVM Value)
     std::stack<llvm::Value*> exprValueStack;

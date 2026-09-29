@@ -83,6 +83,17 @@ void CodeGen::cabiLeaves(llvm::Type* ty, uint64_t base,
             return;
         }
         const llvm::StructLayout* sl = DL.getStructLayout(st);
+        // A struct laid out by hand (#pragma pack(N>=2), or holding one): its fields, not
+        // the padding runs between them (padding is no data, as in clang).
+        if (lit != structLayout.end() && fit != structFields.end() && !lit->second.empty()
+                && std::none_of(lit->second.begin(), lit->second.end(),
+                                [](const auto& e) { return e.second.isBitfield; })) {
+            for (const auto& f : fit->second) {
+                const BitfieldSlot& s = lit->second.at(f.name);
+                cabiLeaves(s.storageType, base + sl->getElementOffset(s.physIndex), out);
+            }
+            return;
+        }
         for (unsigned i = 0; i < st->getNumElements(); ++i)
             cabiLeaves(st->getElementType(i), base + sl->getElementOffset(i), out);
         return;
@@ -192,7 +203,7 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
         return r;
     }
     uint64_t size = DL.getTypeAllocSize(ty);
-    uint64_t align = DL.getABITypeAlign(ty).value();
+    uint64_t align = cAlignOf(ty);
     if (size == 0) return r;
     std::vector<std::pair<uint64_t, llvm::Type*>> leaves;
     cabiLeaves(ty, 0, leaves);
