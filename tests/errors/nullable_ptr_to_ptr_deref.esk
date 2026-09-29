@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot dereference a possibly-null pointer of type '?*int'
+// The pointer a `*?*T` holds is nullable: dereferencing it unchecked is an error.
+int main() {
+    int x = 1;
+    ?*int slot = &x;
+    *?*int pp = &slot;
+    return **pp;
+}

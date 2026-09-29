@@ -685,8 +685,13 @@ string parse_type_inner(Parser* p) {
     if (p_at(p) == CONST) { p_adv(p); is_const = 1; }
     int nullable = 0;
     if (p_at(p) == QUESTION) { p_adv(p); nullable = 1; }   // `?*T`: checked nullable pointer
-    int leading = 0;
-    while (p_at(p) == STAR) { p_type_level(p); p_adv(p); leading = leading + 1; }
+    // A `?` between two leading stars makes the pointer after it nullable: `*?*T` is a
+    // pointer to a nullable pointer to T.
+    string lead = "";
+    while (p_at(p) == STAR) {
+        p_type_level(p); p_adv(p); lead = str_concat(lead, "*");
+        if (p_at(p) == QUESTION && p_peek2(p).type == STAR) { p_adv(p); lead = str_concat(lead, "?"); }
+    }
 
     if (p_at(p) == FN) {
         p_adv(p);                          // 'fn'
@@ -702,8 +707,7 @@ string parse_type_inner(Parser* p) {
         ft = str_concat(ft, ")->");
         p_expect(p, ARROW, "Expected '->'");
         ft = str_concat(ft, parse_type(p));
-        int li = 0;
-        while (li < leading) { ft = str_concat("*", ft); li = li + 1; }
+        ft = str_concat(lead, ft);
         if (is_const == 1) { ft = str_concat("const ", ft); }
         if (nullable == 1) { ft = str_concat("?", ft); }
         return ft;
@@ -736,8 +740,7 @@ string parse_type_inner(Parser* p) {
         p_adv(p); ty = str_concat(ty, "*");
         if (p_at(p) == CONST) { p_adv(p); ty = str_concat(ty, "const"); }
     }
-    int li = 0;
-    while (li < leading) { ty = str_concat("*", ty); li = li + 1; }
+    ty = str_concat(lead, ty);
     if (is_const == 1) { ty = str_concat("const ", ty); }
 
     while (p_at(p) == LBRACKET) {

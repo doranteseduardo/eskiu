@@ -161,7 +161,8 @@ suffix      = array | '*' 'const'?                   // arrays and trailing poin
 base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance
             | 'fn' '(' (type (',' type)*)? ')' '->' type   // function-pointer type
-ptr         = '*'                                    // leading-pointer (spec) spelling
+ptr         = '*' '?'?                               // leading-pointer (spec) spelling; `*?*T` (a `?`
+                                                     // before another '*') points to a nullable pointer
 array       = '[' (INT_LIT | IDENT)? ']'             // IDENT = a named const dim; empty = slice `T[]`
 
 scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'

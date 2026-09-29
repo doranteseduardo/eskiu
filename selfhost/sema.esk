@@ -755,7 +755,7 @@ string sema_cat(string a, string b) {
 string sema_struct_of_type(string t0) {
     string t = sema_strip_const(t0);
     int i = 0;
-    while ((int)t[i] == 42 || (int)t[i] == 32) { i = i + 1; }       // skip '*' / ' '
+    while ((int)t[i] == 42 || (int)t[i] == 32 || (int)t[i] == 63) { i = i + 1; }   // skip '*' / ' ' / '?'
     int j = i;
     while (t[j] != 0 && (int)t[j] != 60 && (int)t[j] != 42 && (int)t[j] != 32) {
         if ((int)t[j] == 91) { j = sema_dim_close(t, j); if (t[j] == 0) { break; } }
@@ -1819,6 +1819,9 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
             if (bt[0] == 0) { return ""; }
             // A pointer to a closure is `*fn(...)->R`: a trailing `*` would read as part of R.
             if (sema_is_fn_type(sema_strip_const(bt)) == 1) { return sema_cat("*", sema_strip_const(bt)); }
+            // A pointer to a nullable pointer is `*?*T`: a trailing `*` would make `?*T*`,
+            // a nullable pointer to `*T`.
+            if ((int)bt[0] == 63) { return sema_cat("*", bt); }
             if (sema_is_readonly_lvalue(s, e.a) == 1) { return sema_cat("const ", sema_cat(sema_strip_const(bt), "*")); }
             return sema_cat(bt, "*");
         }
@@ -2337,6 +2340,12 @@ string sema_assign_err(Sema* s, string ta0, *ExprNode e) {
     if (src0[0] == 63 && t0[0] != 63 && sema_c_ptr(sema_canon(s, t0)) == 1) {
         return sema_cat(sema_cat(sema_cat(sema_cat("assigning a nullable pointer '", src0), "' to non-null '"), t0),
                         "' requires a null-check (e.g. `if (x != null)`)");
+    }
+    // A pointer to a nullable pointer (`*?*T`) keeps the check on what it points to.
+    if ((int)src0[0] == 42 && (int)t0[0] == 42 && (int)src0[1] == 63 && (int)t0[1] != 63 && t0[1] != 0
+        && sema_c_ptr(sema_canon(s, sema_sub_str(t0, 1, sema_slen(t0)))) == 1) {
+        return sema_cat(sema_cat(sema_cat(sema_cat("conversion drops the nullable pointee of '", src0), "' ('"), t0),
+                        "' points to a non-null pointer)");
     }
     if (sema_pointee_const(src0) == 1 && sema_has_star(t0) == 1 && sema_pointee_const(t0) == 0
         && sema_is_fn_type(t0) == 0) {

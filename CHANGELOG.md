@@ -909,6 +909,10 @@ input. What is still open is listed under Known issues.
 - `null` converts to an interface value (`{null, null}`) in a declaration, an assignment, a
   return, an argument and a field, and an interface value compares with `null` and is a
   condition (`if (i)`, `!i`, `i && ...`). Tests `iface_null_value`, `errors/iface_compare_ptr`.
+- A pointer to a nullable pointer is spelled `*?*T` (`&p` of a `?*T` is one); `?*T*` is
+  still a nullable pointer to `*T`. Its pointee must be checked before a second
+  dereference, and it does not convert to `**T`. Tests `nullable_ptr_to_ptr`,
+  `errors/nullable_ptr_to_ptr_deref`, `errors/nullable_ptr_to_ptr_drop`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -971,6 +975,7 @@ without a diagnostic, except where the entry says so.
   to an interface value.
 - There is no spelling for a pointer to a nullable pointer, and inline `asm` has no output
   operands.
+- Inline `asm` has no output operands.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
 - The self-hosted compiler type-checks deeply nested `?:` expressions in time quadratic

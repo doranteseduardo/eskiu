@@ -219,12 +219,18 @@ void Parser::parseTypeInto(std::string& out) {
     // `let`/decl binding is handled by the declaration parser, not here.)
     bool baseIsConst = match(TokenType::CONST);
 
-    // Handle leading pointers (Rust-style: *i32)
-    int leading_pointers = 0;
+    // Handle leading pointers (Rust-style: *i32). A `?` between two stars makes the
+    // pointer after it nullable: `*?*T` is a pointer to a nullable pointer to T.
+    std::string leading;
     while (check(TokenType::STAR)) {
         enterTypeLevel();
         advance();
-        leading_pointers++;
+        leading += "*";
+        if (check(TokenType::QUESTION) && current + 1 < tokens.size() &&
+            tokens[current + 1].type == TokenType::STAR) {
+            advance();
+            leading += "?";
+        }
     }
 
     if (is_at_end()) {
@@ -235,7 +241,7 @@ void Parser::parseTypeInto(std::string& out) {
     // Function pointer type: fn(T,U,...)->R (no `?` prefix, no trailing pointers).
     if (match(TokenType::FN)) {
         if (baseIsConst) out += "const ";
-        out.append(leading_pointers, '*');
+        out += leading;
         out += "fn(";
         consume(TokenType::LPAREN, "Expected '(' in fn type");
         bool first = true;
@@ -252,7 +258,7 @@ void Parser::parseTypeInto(std::string& out) {
     }
     if (nullable) out += "?";
     if (baseIsConst) out += "const ";
-    out.append(leading_pointers, '*');
+    out += leading;
     if (isPrimitiveTypeToken(typeToken.type)) {
         advance();
         out += typeToken.value;

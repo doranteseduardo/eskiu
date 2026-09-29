@@ -220,7 +220,7 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
     while (stripped && !baseType.empty()) {
         stripped = false;
         if (hasPointerSuffix(baseType)) { baseType = extractBaseType(baseType); stripped = true; }
-        else if (baseType.front() == '*') { baseType = baseType.substr(1); stripped = true; }
+        else if (baseType.front() == '*' || baseType.front() == '?') { baseType = baseType.substr(1); stripped = true; }
     }
     // A leading-star generic pointee (`*List<int>`) reaches here unnormalized (normalizeType
     // only descends through a trailing star): resolve it now, instantiating the template.
@@ -807,6 +807,12 @@ std::string TypeChecker::assignabilityError(const std::string& targetIn,
             return assignabilityError(t2, s2, srcExpr);
         }
     }
+    // A pointer to a nullable pointer (`*?*T`) keeps the check on what it points to:
+    // converting it to `**T` would let a null be read as non-null.
+    if (targetType.size() > 1 && srcType.size() > 1 && targetType[0] == '*' && srcType[0] == '*' &&
+        srcType[1] == '?' && targetType[1] != '?' && isPointerType(targetType.substr(1)))
+        return "conversion drops the nullable pointee of '" + srcType + "' ('" + targetType +
+               "' points to a non-null pointer)";
     std::string nt = normalizeType(targetType), ns = normalizeType(srcType);
     if (nt == "unknown" || ns == "unknown") return "";   // an already-reported bad type
     // A type already reported as unknown (`Nope f(Zip z)`) must not cascade into a

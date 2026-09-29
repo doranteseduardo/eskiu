@@ -226,7 +226,7 @@ if (q != null) {
 A non-null `*T` converts to `?*T` implicitly (widening); going the other way (`?*T` to
 `*T`) drops the check and so requires narrowing (or an explicit cast). `?*T` has the same
 representation as `*T` (a bare pointer); the checking is entirely at compile time. The
-`?` marks a pointer type only: `?int` is an error. The `?` applies to the whole type it starts, so `?*T*` is a nullable pointer to `*T`. A pointer to a nullable pointer has no spelling; use `**T` and narrow the loaded value.
+`?` marks a pointer type only: `?int` is an error. The `?` applies to the whole type it starts, so `?*T*` is a nullable pointer to `*T`. A `?` after a leading `*` and before another one makes the inner pointer nullable: `*?*T` is a pointer to a nullable pointer to `T` (an out-parameter that may receive `null`). Dereferencing it once gives a `?*T`, which must be checked before it is dereferenced again, and it does not convert to `**T`, which would drop that check (`&p` of a `?*T` variable `p` is a `*?*T`).
 
 A null-check narrows in these forms: the then-branch of `if (x != null)` (and the else of
 `if (x == null)`), `if (x)`, `!(x == null)`, the right operand of `x != null && ...` and of
