@@ -47,7 +47,8 @@ int64_t c_sum_a(const struct A* p) { return p->a * 100000 + p->w; }
 int64_t c_sum_b(const struct B* p) { return p->x * 10000000 + p->y * 1000000 + p->z; }
 int64_t c_sum_c(const struct C* p) { return (int64_t)p->a * 100 + p->b + (int64_t)p->c * 1000 + p->d; }
 int64_t c_sum_d(const struct D* p) { return (int64_t)p->c * 100000000 + (int64_t)p->x * 10 + p->y; }
-int64_t c_sum_f(const struct F* p) { return p->a + p->big * 1000 + p->t * 10; }
+// gcc does arithmetic on a bitfield wider than int in the field width; the cast keeps it 64-bit.
+int64_t c_sum_f(const struct F* p) { return p->a + (int64_t)p->big * 1000 + p->t * 10; }
 int64_t c_sum_g(const struct G* p) { return p->a * 1000000 + p->c * 10000 + p->k; }
 int64_t c_sum_h(const struct H* p) { int64_t s = 0; for (int i = 0; i < 5; ++i) s = s * 100 + p->name[i]; return s * 100 + p->x; }
 int64_t c_sum_i(const struct I* p) { return p->a * 100000000LL + p->s[0] * 1000000 + p->s[1] * 10000 + p->s[2] * 100 + p->k; }
