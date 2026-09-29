@@ -276,6 +276,8 @@ struct ExprNode {
     string cg_ety;         // EK_MEMBER: codegen's type of this member, valid while cg_stamp is active
     int cg_stamp;
     string aty;            // in an async function: the type sema inferred (the async lowering types its temporaries by it)
+    string sm_ety;         // EK_TERNARY: sema's type of this node, valid while sm_epoch is current
+    int sm_epoch;
     int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
     int col;
 }

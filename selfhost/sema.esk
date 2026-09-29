@@ -491,9 +491,16 @@ void sema_init(Sema* s, string filename) {
     s.inst_depth = 0;
 }
 
-void sema_push(Sema* s) { s.depth = s.depth + 1; }
+// Bumped whenever an expression's type may change (a binding, a scope, a narrowing, a
+// statement): a `?:` node's memoized type is valid within one epoch. Global, never reset,
+// so a node typed by an earlier Sema (before the async lowering) is never stale.
+int g_sema_epoch;
+void sema_bump(Sema* s) { g_sema_epoch = g_sema_epoch + 1; }
+
+void sema_push(Sema* s) { s.depth = s.depth + 1; sema_bump(s); }
 
 void sema_pop(Sema* s) {
+    sema_bump(s);
     int d = s.depth;
     while (List_len<Sym>(&s.syms) > 0) {
         Sym last = List_get<Sym>(&s.syms, List_len<Sym>(&s.syms) - 1);
@@ -531,6 +538,7 @@ void sema_define(Sema* s, string name, string type, int is_const) {
     sym.is_static = 0;
     sym.addr_taken = 0;
     List_push<Sym>(&s.syms, sym);
+    sema_bump(s);
 }
 
 // Record the initializer of the binding just defined, when it is a `const`.
@@ -562,6 +570,7 @@ void sema_set_sym_type(Sema* s, string name, string type) {
     Sym sym = List_get<Sym>(&s.syms, i);
     sym.type = type;
     List_set<Sym>(&s.syms, i, sym);
+    sema_bump(s);
 }
 
 // Is `name` a read-only (const) binding?
@@ -1676,6 +1685,26 @@ string sema_member_type(Sema* s, string mbt, string field) {
     return "";
 }
 
+// The common type of a `?:`'s arms ("" when unknown), for sema_infer_type_raw.
+string sema_ternary_type(Sema* s, *ExprNode e) {
+    string tt = sema_infer_type(s, e.b);
+    string et = sema_infer_type(s, List_get<*ExprNode>(&e.kids, 0));
+    if (tt[0] == 0 || et[0] == 0) { return ""; }
+    string tc = sema_canon(s, tt); string ec = sema_canon(s, et);
+    if (sema_is_numeric_ty(tc) == 1 && sema_is_numeric_ty(ec) == 1 && sema_streq(tc, ec) == 0) {
+        if (sema_is_float_ty(tc) == 1 || sema_is_float_ty(ec) == 1) {
+            if (sema_streq(tc, "double") == 1 || sema_streq(ec, "double") == 1) { return "double"; }
+            return "float";
+        }
+        return ast_range_var_type(sema_int_promote(tc), sema_int_promote(ec));
+    }
+    if (sema_streq(tc, "null") == 1) { return et; }
+    if (sema_streq(ec, "null") == 1) { return tt; }
+    if (sema_pointee_const(et) == 1 && sema_pointee_const(tt) == 0) { return et; }
+    if (sema_streq(tc, ec) == 1 || sema_c_ptr(tc) == 1) { return tt; }
+    return "";
+}
+
 string sema_infer_type_raw(Sema* s, *ExprNode e) {
     if (e == null) { return ""; }
     if (e.kind == EK_IDENT) {
@@ -1850,22 +1879,12 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
         return "";
     }
     if (e.kind == EK_TERNARY) {
-        string tt = sema_infer_type(s, e.b);
-        string et = sema_infer_type(s, List_get<*ExprNode>(&e.kids, 0));
-        if (tt[0] == 0 || et[0] == 0) { return ""; }
-        string tc = sema_canon(s, tt); string ec = sema_canon(s, et);
-        if (sema_is_numeric_ty(tc) == 1 && sema_is_numeric_ty(ec) == 1 && sema_streq(tc, ec) == 0) {
-            if (sema_is_float_ty(tc) == 1 || sema_is_float_ty(ec) == 1) {
-                if (sema_streq(tc, "double") == 1 || sema_streq(ec, "double") == 1) { return "double"; }
-                return "float";
-            }
-            return ast_range_var_type(sema_int_promote(tc), sema_int_promote(ec));
-        }
-        if (sema_streq(tc, "null") == 1) { return et; }
-        if (sema_streq(ec, "null") == 1) { return tt; }
-        if (sema_pointee_const(et) == 1 && sema_pointee_const(tt) == 0) { return et; }
-        if (sema_streq(tc, ec) == 1 || sema_c_ptr(tc) == 1) { return tt; }
-        return "";
+        // Memoized per node while no binding, scope or narrowing changes: each level of a
+        // nested `?:` asks for its arm's type, which is itself a `?:` (linear, not quadratic).
+        if (e.sm_epoch == g_sema_epoch && g_sema_epoch != 0) { return e.sm_ety; }
+        string r = sema_ternary_type(s, e);
+        e.sm_ety = r; e.sm_epoch = g_sema_epoch;
+        return r;
     }
     if (e.kind == EK_AWAIT) { return sema_future_inner(s, sema_infer_type(s, e.a)); }
     if (e.kind == EK_LAMBDA) { return sema_isub(s, sema_lambda_fn_type(e.sval)); }
@@ -3293,7 +3312,7 @@ void sema_narrow_drop(Sema* s, string k) {
     int i = 0; int n = List_len<string>(&s.narrowed);
     while (i < n) {
         if (sema_streq(List_get<string>(&s.narrowed, i), k) == 1) {
-            List_remove<string>(&s.narrowed, i); return;
+            List_remove<string>(&s.narrowed, i); sema_bump(s); return;
         }
         i = i + 1;
     }
@@ -3306,7 +3325,7 @@ void sema_narrow_kill(Sema* s, string name) {
         string k = List_get<string>(&s.narrowed, i);
         int j = 0;
         while (name[j] != 0 && k[j] == name[j]) { j = j + 1; }
-        if (name[j] == 0 && (int)k[j] == 64) { List_remove<string>(&s.narrowed, i); }   // '@'
+        if (name[j] == 0 && (int)k[j] == 64) { List_remove<string>(&s.narrowed, i); sema_bump(s); }   // '@'
         i = i - 1;
     }
 }
@@ -3345,6 +3364,7 @@ void sema_mark_addr(Sema* s, string name) {
     Sym sy = List_get<Sym>(&s.syms, si);
     sy.addr_taken = 1;
     List_set<Sym>(&s.syms, si, sy);
+    sema_bump(s);
 }
 
 // Before a loop body is checked: every `&x` in it (a later iteration's check must not
@@ -3364,7 +3384,7 @@ void sema_drop_global_narrowings(Sema* s) {
     while (i >= 0) {
         string k = List_get<string>(&s.narrowed, i);
         int n = 0; while (k[n] != 0) { n = n + 1; }
-        if (n >= 2 && (int)k[n - 2] == 64 && (int)k[n - 1] == 48) { List_remove<string>(&s.narrowed, i); }   // "@0"
+        if (n >= 2 && (int)k[n - 2] == 64 && (int)k[n - 1] == 48) { List_remove<string>(&s.narrowed, i); sema_bump(s); }   // "@0"
         i = i - 1;
     }
 }
@@ -3566,7 +3586,7 @@ void sema_narrow_apply(Sema* s, List<string>* keys, List<string>* ins) {
     int i = 0; int n = List_len<string>(keys);
     while (i < n) {
         string k = List_get<string>(keys, i);
-        if (k[0] != 0 && sema_in_list(&s.narrowed, k) == 0) { List_push<string>(&s.narrowed, k); List_push<string>(ins, k); }
+        if (k[0] != 0 && sema_in_list(&s.narrowed, k) == 0) { List_push<string>(&s.narrowed, k); List_push<string>(ins, k); sema_bump(s); }
         i = i + 1;
     }
 }
@@ -5353,6 +5373,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     while (ni < List_len<string>(&saved_narrowed)) { List_push<string>(&s.narrowed, List_get<string>(&saved_narrowed, ni)); ni = ni + 1; }
     // The body runs later, when a global (or `static` local) may have been nulled.
     sema_drop_global_keys(&s.narrowed);
+    sema_bump(s);
     s.cur_ret = sema_isub(s, sema_lambda_ret(e.sval));
     if (s.lam_ret != null && s.lam_ret[0] != 0) { s.cur_ret = s.lam_ret; }
     s.lam_ret = "";
@@ -5387,6 +5408,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     s.sw_depth = saved_sw; s.param_depth = saved_pd; s.in_variadic = saved_var;
     s.loop_lbls = saved_lbls;
     s.narrowed = saved_narrowed;
+    sema_bump(s);
 }
 
 // The `must_use` function whose result `ex`, evaluated for its side effects only, would
@@ -5600,7 +5622,9 @@ void sema_stmt(Sema* s, *StmtNode st) {
     if (st == null) { return; }
     int pl = s.line; int pc = s.col;
     if (st.line > 0) { s.line = st.line; s.col = st.col; }
+    sema_bump(s);
     sema_stmt_k(s, st);
+    sema_bump(s);
     s.line = pl; s.col = pc;
 }
 

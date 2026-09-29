@@ -876,6 +876,11 @@ input. What is still open is listed under Known issues.
   in C. A line inside a multi-line string literal is string text in both preprocessors:
   a `#undef` or other `#` line there is not a directive and no macro expands in it; `fmt`
   keeps such a line's bytes. Tests `pp_string_lines`, `fmt_cases/string_hash_line`.
+- The self-hosted compiler types each `?:` of a deeply nested one once, in the type
+  checker (memoized per node while no binding, scope or narrowing changes) and in codegen
+  (stamped bottom-up when the outermost one is emitted): 5000 levels took about ten
+  seconds to type-check, 20000 now compile in about a second. `tests/deep/gen.sh` gains
+  `ternary_mixed_20k`.
 - `http_serve` sends an answer under one `write_ms` deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.
 
 - A slice or array compares by its element type in the C++ type checker, whatever the
@@ -945,8 +950,6 @@ without a diagnostic, except where the entry says so.
   operands, and `null` does not convert to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
-- The self-hosted compiler type-checks deeply nested `?:` expressions in time quadratic
-  in their depth (5000 levels take about ten seconds; the C++ compiler is linear).
 - The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
   x86 (not a supported C ABI target).
 - On AArch64 Linux a variadic function written in Eskiu reads its arguments wrong: both

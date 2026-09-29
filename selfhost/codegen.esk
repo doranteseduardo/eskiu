@@ -155,6 +155,7 @@ struct Codegen {
     List<CgCabi> cabis;      // externs declared with a C-ABI-lowered signature
     int mstamp;              // member-chain type stamps handed out so far (see cg_chain_begin)
     int mactive;             // the stamp of the member chain being emitted (0 = none)
+    int tactive;             // the stamp of the `?:` tree being emitted (0 = none, see cg_tern_begin)
     List<string> vols;       // names of `volatile` variables (C++ volatileVars)
 }
 
@@ -255,6 +256,7 @@ void cg_init(Codegen* g) {
     g.bf_vol = "";
     g.mstamp = 0;
     g.mactive = 0;
+    g.tactive = 0;
     String_init(&g.out, 1024);
     String_init(&g.globals, 256);
     g.next = 0;
@@ -3317,6 +3319,42 @@ string cg_arm_common(Codegen* g, string tt, string et) {
     return tt;
 }
 
+void cg_ternary_etys(Codegen* g, *ExprNode e, List<*ExprNode>* chain, List<string>* etys);
+
+// Stamp every `?:` reachable from `e` through `?:` operands with its type, bottom-up, so
+// a nested ternary is typed once instead of once per enclosing level.
+void cg_tern_stamp(Codegen* g, *ExprNode e) {
+    *ExprNode n = e;
+    while (true) {
+        if (n.a != null && n.a.kind == EK_TERNARY) { cg_tern_stamp(g, n.a); }
+        if (n.b != null && n.b.kind == EK_TERNARY) { cg_tern_stamp(g, n.b); }
+        *ExprNode els = List_get<*ExprNode>(&n.kids, 0);
+        if (els == null || els.kind != EK_TERNARY) { break; }
+        n = els;
+    }
+    List<*ExprNode> chain; List_init<*ExprNode>(&chain, 4);
+    List<string> etys; List_init<string>(&etys, 4);
+    cg_ternary_etys(g, e, &chain, &etys);
+    int i = 0;
+    while (i < List_len<*ExprNode>(&chain)) {
+        *ExprNode c = List_get<*ExprNode>(&chain, i);
+        c.cg_ety = List_get<string>(&etys, i); c.cg_stamp = g.tactive;
+        i = i + 1;
+    }
+    List_free<*ExprNode>(&chain); List_free<string>(&etys);
+}
+
+// Open a stamp for the outermost `?:` being emitted (an expression declares no local and
+// function bodies are emitted from queues, so the types hold until it is done). Returns 1
+// when this call opened it (the caller closes it with g.tactive = 0).
+int cg_tern_begin(Codegen* g, *ExprNode e) {
+    if (g.tactive != 0) { return 0; }
+    g.mstamp = g.mstamp + 1;
+    g.tactive = g.mstamp;
+    cg_tern_stamp(g, e);
+    return 1;
+}
+
 // A ternary whose else arm is itself a ternary (`c1 ? a : c2 ? b : ...`) nests as deep
 // as the chain is long. Fills `chain` with its links (outermost first) and `etys` with
 // each link's type, computed once, bottom-up, instead of once per link.
@@ -3626,6 +3664,7 @@ string cg_etype_raw(Codegen* g, *ExprNode e) {
     }
     if (e.kind == EK_CAST) { return cg_apply_sub(g, e.sval); }
     if (e.kind == EK_TERNARY) {                        // common type of the two arms (C++ rule)
+        if (g.tactive != 0 && e.cg_stamp == g.tactive) { return e.cg_ety; }
         List<*ExprNode> chain; List_init<*ExprNode>(&chain, 4);
         List<string> etys; List_init<string>(&etys, 4);
         cg_ternary_etys(g, e, &chain, &etys);
@@ -4766,6 +4805,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
     }
 
     if (e.kind == EK_TERNARY) {
+        int topen = cg_tern_begin(g, e);
         // `cond ? then : else` — branch and evaluate exactly one arm into a result slot,
         // each arm coerced to the common type (mirrors the short-circuit && lowering).
         // A chain of ternaries in else position is emitted with a loop: each link's else
@@ -4838,6 +4878,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         }
         List_free<*ExprNode>(&chain); List_free<string>(&etys);
         List_free<string>(&rtys); List_free<string>(&ress); List_free<string>(&lends);
+        if (topen == 1) { g.tactive = 0; }
         v.op = ev.op; v.ty = ev.ty; v.ety = ev.ety; return v;
     }
 
