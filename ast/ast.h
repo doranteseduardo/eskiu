@@ -91,6 +91,9 @@ public:
     // The source file a top-level declaration was parsed from (stamped by the
     // parser; "" when synthesized). Diagnostics inside it name this file.
     std::string sourceFile;
+    // Parsed from an `import`ed file (a library): -Wall does not report its unused
+    // functions, as C does not for another translation unit's.
+    bool fromImport = false;
     explicit Decl(const std::string& name) : name(name) {}
     virtual ~Decl() = default;
 };

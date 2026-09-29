@@ -2538,7 +2538,7 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc file.esk --asan -o prog` | Instrument with AddressSanitizer (memory errors) and link its runtime |
 | `eskiuc file.esk --ubsan -o prog` | Insert trapping bounds checks (traps on out-of-bounds; no runtime) |
 | `eskiuc file.esk --safe -o prog` | Bounds-check every array and slice index at runtime (trap on out-of-range); off by default |
-| `eskiuc file.esk -Wall -o prog` | Enable lint warnings: unused vars/params/functions, assignment-in-condition, a local that may be used uninitialized |
+| `eskiuc file.esk -Wall -o prog` | Enable lint warnings in the program's own files (not in imported modules): unused vars/params/functions, assignment-in-condition, a local that may be used uninitialized |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
 | `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend. A level above 3 is rejected |
 | `eskiuc file.esk -o prog -lfoo` | Link, passing library flags through to the linker |

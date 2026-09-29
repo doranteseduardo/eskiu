@@ -448,6 +448,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     if (!subProg) {
                         hadError = true;
                     } else {
+                        for (const auto& d : subProg->declarations) if (d) d->fromImport = true;
                         declarations.insert(declarations.end(),
                             subProg->declarations.begin(), subProg->declarations.end());
                         for (const auto& l : subProg->linkLibs) addLinkLib(l);

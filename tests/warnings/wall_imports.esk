@@ -1,0 +1,7 @@
+// EXPECT-WARNING: unused function 'helper'
+// -Wall reports only the program's own unused functions, not those of the modules it
+// imports (they were reported under the user's file name: 54 for <http> alone).
+import <http>;
+import <tls>;
+int helper(int x) { return x + 1; }
+int main() { return 0; }

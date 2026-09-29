@@ -389,7 +389,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     // Record definition location
     if (!inInstance) definitionLocations[node->name] = {node->line, node->col, diagFile()};
     // -Wall: track top-level functions for unused-function reporting (skip main).
-    if (node->name != "main" && !inInstance) definedFns[node->name] = {node->line, node->col};
+    if (node->name != "main" && !inInstance && !node->fromImport) definedFns[node->name] = {node->line, node->col};
 
     currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
     bool prevInAsync = inAsyncFn;
