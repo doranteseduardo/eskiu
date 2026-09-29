@@ -812,6 +812,13 @@ input. What is still open is listed under Known issues.
   literal. Test `struct_lit_trailing_comma`.
 
 #### Final additions
+- A struct declared under `#pragma pack(N)` with N of 2 or more is aligned to the smaller
+  of N and its largest field alignment, as C does, also as a field or array element of
+  another struct, a union member, next to bitfields and as a generic type argument (it was
+  aligned to 1 there, so the outer struct could be smaller than clang's; a layout change
+  for such structs). The type checker folds `sizeof` the same way, and the C ABI lowering
+  uses that alignment and skips the padding of a struct laid out by hand. Tests
+  `pack_nested_c` (+ `.c`, also in `cabi_parity.sh`), `sizeof_pack_n_fold`.
 - On AArch64 Linux (and other non-Darwin, non-Windows AArch64 targets) a variadic
   function written in Eskiu reads its arguments right: `va_arg<T>` walks the AAPCS64
   `va_list` (general-register and FP/SIMD save areas, then the stack) as clang does,
@@ -1012,14 +1019,10 @@ without a diagnostic, except where the entry says so.
 - Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
   byte.
 - A few diagnostics report a different column in the two compilers.
-- The type checker does not fold `sizeof` of a struct under `#pragma pack(N)` with N of 2
-  or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.
+- The type checker does not fold `sizeof` of a struct with a `: 0` bitfield, so
+  constant-expression checks do not see it.
 - An enum member value cannot use `?:`, `&&`/`||`, or a `const` whose initializer is a
   ternary, although global `const` initializers accept them.
-- A struct declared under `#pragma pack(N)` with N of 2 or more is aligned to 1 as a field
-  of another struct (C aligns it to the smaller of N and its largest field alignment), so
-  such an outer struct can be smaller than clang's and its later fields sit at other
-  offsets. This changes the layout of a valid program shared with C, without a diagnostic.
 - An object-like macro that expands to the name of a function-like macro is not expanded
   as a call when the `(` is on the next line (`#define G F` then `G` / `(5)`).
 

@@ -78,6 +78,16 @@ N)`). The result is emitted as a packed LLVM struct (padding is explicit) and
 matches the C `#pragma pack(N)` ABI. Field access goes through a
 logical→physical index map (padding shifts indices).
 
+LLVM sees such a struct as 1-aligned, so its C alignment (`min(max-field-align,
+N)`) is recorded beside the type (`cAlignOverride` / `cg_set_calign`) and read
+through `cAlignOf` / `cg_c_align` wherever C alignment matters: a struct with a
+field (or array element) whose C alignment is above LLVM's is laid out the same
+way by hand (no cap) and records its own alignment, and so do a bitfield struct
+and a union holding one; the C ABI lowering classifies the aggregate with that
+alignment and takes the leaves of a hand-laid struct from its fields, not its
+padding runs. The type checker's `constLayout` / `sema_const_layout` fold
+`sizeof` with the same alignment.
+
 ### Bitfields
 
 A struct with bitfields is laid out the way the target's C compiler does it.

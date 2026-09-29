@@ -1,0 +1,81 @@
+// A `#pragma pack(N)` struct with N >= 2 is aligned to min(N, its largest field
+// alignment) as C does, also as a field (or array element) of another struct, a union
+// member, next to bitfields and as a generic type argument; the C side
+// (tests/pack_nested_c.c) reports sizeof and offsetof from the C compiler, fills the
+// structs through pointers and takes and returns them by value.
+extern int printf(string fmt, ...);
+extern int64 c_layout(int i);
+extern void c_fill_o4(*O4 p);
+extern int64 c_sum_o2(*O2 p);
+extern double c_take_p8(P8 v);
+extern int64 c_take_p2(P2 v);
+extern int64 c_take_o1(O1 v);
+extern int64 c_take_o2(O2 v);
+extern O1 c_ret_o1(int k);
+extern P8 c_ret_p8(double d);
+
+#pragma pack(2)
+struct P2 { char a; int b; }
+struct P2d { char a; double d; }
+#pragma pack(4)
+struct P4 { char a; int64 b; char c; }
+#pragma pack(8)
+struct P8 { float f; double d; }
+#pragma pack()
+struct O1 { char c; P2 p; char e; }
+struct O2 { char c; P4 q; int16 s; }
+struct O3 { char c; P2[3] arr; char e; }
+struct O4 { int16 h; O1 o; P8 z; }
+union U { char c; P4 q; }
+struct O5 { char c; U u; }
+struct O6 { uint8 a : 3; P4 q; uint8 b : 2; }
+struct O7 { char c; P2d d; }
+#pragma pack(2)
+struct PO { char c; P4 q; }
+#pragma pack()
+struct G<T> { char c; T v; }
+
+// The type checker folds the same sizes (an enum value is a constant expression).
+enum K { K_O1 = sizeof(O1), K_O2 = sizeof(O2), K_O3 = sizeof(O3), K_O4 = sizeof(O4),
+         K_O5 = sizeof(O5), K_O6 = sizeof(O6), K_O7 = sizeof(O7), K_PO = sizeof(PO) }
+
+int64 off(*void base, *void field) { return (int64)field - (int64)base; }
+
+int main() {
+    O1 o1; O2 o2; O3 o3; O4 o4; O5 o5; O6 o6; O7 o7; PO po; G<P4> g;
+    int64[28] v = {
+        (int64)sizeof(P2), (int64)sizeof(P2d), (int64)sizeof(P4), (int64)sizeof(P8),
+        (int64)sizeof(O1), off(&o1, &o1.p), off(&o1, &o1.e),
+        (int64)sizeof(O2), off(&o2, &o2.q), off(&o2, &o2.s),
+        (int64)sizeof(O3), off(&o3, &o3.arr), off(&o3, &o3.e),
+        (int64)sizeof(O4), off(&o4, &o4.o), off(&o4, &o4.z),
+        (int64)sizeof(U), (int64)sizeof(O5), off(&o5, &o5.u),
+        (int64)sizeof(O6), off(&o6, &o6.q),
+        (int64)sizeof(O7), off(&o7, &o7.d),
+        (int64)sizeof(PO), off(&po, &po.q),
+        (int64)sizeof(G<P4>), off(&g, &g.v),
+        (int64)sizeof(O4[2])
+    };
+    int bad = 0;
+    for (i in 0..28) {
+        if (v[i] != c_layout(i)) { printf("mismatch %d: eskiu %lld, C %lld\n", i, v[i], c_layout(i)); bad++; }
+    }
+    printf("layout %s\n", bad == 0 ? "ok" : "differs");
+    printf("folded %d %d %d %d %d %d %d %d\n", K_O1, K_O2, K_O3, K_O4, K_O5, K_O6, K_O7, K_PO);
+    for (i in 0..28) { printf("%lld ", v[i]); }
+    printf("\n");
+
+    c_fill_o4(&o4);
+    printf("o4 %d %d %d %d %d %.1f %.2f\n", o4.h, (int)o4.o.c, (int)o4.o.p.a, o4.o.p.b, (int)o4.o.e, o4.z.f, o4.z.d);
+    o2.c = (char)1; o2.q.a = (char)2; o2.q.b = 300000000000; o2.q.c = (char)4; o2.s = (int16)-5;
+    printf("o2 %lld\n", c_sum_o2(&o2));
+
+    P8 p8; p8.f = 1.5; p8.d = 2.25;
+    P2 p2; p2.a = (char)7; p2.b = 123456;
+    o1.c = (char)3; o1.p.a = (char)9; o1.p.b = -77; o1.e = (char)11;
+    printf("byval %.2f %lld %lld %lld\n", c_take_p8(p8), c_take_p2(p2), c_take_o1(o1), c_take_o2(o2));
+    O1 r = c_ret_o1(5);
+    P8 rp = c_ret_p8(0.5);
+    printf("ret %d %d %d %d %.1f %.2f\n", (int)r.c, (int)r.p.a, r.p.b, (int)r.e, rp.f, rp.d);
+    return 0;
+}
