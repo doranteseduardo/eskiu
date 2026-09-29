@@ -271,7 +271,7 @@ If a module has a `Foo` struct, its operations are `Foo_*`, not `foo_*`. (`<json
 
 **Inline assembly:** Uses `llvm::InlineAsm::get` with `AD_ATT` dialect. Operand references use `$0`, `$1` (LLVM IR syntax, not `%0` GCC syntax). Inside try bodies, asm statements are not converted to `invoke`; asm is assumed not to throw.
 
-**Target CPU:** without `--mcpu` the CPU is `"generic"` for every build, native included (as in clang): the host CPU name alone, without its feature list, could select instructions a VM or masked host lacks (SIGILL), and a native binary may run on another machine.
+**Target CPU:** without `--mcpu` the CPU is the target baseline for every build, native included (as in clang): `"apple-m1"` on arm64 Apple targets, `"generic"` elsewhere; the host CPU name alone, without its feature list, could select instructions a VM or masked host lacks (SIGILL), and a native binary may run on another machine.
 
 **Nested template instantiation (a template calling another with the param forwarded, e.g. `alloc<T>(n)` inside `List_push<T>`):** in `visit(TemplateCallExpr)`, resolve each explicit type arg through the active `typeParamOverride` before mangling/instantiating (`alloc<T>` inside `List_push<int>` must become `alloc_int`, not `alloc_T` → i32). And **save/restore** `typeParamOverride` around the inner instantiation rather than `clear()`ing it; clearing wipes the enclosing template's substitutions, so the outer body's `sizeof(T)`/param types silently revert to i32 after the inner call returns.
 

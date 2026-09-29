@@ -1,0 +1,14 @@
+// A native build on an arm64 Apple target defaults to the apple-m1 CPU, as clang does, so
+// LSE atomics (ldadd) assemble without --mcpu. Other targets keep the generic baseline.
+extern int printf(string fmt, ...);
+int main() {
+    int64 v = 5;
+    int64 inc = 3;
+#if defined(__APPLE__) && defined(__aarch64__)
+    asm("ldadd $1, xzr, [$0]" :: "r"(&v), "r"(inc) : "memory");
+#else
+    v = v + inc;
+#endif
+    printf("%lld\n", v);
+    return 0;
+}

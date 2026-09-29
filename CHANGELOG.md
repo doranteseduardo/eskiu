@@ -993,7 +993,7 @@ input. What is still open is listed under Known issues.
   links and runs them in `ubuntu:24.04` with gcc, runs the self-hosted type checker and
   code generator over the corpus, and checks the bootstrap fixpoint on Linux. A
   pre-release check, not a CI gate.
-- A native build targets the `generic` CPU unless `--mcpu` is given, as clang does. It used the host CPU's name without its feature list, which could select instructions a VM or a masked host does not support (a SIGILL), and made the binary depend on the build machine.
+- A native build targets the target's baseline CPU unless `--mcpu` is given, as clang does (`apple-m1` on arm64 Apple targets, `generic` elsewhere). It used the host CPU's name without its feature list, which could select instructions a VM or a masked host does not support (a SIGILL), and made the binary depend on the build machine.
 
 ### Known issues
 These are open in 0.9.2. None of them miscompiles a valid program.

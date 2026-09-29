@@ -75,11 +75,13 @@ static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
     const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
 #endif
     if (!target) return nullptr;
-    // Without --mcpu the CPU is "generic", native builds included, as in clang: the
-    // host CPU's name alone (without its feature list) could select instructions a
-    // VM or a masked host does not have (SIGILL), and a binary may run elsewhere.
+    // Without --mcpu the CPU is the target's baseline, native builds included, as in
+    // clang: "apple-m1" for arm64 Apple targets (every Apple arm64 CPU has its features,
+    // LSE atomics included), "generic" elsewhere. The host CPU's name alone (without its
+    // feature list) could select instructions a VM or a masked host lacks (SIGILL).
     llvm::StringRef cpu = !cg.targetCPU.empty() ? llvm::StringRef(cg.targetCPU)
-                                                : llvm::StringRef("generic");
+        : (triple.isAArch64() && triple.isOSDarwin() ? llvm::StringRef("apple-m1")
+                                                     : llvm::StringRef("generic"));
     llvm::TargetOptions opt;
     // Hard-float ABI for hard-float ARM triples (those ending in "hf", e.g. the
     // 3DS's armv6k-none-eabihf). LLVM parses "eabihf" into the OS field, not the
