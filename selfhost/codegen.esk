@@ -6384,7 +6384,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         // (return/break/continue/`?`) inside the body runs it. Fall-through and the
         // exceptional path still emit it below, so truncate WITHOUT running here.
         int trymark = List_len<*StmtNode>(&g.cleanups);
-        if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); }
+        // (An async lowering wrapper, is_err = 1, runs its finally only on the exceptional path.)
+        int fin_all = 0; if (st.s2 != null && st.is_err == 0) { fin_all = 1; }
+        if (fin_all == 1) { cg_push_cleanup(g, st.s2, 0); }
         List_push<int>(&g.try_cld, List_len<*StmtNode>(&g.cleanups));   // body defers join ldisp
         List_push<string>(&g.try_disp, ldisp);
         List_push<string>(&g.try_phi, "");
@@ -6443,7 +6445,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             // `finally` also runs when the handler leaves early (return/break/continue).
             int cmark = List_len<*StmtNode>(&g.cleanups);
             // A throw out of the handler runs it too (then the new exception propagates).
-            if (st.s2 != null) { cg_push_cleanup(g, st.s2, 0); cg_defer_pad(g); }
+            if (fin_all == 1) { cg_push_cleanup(g, st.s2, 0); cg_defer_pad(g); }
             cg_stmt(g, c.s1);                             // handler body
             cg_cleanups_trunc(g, cmark);
             cg_br(g, ldone);
@@ -6467,7 +6469,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         }
         g.terminated = 1;
         cg_label(g, ldone);
-        if (st.s2 != null) { cg_stmt(g, st.s2); }          // finally (normal / handled path)
+        if (fin_all == 1) { cg_stmt(g, st.s2); }           // finally (normal / handled path)
         return;
     }
     if (st.kind == SK_RETURN) {

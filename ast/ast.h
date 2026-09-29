@@ -443,6 +443,9 @@ public:
     StmtPtr               body;
     std::vector<CatchClause> catches;
     StmtPtr               finally; // may be nullptr
+    // Synthesized by the async lowering only: `finally` runs only when an exception leaves
+    // the try (no catch matched), not on a normal or early exit.
+    bool                  unwindOnly = false;
 
     TryStmt(StmtPtr body, std::vector<CatchClause> catches, StmtPtr finally)
         : body(std::move(body)), catches(std::move(catches)),

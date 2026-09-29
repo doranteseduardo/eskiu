@@ -317,7 +317,8 @@ void CodeGen::visit(TryStmt* node) {
     // fall-through and exception paths still emit it via finallyBB / the landingpad
     // below, so we pop this frame WITHOUT running it here.
     cleanupScopes.emplace_back();
-    if (node->finally) cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
+    // (An async lowering wrapper's `finally` runs only on the exceptional path.)
+    if (node->finally && !node->unwindOnly) cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
     // A defer in the body joins the catch dispatch from its own landingpad after running
     // the body's pending defers (see emitDeferPad).
     tryStack.push_back({cleanupScopes.size(), dispatchBB, {}});
@@ -400,7 +401,7 @@ void CodeGen::visit(TryStmt* node) {
         // A throw out of the handler runs it too (then the new exception propagates): the
         // handler's calls unwind to a pad that runs the pending cleanups, as after a defer.
         cleanupScopes.emplace_back();
-        if (node->finally) {
+        if (node->finally && !node->unwindOnly) {
             cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
             emitDeferPad();
         }
@@ -438,7 +439,7 @@ void CodeGen::visit(TryStmt* node) {
 
     // ── finally (normal, non-exceptional path) ─────────────────────────────
     builder->SetInsertPoint(finallyBB);
-    if (node->finally) node->finally->accept(this);
+    if (node->finally && !node->unwindOnly) node->finally->accept(this);
     if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(doneBB);
 
