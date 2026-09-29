@@ -134,6 +134,7 @@ private:
     // struct or union holding one, a bitfield struct laid out by hand. Only entries
     // above 1.
     std::map<llvm::StructType*, uint64_t> cAlignOverride;
+    int recvTmpCount = 0;   // hidden locals holding a generic dot-call's receiver address
     // The C alignment of `t`: its cAlignOverride (an array's element's), else LLVM's.
     uint64_t cAlignOf(llvm::Type* t) const;
     // Address of a field of a bitfield-layout struct `sname` at `base`.

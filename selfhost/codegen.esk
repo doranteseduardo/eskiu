@@ -4586,7 +4586,9 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_UNARY) {
         if (cg_streq(e.sval, "&") == 1) {               // address-of
-            CgVal lv = cg_lval(g, e.a);
+            // (an rvalue operand is only a synthesized receiver, `mk().get(0)` as
+            // `List_get(&mk(), 0)`: it is held in a temporary)
+            CgVal lv = cg_addr(g, e.a);
             v.op = lv.op; v.ty = "ptr"; v.ety = cg_cat("*", lv.ety); return v;
         }
         if (cg_streq(e.sval, "*") == 1) {               // deref (rvalue)

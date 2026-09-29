@@ -437,7 +437,18 @@ void CodeGen::visit(CallExpr* node) {
         if (FunctionDecl* gf = genericFreeMethod(baseType, member->member)) {
             bool selfPtr = tyq::isPtr(gf->params[0].first);
             ExprPtr recv = member->base;
-            if (selfPtr && !baseIsPtr) recv = std::make_shared<UnaryExpr>("&", member->base);
+            if (selfPtr && !baseIsPtr) {
+                // `&x`, or for an rvalue receiver (`mk().get(0)`) the address of a
+                // temporary holding it, passed through a hidden local.
+                std::string recvTy = getExprEskiuType(member->base);
+                llvm::Value* addr = evaluateAddress(member->base);
+                std::string tmpName = "__recv." + std::to_string(recvTmpCount++);
+                llvm::AllocaInst* slot = entryAlloca(llvm::PointerType::get(*context, 0), nullptr, tmpName);
+                builder->CreateStore(addr, slot);
+                defineSymbol(tmpName, slot);
+                defineVarType(tmpName, "*" + recvTy);
+                recv = std::make_shared<IdentExpr>(tmpName);
+            }
             else if (!selfPtr && baseIsPtr) recv = std::make_shared<UnaryExpr>("*", member->base);
             recv->line = member->line; recv->col = member->col;
             std::vector<ExprPtr> cargs{recv};

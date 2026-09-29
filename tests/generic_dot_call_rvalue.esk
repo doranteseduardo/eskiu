@@ -1,0 +1,13 @@
+// A generic dot-call on an rvalue receiver (`mk().get(0)`, a call result) passes the
+// address of a temporary holding it, as a method call on a struct value does.
+import <list>;
+extern int printf(string fmt, ...);
+struct Box<T> { T v; }
+T Box_get<T>(*Box<T> self) { return self.v; }
+List<int> mk() { List<int> l; l.init(2); l.push(4); l.push(9); return l; }
+Box<int64> mb(int64 x) { return Box<int64>{ v: x }; }
+int main() {
+    printf("%d %d %d\n", mk().get(0), mk().get(1), mk().len());
+    printf("%lld\n", mb(5000000000).get());
+    return 0;
+}
