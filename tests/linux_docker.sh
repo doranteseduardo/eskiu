@@ -148,8 +148,7 @@ docker run --rm --platform "$PLATFORM" -e "JOBS=${JOBS:-}" -v "$ROOT":/src:ro -v
 # Known failures on a target (CHANGELOG "Known issues"): reported as XFAIL, and as
 # XPASS once they pass, so the list can shrink; neither fails the run.
 case "$TRIPLE" in
-    aarch64*) KNOWN_FAIL="variadic generic_variadic" ;;   # va_arg on AArch64 Linux
-    *)        KNOWN_FAIL="" ;;
+    *) KNOWN_FAIL="" ;;
 esac
 known() { [[ " $KNOWN_FAIL " == *" $1 "* ]]; }
 run_pass=0; run_fail=0; xfail=0

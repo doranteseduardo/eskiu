@@ -203,8 +203,15 @@ other argument there, since a closure's environment cannot cross into C.
 **Variadics.** A `...` parameter makes the LLVM function `isVarArg`. The built-in
 `va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
-both; `va_start`/`va_arg<T>`/`va_end` lower to the corresponding LLVM
-intrinsics/instruction. An `extern` parameter of type `va_list` (`vprintf`,
+both; `va_start`/`va_end` lower to the LLVM intrinsics. `va_arg<T>` is the
+LLVM `va_arg` instruction, except on AArch64 outside Darwin and Windows, whose
+backend does not expand it for the AAPCS64 `va_list` `{__stack, __gr_top,
+__vr_top, __gr_offs, __vr_offs}`: there the compiler emits the read as clang does
+(an integer or pointer from the general-register save area while `__gr_offs` is
+negative, a `float`/`double` from the FP/SIMD save area in 16-byte steps while
+`__vr_offs` is, then `__stack` in 8-byte slots; `emitVaArg` / `cg_va_arg`). On
+x86-64 System V LLVM expands the instruction itself for the scalars `va_arg`
+reads. An `extern` parameter of type `va_list` (`vprintf`,
 `vsnprintf`) is declared `ptr` and gets what C passes for its `va_list`: the
 address of the storage on x86-64 System V and AArch64 outside Darwin and Windows
 (an array/struct type there), and the `char*` that `llvm.va_start` stored at

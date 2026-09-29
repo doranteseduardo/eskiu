@@ -812,6 +812,11 @@ input. What is still open is listed under Known issues.
   literal. Test `struct_lit_trailing_comma`.
 
 #### Final additions
+- On AArch64 Linux (and other non-Darwin, non-Windows AArch64 targets) a variadic
+  function written in Eskiu reads its arguments right: `va_arg<T>` walks the AAPCS64
+  `va_list` (general-register and FP/SIMD save areas, then the stack) as clang does,
+  where LLVM's `va_arg` instruction read it as a Darwin `char*` list. Tests
+  `variadic_regs` (+ `.c`), and `variadic`, `generic_variadic` under `linux_docker.sh`.
 - `-Wall` warns about a scalar local that may be used uninitialized: a read that some
   path through `if`/`else`, loops, `switch` fall-through, `match`, `try`/`catch`/`finally`,
   `defer`, early exits or a lambda capture reaches without an assignment (`&x` assigns;
@@ -1004,11 +1009,6 @@ without a diagnostic, except where the entry says so.
   in their depth (5000 levels take about ten seconds; the C++ compiler is linear).
 - The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit
   x86 (not a supported C ABI target).
-- On AArch64 Linux a variadic function written in Eskiu reads its arguments wrong: both
-  compilers lower `va_arg<T>` to LLVM's `va_arg` instruction, which the AArch64 backend
-  expands for the Darwin `char*` `va_list`, not the AAPCS64 one Linux uses (a miscompile;
-  `variadic` and `generic_variadic` fail there). macOS, x86-64 and calls to C variadic
-  functions such as `printf` are not affected.
 - Regex does not support `\Q..\E`, `(?:...)`, `(?i)`, `\p{...}` or code points above one
   byte.
 - A few diagnostics report a different column in the two compilers.
