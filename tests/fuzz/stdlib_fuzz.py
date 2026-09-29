@@ -92,7 +92,9 @@ def target_seeds(name):
         return [s.replace(b"\n", b" ") + b"\n" + t for s, t in
                 zip(literals("regex*.esk")[::2], literals("regex*.esk")[1::2])] + [
                 b"(a|b)*c\nababc", b"^\\d{2,4}$\n12345", b"[a-z]+@[a-z]+\\.com\nx@y.com",
-                b"((a*)*)*b\naaaaaaaaaaaaaaaaaaaaaaaa", b"(\n", b"[\n", b"a{1000}\na", b"\\\n"]
+                b"((a*)*)*b\naaaaaaaaaaaaaaaaaaaaaaaa", b"(\n", b"[\n", b"a{1000}\na", b"\\\n",
+                "(?i)[\u03c3k]+\\p{Lu}\n\u03a3\u03c2\u212aK\u00c9".encode(), b"(?s:.)\\Q.*\\E(?m)$\na\n.*\n",
+                b"(?P<x>\\pL+)|[^\\W\\d]\n\xff\xc3(\xe9"]
     if name == "hpack":
         return [bytes([4, 128]) + bytes.fromhex(h) for h in HPACK_RFC] + [bytes([3, 255]) + bytes.fromhex(h) for h in HPACK_RFC]
     if name == "http":
@@ -119,7 +121,9 @@ DICTS = {
     "base64": [b"=", b"==", b"+", b"/", b"\n", b"A", b"\xff"],
     "url": [b"%", b"%2", b"%41", b"+", b"&", b"=", b"a=", b"q=", b"\xff"],
     "regex": [b"(", b")", b"|", b"*", b"+", b"?", b"{", b"}", b"{2,}", b"[", b"]", b"[^", b"\\d", b"\\w",
-              b"\\s", b"\\", b"^", b"$", b".", b"\n", b"(?:", b"-"],
+              b"\\s", b"\\", b"^", b"$", b".", b"\n", b"(?:", b"-", b"(?i)", b"(?s:", b"(?m)", b"(?U)",
+              b"(?P<n>", b"\\Q", b"\\E", b"\\pL", b"\\p{Greek}", b"\\P{Lu}", b"[[:alpha:]]", b"\\x{212A}",
+              b"\xc3\xa9", b"\xe2\x84\xaa", b"\xf0\x9f\x98\x80", b"\xff", b"\xce"],
     "hpack": [b"\x80", b"\xff", b"\x7f", b"\x40", b"\x00", b"\x20", b"\x3f\xe1\x1f", b"\x10", b"\x0f"],
     "http": [b"\r\n", b"\r\n\r\n", b": ", b"Content-Length: ", b"content-length:", b"0", b"-1",
              b"Host: ", b" ", b"\t", b"\n", b"GET ", b" HTTP/1.1"],
