@@ -10,6 +10,7 @@
 // EXPECT-WARNING: 'n' may be used uninitialized
 // EXPECT-WARNING: 'p' may be used uninitialized
 // EXPECT-WARNING: 'q' may be used uninitialized
+// EXPECT-WARNING: 's' may be used uninitialized
 // -Wall: a scalar local read where some path has not assigned it (a read with no
 // assignment on any path in the straight-line prefix is an error instead).
 extern int printf(string f, ...);
@@ -106,11 +107,17 @@ int short_circuit(int c) {
     return q;
 }
 
+int or_then(bool b) {
+    int s;
+    if (b || (s = work(1)) > 0) return s;
+    return 0;
+}
+
 int main() {
     let o: Opt = Some(1);
     printf("%d\n", if_no_else(1) + else_if_missing(0) + loop_may_skip(1) +
                    switch_no_default(0) + switch_missing_case(0) + match_one_arm(o) +
                    catch_path(1) + break_early(1) + defer_reads(0) + lambda_capture(1) +
-                   ternary_arm(true) + short_circuit(1));
+                   ternary_arm(true) + short_circuit(1) + or_then(true));
     return 0;
 }

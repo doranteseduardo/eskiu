@@ -170,12 +170,40 @@ int ternary_both(bool c) {
     return r + p;
 }
 
+// The right operand of `&&` / `||` runs on the paths where the whole is true / false,
+// so what it assigns is assigned there.
+int and_then(bool b) {
+    int x;
+    if (b && (x = work(1)) > 0) { return x; }
+    return 0;
+}
+int or_else(bool b) {
+    int x;
+    if (!b || (x = work(1)) < 0) { return 0; }
+    return x;
+}
+int while_and(bool b) {
+    int x;
+    while (b && (x = work(1)) > 0) { return x; }
+    return 0;
+}
+int tern_and(bool b) {
+    int x;
+    return b && (x = work(2)) > 0 ? x : 0;
+}
+int not_and(bool b) {
+    int x;
+    if (!(b && (x = work(3)) > 0)) { return 0; }
+    return x;
+}
+
 int main() {
     let o: Opt = Some(1);
     printf("%d\n", both_arms(1) + chain_all(1) + loop_break(1) + for_ever(1) + do_once(1) +
                    labeled(3) + switch_all(1) + switch_fall(0) + match_all(o) +
                    try_catch(1) + try_finally(1) + addr(1) + fields() + (int)size_only() +
                    dead_code(1) + shadow() + defer_after(1) + lambda_body(1) +
-                   static_zero() + guard(1) + ternary_both(true));
+                   static_zero() + guard(1) + ternary_both(true) + and_then(true) +
+                   or_else(true) + while_and(true) + tern_and(true) + not_and(true));
     return 0;
 }

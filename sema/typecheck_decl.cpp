@@ -656,6 +656,38 @@ private:
 
     static bool logical(const std::string& op) { return op == "&&" || op == "||"; }
 
+    // Evaluate condition `e`, leaving in `onTrue` / `onFalse` the state on the paths where
+    // it is true / false: the right operand of `a && b` runs only when `a` is true, so what
+    // it assigns is assigned where the whole is true (`||` and `!` likewise). A chain of
+    // one operator is walked by a loop down its left spine.
+    void cond(Expr* e, St& onTrue, St& onFalse) {
+        if (auto* u = dynamic_cast<UnaryExpr*>(e); u && u->op == "!") {
+            cond(u->operand.get(), onFalse, onTrue);
+            return;
+        }
+        auto* b = dynamic_cast<BinaryExpr*>(e);
+        if (!b || !logical(b->op)) { expr(e); onTrue = s; onFalse = s; return; }
+        bool isAnd = b->op == "&&";
+        std::vector<BinaryExpr*> spine{b};
+        while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) {
+            if (l->op != b->op) break;
+            spine.push_back(l);
+        }
+        St t, f;
+        cond(spine.back()->left.get(), t, f);
+        for (size_t i = spine.size(); i-- > 0;) {
+            s = isAnd ? t : f;
+            St rt, rf;
+            cond(spine[i]->right.get(), rt, rf);
+            if (isAnd) { t = std::move(rt); join(f, rf); }
+            else { join(t, rt); f = std::move(rf); }
+        }
+        onTrue = std::move(t);
+        onFalse = std::move(f);
+        s = onTrue;
+        join(s, onFalse);
+    }
+
     void expr(Expr* e) {
         if (!e) return;
         if (auto* id = dynamic_cast<IdentExpr*>(e)) { read(id); return; }
@@ -669,10 +701,16 @@ private:
                 else expr(b->left.get());
                 return;
             }
-            // Operator chains are walked by a loop down the left spine. The right
-            // operands of `&&`/`||` run only on some paths: they read the running
-            // state, but what follows the chain does not see their assignments.
-            bool isLogical = logical(b->op);
+            // A `&&`/`||` value: what follows sees the join of its true and false paths.
+            if (logical(b->op)) {
+                St t, f;
+                cond(b, t, f);
+                s = std::move(t);
+                join(s, f);
+                return;
+            }
+            // Operator chains are walked by a loop down the left spine.
+            bool isLogical = false;
             std::vector<BinaryExpr*> spine{b};
             while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) {
                 if (l->op == "=" || logical(l->op) != isLogical) break;
@@ -685,11 +723,12 @@ private:
             return;
         }
         if (auto* t = dynamic_cast<TernaryExpr*>(e)) {
-            expr(t->condition.get());
-            St before = s;
+            St before, elseSt;
+            cond(t->condition.get(), before, elseSt);
+            s = before;
             expr(t->thenExpr.get());
             St a = s;
-            s = before;
+            s = elseSt;
             expr(t->elseExpr.get());
             join(s, a);
             return;
@@ -783,8 +822,9 @@ private:
             // An `else if` chain is walked with a loop.
             St out = dead();
             for (IfStmt* n = i; n;) {
-                expr(n->condition.get());
-                St elseSt = s;
+                St thenSt, elseSt;
+                cond(n->condition.get(), thenSt, elseSt);
+                s = std::move(thenSt);
                 block(n->thenBranch.get());
                 join(out, s);
                 s = std::move(elseSt);
@@ -799,8 +839,10 @@ private:
             return;
         }
         if (auto* w = dynamic_cast<WhileStmt*>(st)) {
-            expr(w->condition.get());
-            St exit = alwaysTrue(w->condition.get()) ? dead() : s;
+            St bodySt, exitSt;
+            cond(w->condition.get(), bodySt, exitSt);
+            s = std::move(bodySt);
+            St exit = alwaysTrue(w->condition.get()) ? dead() : exitSt;
             pushFrame(true, w->label);
             block(w->body.get());
             Frame f = popFrame();
@@ -823,8 +865,11 @@ private:
             // The init's declarations belong to the loop.
             if (auto* ib = dynamic_cast<BlockStmt*>(f->init.get())) { for (auto& it : ib->items) item(it); }
             else stmt(f->init.get());
-            expr(f->condition.get());
-            St exit = alwaysTrue(f->condition.get()) ? dead() : s;
+            St bodySt, exitSt;
+            if (f->condition) cond(f->condition.get(), bodySt, exitSt);
+            else { bodySt = s; exitSt = s; }
+            s = std::move(bodySt);
+            St exit = alwaysTrue(f->condition.get()) ? dead() : exitSt;
             pushFrame(true, f->label);
             block(f->body.get());
             join(s, frames.back().cont);
