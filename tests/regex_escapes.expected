@@ -24,6 +24,6 @@ a\b on "a": 0,1
 \e: error invalid escape sequence
 \x4: error invalid escape sequence
 \x{}: error invalid escape sequence
-\x{100}: error invalid escape sequence
+\x{110000}: error invalid escape sequence
 [\b]: error invalid escape sequence
 [\q]: error invalid escape sequence

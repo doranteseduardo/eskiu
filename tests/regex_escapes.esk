@@ -1,8 +1,9 @@
 // <regex> escapes follow RE2 (Go regexp): \b and \B are ASCII word
-// boundaries, \A and \z the start and end of text, \xHH / \x{H..} and octal
-// \0, \012, \101 give a byte, \a is BEL, and a backslash before punctuation is
-// that character. Any other escaped letter or digit (\q, \1, \8, \Z, \e, \x4,
-// [\b]) is a compile error; they all used to be silently the literal letter.
+// boundaries, \A and \z the start and end of text, \xHH / \x{H..} (up to
+// \x{10FFFF}) and octal \0, \012, \101 give a code point, \a is BEL, and a
+// backslash before punctuation is that character. Any other escaped letter or
+// digit (\q, \1, \8, \Z, \e, \x4, [\b]) is a compile error; they all used to be
+// silently the literal letter.
 import <regex>;
 extern int printf(string fmt, ...);
 
@@ -54,7 +55,7 @@ int main() {
     show("\\e", "e");
     show("\\x4", "x4");
     show("\\x{}", "x");
-    show("\\x{100}", "x");
+    show("\\x{110000}", "x");
     show("[\\b]", "b");
     show("[\\q]", "q");
     return 0;
