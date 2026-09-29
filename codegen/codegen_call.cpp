@@ -794,7 +794,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         llvm::Value* ap = evaluateLValue(node->args[0]);
         std::string t = typeParamOverride.empty() ? node->typeArgs[0]
                                                    : substType(node->typeArgs[0], typeParamOverride);
-        exprValueStack.push(builder->CreateVAArg(ap, getTypeFromString(t), "va.arg"));
+        exprValueStack.push(emitVaArg(ap, getTypeFromString(t)));
         return;
     }
     // Generic algebraic-variant construction: `Some<int>(5)`, `Left<A,B>(x)`. Type

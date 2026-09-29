@@ -569,6 +569,60 @@ llvm::Value* CodeGen::evalCVaList(const ExprPtr& arg) {
     return builder->CreateExtractValue(evaluateExpr(arg), {0});
 }
 
+// `va_arg<T>(ap)`: the next variadic argument, read from the `va_list` storage at `ap`.
+// On AArch64 outside Darwin and Windows the `va_list` is the AAPCS64 struct
+// {__stack, __gr_top, __vr_top, __gr_offs, __vr_offs}, which LLVM's `va_arg` does not
+// expand, so the read is spelled out as clang does (AArch64ABIInfo::EmitAAPCSVAArg): an
+// integer or pointer comes from the general-register save area and a float or double from
+// the FP/SIMD one while the offset is negative, then from the stack in 8-byte slots.
+// Other targets keep the `va_arg` instruction (a `char*` list, or x86-64 System V, which
+// LLVM expands for the scalars `va_arg` accepts).
+llvm::Value* CodeGen::emitVaArg(llvm::Value* ap, llvm::Type* ty) {
+    llvm::Triple t(module->getTargetTriple());
+    bool isFp = ty->isFloatingPointTy();
+    if (!t.isAArch64() || t.isOSDarwin() || t.isOSWindows() || (!isFp && !ty->isIntOrPtrTy()))
+        return builder->CreateVAArg(ap, ty, "va.arg");
+    const llvm::DataLayout& dl = module->getDataLayout();
+    uint64_t size = dl.getTypeAllocSize(ty);
+    bool be = dl.isBigEndian();
+    llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    llvm::Type* ptr = llvm::PointerType::get(*context, 0);
+    llvm::Type* vaTy = getTypeFromString("va_list");
+    unsigned offsField = isFp ? 4 : 3, topField = isFp ? 2 : 1;
+    int slot = isFp ? 16 : 8;
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* maybeReg = llvm::BasicBlock::Create(*context, "va.maybe_reg", fn);
+    llvm::BasicBlock* inReg = llvm::BasicBlock::Create(*context, "va.in_reg", fn);
+    llvm::BasicBlock* onStack = llvm::BasicBlock::Create(*context, "va.on_stack", fn);
+    llvm::BasicBlock* end = llvm::BasicBlock::Create(*context, "va.end", fn);
+    llvm::Value* offsP = builder->CreateStructGEP(vaTy, ap, offsField, "va.offs_p");
+    llvm::Value* offs = builder->CreateLoad(i32, offsP, "va.offs");
+    builder->CreateCondBr(builder->CreateICmpSGE(offs, llvm::ConstantInt::get(i32, 0)), onStack, maybeReg);
+    builder->SetInsertPoint(maybeReg);
+    llvm::Value* next = builder->CreateAdd(offs, llvm::ConstantInt::get(i32, slot), "va.next");
+    builder->CreateStore(next, offsP);
+    builder->CreateCondBr(builder->CreateICmpSLE(next, llvm::ConstantInt::get(i32, 0)), inReg, onStack);
+    builder->SetInsertPoint(inReg);
+    llvm::Value* top = builder->CreateLoad(ptr, builder->CreateStructGEP(vaTy, ap, topField), "va.top");
+    llvm::Value* regAddr = builder->CreateGEP(i8, top, builder->CreateSExt(offs, llvm::Type::getInt64Ty(*context)), "va.reg_addr");
+    if (be && size < (uint64_t)slot)
+        regAddr = builder->CreateConstGEP1_64(i8, regAddr, slot - size);
+    builder->CreateBr(end);
+    builder->SetInsertPoint(onStack);
+    llvm::Value* stackP = builder->CreateStructGEP(vaTy, ap, 0, "va.stack_p");
+    llvm::Value* stack = builder->CreateLoad(ptr, stackP, "va.stack");
+    builder->CreateStore(builder->CreateConstGEP1_64(i8, stack, 8), stackP);
+    llvm::Value* stackAddr = stack;
+    if (be && size < 8) stackAddr = builder->CreateConstGEP1_64(i8, stack, 8 - size);
+    builder->CreateBr(end);
+    builder->SetInsertPoint(end);
+    llvm::PHINode* addr = builder->CreatePHI(ptr, 2, "va.addr");
+    addr->addIncoming(regAddr, inReg);
+    addr->addIncoming(stackAddr, onStack);
+    return builder->CreateLoad(ty, addr, "va.arg");
+}
+
 // An argument for a C function pointer parameter (an extern's fn-typed parameter): the
 // C address of the named top-level function (through its C-ABI thunk when needed), or
 // null. The type checker rejects anything else (a closure value has an environment).
