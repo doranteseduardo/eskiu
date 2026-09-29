@@ -992,6 +992,7 @@ void TypeChecker::visit(CallExpr* node) {
             }
         }
         // Not a method — maybe a struct field holding a fn pointer: o.op(args).
+        size_t errsBeforeMember = errors.size();
         member->accept(this);
         std::string fieldTy = dealiasOperand(getExpressionType(member));
         if (fieldTy.size() > 3 && fieldTy.substr(0, 3) == "fn(") {
@@ -999,6 +1000,12 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = checkFnValueCall(node, "'" + member->member + "'", fieldTy);
             return;
         }
+        // On a non-struct receiver the error is the undefined method (as the self-host
+        // reports it), not also a member access.
+        std::string memberErr = "cannot access member '" + member->member + "' on non-struct type";
+        for (size_t k = errsBeforeMember; k < errors.size();)
+            if (errors[k].find(memberErr) != std::string::npos) errors.erase(errors.begin() + (long)k);
+            else ++k;
         errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
         expressionTypes[node] = "unknown";
         return;
@@ -1695,8 +1702,9 @@ void TypeChecker::visit(LambdaExpr* node) {
     captureBoundary.push_back((int)scopes.size());   // scopes below this are "outer"
 
     pushScope();
-    std::string savedReturn = currentFunctionReturnType;
+    std::string savedReturn = currentFunctionReturnType, savedRaw = currentRawReturnType;
     currentFunctionReturnType = node->returnType;
+    currentRawReturnType = node->returnType;
     // The body is its own function: a break/continue there cannot target a loop (or
     // switch) of the enclosing function.
     std::vector<std::string> savedLoops = std::move(loopLabelStack);
@@ -1734,6 +1742,7 @@ void TypeChecker::visit(LambdaExpr* node) {
         errorAt(node, "missing return in lambda returning '" + node->returnType +
                       "' (control can reach the end without returning a value)");
     currentFunctionReturnType = savedReturn;
+    currentRawReturnType = savedRaw;
     loopLabelStack = std::move(savedLoops);
     switchDepth = savedSwitch;
     inAsyncFn = savedAsync;

@@ -576,9 +576,11 @@ void TypeChecker::checkPendingInstances() {
         instSubs = p.subs;
         instContext = p.display;
         instDepth = p.depth;
+        instRawReturnType = p.fn->returnType;
         inInstance = true;
         inst.accept(this);
         inInstance = false;
+        instRawReturnType.clear();
         instDepth = 0;
         instContext.clear();
         instSubs.clear();

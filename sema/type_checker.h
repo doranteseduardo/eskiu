@@ -341,6 +341,10 @@ private:
 
     // Current function context for return type checking
     std::string currentFunctionReturnType;
+    // The same as written in the source (in a generic instance, in terms of the template's
+    // type parameters; instRawReturnType is the instance's template return type).
+    std::string currentRawReturnType;
+    std::string instRawReturnType;
 
     // Error tracking
     std::vector<std::string> errors;

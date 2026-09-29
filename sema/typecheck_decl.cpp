@@ -392,6 +392,7 @@ void TypeChecker::visit(FunctionDecl* node) {
     if (node->name != "main" && !inInstance && !node->fromImport) definedFns[node->name] = {node->line, node->col};
 
     currentFunctionReturnType = node->returnType;   // inner T (async body returns T)
+    currentRawReturnType = inInstance && !instRawReturnType.empty() ? instRawReturnType : node->returnType;
     bool prevInAsync = inAsyncFn;
     inAsyncFn = node->isAsync;
     bool prevVariadic = inVariadicFn;
@@ -1264,8 +1265,9 @@ void TypeChecker::visit(StructDecl* node) {
     // Type-check method bodies
     for (const auto& method : node->methods) {
         if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
-            std::string savedReturn = currentFunctionReturnType;
+            std::string savedReturn = currentFunctionReturnType, savedRaw = currentRawReturnType;
             currentFunctionReturnType = func->returnType;
+            currentRawReturnType = func->returnType;
             bool savedVariadic = inVariadicFn;
             inVariadicFn = !func->params.empty() && func->params.back().first == "...";
             pushScope();
@@ -1277,6 +1279,7 @@ void TypeChecker::visit(StructDecl* node) {
             if (func->body) func->body->accept(this);
             popScope();
             currentFunctionReturnType = savedReturn;
+            currentRawReturnType = savedRaw;
             inVariadicFn = savedVariadic;
         }
     }

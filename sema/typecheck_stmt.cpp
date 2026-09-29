@@ -247,7 +247,7 @@ void TypeChecker::visit(ReturnStmt* node) {
     if (finallyDepth > 0) errorAt(node, "'return' is not allowed inside a finally block");
     if (node->value) {
         hintIfaceTarget(node->value.get(), currentFunctionReturnType);
-        inferVariantTarget(node->value, currentFunctionReturnType, true);
+        inferVariantTarget(node->value, currentRawReturnType, true);
         node->value->accept(this);
         // Returning the address of a local or parameter yields a dangling pointer
         // (its stack frame is gone on return). Flag the clear case `return &x` where
