@@ -197,8 +197,6 @@ input. What is still open is listed under Known issues.
   through `...` (`printf("%d", f())`); these were codegen crashes or invalid IR. `return
   f();` of a `void` `f` in a `void` function, and `c ? f() : g()` with `void` arms as a
   statement, compile and run.
-- `await` inside a `try` statement of an `async` function is a located error (it was
-  invalid IR in the self-host and "expected at least one `await`" in C++).
 - A user operator (`s + s`, `s[i]`, `-s`, `s += s`, an overloaded `==` in a condition)
   is a call, so it ends a global's `?*T` narrowing like a plain call. A lambda body does
   not see a global's narrowing from where the lambda is written (it runs later), and a
@@ -231,9 +229,6 @@ input. What is still open is listed under Known issues.
 - Inside a lambda, taking the address of a captured variable's storage (`&n`, `&p.a`,
   `&arr[0]`) or slicing a captured array (`arr[0..2]`) is an error, like assigning to
   it: the address is the closure's copy, so a write through it was silently lost.
-- An `await` in a `switch` subject, a `for-in` iterable or a range bound
-  (`for (i in 0..await f())`) is a located type error in both compilers. The self-host
-  miscompiled the first two, and C++ failed in the async lowering without a location.
 - `alloc_with` (a call to the alloc method), `thread_create` and `thread_join` end a
   global's `?*T` narrowing like a call, and the rest of a block after an early-exit guard
   is not narrowed when the branch that falls through assigns the variable
@@ -756,8 +751,6 @@ input. What is still open is listed under Known issues.
 - A closure param of an async function is retained by the coroutine frame, so the
   call's lambda gets a heap environment even when the body only calls it. C++ rejected
   the program with an internal error. Test `async_closure_param`.
-- An `await` the async lowering can't place (`r += await f()`) is an error located at
-  that await, in both compilers (C++ reported "expected at least one `await`").
 
 #### Eighth audit round
 - Returning the address of a local through a pointer cast or a `?:` arm
@@ -815,8 +808,6 @@ input. What is still open is listed under Known issues.
 - The self-host accepts returning a slice of a slice parameter (`return s[1..s.len];`)
   and the address of an element of a slice parameter or slice field (`&s[1]`,
   `&p.sl[2]`); they were rejected as dangling. Test `slice_return_nonlocal`.
-- An `await` inside a `match` arm is an error located at the await with an accurate
-  message in both compilers. Test `run_cmd/await_in_match` (`run.sh`, `cg_parity.sh`).
 - A struct literal accepts a trailing comma (`P{ x: 5, y: 6, }`), like an array
   literal. Test `struct_lit_trailing_comma`.
 
@@ -903,7 +894,7 @@ input. What is still open is listed under Known issues.
   `switch` subject, a `for-in` iterable, a range bound, a compound assignment (its target
   evaluated once, before the await), a condition, a call argument and any larger
   expression (operands with side effects keep their order; `&&`, `||` and `?:` evaluate
-  an awaiting operand only when it runs). This replaces the located errors added earlier
+  an awaiting operand only when it runs). This replaces the located errors added earlier in this cycle
   in this release. A future dropped while suspended now runs the `defer`s and `finally`
   blocks pending at its await once. An `await` in a `finally` is a located error. Tests
   `async_try`, `async_try_cancel`, `async_await_positions`, `async_await_edges`,
