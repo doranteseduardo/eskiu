@@ -945,7 +945,12 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
         return sema_up(sema_up((int64)4, (int64)s.i64al) + (int64)8 * nw, ea);
     }
     if (d.kind != DK_STRUCT && d.kind != DK_UNION) { return (int64)0; }
-    if (d.pack_align >= 2) { return (int64)0; }
+    // `#pragma pack(N>=2)`: each alignment capped at N and bitfields packed back to back;
+    // codegen makes it an LLVM packed type, so as a field it is placed at alignment 1
+    // (mirrors the C++ constLayout). A union under pack(N) is left to codegen.
+    int64 packn = (int64)0;
+    if (d.is_packed == 0 && d.pack_align >= 2) { packn = (int64)d.pack_align; }
+    if (packn > (int64)0 && d.kind == DK_UNION) { return (int64)0; }
     int nf = List_len<Param>(&d.params);
     int hasbits = 0;
     int fi = 0;
@@ -965,6 +970,7 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
         int64 fsz = sema_const_layout(s, sema_subst_params(List_get<Param>(&d.params, fi).ty, &d.type_params, targs), &fal, depth + 1);
         if (fsz == (int64)0) { return (int64)0; }
         if (d.is_packed == 1) { fal = (int64)1; }
+        if (packn > (int64)0 && fal > packn) { fal = packn; }
         if (hasbits == 0) {
             if (fal > maxal) { maxal = fal; }
             if (d.kind == DK_UNION) { if (fsz > off) { off = fsz; } }
@@ -985,7 +991,7 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
             if (fal > maxal) { maxal = fal; }
             if (bw > 0) {
                 int64 ub = fsz * (int64)8;
-                if (d.is_packed == 0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
+                if (d.is_packed == 0 && packn == (int64)0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
                 bitpos = bitpos + (int64)bw;
             } else {
                 int64 fo = sema_up((bitpos + (int64)7) / (int64)8, fal);
@@ -996,6 +1002,7 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
     }
     if (hasbits == 1 && s.msbf == 0) { off = (bitpos + (int64)7) / (int64)8; }
     al[0] = maxal;
+    if (packn > (int64)0) { al[0] = (int64)1; }
     return sema_up(off, maxal);
 }
 int64 sema_const_sizeof(Sema* s, string t) {

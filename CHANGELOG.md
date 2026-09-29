@@ -913,6 +913,10 @@ input. What is still open is listed under Known issues.
   still a nullable pointer to `*T`. Its pointee must be checked before a second
   dereference, and it does not convert to `**T`. Tests `nullable_ptr_to_ptr`,
   `errors/nullable_ptr_to_ptr_deref`, `errors/nullable_ptr_to_ptr_drop`.
+- The type checker folds `sizeof` of a struct under `#pragma pack(N)` with N of 2 or more,
+  with or without bitfields, per target as code generation lays it out, so enum values,
+  array dimensions and `case` labels may use it. (A named `: 0` bitfield stays an error.)
+  Test `sizeof_pack_n_fold`.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.
@@ -994,6 +998,10 @@ without a diagnostic, except where the entry says so.
   or more, or of one with a `: 0` bitfield, so constant-expression checks do not see it.
 - An enum member value cannot use `?:`, `&&`/`||`, or a `const` whose initializer is a
   ternary, although global `const` initializers accept them.
+- A struct declared under `#pragma pack(N)` with N of 2 or more is aligned to 1 as a field
+  of another struct (C aligns it to the smaller of N and its largest field alignment), so
+  such an outer struct can be smaller than clang's and its later fields sit at other
+  offsets. This changes the layout of a valid program shared with C, without a diagnostic.
 - An object-like macro that expands to the name of a function-like macro is not expanded
   as a call when the `(` is on the next line (`#define G F` then `G` / `(5)`).
 

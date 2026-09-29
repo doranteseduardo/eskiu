@@ -1,0 +1,43 @@
+// The type checker folds `sizeof` of a `#pragma pack(N)` struct with N >= 2 (with or
+// without bitfields, and nested in another struct) exactly as codegen lays it out, so an
+// enum value or array dimension built from it agrees with the run-time `sizeof`.
+extern int printf(string fmt, ...);
+
+#pragma pack(2)
+struct P2 { char a; int b; }
+struct B2 { char a; uint32 x : 3; int64 y; }
+struct Q2 { uint8 f : 5; uint16 g : 9; char h; }
+#pragma pack(4)
+struct P4 { char a; int64 b; char c; }
+struct B4 { int16 a : 3; int64 b : 40; char c; }
+#pragma pack()
+struct Outer { char c; P2 p; P4 q; }
+
+enum Size {
+    S_P2 = sizeof(P2),
+    S_B2 = sizeof(B2),
+    S_Q2 = sizeof(Q2),
+    S_P4 = sizeof(P4),
+    S_B4 = sizeof(B4),
+    S_Outer = sizeof(Outer),
+    S_Arr = sizeof(P2[3])
+}
+
+int[S_P2 + S_Outer] buf;
+
+int diff() {
+    return (S_P2 - (int)sizeof(P2)) | (S_B2 - (int)sizeof(B2)) | (S_Q2 - (int)sizeof(Q2)) |
+           (S_P4 - (int)sizeof(P4)) | (S_B4 - (int)sizeof(B4)) | (S_Outer - (int)sizeof(Outer)) |
+           (S_Arr - (int)sizeof(P2[3]));
+}
+
+int main() {
+    printf("%d %d %d %d %d %d %d\n", S_P2, S_B2, S_Q2, S_P4, S_B4, S_Outer, S_Arr);
+    printf("diff %d dim %d\n", diff(), (int)(sizeof(buf) / sizeof(int)));
+    int k = 6;
+    switch (k) {
+        case S_P2: printf("six\n"); break;
+        default: printf("other\n"); break;
+    }
+    return 0;
+}

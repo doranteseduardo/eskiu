@@ -730,7 +730,7 @@ sizeof(Grid)   // 12  (3 float fields)
 
 The operand may also be an expression: `sizeof(*p)`, `sizeof(a[0])`, `sizeof(s.field)` give the size of the expression's type, and the expression is not evaluated (`sizeof(f())` does not call `f`). The operand is read as a type when it is a bare name or a spelling built over a primitive or an already declared type (`sizeof(*Node)`, `sizeof(int[4])`); otherwise it is an expression.
 
-The type checker folds `sizeof` of a scalar, a pointer, a closure, an interface, a slice, a fixed array, and a struct or union of those, using the target's layout (`--target`), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate `case`) and `enum` member values see it. The size of a generic instance, a sum type, a bitfield struct or a `#pragma pack(N)` struct with `N > 1` is known only to code generation, which still folds it to a constant.
+The type checker folds `sizeof` of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and `#pragma pack(N)` included), using the target's layout (`--target`), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate `case`) and `enum` member values see it. The size of a union declared under `#pragma pack(N)` with `N > 1` is known only to code generation, which still folds it to a constant.
 
 ### 5.9 Conditional (ternary)
 

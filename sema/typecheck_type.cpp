@@ -372,7 +372,12 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
             auto it = structs.find(nm);
             if (it == structs.end()) return false;
             const StructInfo& si = it->second;
-            if (si.packAlign >= 2) return false;
+            // `#pragma pack(N>=2)`: each field aligned to min(its alignment, N), the size
+            // rounded to the largest of those. Codegen lowers it to an LLVM packed type, so
+            // as a field of another struct it is placed at alignment 1 (a union is not
+            // packed that way: left to codegen).
+            unsigned long long packN = si.packAlign >= 2 ? (unsigned long long)si.packAlign : 0;
+            if (packN && si.isUnion) return false;
             if (std::any_of(si.fields.begin(), si.fields.end(), [](const StructDecl::Field& f) { return f.bitWidth != 0; }))
                 return !si.isUnion && bitfieldLayout(si, size, align, depth);
             unsigned long long off = 0, maxAl = 1;
@@ -381,11 +386,12 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
                 unsigned long long fs = 0, fa = 1;
                 if (!constLayout(f.type, fs, fa, depth + 1)) return false;
                 if (si.packAlign == 1) fa = 1;
+                if (packN) fa = std::min(fa, packN);
                 maxAl = std::max(maxAl, fa);
                 if (si.isUnion) off = std::max(off, fs);
                 else off = up(off, fa) + fs;
             }
-            align = maxAl;
+            align = packN ? 1 : maxAl;
             size = up(off, maxAl);
             return true;
         }
@@ -400,6 +406,9 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
                                  unsigned long long& align, int depth) {
     auto up = [](unsigned long long x, unsigned long long a) { return a ? (x + a - 1) / a * a : x; };
     bool packed = si.packAlign == 1;
+    // `#pragma pack(N>=2)` caps each alignment at N and packs bitfields back to back; the
+    // struct is an LLVM packed type (alignment 1 as a field), as codegen lays it out.
+    unsigned long long packN = si.packAlign >= 2 ? (unsigned long long)si.packAlign : 0;
     unsigned long long structAlign = 1;
     if (layoutInfo.msBitfields) {
         // Each storage word and normal field is an element of the natural (or packed) layout.
@@ -410,6 +419,7 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
             unsigned long long fs = 0, fa = 1;
             if (!constLayout(f.type, fs, fa, depth + 1)) return false;
             if (packed) fa = 1;
+            if (packN) fa = std::min(fa, packN);
             if (f.bitWidth > 0) {
                 unsigned long long stBits = fs * 8, w = (unsigned long long)f.bitWidth;
                 if (!open || curBits != stBits || curOff + w > stBits) {
@@ -422,20 +432,22 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
                 off = up(off, fa) + fs; structAlign = std::max(structAlign, fa);
             }
         }
-        align = structAlign;
+        align = packN ? 1 : structAlign;
         size = up(off, structAlign);
         return true;
     }
+    bool contiguous = packed || packN;
     unsigned long long bitpos = 0;
     for (const auto& f : si.fields) {
         if (f.bitWidth < 0) return false;
         unsigned long long fs = 0, fa = 1;
         if (!constLayout(f.type, fs, fa, depth + 1)) return false;
         if (packed) fa = 1;
+        if (packN) fa = std::min(fa, packN);
         structAlign = std::max(structAlign, fa);
         if (f.bitWidth > 0) {
             unsigned long long w = (unsigned long long)f.bitWidth, unitBits = fs * 8;
-            if (!packed && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits)
+            if (!contiguous && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits)
                 bitpos = up(bitpos, unitBits);
             bitpos += w;
         } else {
@@ -443,7 +455,7 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
             bitpos = (off + fs) * 8;
         }
     }
-    align = structAlign;
+    align = packN ? 1 : structAlign;
     size = up((bitpos + 7) / 8, structAlign);
     return true;
 }
