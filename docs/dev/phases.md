@@ -74,7 +74,7 @@ The project follows two phases:
 | Template type-argument inference: direct (`max(3, 5)`) and composite (`List_get(&nums, i)`) | ✅ |
 | One-step linking: `eskiuc -o prog` invokes the system C toolchain; `#pragma link("name")` and implied libraries (C++ runtime, pthread), `--no-default-libs` (v0.9.2) | ✅ |
 | Multi-file compilation: `eskiuc a.esk b.esk -o prog` | ✅ |
-| `-Wall` warnings: unused vars/params/functions, assignment-in-condition | ✅ |
+| `-Wall` warnings: unused vars/params/functions, assignment-in-condition, maybe-uninitialized locals | ✅ |
 | `<bytes>` and `HashMap<K,V>` stdlib (v0.2.1) | ✅ |
 | Bounded generics: `<T: Iface>` / `<T: A + B>` constraints (v0.2.2) | ✅ |
 | Primitives satisfy constraints via a free function (v0.2.3) | ✅ |

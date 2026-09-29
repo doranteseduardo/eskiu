@@ -821,6 +821,11 @@ input. What is still open is listed under Known issues.
   literal. Test `struct_lit_trailing_comma`.
 
 #### Final additions
+- `-Wall` warns about a scalar local that may be used uninitialized: a read that some
+  path through `if`/`else`, loops, `switch` fall-through, `match`, `try`/`catch`/`finally`,
+  `defer`, early exits or a lambda capture reaches without an assignment (`&x` assigns;
+  aggregates set field by field are not tracked). A read no path assigns stays an error.
+  C++ compiler only. Tests `warnings/maybe_uninit`, `warnings/maybe_uninit_ok`.
 - The stdlib HTTP servers (`http_serve`, `http_serve_async`, `http2_serve_async`, the
   TLS servers) disconnect a client that sends nothing, trickles its bytes or stops
   reading: a request head (or the HTTP/2 preface and SETTINGS) must arrive within
@@ -896,8 +901,6 @@ input. What is still open is listed under Known issues.
 These are open in 0.9.2 and planned for 0.9.3. None of them miscompiles a valid program
 without a diagnostic, except where the entry says so.
 
-- A local read that is uninitialized on only some paths is accepted, as in C (the check
-  only catches a read with no assignment on any path).
 - The C++ compiler does not treat a type alias inside a composite type as its target, so
   `Box<F>` and `Box<int>` (with `type F = int`) are different types there and a valid
   assignment between them is rejected. Spell the target type.
