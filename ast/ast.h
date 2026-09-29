@@ -437,6 +437,8 @@ public:
         std::string type;
         std::string name;
         StmtPtr     body;
+        int         line = 0;   // of the variable name
+        int         col = 0;
     };
     StmtPtr               body;
     std::vector<CatchClause> catches;

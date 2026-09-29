@@ -414,7 +414,7 @@ void TypeChecker::visit(TryStmt* node) {
     if (node->body) node->body->accept(this);
     for (auto& c : node->catches) {
         pushScope();
-        defineSymbol(c.name, c.type);
+        defineSymbol(c.name, c.type, c.line, c.col, false);
         if (c.body) c.body->accept(this);
         popScope();
     }

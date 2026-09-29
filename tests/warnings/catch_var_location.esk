@@ -1,0 +1,7 @@
+// EXPECT-WARNING: catch_var_location.esk:5:38: warning: unused variable 's'
+// -Wall: an unused catch variable is reported at its name (it was reported at 0:0).
+int main() {
+    int r = 0;
+    try { throw "x"; } catch (string s) { r = 1; }
+    return r;
+}
