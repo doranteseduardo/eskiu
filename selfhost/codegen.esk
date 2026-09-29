@@ -680,8 +680,7 @@ void cg_emit_tydecl(Codegen* g, *DeclNode d);
 int cg_struct_has_bf(*DeclNode d);
 string cg_ensure_struct_inst(Codegen* g, string spelling) {
     spelling = cg_apply_sub(g, spelling);                 // resolve T→concrete before mangling
-    spelling = cg_dealias(g, spelling);                   // an alias arg is its target (one instance)
-    string mangled = cg_mangle(spelling);
+    string mangled = cg_mangle(cg_dealias(g, spelling));  // an alias arg is its target (one instance)
     if (cg_seen_inst(g, mangled) == 1) { return mangled; }
     string base = cg_gen_base(spelling);
     *DeclNode gd = cg_find_gstruct(g, base);
@@ -784,9 +783,10 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
     // concrete type (`alloc<Param>`) before mangling — else we'd emit a bogus `alloc_T`.
     spelling = cg_apply_sub(g, spelling);
     // A type alias among the args is its target (`unbox<F>` with `type F = int` is
-    // `unbox<int>`), so both spellings share one instance.
-    spelling = cg_dealias(g, spelling);
-    string mangled = cg_mangle(spelling);
+    // `unbox<int>`), so both spellings share one instance: the name is mangled from the
+    // dealiased spelling. The args keep their spelling for substitution (an alias of an
+    // array keeps its grouping there: `*T` with `T = IS` is a pointer to the slice).
+    string mangled = cg_mangle(cg_dealias(g, spelling));
     if (cg_seen_inst(g, mangled) == 1) { return mangled; }
     string base = cg_gen_base(spelling);
     *DeclNode gd = cg_find_gfn(g, base);

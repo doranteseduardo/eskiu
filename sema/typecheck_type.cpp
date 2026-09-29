@@ -1019,9 +1019,11 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
     // type machinery is const-agnostic. (const survives only in stored declared
     // types, read back by the const-correctness checks.)
     std::string type = tyq::strip(rawType);
-    // A type alias inside a composite type is its target (`Box<F>` is `Box<int>`,
-    // `fn(int)->IF` is `fn(int)->int`), so both spellings are one type.
-    if (!typeAliases.empty() && (type.find('<') != std::string::npos || type.find("fn(") != std::string::npos))
+    // A type alias inside a fn type is its target (`fn(int)->IF` is `fn(int)->int`), so
+    // both spellings are one type. A template instance (`Box<F>`) keeps its argument
+    // spellings for substitution (an array alias keeps its grouping: `*T` with `T = IS`
+    // is a pointer to the slice) and is named through mangleTemplate, which dealiases.
+    if (!typeAliases.empty() && type.find("fn(") != std::string::npos && ty::Type::parse(type).isFn())
         type = ty::dealiasSpelling(type, typeAliases);
     // Inside a generic instance, the template's type parameters name its concrete
     // arguments. Substituted once, at the outermost call (the arguments are concrete).
