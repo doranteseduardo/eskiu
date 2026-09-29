@@ -41,6 +41,7 @@ Restart VS Code after installing.
 | `import <mem>;` stdlib imports and `type Alias = …` | namespace / declaration |
 | `int uint8 float double bool char string void` … | support.type |
 | Function names at declaration and call sites | entity.name.function |
+| A name after `.` (a field or method, keywords included: `j.int(5)`) | variable.other.member / entity.name.function |
 | Type names (uppercase-starting) | entity.name.type |
 | Template parameters `<T, E>`, incl. bounded `<T: Iface>` / `<T: A + B>` | entity.name.type.parameter |
 | `+= == && \| ^ << ..` operators (incl. the `..` range) | keyword.operator |
