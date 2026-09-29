@@ -812,6 +812,12 @@ input. What is still open is listed under Known issues.
   literal. Test `struct_lit_trailing_comma`.
 
 #### Final additions
+- A generic struct's `*T` field with an array or slice type argument (`Box<int[3]>`,
+  `Box<int[]>`, or an alias such as `type IS = int[]`) is a pointer to that array or
+  slice: the C++ type checker rejected `Box<int[3]>{ p: &a }` and the self-hosted
+  compiler emitted invalid IR for `Box<IS>{ p: &s }` (it read the field as a slice of
+  pointers). A `T[2]` field with `T = int[3]` is two arrays of three in both. Test
+  `generic_alias_slice_ptr`.
 - A struct declared under `#pragma pack(N)` with N of 2 or more is aligned to the smaller
   of N and its largest field alignment, as C does, also as a field or array element of
   another struct, a union member, next to bitfields and as a generic type argument (it was
