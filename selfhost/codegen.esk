@@ -485,10 +485,12 @@ string cg_mangle(string s) {
     return (string)buf;
 }
 
-// Apply the active substitution to a type spelling: identifier runs equal to a type
-// parameter are replaced by its concrete type. "*T" -> "*int", "List<T>" -> "List<int>".
-string cg_apply_sub(Codegen* g, string t) {
-    if (List_len<CgSub>(&g.cursub) == 0) { return t; }
+// Replace each identifier run of `t` named in `subs` by its spelling (*changed = 1 when
+// one was), keeping the grouping of a pointer to, or an array of, an array or slice
+// spelling: a star before one goes after it (`*T`, T = int[3], is `int[3]*`) and extra
+// dimensions go in front of its own (`T[2]`, T = int[], is `int[2][]`). Shared by the
+// generic substitution (cg_apply_sub) and alias expansion (cg_dealias_d).
+string cg_subst_ids(string t, List<CgSub>* subs, int* changed) {
     int n = 0; while (t[n] != 0) { n = n + 1; }
     String out; String_init(&out, n + 8);
     int i = 0;
@@ -503,46 +505,10 @@ string cg_apply_sub(Codegen* g, string t) {
             }
             string id = cg_sub_str(t, s, i);
             string rep = id;
-            int k = 0; int m = List_len<CgSub>(&g.cursub);
+            int k = 0; int m = List_len<CgSub>(subs);
             while (k < m) {
-                CgSub sb = List_get<CgSub>(&g.cursub, k);
-                if (cg_streq(sb.param, id) == 1) { rep = sb.arg; }
-                k = k + 1;
-            }
-            String_append(&out, rep);
-        } else {
-            String_push(&out, (char)c);
-            i = i + 1;
-        }
-    }
-    return (string)String_cstr(&out);
-}
-
-// Resolve type aliases in a type spelling, token-wise (each identifier that names an
-// alias is replaced by its underlying type, recursively up to `depth` for chained
-// aliases). Always-on (unlike cg_apply_sub's generic substitution); a no-op when no
-// aliases are registered. `type u8 = uint8` → "u8" becomes "uint8"; "*u8" → "*uint8".
-string cg_dealias_d(Codegen* g, string t, int depth) {
-    if (depth > 8) { return t; }
-    if (List_len<CgSub>(&g.aliases) == 0) { return t; }
-    int n = 0; while (t[n] != 0) { n = n + 1; }
-    String out; String_init(&out, n + 8);
-    int i = 0; int changed = 0;
-    while (i < n) {
-        int c = (int)t[i];
-        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
-            int s = i;
-            while (i < n) {
-                int d = (int)t[i];
-                if ((d >= 97 && d <= 122) || (d >= 65 && d <= 90) || (d >= 48 && d <= 57) || d == 95) { i = i + 1; }
-                else { break; }
-            }
-            string id = cg_sub_str(t, s, i);
-            string rep = id;
-            int k = 0; int m = List_len<CgSub>(&g.aliases);
-            while (k < m) {
-                CgSub sb = List_get<CgSub>(&g.aliases, k);
-                if (cg_streq(sb.param, id) == 1) { rep = sb.arg; changed = 1; }
+                CgSub sb = List_get<CgSub>(subs, k);
+                if (cg_streq(sb.param, id) == 1) { rep = sb.arg; changed[0] = 1; }
                 k = k + 1;
             }
             // A pointer to an alias of an array (`*AI`, `type AI = int[3]`) is `int[3]*`: a
@@ -600,8 +566,29 @@ string cg_dealias_d(Codegen* g, string t, int depth) {
             i = i + 1;
         }
     }
-    if (changed == 1) { return cg_dealias_d(g, (string)String_cstr(&out), depth + 1); }
     return (string)String_cstr(&out);
+}
+
+// Apply the active substitution to a type spelling: identifier runs equal to a type
+// parameter are replaced by its concrete type. "*T" -> "*int", "List<T>" -> "List<int>",
+// "*T" with T = int[] -> "int[]*" (a pointer to the slice).
+string cg_apply_sub(Codegen* g, string t) {
+    if (List_len<CgSub>(&g.cursub) == 0) { return t; }
+    int changed = 0;
+    return cg_subst_ids(t, &g.cursub, &changed);
+}
+
+// Resolve type aliases in a type spelling, token-wise (each identifier that names an
+// alias is replaced by its underlying type, recursively up to `depth` for chained
+// aliases). Always-on (unlike cg_apply_sub's generic substitution); a no-op when no
+// aliases are registered. `type u8 = uint8` → "u8" becomes "uint8"; "*u8" → "*uint8".
+string cg_dealias_d(Codegen* g, string t, int depth) {
+    if (depth > 8) { return t; }
+    if (List_len<CgSub>(&g.aliases) == 0) { return t; }
+    int changed = 0;
+    string r = cg_subst_ids(t, &g.aliases, &changed);
+    if (changed == 1) { return cg_dealias_d(g, r, depth + 1); }
+    return r;
 }
 string cg_dealias(Codegen* g, string t) { return cg_dealias_d(g, t, 0); }
 

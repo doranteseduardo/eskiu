@@ -402,7 +402,12 @@ void appendStr(const Type& t, std::string& out) {
     if (t.nullable) out += "?";                     // checked nullable pointer `?*T`
     switch (t.kind) {
         case Kind::Pointer:
-            if (t.ptrLeading) { out += "*"; appendStr(*t.pointee, out); }
+            // A pointer to an array or slice (from substituting `*T`, T = int[3]) is spelled
+            // with a trailing star: a leading one would bind looser than the brackets.
+            if (t.ptrLeading && !((t.pointee->kind == Kind::Array || t.pointee->kind == Kind::Slice)
+                                  && t.pointee->leadingQuals.empty() && !t.pointee->nullable)) {
+                out += "*"; appendStr(*t.pointee, out);
+            }
             else { appendStr(*t.pointee, out); out += t.bindingConst ? "*const" : "*"; }
             break;
         case Kind::Array:

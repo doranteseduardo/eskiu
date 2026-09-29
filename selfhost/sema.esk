@@ -2740,7 +2740,10 @@ string sema_strip_ptr_sp(string t) {
 }
 
 // Token-wise substitution: each identifier in `t` found in `names` becomes the matching
-// entry of `args` (unchanged past the end of `args`). "*T" -> "*int".
+// entry of `args` (unchanged past the end of `args`). "*T" -> "*int". An array or slice
+// argument keeps its grouping (codegen cg_subst_ids): a star before it goes after it
+// (`*T`, T = int[], is `int[]*`, a pointer to the slice) and dimensions after it go in
+// front of its own (`T[2]`, T = int[3], is `int[2][3]`).
 string sema_subst_names(string t, List<string>* names, List<string>* args) {
     if (List_len<string>(args) == 0) { return t; }
     int n = 0; while (t[n] != 0) { n = n + 1; }
@@ -2762,7 +2765,27 @@ string sema_subst_names(string t, List<string>* names, List<string>* args) {
                 if (sema_streq(List_get<string>(names, k), id) == 1) { rep = List_get<string>(args, k); }
                 k = k + 1;
             }
-            String_append(&out, rep);
+            int rn = sema_slen(rep);
+            if (rep != id && rn > 0 && (int)rep[rn - 1] == 93) {
+                if (i < n && (int)t[i] == 91) {
+                    int ds = i;
+                    while (i < n && (int)t[i] == 91) {
+                        while (i < n && (int)t[i] != 93) { i = i + 1; }
+                        if (i < n) { i = i + 1; }
+                    }
+                    int rb = sema_arr_bracket(rep);
+                    if (rb > 0) { rep = sema_cat(sema_cat(sema_sub_str(rep, 0, rb), sema_sub_str(t, ds, i)), sema_sub_str(rep, rb, rn)); }
+                    else { rep = sema_cat(rep, sema_sub_str(t, ds, i)); }
+                    String_append(&out, rep);
+                } else {
+                    int stars = 0;
+                    while (st - stars > 0 && (int)t[st - stars - 1] == 42) { stars = stars + 1; }
+                    out.len = out.len - (int64)stars;
+                    out.data[out.len] = (char)0;
+                    String_append(&out, rep);
+                    while (stars > 0) { String_push(&out, '*'); stars = stars - 1; }
+                }
+            } else { String_append(&out, rep); }
         } else {
             String_push(&out, (char)c);
             i = i + 1;
