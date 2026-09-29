@@ -1860,6 +1860,21 @@ void check_name_not_keyword(Parser* p) {
     return s;
 }
 
+// One `"constraint"(expr), ...` list of asm operands (outputs or inputs) onto `items`.
+void parse_asm_operands(Parser* p, List<*StmtNode>* items, int kind) {
+    while (p_at(p) != RPAREN && p_at(p) != COLON && p_at(p) != EOF_TOKEN) {
+        Token ct = p_adv(p);       // constraint string
+        p_expect(p, LPAREN, "Expected '('");
+        *StmtNode op = ast_new_stmt();
+        op.kind = kind;
+        int _dl1 = 0; op.name = tok_str_value(p.src, ct, &_dl1);
+        op.expr = parse_expr(p);
+        p_expect(p, RPAREN, "Expected ')'");
+        List_push<*StmtNode>(items, op);
+        if (p_at(p) == COMMA) { p_adv(p); } else { break; }
+    }
+}
+
 *StmtNode parse_asm(Parser* p) {
     p_adv(p);                              // 'asm'
     p_expect(p, LPAREN, "Expected '('");
@@ -1867,21 +1882,12 @@ void check_name_not_keyword(Parser* p) {
     s.kind = SK_ASM;
     int _dl0 = 0; s.name = tok_str_value(p.src, p_adv(p), &_dl0);   // the asm string (decoded)
     List_init<*StmtNode>(&s.items, 2);
-    if (p_at(p) == COLON) {                // outputs (skipped) : inputs : clobbers
+    if (p_at(p) == COLON) {                // outputs : inputs : clobbers
         p_adv(p);
+        parse_asm_operands(p, &s.items, SK_ASMOUTPUT);
         if (p_at(p) == COLON) {
             p_adv(p);
-            while (p_at(p) != RPAREN && p_at(p) != COLON && p_at(p) != EOF_TOKEN) {
-                Token ct = p_adv(p);       // constraint string
-                p_expect(p, LPAREN, "Expected '('");
-                *StmtNode inp = ast_new_stmt();
-                inp.kind = SK_ASMINPUT;
-                int _dl1 = 0; inp.name = tok_str_value(p.src, ct, &_dl1);
-                inp.expr = parse_expr(p);
-                p_expect(p, RPAREN, "Expected ')'");
-                List_push<*StmtNode>(&s.items, inp);
-                if (p_at(p) == COMMA) { p_adv(p); } else { break; }
-            }
+            parse_asm_operands(p, &s.items, SK_ASMINPUT);
             if (p_at(p) == COLON) {        // clobbers: kept as `~{c},...` in s.type
                 p_adv(p);
                 s.type = "";

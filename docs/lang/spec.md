@@ -2497,16 +2497,18 @@ The string is passed verbatim to the assembler. No inputs, outputs, or clobbers 
 The extended form follows GCC-compatible inline assembly syntax:
 
 ```
-asm("template" :: inputs : clobbers);
+asm("template" : outputs : inputs : clobbers);
 ```
 
 ```eskiu
 asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
+asm("add $0, $1, $2" : "=r"(sum) : "r"(a), "r"(b));     // AArch64
+asm("addq $1, $0" : "+r"(acc) : "r"(b));                // x86-64
 ```
 
-- **Template**: the assembly instruction string; operands are referenced LLVM-style by `$0`, `$1`, … (with modifiers like `${0:b}` for a sub-register), not `%0`/`%1`.
-- **Outputs**: not yet supported. The output section must be empty, so the extended form always begins with `::` (the parser has no output-operand rule and `AsmStmt` has no output field). Return results through a clobbered register or memory instead.
-- **Inputs**: list of `"constraint"(expr)` pairs. Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
+- **Template**: the assembly instruction string; operands are referenced LLVM-style by `$0`, `$1`, … (with modifiers like `${0:b}` for a sub-register), not `%0`/`%1`. The outputs are numbered first, then the inputs, as in GCC and clang.
+- **Outputs**: list of `"constraint"(lvalue)` pairs, written by the asm. A constraint starts with `=` (written only: `"=r"`, the early-clobber `"=&r"`, a specific register such as `"=a"`, or memory `"=m"`) or `+` (read and written: `"+r"`, `"+m"`). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a `const`) of an integer type other than `bool`, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A `+r` output also feeds the lvalue's current value in through an input tied to it.
+- **Inputs**: list of `"constraint"(expr)` pairs (a constraint may not start with `=` or `+`). Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
 - **Clobbers**: comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
 
 Sections are separated by `:`. Trailing sections may be omitted if empty.
@@ -2514,8 +2516,8 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 ### 15.3 Notes
 
 - Inline assembly is only meaningful when targeting a platform whose assembler understands the instructions. Use `--target` to select the appropriate triple (see §16).
-- `asm` is a statement, not an expression. It does not produce a value.
-- The compiler performs no validation of the assembly template or constraints beyond forwarding them to LLVM.
+- `asm` is a statement, not an expression. It does not produce a value; results come back through output operands.
+- Beyond the output rules above, the compiler performs no validation of the assembly template or constraints; they are forwarded to LLVM.
 
 ---
 

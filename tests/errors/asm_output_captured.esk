@@ -1,0 +1,7 @@
+// EXPECT-ERROR: cannot assign to captured variable 'y'
+int main() {
+    int64 y = 0;
+    fn()->void f = void() { asm("nop" : "=r"(y)); };
+    f();
+    return (int)y;
+}

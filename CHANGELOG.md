@@ -881,6 +881,12 @@ input. What is still open is listed under Known issues.
   (stamped bottom-up when the outermost one is emitted): 5000 levels took about ten
   seconds to type-check, 20000 now compile in about a second. `tests/deep/gen.sh` gains
   `ternary_mixed_20k`.
+- Inline `asm` takes output operands, in both compilers: `asm("op" : "=r"(y) : "r"(x))`
+  with register outputs (`=r`, `=&r`, several at once), read-write `+r`, and memory
+  `=m`/`+m`, numbered like clang (outputs first) and lowered as clang does. An output
+  must be a writable lvalue of a non-bool integer, floating-point or pointer type (not a
+  bitfield). Tests `inline_asm_out` (x86-64 IR checked by `run.sh` and `cg_parity.sh`),
+  `errors/asm_output_*`, `errors/asm_input_output_constraint`.
 - `http_serve` sends an answer under one `write_ms` deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.
 
 - A slice or array compares by its element type in the C++ type checker, whatever the
@@ -946,8 +952,8 @@ without a diagnostic, except where the entry says so.
   bind the value to a local first.
 - `await` is rejected inside `try`, a `match` arm, a `switch` subject, a range bound and a
   compound assignment; bind the awaited value to a local first.
-- There is no spelling for a pointer to a nullable pointer, inline `asm` has no output
-  operands, and `null` does not convert to an interface value.
+- There is no spelling for a pointer to a nullable pointer, and `null` does not convert
+  to an interface value.
 - A method that mutates a captured value inside a lambda acts on the closure's copy.
 - The `<json>` methods named `int` and `bool` cannot be called with dot syntax.
 - The C ABI lowering of `extern` struct and union arguments is not implemented for 32-bit

@@ -384,9 +384,48 @@ void TypeChecker::visit(ContinueStmt* node) {
     }
 }
 
+// Extended asm: an output (`"=r"(y)`, `"+r"(y)`, `"=m"(y)`) is written by the asm, so it
+// must be a writable lvalue of a scalar type (an integer other than bool, a float or a
+// pointer); an input's constraint cannot be an output's.
 void TypeChecker::visit(AsmStmt* node) {
-    for (auto& [constraint, expr] : node->inputs)
+    for (auto& [constraint, expr] : node->outputs) {
+        if (!expr) continue;
+        expr->accept(this);
+        if (constraint.empty() || (constraint[0] != '=' && constraint[0] != '+')) {
+            errorAt(node, "asm output constraint '" + constraint + "' must start with '=' or '+'");
+            continue;
+        }
+        if (isSliceLen(expr.get()) || !isLvalueExpr(expr.get())) {
+            errorAt(node, "asm output operand must be an lvalue (a variable, field, element, or dereference)");
+            continue;
+        }
+        std::string cname;
+        if (assignsToConst(expr.get(), cname))
+            errorAt(node, "asm output operand is read-only ('" + cname + "')");
+        checkCapturedWrite(node, expr.get());
+        if (auto* m = dynamic_cast<MemberExpr*>(expr.get())) {
+            std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
+            auto sit = structs.find(bt);
+            if (sit != structs.end())
+                for (const auto& f : sit->second.fields)
+                    if (f.name == m->member && f.bitWidth > 0)
+                        errorAt(node, "asm output operand cannot be a bitfield ('" + m->member + "')");
+        }
+        std::string t = getExpressionType(expr.get());
+        std::string n = normalizeType(t);
+        if (!n.empty() && n[0] == '?') n = n.substr(1);
+        bool scalar = (isNumericType(n) && n != "bool") || n == "string" ||
+                      (isPointerType(n) && n.back() != ']');
+        if (t != "unknown" && !scalar)
+            errorAt(node, "asm output operand must have an integer, floating-point or pointer type, got '" + t + "'");
+        if (auto* id = dynamic_cast<IdentExpr*>(expr.get()))
+            narrowedNonNull.erase(narrowKey(id->name));   // the asm may store null
+    }
+    for (auto& [constraint, expr] : node->inputs) {
+        if (!constraint.empty() && (constraint[0] == '=' || constraint[0] == '+'))
+            errorAt(node, "asm input constraint '" + constraint + "' cannot start with '=' or '+'");
         if (expr) expr->accept(this);
+    }
 }
 
 void TypeChecker::visit(ThreadJoinStmt* node) {

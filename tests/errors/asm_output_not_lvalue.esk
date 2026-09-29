@@ -1,0 +1,6 @@
+// EXPECT-ERROR: asm output operand must be an lvalue
+int main() {
+    int64 a = 1;
+    asm("mov $0, $1" : "=r"(a + 1) : "r"(a));
+    return 0;
+}

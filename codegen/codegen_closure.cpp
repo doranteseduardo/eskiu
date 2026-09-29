@@ -545,32 +545,81 @@ void CodeGen::visit(ThreadJoinStmt* node) {
     });
 }
 
+// Extended asm (GCC syntax) as LLVM inline asm, numbered like clang: the outputs first
+// (`$0`...), then the inputs. A register output (`=r`, `=&r`) is a result of the call,
+// stored into its lvalue afterwards (several make a struct result); a memory output
+// (`=m`) is an indirect `=*m` operand taking the lvalue's address. A read-write `+r`
+// also feeds the lvalue's value in through an input tied to the output (`"0"`), and
+// `+m` passes the address again as a `*m` input; those follow the explicit inputs.
 void CodeGen::visit(AsmStmt* node) {
-    // Build LLVM inline asm from GCC-style extended asm syntax
     std::vector<llvm::Value*> argVals;
+    std::vector<llvm::Type*> elemTypes;       // per argument: its elementtype (indirect), or null
     std::string constraints;
+    auto addConstraint = [&](const std::string& c) {
+        if (!constraints.empty()) constraints += ",";
+        constraints += c;
+    };
+    struct RegOut { llvm::Value* addr; llvm::Type* ty; bool vol; };
+    std::vector<RegOut> regOuts;
+    struct Tied { std::string constraint; llvm::Value* val; llvm::Type* elem; };
+    std::vector<Tied> tied;
 
+    for (size_t i = 0; i < node->outputs.size(); ++i) {
+        const std::string& c = node->outputs[i].first;
+        const ExprPtr& e = node->outputs[i].second;
+        bool rw = !c.empty() && c[0] == '+';
+        std::string body = c.substr(1);
+        llvm::Type* ty = getTypeFromString(getExprEskiuType(e));
+        llvm::Value* addr = evaluateLValue(e);
+        bool vol = volatileRooted(e.get());
+        if (body == "m") {
+            addConstraint("=*m");
+            argVals.push_back(addr); elemTypes.push_back(ty);
+            if (rw) tied.push_back({"*m", addr, ty});
+        } else {
+            addConstraint("=" + body);
+            regOuts.push_back({addr, ty, vol});
+            if (rw) {
+                auto* cur = builder->CreateLoad(ty, addr);
+                cur->setVolatile(vol);
+                tied.push_back({std::to_string(i), cur, nullptr});
+            }
+        }
+    }
     for (auto& [constraint, expr] : node->inputs) {
-        argVals.push_back(evaluateExpr(expr));
-        if (!constraints.empty()) constraints += ",";
-        constraints += constraint;
+        argVals.push_back(evaluateExpr(expr)); elemTypes.push_back(nullptr);
+        addConstraint(constraint);
     }
-    for (const auto& clob : node->clobbers) {
-        if (!constraints.empty()) constraints += ",";
-        constraints += "~{" + clob + "}";
+    for (auto& t : tied) {
+        argVals.push_back(t.val); elemTypes.push_back(t.elem);
+        addConstraint(t.constraint);
     }
+    for (const auto& clob : node->clobbers) addConstraint("~{" + clob + "}");
     // sideeffect + alignstack are standard for kernel inline asm
     if (!constraints.empty()) constraints += ",~{dirflag},~{fpsr},~{flags}";
 
     std::vector<llvm::Type*> argTypes;
     for (auto* v : argVals) argTypes.push_back(v->getType());
+    llvm::Type* retTy = llvm::Type::getVoidTy(*context);
+    if (regOuts.size() == 1) retTy = regOuts[0].ty;
+    else if (regOuts.size() > 1) {
+        std::vector<llvm::Type*> fields;
+        for (auto& r : regOuts) fields.push_back(r.ty);
+        retTy = llvm::StructType::get(*context, fields);
+    }
 
-    auto* fty = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(*context), argTypes, false);
+    auto* fty = llvm::FunctionType::get(retTy, argTypes, false);
     auto* iasm = llvm::InlineAsm::get(
         fty, node->asmString, constraints,
         /*hasSideEffects=*/true, /*isAlignStack=*/false,
         llvm::InlineAsm::AD_ATT);
 
-    builder->CreateCall(iasm, argVals);
+    auto* call = builder->CreateCall(iasm, argVals);
+    for (size_t i = 0; i < elemTypes.size(); ++i)
+        if (elemTypes[i])
+            call->addParamAttr((unsigned)i, llvm::Attribute::get(*context, llvm::Attribute::ElementType, elemTypes[i]));
+    for (size_t i = 0; i < regOuts.size(); ++i) {
+        llvm::Value* v = regOuts.size() == 1 ? (llvm::Value*)call : builder->CreateExtractValue(call, {(unsigned)i});
+        builder->CreateStore(v, regOuts[i].addr)->setVolatile(regOuts[i].vol);
+    }
 }

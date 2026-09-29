@@ -98,7 +98,8 @@ HANDLED="undefined_var arg_count undefined_type await_outside_async async_no_awa
          case_decl_redefined case_decl_out_of_scope
          index_oob_sizeof_struct switch_dup_sizeof_ptr const_div_zero_sizeof_expr
          enum_value_not_const enum_value_expr_range variant_nullary_parens type_nesting_too_deep
-         switch_dup_sizeof_generic switch_dup_sizeof_adt switch_dup_sizeof_bitfield switch_dup_sizeof_iface"
+         switch_dup_sizeof_generic switch_dup_sizeof_adt switch_dup_sizeof_bitfield switch_dup_sizeof_iface
+         asm_output_not_lvalue asm_output_constraint asm_output_const asm_output_struct asm_output_bool asm_output_bitfield asm_output_captured asm_input_output_constraint"
 HANDLED="$(echo $HANDLED)"   # collapse the multi-line list to single spaces for matching
 
 DRIVER=selfhost/esk_main.esk

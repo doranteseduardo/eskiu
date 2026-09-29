@@ -210,8 +210,10 @@ match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // varian
 
 try-stmt      = 'try' block ( 'catch' '(' type IDENT ')' block )* ( 'finally' block )?
 defer-stmt    = ( 'defer' | 'errdefer' ) statement   // block-exit cleanup, LIFO; errdefer runs only on the `?`-error path
-asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
-                              ( ':' STRING_LIT (',' STRING_LIT)* )? )? ')' ';'
+asm-stmt      = 'asm' '(' STRING_LIT ( ':' asm-operands                 // outputs: "=r" / "+r" / "=m" (lvalues)
+                              ( ':' asm-operands                  // inputs
+                              ( ':' STRING_LIT (',' STRING_LIT)* )? )? )? ')' ';'
+asm-operands  = ( asm-operand (',' asm-operand)* )?
 asm-operand   = STRING_LIT '(' expr ')'
 thread-join-stmt = 'thread_join' '(' expr ')' ';'
 ```

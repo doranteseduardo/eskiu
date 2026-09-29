@@ -476,18 +476,22 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
-// Inline assembly: asm("cli") or asm("op" : : "r"(x) : "rax")
+// Inline assembly: asm("cli") or asm("op" : "=r"(y) : "r"(x) : "rax")
 class AsmStmt : public Stmt {
 public:
     std::string asmString;
-    // Extended asm: each entry is (constraint, expression)
+    // Extended asm: each entry is (constraint, expression). An output's constraint
+    // starts with `=` (written) or `+` (read and written); its expression is an lvalue.
+    std::vector<std::pair<std::string, ExprPtr>> outputs;
     std::vector<std::pair<std::string, ExprPtr>> inputs;
     std::vector<std::string> clobbers;
 
     AsmStmt(std::string asmStr,
+            std::vector<std::pair<std::string, ExprPtr>> outputs = {},
             std::vector<std::pair<std::string, ExprPtr>> inputs = {},
             std::vector<std::string> clobbers = {})
         : asmString(std::move(asmStr)),
+          outputs(std::move(outputs)),
           inputs(std::move(inputs)),
           clobbers(std::move(clobbers)) {}
 

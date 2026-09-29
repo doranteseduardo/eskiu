@@ -75,7 +75,15 @@ if [ "$#" -eq 0 ]; then
     vb="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/volatile_bitfield.esk 2>/dev/null | grep -c 'volatile i16')"
     if [ "$vb" = 12 ]; then echo "ok    volatile_bitfield  (IR: 12 volatile accesses)"
     else echo "FAIL  volatile_bitfield  (IR: $vb volatile i16 accesses, expected 12)"; fail=1; fi
-    # An await the async lowering can't place is a located error.
+    # Inline asm outputs lower like clang's on x86-64 (tests/run.sh checks the C++ side).
+    total=$((total + 1))
+    ia="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --target x86_64-unknown-linux-gnu --test-codegen tests/inline_asm_out.esk 2>/dev/null)"
+    if [[ "$ia" == *"call { i64, i64 } asm sideeffect"* && "$ia" == *'"=r,r,0,~{dirflag}'* \
+       && "$ia" == *'"=&r,r,~{dirflag}'* && "$ia" == *'"=*m,*m,~{memory}'* \
+       && "$(grep -c 'ptr elementtype(i64)' <<< "$ia")" -eq 2 ]]; then
+        echo "ok    inline_asm_out  (x86-64 IR: outputs lowered like clang)"
+    else echo "FAIL  inline_asm_out  (x86-64 asm output lowering)"; fail=1; fi
+    # An await the async lowering can't place is an error located at that await.
     total=$((total + 1))
     aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_defer.esk 2>&1 >/dev/null)"
     case "$aw" in

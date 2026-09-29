@@ -244,7 +244,7 @@ enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
     SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
-    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER
+    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER, SK_ASMOUTPUT
 }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
@@ -736,7 +736,8 @@ void print_stmt(*StmtNode s, int d) {
         while (i < n) {
             *StmtNode inp = List_get<*StmtNode>(&s.items, i);
             pind(d + 1);
-            printf("input: \"%s\"\n", inp.name);
+            if (inp.kind == SK_ASMOUTPUT) { printf("output: \"%s\"\n", inp.name); }
+            else { printf("input: \"%s\"\n", inp.name); }
             print_expr(inp.expr, d + 2);
             i = i + 1;
         }

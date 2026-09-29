@@ -517,8 +517,12 @@ void ASTPrinter::visit(LambdaExpr* node) {
 
 void ASTPrinter::visit(AsmStmt* node) {
     println("AsmStmt: asm(\"" + node->asmString + "\")");
-    if (!node->inputs.empty()) {
+    if (!node->outputs.empty() || !node->inputs.empty()) {
         indentLevel++;
+        for (const auto& [c, e] : node->outputs) {
+            println("output: \"" + c + "\"");
+            indentLevel++; e->accept(this); indentLevel--;
+        }
         for (const auto& [c, e] : node->inputs) {
             println("input: \"" + c + "\"");
             indentLevel++; e->accept(this); indentLevel--;

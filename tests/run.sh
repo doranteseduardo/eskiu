@@ -271,6 +271,17 @@ vb_n="$("$ESKIUC" --test-codegen "$here/volatile_bitfield.esk" 2>/dev/null | gre
 if [[ "$vb_n" -eq 12 ]]; then ok "codegen/volatile-bitfield"
 else bad "codegen/volatile-bitfield" "$vb_n volatile i16 accesses in the IR, expected 12"; fi
 
+# Inline asm outputs lower like clang's on x86-64: two register outputs are a struct
+# result, `+r` ties an input to its output, `=m`/`+m` are indirect `ptr elementtype`.
+ia="$("$ESKIUC" --target x86_64-unknown-linux-gnu --test-codegen "$here/inline_asm_out.esk" 2>/dev/null)"
+if [[ "$ia" == *"call { i64, i64 } asm sideeffect"* && "$ia" == *'"=r,r,0,~{dirflag}'* \
+   && "$ia" == *'"=&r,r,~{dirflag}'* && "$ia" == *'"=*m,*m,~{memory}'* \
+   && "$(grep -c 'ptr elementtype(i64)' <<< "$ia")" -eq 2 ]]; then
+    ok "codegen/inline-asm-outputs-x86-64"
+else
+    bad "codegen/inline-asm-outputs-x86-64" "asm output constraints or operands differ from clang's lowering"
+fi
+
 # <net>'s struct timeval is two C `long`s: 8 bytes on 32-bit ARM, 16 on 64-bit.
 tv_arm="$("$ESKIUC" --target armv7-unknown-linux-gnueabihf --test-codegen "$here/run_cmd/net_timeval.esk" 2>/dev/null)"
 tv_x64="$("$ESKIUC" --target x86_64-unknown-linux-gnu --test-codegen "$here/run_cmd/net_timeval.esk" 2>/dev/null)"

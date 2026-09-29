@@ -109,7 +109,11 @@ struct TemplateCapturePass {
             walkStmt(tr->finally.get()); return;
         }
         if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s)) { walkExpr(tj->tid.get()); return; }
-        if (auto* a = dynamic_cast<AsmStmt*>(s)) { for (auto& in : a->inputs) walkExpr(in.second.get()); return; }
+        if (auto* a = dynamic_cast<AsmStmt*>(s)) {
+            for (auto& out : a->outputs) walkExpr(out.second.get());
+            for (auto& in : a->inputs) walkExpr(in.second.get());
+            return;
+        }
         // BreakStmt / ContinueStmt: no children
     }
     void walkExpr(Expr* e) {

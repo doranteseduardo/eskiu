@@ -1,0 +1,47 @@
+// Extended inline assembly with output operands, numbered like clang (outputs first):
+// a register output (`=r`), an early-clobber one (`=&r`), two outputs at once, a
+// read-write register (`+r`), a memory output (`=m`), a read-write memory operand (`+m`),
+// and outputs into a field and through a pointer. Both compilers emit it; run.sh and
+// cg_parity.sh also check the x86-64 IR.
+extern int printf(string fmt, ...);
+
+struct P { int64 a; int64 b; }
+
+int main(int argc, string* argv) {
+    int64 a = 40 + (int64)argc;
+    int64 b = 2;
+    int64 sum = 0;
+    int64 cp = 0;
+    int64 lo = 0;
+    int64 hi = 0;
+    int64 acc = 100;
+    int64 mem = 0;
+    int64 cnt = 7;
+    P p;
+    p.a = 0; p.b = 0;
+    int64 cell = 0;
+    *int64 ptr = &cell;
+#ifdef __aarch64__
+    asm("add $0, $1, $2" : "=r"(sum) : "r"(a), "r"(b));
+    asm("mov $0, $1" : "=&r"(cp) : "r"(a));
+    asm("mov $0, $2\n\tmov $1, $3" : "=r"(lo), "=r"(hi) : "r"(b), "r"(a));
+    asm("add $0, $0, $1" : "+r"(acc) : "r"(b));
+    asm("str $1, $0" : "=m"(mem) : "r"(a));
+    asm("ldr x9, $0\n\tadd x9, x9, #1\n\tstr x9, $0" : "+m"(cnt) :: "x9", "memory");
+    asm("mov $0, $1" : "=r"(p.b) : "r"(b));
+    asm("mov $0, $1" : "=r"(*ptr) : "r"(a));
+#endif
+#ifdef __x86_64__
+    asm("leaq ($1,$2), $0" : "=r"(sum) : "r"(a), "r"(b));
+    asm("movq $1, $0" : "=&r"(cp) : "r"(a));
+    asm("movq $2, $0\n\tmovq $3, $1" : "=r"(lo), "=r"(hi) : "r"(b), "r"(a));
+    asm("addq $1, $0" : "+r"(acc) : "r"(b));
+    asm("movq $1, $0" : "=m"(mem) : "r"(a));
+    asm("incq $0" : "+m"(cnt) :: "memory");
+    asm("movq $1, $0" : "=r"(p.b) : "r"(b));
+    asm("movq $1, $0" : "=r"(*ptr) : "r"(a));
+#endif
+    printf("sum %lld cp %lld lo %lld hi %lld\n", sum, cp, lo, hi);
+    printf("acc %lld mem %lld cnt %lld p.b %lld cell %lld\n", acc, mem, cnt, p.b, cell);
+    return 0;
+}

@@ -5618,6 +5618,57 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
 }
 
 string sema_void_type_err(Sema* s, string t0);   // fwd
+// An extended-asm output (`"=r"(y)`, `"+r"(y)`, `"=m"(y)`): the asm writes it, so it must
+// be a writable lvalue of a scalar type, an integer other than bool, a float or a pointer
+// (mirrors the C++ visit(AsmStmt)).
+void sema_asm_output(Sema* s, string c, *ExprNode e) {
+    sema_expr(s, e);
+    if ((int)c[0] != 61 && (int)c[0] != 43) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: asm output constraint '%s' must start with '=' or '+'\n", s.filename, s.line, s.col, c);
+        return;
+    }
+    if (sema_is_slice_len(s, e) == 1 || sema_is_lvalue(s, e) == 0) {
+        sema_error(s, "asm output operand must be an lvalue (a variable, field, element, or dereference)");
+        return;
+    }
+    if (sema_is_readonly_lvalue(s, e) == 1) { sema_error(s, "asm output operand is read-only"); }
+    sema_check_captured_write(s, e);
+    if (e.kind == EK_MEMBER) {
+        *DeclNode bsd = sema_find_struct(s, sema_struct_of_type(sema_infer_type(s, e.a)));
+        if (bsd != null) {
+            int bi = 0; int bn = List_len<Param>(&bsd.params);
+            while (bi < bn) {
+                if (sema_streq(List_get<Param>(&bsd.params, bi).name, e.sval) == 1 && bi < List_len<int>(&bsd.field_bits)
+                    && List_get<int>(&bsd.field_bits, bi) > 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: asm output operand cannot be a bitfield ('%s')\n", s.filename, s.line, s.col, e.sval);
+                }
+                bi = bi + 1;
+            }
+        }
+    }
+    string t = sema_infer_type(s, e);
+    if (t[0] != 0 && sema_streq(t, "unknown") == 0) {
+        string c0 = sema_canon(s, sema_strip_nullable(sema_strip_const(t)));
+        string cn = sema_strip_const(c0);
+        int ok = 0;
+        if (sema_is_numeric_ty(cn) == 1 && sema_streq(cn, "bool") == 0) { ok = 1; }
+        if (sema_c_ptr(cn) == 1) { ok = 1; }
+        int ei = 0;
+        while (ei < List_len<EVar>(&s.evars)) {
+            EVar ev = List_get<EVar>(&s.evars, ei);
+            if (ev.plain == 1 && sema_streq(ev.en, cn) == 1) { ok = 1; }
+            ei = ei + 1;
+        }
+        if (ok == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: asm output operand must have an integer, floating-point or pointer type, got '%s'\n", s.filename, s.line, s.col, t);
+        }
+    }
+    if (e.kind == EK_IDENT) { sema_narrow_kill(s, e.sval); }   // the asm may store null
+}
+
 void sema_stmt(Sema* s, *StmtNode st) {
     if (st == null) { return; }
     int pl = s.line; int pc = s.col;
@@ -6224,7 +6275,16 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
     if (k == SK_ASM) {
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
-        while (i < n) { sema_expr(s, List_get<*StmtNode>(&st.items, i).expr); i = i + 1; }
+        while (i < n) {
+            *StmtNode op = List_get<*StmtNode>(&st.items, i);
+            i = i + 1;
+            if (op.kind == SK_ASMOUTPUT) { sema_asm_output(s, op.name, op.expr); continue; }
+            if ((int)op.name[0] == 61 || (int)op.name[0] == 43) {   // '=' / '+'
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: asm input constraint '%s' cannot start with '=' or '+'\n", s.filename, s.line, s.col, op.name);
+            }
+            sema_expr(s, op.expr);
+        }
         return;
     }
     if (k == SK_ARM) {

@@ -419,7 +419,10 @@ struct ShadowRenamer {
         else if (auto* th = dynamic_cast<ThrowStmt*>(s.get())) expr(th->value);
         else if (auto* df = dynamic_cast<DeferStmt*>(s.get())) scoped(df->body);
         else if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s.get())) expr(tj->tid);
-        else if (auto* as = dynamic_cast<AsmStmt*>(s.get())) { for (auto& in : as->inputs) expr(in.second); }
+        else if (auto* as = dynamic_cast<AsmStmt*>(s.get())) {
+            for (auto& out : as->outputs) expr(out.second);
+            for (auto& in : as->inputs) expr(in.second);
+        }
     }
 };
 
