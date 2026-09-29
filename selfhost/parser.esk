@@ -772,6 +772,12 @@ string parse_type_inner(Parser* p) {
     e.kind = EK_IDENT; e.sval = nm;
     return e;
 }
+// Stamp `e` with token `t`'s position: each node points where the C++ parser's does
+// (an operator at its operator token, a cast at its `(`, a keyword form at its keyword).
+*ExprNode p_pos(*ExprNode e, Token t) {
+    if (e != null) { e.line = t.line; e.col = t.col; }
+    return e;
+}
 *ExprNode mk_bin(string op, *ExprNode l, *ExprNode r) {
     *ExprNode e = ast_new_expr();
     e.kind = EK_BINARY; e.sval = op; e.a = l; e.b = r;
@@ -921,6 +927,7 @@ int lambda_ahead(Parser* p) {
 // tokens do not form one.
 *ExprNode try_parse_lambda(Parser* p) {
     int save = p.pos;
+    Token lt0 = p_peek(p);
     p.spec = p.spec + 1;
     string ret = parse_type(p);
     p_expect(p, LPAREN, "Expected '('");
@@ -929,7 +936,7 @@ int lambda_ahead(Parser* p) {
     p_expect(p, RPAREN, "Expected ')'");
     p.spec = p.spec - 1;
     if (p.failed == 0 && p_at(p) == LBRACE) {
-        *ExprNode e = ast_new_expr();
+        *ExprNode e = p_pos(ast_new_expr(), lt0);
         e.kind = EK_LAMBDA; e.sval = lambda_sig(ret, tmp);
         int lmark = local_mark();
         local_push_params(tmp);
@@ -976,7 +983,7 @@ int lambda_ahead(Parser* p) {
             v = str_concat_n(v, vlen, nv, nlen);
             vlen = vlen + nlen;
         }
-        *ExprNode e = mk_lit(LIT_STRING, v);
+        *ExprNode e = p_pos(mk_lit(LIT_STRING, v), first);
         e.slen = vlen;                          // exact length (embedded NULs preserved)
         return e;
     }
@@ -985,7 +992,7 @@ int lambda_ahead(Parser* p) {
         // sizeof(T) or sizeof(expr) (mirrors the C++ parser): a type when the operand reads
         // as one up to the `)` and is a bare name or a composite over a known type; any
         // other operand (`*p`, `a[0]`, `p.x`) is an expression, measured by its type.
-        p_adv(p);                              // 'sizeof'
+        Token szt = p_adv(p);                  // 'sizeof'
         p_expect(p, LPAREN, "Expected '('");
         int save = p.pos;
         int savegt = p.pending_gt;
@@ -1003,7 +1010,7 @@ int lambda_ahead(Parser* p) {
             }
             if (composite == 0 || type_arg_evident(p, ty) == 1) { as_type = 1; }
         }
-        *ExprNode e = ast_new_expr();
+        *ExprNode e = p_pos(ast_new_expr(), szt);
         e.kind = EK_SIZEOF;
         if (as_type == 0) {
             p.failed = 0; p.pos = save; p.pending_gt = savegt;
@@ -1017,30 +1024,30 @@ int lambda_ahead(Parser* p) {
         return e;
     }
     if (t == ALLOC_WITH) {
-        p_adv(p); p_expect(p, LPAREN, "Expected '(' after alloc_with");
+        Token kwt = p_adv(p); p_expect(p, LPAREN, "Expected '(' after alloc_with");
         *ExprNode al = parse_expr(p);
         p_expect(p, COMMA, "Expected ','");
         string ety = parse_type(p);
         p_expect(p, COMMA, "Expected ','");
         *ExprNode cnt = parse_expr(p);
         p_expect(p, RPAREN, "Expected ')'");
-        *ExprNode e = ast_new_expr();
+        *ExprNode e = p_pos(ast_new_expr(), kwt);
         e.kind = EK_ALLOCWITH; e.sval = ety; e.a = al; e.b = cnt;
         return e;
     }
     if (t == FREE_CLOSURE) {
-        p_adv(p); p_expect(p, LPAREN, "Expected '(' after free_closure");
+        Token kwt = p_adv(p); p_expect(p, LPAREN, "Expected '(' after free_closure");
         *ExprNode c = parse_expr(p);
         p_expect(p, RPAREN, "Expected ')'");
-        *ExprNode e = ast_new_expr();
+        *ExprNode e = p_pos(ast_new_expr(), kwt);
         e.kind = EK_FREECLOSURE; e.a = c;
         return e;
     }
     if (t == THREAD_CREATE) {
-        p_adv(p); p_expect(p, LPAREN, "Expected '(' after thread_create");
+        Token kwt = p_adv(p); p_expect(p, LPAREN, "Expected '(' after thread_create");
         *ExprNode w = parse_expr(p);
         p_expect(p, RPAREN, "Expected ')'");
-        *ExprNode e = ast_new_expr();
+        *ExprNode e = p_pos(ast_new_expr(), kwt);
         e.kind = EK_THREADCREATE; e.a = w;
         return e;
     }
@@ -1052,7 +1059,7 @@ int lambda_ahead(Parser* p) {
     if (t == IDENT) {
         Token tok = p_adv(p);
         if (p_at(p) == LBRACE && p.no_struct_lit == 0) {   // Name { ... } struct literal
-            return parse_struct_init(p, tok_text(p.src, tok));
+            return p_pos(parse_struct_init(p, tok_text(p.src, tok)), tok);
         }
         return mk_ident(tok_text(p.src, tok));
     }
@@ -1100,6 +1107,7 @@ int lambda_ahead(Parser* p) {
                 if (p_at(p) == LPAREN) {
                     p_adv(p);
                     *ExprNode tc = ast_new_expr();
+                    tc.line = e.line; tc.col = e.col;      // at the name (as the C++ parser)
                     tc.kind = EK_TEMPLATECALL; tc.sval = sig;
                     List_init<*ExprNode>(&tc.kids, 4);
                     if (p_at(p) != RPAREN) {
@@ -1143,10 +1151,10 @@ int lambda_ahead(Parser* p) {
             p_expect(p, RBRACKET, "Expected ']'");
             e = ix;
         } else if (t == DOT) {
-            p_adv(p);
+            Token dt = p_adv(p);
             Token m = p_peek(p);
             if (m.type <= UINT64) { p_adv(p); } else { m = p_expect_ident(p, "Expected member name"); }
-            *ExprNode mb = ast_new_expr();
+            *ExprNode mb = p_pos(ast_new_expr(), dt);
             mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
             e = mb;
         } else if (t == QUESTION && ternary_colon_ahead(p) == 0) {
@@ -1198,8 +1206,8 @@ int star_paren_is_cast(Parser* p) {
     }
     // await E — prefix, binds like a unary operator.
     if (p_at(p) == AWAIT) {
-        p_adv(p);
-        *ExprNode e = ast_new_expr();
+        Token awt = p_adv(p);
+        *ExprNode e = p_pos(ast_new_expr(), awt);
         e.kind = EK_AWAIT; e.a = parse_unary(p);
         return e;
     }
@@ -1207,7 +1215,7 @@ int star_paren_is_cast(Parser* p) {
     if (p_at(p) == MINUS) {
         int nt = p_peek2(p).type;
         if (nt == INT_LIT || nt == FLOAT_LIT) {
-            p_adv(p);                       // '-'
+            Token mt = p_adv(p);            // '-'
             Token num = p_adv(p);
             int lk = LIT_INT;
             if (nt == FLOAT_LIT) { lk = LIT_FLOAT; }
@@ -1218,7 +1226,7 @@ int star_paren_is_cast(Parser* p) {
             int i = 0;
             while (i < num.len) { buf[1 + i] = raw[num.start + i]; i = i + 1; }
             buf[num.len + 1] = 0;
-            return mk_lit(lk, (string)buf);
+            return p_pos(mk_lit(lk, (string)buf), mt);
         }
     }
     int t = p_at(p);
@@ -1230,8 +1238,8 @@ int star_paren_is_cast(Parser* p) {
         return e;
     }
     if (t == NOT || t == MINUS || t == PLUS || t == AMPERSAND || t == STAR || t == TILDE) {
-        p_adv(p);
-        return mk_un(op_str(t), parse_unary(p));
+        Token opt = p_adv(p);
+        return p_pos(mk_un(op_str(t), parse_unary(p)), opt);
     }
     // Cast (TYPE) expr — on a type keyword, a '*'-led type, or a declared type name.
     if (t == LPAREN) {
@@ -1249,12 +1257,13 @@ int star_paren_is_cast(Parser* p) {
             // handle the parenthesized expression (e.g. `(P{ … }).field`).
             int save = p.pos; int savegt = p.pending_gt;
             p.spec = p.spec + 1;
+            Token lpt = p_peek(p);
             p_expect(p, LPAREN, "Expected '('");
             string cty = parse_type(p);
             p.spec = p.spec - 1;
             if (p.failed == 0 && p_at(p) == RPAREN) {
                 p_expect(p, RPAREN, "Expected ')'");
-                return mk_cast(cty, parse_unary(p));
+                return p_pos(mk_cast(cty, parse_unary(p)), lpt);
             }
             p.failed = 0;
             p.pos = save; p.pending_gt = savegt;   // not a cast
@@ -1289,9 +1298,9 @@ int bin_prec(int t) {
         int t = p_at(p);
         int prec = bin_prec(t);
         if (prec == 0 || prec < min_prec) { return e; }
-        p_adv(p);
+        Token opt = p_adv(p);
         *ExprNode rhs = parse_binary(p, prec + 1);
-        e = mk_bin(op_str(t), e, rhs);
+        e = p_pos(mk_bin(op_str(t), e, rhs), opt);
     }
     return e;
 }
@@ -1356,11 +1365,11 @@ int ternary_colon_ahead(Parser* p) {
 *ExprNode parse_ternary_inner(Parser* p) {
     *ExprNode cond = parse_binary(p, 1);
     if (p_at(p) == QUESTION && ternary_colon_ahead(p) == 1) {
-        p_adv(p);                                      // '?'
+        Token qt = p_adv(p);                           // '?'
         *ExprNode thenE = parse_assignment(p);         // then-arm: a full expression
         p_expect(p, COLON, "Expected ':'");
         *ExprNode elseE = parse_ternary(p);            // else-arm: right-associative
-        *ExprNode t = ast_new_expr();
+        *ExprNode t = p_pos(ast_new_expr(), qt);
         t.kind = EK_TERNARY; t.a = cond; t.b = thenE;
         List_init<*ExprNode>(&t.kids, 1);
         List_push<*ExprNode>(&t.kids, elseE);
@@ -1381,13 +1390,13 @@ int ternary_colon_ahead(Parser* p) {
     int t = p_at(p);
     if (is_compound(t) == 1) {
         string base = compound_base(t);
-        p_adv(p);
+        Token opt = p_adv(p);
         *ExprNode rhs = parse_assignment(p);
-        return mk_bin("=", left, mk_bin(base, left, rhs));
+        return p_pos(mk_bin("=", left, p_pos(mk_bin(base, left, rhs), opt)), opt);
     }
     if (t == EQ) {
-        p_adv(p);
-        return mk_bin("=", left, parse_assignment(p));
+        Token opt = p_adv(p);
+        return p_pos(mk_bin("=", left, parse_assignment(p)), opt);
     }
     return left;
 }
@@ -1398,6 +1407,11 @@ int ternary_colon_ahead(Parser* p) {
 
 // ── Statements ────────────────────────────────────────────────────────────────
 
+// Stamp statement `s` with token `t`'s position (the token the C++ parser uses).
+*StmtNode p_spos(*StmtNode s, Token t) {
+    if (s != null) { s.line = t.line; s.col = t.col; }
+    return s;
+}
 *StmtNode mk_simple(int kind) {
     *StmtNode s = ast_new_stmt();
     s.kind = kind;
@@ -1473,9 +1487,10 @@ string strip_binding_const(string t) {
 }
 
 *StmtNode parse_expr_stmt(Parser* p) {
+    Token st0 = p_peek(p);
     *ExprNode e = parse_expr(p);
     p_expect(p, SEMICOLON, "Expected ';'");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), st0);
     s.kind = SK_EXPR; s.expr = e;
     return s;
 }
@@ -1488,11 +1503,11 @@ string strip_binding_const(string t) {
     *StmtNode head = null;
     *StmtNode tail = null;
     while (true) {
-        p_adv(p);                              // 'if'
+        Token ift = p_adv(p);                  // 'if'
         p_expect(p, LPAREN, "Expected '('");
         *ExprNode cond = parse_expr(p);
         p_expect(p, RPAREN, "Expected ')'");
-        *StmtNode s = ast_new_stmt();
+        *StmtNode s = p_spos(ast_new_stmt(), ift);
         s.kind = SK_IF; s.expr = cond;         // alloc zeroes, so s.s2 (optional else) is null
         s.s1 = parse_stmt(p);                  // then
         if (tail == null) { head = s; } else { tail.s2 = s; }
@@ -1507,24 +1522,25 @@ string strip_binding_const(string t) {
 }
 
 *StmtNode parse_while(Parser* p) {
+    Token wt = p_peek(p);
     p_expect(p, WHILE, "Expected 'while'");
     p_expect(p, LPAREN, "Expected '('");
     *ExprNode cond = parse_expr(p);
     p_expect(p, RPAREN, "Expected ')'");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), wt);
     s.kind = SK_WHILE; s.expr = cond; s.s1 = parse_stmt(p);
     return s;
 }
 
 *StmtNode parse_do(Parser* p) {
-    p_adv(p);                              // 'do'
+    Token dt = p_adv(p);                   // 'do'
     *StmtNode body = parse_stmt(p);
     p_expect(p, WHILE, "Expected 'while'");
     p_expect(p, LPAREN, "Expected '('");
     *ExprNode cond = parse_expr(p);
     p_expect(p, RPAREN, "Expected ')'");
     p_expect(p, SEMICOLON, "Expected ';'");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), dt);
     s.kind = SK_DOWHILE; s.s1 = body; s.expr = cond;
     return s;
 }
@@ -1630,22 +1646,29 @@ string fresh_name(string base, List<string>* used) {
 }
 
 *StmtNode parse_for(Parser* p) {
-    p_adv(p);                              // 'for'
+    Token ft = p_adv(p);                   // 'for'
     p_expect(p, LPAREN, "Expected '('");
 
     // for-in: `IDENT in iterable` (or a range `A..B`)
     if (p_at(p) == IDENT && p_peek2(p).type == IN) {
-        string var = tok_text(p.src, p_peek(p)); p_adv(p);   // x
+        Token vt = p_peek(p);
+        string var = tok_text(p.src, vt); p_adv(p);   // x
         p_expect(p, IN, "Expected 'in'");
         *ExprNode first = parse_expr(p);
         if (p_at(p) == RANGE) {
             p_expect(p, RANGE, "Expected '..'");
             *ExprNode hi = parse_expr(p);
             p_expect(p, RPAREN, "Expected ')'");
-            return desugar_range(var, first, hi, parse_stmt(p));
+            *StmtNode rs = desugar_range(var, first, hi, parse_stmt(p));
+            p_spos(rs, vt);                // at the loop variable (as the C++ parser)
+            if (rs.s1 != null) {
+                int ri = 0;
+                while (ri < List_len<*StmtNode>(&rs.s1.items)) { p_spos(List_get<*StmtNode>(&rs.s1.items, ri), vt); ri = ri + 1; }
+            }
+            return rs;
         }
         p_expect(p, RPAREN, "Expected ')'");
-        *StmtNode s = ast_new_stmt();
+        *StmtNode s = p_spos(ast_new_stmt(), vt);
         s.kind = SK_FORIN; s.name = var; s.expr = first; s.s1 = parse_stmt(p);
         s.resolved_elem = "";              // sema stamps this; "" until then (and on the no-sema path)
         return s;
@@ -1667,7 +1690,7 @@ string fresh_name(string base, List<string>* used) {
     *ExprNode step = null;
     if (p_at(p) != RPAREN) { step = parse_expr(p); }
     p_expect(p, RPAREN, "Expected ')'");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), ft);
     s.kind = SK_FOR; s.s1 = init; s.expr = cond; s.expr2 = step; s.s2 = parse_stmt(p);
     return s;
 }
@@ -1707,7 +1730,8 @@ void check_name_not_keyword(Parser* p) {
         p_adv(p);
         check_name_not_keyword(p);
         if (p_at(p) != IDENT) { p.pos = save; return null; }
-        string nm = tok_text(p.src, p_peek(p)); p_adv(p);
+        Token lnt = p_peek(p);
+        string nm = tok_text(p.src, lnt); p_adv(p);
         if (p_at(p) != COLON) { p.pos = save; return null; }
         p_adv(p);
         string raw = parse_type(p);
@@ -1717,7 +1741,7 @@ void check_name_not_keyword(Parser* p) {
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         if (p_at(p) != SEMICOLON) { p_fail(p, "Expected ';' after variable declaration"); return null; }
         p_adv(p);
-        *StmtNode d = mk_vardecl(nm, ty, init, is_const);
+        *StmtNode d = p_spos(mk_vardecl(nm, ty, init, is_const), lnt);
         d.is_static = is_static; d.is_vol = is_vol;
         return d;
     }
@@ -1727,7 +1751,8 @@ void check_name_not_keyword(Parser* p) {
     string ty = strip_binding_const(raw);
     check_name_not_keyword(p);
     if (p_at(p) != IDENT) { p.pos = save; return null; }
-    string nm = tok_text(p.src, p_peek(p)); p_adv(p);
+    Token tnt = p_peek(p);
+    string nm = tok_text(p.src, tnt); p_adv(p);
     if (p_at(p) == LBRACKET) {             // C-style `int a[3];`: arrays are `int[3] a`
         p_fail(p, str_concat("Expected declaration, got ", token_name(p_at(p))));
         return null;
@@ -1737,13 +1762,13 @@ void check_name_not_keyword(Parser* p) {
         *ExprNode init = parse_expr(p);
         if (p_at(p) != SEMICOLON) { p_fail(p, "Expected ';'"); return null; }
         p_adv(p);
-        *StmtNode d = mk_vardecl(nm, ty, init, is_const);
+        *StmtNode d = p_spos(mk_vardecl(nm, ty, init, is_const), tnt);
         d.is_static = is_static; d.is_vol = is_vol;
         return d;
     }
     if (p_at(p) == SEMICOLON) {
         p_adv(p);
-        *StmtNode d = mk_vardecl(nm, ty, null, is_const);
+        *StmtNode d = p_spos(mk_vardecl(nm, ty, null, is_const), tnt);
         d.is_static = is_static; d.is_vol = is_vol;
         return d;
     }
@@ -1773,9 +1798,9 @@ void check_name_not_keyword(Parser* p) {
 }
 
 *StmtNode parse_switch(Parser* p) {
-    p_adv(p);                              // 'switch'
+    Token swt = p_adv(p);                  // 'switch'
     p_expect(p, LPAREN, "Expected '('");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), swt);
     s.kind = SK_SWITCH;
     s.expr = parse_expr(p);                // subject
     p_expect(p, RPAREN, "Expected ')'");
@@ -1801,13 +1826,13 @@ void check_name_not_keyword(Parser* p) {
 }
 
 *StmtNode parse_match(Parser* p) {
-    p_adv(p);                              // 'match'
+    Token mt = p_adv(p);                   // 'match'
     int saved = p.no_struct_lit;
     p.no_struct_lit = 1;                   // subject `Name { ... }` is the match body, not a literal
     *ExprNode subj = parse_expr(p);
     p.no_struct_lit = saved;
     p_expect(p, LBRACE, "Expected '{'");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), mt);
     s.kind = SK_MATCH; s.expr = subj;
     List_init<*StmtNode>(&s.items, 4);
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
@@ -1880,9 +1905,9 @@ void parse_asm_operands(Parser* p, List<*StmtNode>* items, int kind) {
 }
 
 *StmtNode parse_asm(Parser* p) {
-    p_adv(p);                              // 'asm'
+    Token at = p_adv(p);                   // 'asm'
     p_expect(p, LPAREN, "Expected '('");
-    *StmtNode s = ast_new_stmt();
+    *StmtNode s = p_spos(ast_new_stmt(), at);
     s.kind = SK_ASM;
     int _dl0 = 0; s.name = tok_str_value(p.src, p_adv(p), &_dl0);   // the asm string (decoded)
     List_init<*StmtNode>(&s.items, 2);
@@ -1951,18 +1976,18 @@ void parse_asm_operands(Parser* p, List<*StmtNode>* items, int kind) {
     if (t == ASM) { return parse_asm(p); }
     if (t == RETURN) { return parse_return(p); }
     if (t == BREAK) {
-        p_adv(p);                                       // 'break'
+        Token kt = p_adv(p);                            // 'break'
         string lbl = "";
         if (p_at(p) == IDENT) { lbl = tok_text(p.src, p_peek(p)); p_adv(p); }
         p_expect(p, SEMICOLON, "Expected ';'");
-        *StmtNode s = mk_simple(SK_BREAK); s.label = lbl; return s;
+        *StmtNode s = p_spos(mk_simple(SK_BREAK), kt); s.label = lbl; return s;
     }
     if (t == CONTINUE) {
-        p_adv(p);                                       // 'continue'
+        Token kt = p_adv(p);                            // 'continue'
         string lbl = "";
         if (p_at(p) == IDENT) { lbl = tok_text(p.src, p_peek(p)); p_adv(p); }
         p_expect(p, SEMICOLON, "Expected ';'");
-        *StmtNode s = mk_simple(SK_CONTINUE); s.label = lbl; return s;
+        *StmtNode s = p_spos(mk_simple(SK_CONTINUE), kt); s.label = lbl; return s;
     }
     if (t == THROW) {
         p_adv(p);
@@ -1971,8 +1996,8 @@ void parse_asm_operands(Parser* p, List<*StmtNode>* items, int kind) {
         return s;
     }
     if (t == THREAD_JOIN) {
-        p_adv(p); p_expect(p, LPAREN, "Expected '(' after thread_join");
-        *StmtNode s = ast_new_stmt(); s.kind = SK_THREADJOIN; s.expr = parse_expr(p);
+        Token jt = p_adv(p); p_expect(p, LPAREN, "Expected '(' after thread_join");
+        *StmtNode s = p_spos(ast_new_stmt(), jt); s.kind = SK_THREADJOIN; s.expr = parse_expr(p);
         p_expect(p, RPAREN, "Expected ')'"); p_expect(p, SEMICOLON, "Expected ';'");
         return s;
     }
@@ -1997,8 +2022,9 @@ void parse_asm_operands(Parser* p, List<*StmtNode>* items, int kind) {
 }
 
 *StmtNode parse_block(Parser* p) {
+    Token lbt = p_peek(p);
     p_expect(p, LBRACE, "Expected '{'");
-    *StmtNode b = ast_new_stmt();
+    *StmtNode b = p_spos(ast_new_stmt(), lbt);
     b.kind = SK_BLOCK;
     List_init<*StmtNode>(&b.items, 4);
     int mark = local_mark();
@@ -2213,9 +2239,11 @@ string i64_to_str(int64 n) {
 // extern / intrinsic share the prototype shape: RetType name(params);
 *DeclNode parse_proto(Parser* p, int kind) {
     *DeclNode d = new_decl(kind);
+    Token rt0 = p_peek(p);
     d.ret_type = parse_type(p);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected function or variable name"));
     d.line = g_pos_line; d.col = g_pos_col;   // the name token (as the C++ parser)
+    if (kind == DK_INTRINSIC) { d.line = rt0.line; d.col = rt0.col; }   // an intrinsic at its return type
     // `extern <type> <name>;` (no parens) is a variable defined in another
     // translation unit (a C global), not a function prototype.
     if (kind == DK_EXTERN && p_at(p) != LPAREN) {
@@ -2391,7 +2419,11 @@ string i64_to_str(int64 n) {
     int save = p.pos;
     int is_const = 0;
     int is_vol = 0;
-    if (p_at(p) == VOLATILE) { is_vol = 1; p_adv(p); }
+    int is_stat = 0;                       // `static` on a global: parsed, rejected by sema
+    while (p_at(p) == STATIC || p_at(p) == VOLATILE) {
+        if (p_at(p) == STATIC) { is_stat = 1; } else { is_vol = 1; }
+        p_adv(p);
+    }
     if (p_at(p) == CONST) {
         int k = 1;
         if (p_peek_k(p, 1).type == VOLATILE) { k = 2; }
@@ -2401,7 +2433,8 @@ string i64_to_str(int64 n) {
     if (p_at(p) == LET) {
         p_adv(p);
         check_name_not_keyword(p);
-        string nm = tok_text(p.src, p_expect_ident(p, "Expected identifier after 'let'"));
+        Token gnt = p_expect_ident(p, "Expected identifier after 'let'");
+        string nm = tok_text(p.src, gnt);
         p_expect(p, COLON, "Expected ':'");
         string raw = parse_type(p);
         if (is_value_const(raw) == 1) { is_const = 1; }
@@ -2409,7 +2442,9 @@ string i64_to_str(int64 n) {
         *ExprNode init = null;
         if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
         p_expect(p, SEMICOLON, "Expected ';'");
-        *DeclNode dv = mk_decl_var(nm, ty, init, is_const); dv.is_vol = is_vol; return dv;
+        *DeclNode dv = mk_decl_var(nm, ty, init, is_const); dv.is_vol = is_vol; dv.is_static = is_stat;
+        dv.line = gnt.line; dv.col = gnt.col;   // the name token (as the C++ parser)
+        return dv;
     }
     string raw = parse_type(p);
     if (is_value_const(raw) == 1) { is_const = 1; }
@@ -2431,7 +2466,9 @@ string i64_to_str(int64 n) {
     *ExprNode init = null;
     if (p_at(p) == EQ) { p_adv(p); init = parse_expr(p); }
     p_expect(p, SEMICOLON, "Expected ';'");
-    *DeclNode dv2 = mk_decl_var(tok_text(p.src, nm), ty, init, is_const); dv2.is_vol = is_vol; return dv2;
+    *DeclNode dv2 = mk_decl_var(tok_text(p.src, nm), ty, init, is_const); dv2.is_vol = is_vol; dv2.is_static = is_stat;
+    dv2.line = nm.line; dv2.col = nm.col;     // the name token (as the C++ parser)
+    return dv2;
 }
 
 // Top-level declaration dispatch (mirrors parseDeclaration). A declared type name

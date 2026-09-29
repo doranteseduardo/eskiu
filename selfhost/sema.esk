@@ -2970,8 +2970,12 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
         dprintf(2, "error: %s:%d:%d: a union literal initializes one member ('%s' literal has %d)\n", s.filename, s.line, s.col, e.sval, n);
     }
     int i = 0;
+    int sil = s.line; int sic = s.col;
     while (i < n) {
         *ExprNode v = List_get<*ExprNode>(&e.kids, i);
+        // Each field's diagnostics point at its value (as the C++ checker).
+        s.line = sil; s.col = sic;
+        if (v != null && v.line > 0) { s.line = v.line; s.col = v.col; }
         string nm = "";
         if (i < List_len<string>(&e.names)) { nm = List_get<string>(&e.names, i); }
         string ft = "";
@@ -3010,6 +3014,7 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
         }
         i = i + 1;
     }
+    s.line = sil; s.col = sic;
 }
 
 // Recursively check an array literal against a (possibly multi-dimensional) array type:
@@ -3698,8 +3703,10 @@ void sema_check_nullable_deref(Sema* s, *ExprNode operand, string how) {
     string t = sema_infer_type(s, operand);
     if (t[0] != 63) { return; }                        // not (or no longer) a `?…` nullable pointer
     s.had_error = 1;
+    int ol = s.line; int oc = s.col;                   // at the pointer (as the C++ checker)
+    if (operand.line > 0) { ol = operand.line; oc = operand.col; }
     dprintf(2, "error: %s:%d:%d: cannot %s a possibly-null pointer of type '%s'; check it first (e.g. `if (x != null)`)\n",
-           s.filename, s.line, s.col, how, t);
+           s.filename, ol, oc, how, t);
 }
 
 // `s.len` of a slice: a read-only view of the fat pointer's length.
@@ -4593,14 +4600,18 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         sema_expr(s, base);                // walk base (catches undefined vars in it)
         string bt = sema_infer_type(s, base);
         int ci = List_len<*ExprNode>(&chain) - 1;
+        *ExprNode mbase = base;            // the base of the member being checked
         while (ci >= 0) {
             *ExprNode m = List_get<*ExprNode>(&chain, ci);
             s.line = List_get<int>(&lines, ci); s.col = List_get<int>(&cols, ci);
             if (bt[0] == 63) {             // a `?…` nullable pointer base (sema_check_nullable_deref)
                 s.had_error = 1;
+                int bl = s.line; int bc = s.col;   // at the base pointer (as the C++ checker)
+                if (mbase != null && mbase.line > 0) { bl = mbase.line; bc = mbase.col; }
                 dprintf(2, "error: %s:%d:%d: cannot %s a possibly-null pointer of type '%s'; check it first (e.g. `if (x != null)`)\n",
-                       s.filename, s.line, s.col, "access a member of", bt);
+                       s.filename, bl, bc, "access a member of", bt);
             }
+            mbase = m;
             // Only a struct or union (or a pointer to one) has members; a slice has `len`.
             string mbc = sema_canon(s, bt);
             if ((int)mbc[0] == 42) { mbc = sema_sub_str(mbc, 1, sema_slen(mbc)); }
@@ -5253,11 +5264,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 // a local or a global variable that is not callable (a global used to slip
                 // through to codegen, which crashed)
                 s.had_error = 1;
-                dprintf(2, "error: %s:%d:%d: undefined function '%s' ('%s' is a variable of type '%s')\n", s.filename, s.line, s.col, e.a.sval, e.a.sval, vt);
+                dprintf(2, "error: %s:%d:%d: undefined function '%s' ('%s' is a variable of type '%s')\n", s.filename, e.a.line, e.a.col, e.a.sval, e.a.sval, vt);
             } else if (vt[0] == 0 && sema_local_bound(s, e.a.sval) == 0 && sema_find_fndecl(s, e.a.sval) == null
                        && sema_plain_member(s, e.a.sval) == 1) {
                 s.had_error = 1;                   // a classic enum member is a constant
-                dprintf(2, "error: %s:%d:%d: undefined function '%s'\n", s.filename, s.line, s.col, e.a.sval);
+                dprintf(2, "error: %s:%d:%d: undefined function '%s'\n", s.filename, e.a.line, e.a.col, e.a.sval);
             }
         } else if (e.a != null && e.a.kind != EK_IDENT) {
             string ct = sema_infer_type(s, e.a);
@@ -5673,7 +5684,7 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
     if (k != SK_RETURN) { sema_defer_expr(s, st.expr); sema_defer_expr(s, st.expr2); }
     if (k == SK_RETURN) {
         s.had_error = 1;
-        dprintf(2, "error: %s:%d:%d: 'return' is not allowed inside a defer body\n", s.filename, s.line, s.col);
+        dprintf(2, "error: %s:%d:%d: 'return' is not allowed inside a defer body\n", s.filename, st.line, st.col);
         return;
     }
     if (k == SK_BREAK || k == SK_CONTINUE) {
@@ -5684,7 +5695,7 @@ void sema_defer_walk(Sema* s, *StmtNode st, int depth) {
         if (st.label != null && st.label[0] != 0) { labeled = 1; }
         if (depth == 0 || labeled == 1) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: 'break'/'continue' inside a defer body may not escape it\n", s.filename, s.line, s.col);
+            dprintf(2, "error: %s:%d:%d: 'break'/'continue' inside a defer body may not escape it\n", s.filename, st.line, st.col);
         }
         return;
     }
@@ -5844,7 +5855,9 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 string rt = ast_range_var_type(bt, "int");
                 if (rt[0] == 0) {
                     s.had_error = 1; bad_range = 1;
-                    dprintf(2, "error: %s:%d:%d: range bound must be an integer, got '%s'\n", s.filename, s.line, s.col, bt);
+                    int rl = s.line; int rc = s.col;   // at the bound (as the C++ checker)
+                    if (st.expr != null && st.expr.line > 0) { rl = st.expr.line; rc = st.expr.col; }
+                    dprintf(2, "error: %s:%d:%d: range bound must be an integer, got '%s'\n", s.filename, rl, rc, bt);
                 } else { st.type = rt; vty = rt; }
             }
         }
@@ -6093,7 +6106,9 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         string sfn = sema_discarded_must_use(s, st.expr2);   // its value is discarded
         if (sfn[0] != 0) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: result of '%s' must be used (it is marked must_use)\n", s.filename, s.line, s.col, sfn);
+            int sl = s.line; int sc = s.col;           // at the step (as the C++ checker)
+            if (st.expr2.line > 0) { sl = st.expr2.line; sc = st.expr2.col; }
+            dprintf(2, "error: %s:%d:%d: result of '%s' must be used (it is marked must_use)\n", s.filename, sl, sc, sfn);
         }
         sema_narrow_undo(s, &ins);
         sema_pop(s);
@@ -7084,15 +7099,17 @@ void sema_check_fields(Sema* s, *DeclNode d) {
     int m = 0; int mn = List_len<*DeclNode>(&d.methods);
     while (m < mn) {
         string mname = List_get<*DeclNode>(&d.methods, m).name;
+        *DeclNode md = List_get<*DeclNode>(&d.methods, m);
+        int mdl = s.line; int mdc = s.col;             // at the method (as the C++ checker)
+        if (md.line > 0) { mdl = md.line; mdc = md.col; }
         if (sema_in_list(&fnames, mname) == 1) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: method '%s' of struct '%s' has the same name as a field\n", s.filename, s.line, s.col, mname, d.name);
+            dprintf(2, "error: %s:%d:%d: method '%s' of struct '%s' has the same name as a field\n", s.filename, mdl, mdc, mname, d.name);
         }
         if (sema_in_list(&mnames, mname) == 1) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: duplicate method '%s' in struct '%s'\n", s.filename, s.line, s.col, mname, d.name);
+            dprintf(2, "error: %s:%d:%d: duplicate method '%s' in struct '%s'\n", s.filename, mdl, mdc, mname, d.name);
         } else { List_push<string>(&mnames, mname); }
-        *DeclNode md = List_get<*DeclNode>(&d.methods, m);
         int mp = 0;
         while (mp < List_len<Param>(&md.params)) {
             if (sema_streq(List_get<Param>(&md.params, mp).name, "self") == 1) {
@@ -7474,6 +7491,10 @@ int sema_check(Sema* s, *Program prog) {
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.
         if (d.kind == DK_VARDECL) { sema_check_decl_type(s, d.ret_type); }   // a global's type must exist
+        if (d.kind == DK_VARDECL && d.is_static == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: 'static' is only allowed on a local variable\n", s.filename, d.line, d.col);
+        }
         if (d.kind == DK_TYPEALIAS) { sema_check_decl_type(s, d.ret_type); }  // so must an alias's
         if (d.kind == DK_ENUM && sema_is_plain_enum_decl(d) == 1) { sema_fold_enum(s, d, 1); }
         if (d.kind == DK_ENUM) {           // a classic enum is an int: each member value must fit it

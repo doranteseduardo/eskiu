@@ -65,10 +65,11 @@ StmtPtr Parser::parseStatement() {
     }
     // throw expr;
     if (match(TokenType::THROW)) {
+        Token thTok = tokens[current - 1];
         ExprPtr val = parseExpression();
         consume(TokenType::SEMICOLON, "Expected ';' after throw");
         auto s = std::make_shared<ThrowStmt>(val);
-        s->line = tokens[current-1].line; s->col = tokens[current-1].column;
+        s->line = thTok.line; s->col = thTok.column;
         return s;
     }
 

@@ -927,6 +927,14 @@ input. What is still open is listed under Known issues.
   the expected `Opt<int64>`, and a bare `None` or an under-determining `Left(4)` is
   accepted (`Opt<int> n = None;`). The payload is checked against those arguments; the
   explicit forms still work. Tests `variant_expected_type`, `errors/variant_expected_payload`.
+- The two compilers report a diagnostic at the same line and column: the self-hosted parser
+  stamps each node with the token the C++ parser uses (an operator at its operator, a cast
+  at its `(`, a member access at its `.`, a declaration at its name, a statement at its
+  keyword), and its checker points at the same node (a callee, a struct literal field's
+  value, a range bound, a method). `tests/selfhost/tc_parity.sh` now also compares the
+  line:col of the expected error with the C++ one over the error corpus. A `throw`
+  statement is located at its keyword (it was at the `;`), and `static` on a global is
+  reported by the self-hosted checker, not as a parse error.
 - The self-host emits a double literal too large for double as infinity in LLVM hex form
   (`0x7FF0000000000000`), as C++ does; a global initializer `1e400` was rejected by clang.
   `float_literal_range` now covers the global case, so `corpus_parity.sh` checks it.

@@ -8,8 +8,9 @@
 #     exit 0). This guards against the checker FALSELY rejecting valid code.
 #   * Negative corpus (tests/errors/*.esk): for the error classes this slice
 #     implements (HANDLED below), `tc_main` must reject (exit != 0) AND emit the
-#     file's `EXPECT-ERROR:` substring. Error classes not yet implemented are listed
-#     as skipped — they come online as later slices add checks.
+#     file's `EXPECT-ERROR:` substring, at the same line:col as the C++ checker (the
+#     first error line carrying that text in each output). Error classes not yet
+#     implemented are listed as skipped — they come online as later slices add checks.
 #
 # Green (exit 0) = verdict parity on every positive file + every handled negative.
 
@@ -153,7 +154,23 @@ for esk in tests/errors/*.esk; do
     elif [ -n "$want" ] && ! printf '%s' "$out" | grep -qF "$want"; then
         echo "  FAIL  errors/$base  (rejected, but message missing \"$want\")"; fail=1
     else
-        echo "  ok    errors/$base"
+        # Same location as the C++ checker: the line:col of the first error that
+        # carries the expected text (a leading `L:C: ` in the text is not matched), or
+        # of the first error when the text is on a separate note line.
+        wm="$(printf '%s' "$want" | sed -E 's/^[0-9]+:[0-9]+: //')"
+        loc() {
+            local o l; o="$(cat)"
+            l="$(printf '%s\n' "$o" | grep -F -- "$wm" | grep -m1 '^error:')"
+            [ -n "$l" ] || l="$(printf '%s\n' "$o" | grep -m1 '^error:')"
+            printf '%s\n' "$l" | sed -E 's/^error: [^:]*:([0-9]+):([0-9]+):.*/\1:\2/'
+        }
+        ref="$("$BIN" --test-typechecker "$esk" 2>&1 | loc)"
+        got="$(printf '%s\n' "$out" | loc)"
+        if [ -n "$wm" ] && [ -n "$ref" ] && [ "$ref" != "$got" ]; then
+            echo "  FAIL  errors/$base  (reported at ${got:-?}, the C++ checker at $ref)"; fail=1
+        else
+            echo "  ok    errors/$base"
+        fi
     fi
 done
 

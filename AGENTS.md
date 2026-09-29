@@ -186,8 +186,9 @@ The C++ `eskiuc` stays the oracle; the Eskiu reimplementation is validated again
 
 - Front-end (lexer/parser/preprocessor) = **byte-exact** diff vs `eskiuc --test-{lexer,parser}`
   (strip the C++ banner). Preprocessor parity runs *through* the lexer.
-- Sema = **verdict + `EXPECT-ERROR` substring** (no byte dump: most programs type-check
-  cleanly).
+- Sema = **verdict + `EXPECT-ERROR` substring + its line:col** (no byte dump: most programs
+  type-check cleanly). The self-host parser stamps nodes with the C++ parser's tokens (`p_pos`,
+  `p_spos`), so a diagnostic reports the same location in both.
 - Codegen = **behavioral**: emit `.ll` → `clang` → run → compare exit code + stdout to the
   C++-built binary (IR can't match byte-for-byte: SSA auto-numbering + constant folding).
 - Bootstrap = **IR fixpoint** (cc1 and cc2 emit identical IR), NOT binary equality (Mach-O

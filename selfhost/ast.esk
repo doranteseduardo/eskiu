@@ -329,6 +329,7 @@ struct DeclNode {
     int is_const;                  // DK_VARDECL: declared value-const global
     int is_extern;                 // DK_VARDECL: `extern <type> <name>;` (C global, external linkage, no init)
     int is_vol;                    // DK_VARDECL: `volatile` global
+    int is_static;                 // DK_VARDECL: `static` written on a global (a sema error)
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
