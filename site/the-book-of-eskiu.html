@@ -2649,6 +2649,13 @@ pre.code-block {
  int g(int a) { }                        // error: missing return in a non-void function
  void main() { }                         // error: main must return int</pre>
 <p>These checks come from the v0.2.2 compiler fuzzer (duplicate cases, dimensions) and the v0.4.0 correctness pass (the conversion, flow, and bounds checks above), both using the LLVM IR verifier and the sanitizers as oracles. Note that <em>narrowing a variable</em> still truncates silently (<code>int</code> to <code>uint8</code>); the error is reserved for a literal that cannot fit its type.</p>
+<p>The uninitialized-read error covers a read that no path assigns. When only some paths assign the variable, <code>-Wall</code> reports it as a warning:</p>
+<pre class="code-block"> int pick(int c) {
+       int r;
+       if (c &gt; 0) { r = 1; }
+       return r;          // warning: variable 'r' may be used uninitialized
+ }</pre>
+<p>The analysis follows <code>if</code>/<code>else</code>, loops with <code>break</code> and <code>continue</code>, <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code>, <code>defer</code>, early returns and the variables a lambda captures. Passing <code>&amp;r</code> to a function counts as an assignment. It tracks scalar locals (numbers, pointers, <code>string</code>, <code>fn</code> values), not structs or arrays set field by field, and it is off unless you pass <code>-Wall</code>. The self-hosted compiler accepts the flag but prints no warnings.</p>
 <p>v0.9.2 added another set. Each of these used to compile, and most of them produced a silently wrong program:</p>
 <pre class="code-block"> int G = compute();                      // error: initializer of global 'G' is not a compile-time constant
  int x = 1;  int x = 2;                  // error: redefinition of 'x' in the same scope
@@ -2673,7 +2680,6 @@ pre.code-block {
  const double D = 1e10;  int i = (int)D; // error: floating constant ... is out of range for 'int'
  mk().x = 5;                             // error: cannot assign to this expression
  printf(&quot;%d&quot;, v());                      // error: argument 2 has type 'void'
- r += await f();                         // error: 'await' is only supported as the whole initializer ...
  string t = &quot;a\qb&quot;;                      // error: unknown escape sequence '\q'</pre>
 <p>The constant checks work on the folded value, not only on the literal spelling. A divisor, a shift count, an index or a cast operand that folds to a bad value through a <code>const</code> name, a <code>sizeof</code>, a cast or arithmetic is reported the same way as the literal form, instead of compiling to an undefined result.</p>
 <h2 class="section" id="sec-22-8">22.8 Known issues in 0.9.2</h2>
@@ -3397,7 +3403,8 @@ pre.code-block {
 <pre class="code-block">        eskiuc file.esk -o prog --link-arg=X     Pass extra argument to linker</pre>
 <pre class="code-block">        eskiuc file.esk -c -o file.o             Compile only: no linking</pre>
 <pre class="code-block">        eskiuc file.esk -o file.o                .o suffix implies -c</pre>
-<pre class="code-block">        eskiuc file.esk -Wall                    Unused vars/params/fns + assignment-in-condition</pre>
+<pre class="code-block">        eskiuc file.esk -Wall                    Unused vars/params/fns, assignment-in-condition,
+                                                 maybe-uninitialized locals</pre>
 <pre class="code-block">        eskiuc file.esk -Wextra                  Signed/unsigned comparison warnings</pre>
 <pre class="code-block">        eskiuc file.esk -O2                      Optimization level (-O0 through -O3)</pre>
 <pre class="code-block">        eskiuc file.esk --safe                   Runtime slice-bounds checks (traps on violation)</pre>
@@ -3440,8 +3447,10 @@ pre.code-block {
                                                                            without ASan.</pre>
 <pre class="code-block">        Signed integer      A signed arithmetic operation produces a       Wraps silently. No detection
         overflow            value outside the representable range.         without UBSan.</pre>
-<pre class="code-block">        Uninitialized       Reading a variable before assigning a value    Returns indeterminate value.
-        read                to it.                                         Valgrind reports.</pre>
+<pre class="code-block">        Uninitialized       Reading a variable before assigning a value    A read no path assigns is a
+        read                to it.                                         compile error; -Wall warns when
+                                                                           some path skips the assignment.
+                                                                           Valgrind reports the rest.</pre>
 <pre class="code-block">        Misaligned access   Reading a multi-byte type from a non-aligned   Bus error on some ARM
         (arch-dependent)    address. Most common with packed struct        targets. Silent on x86.
                             fields.</pre>
@@ -3459,7 +3468,7 @@ pre.code-block {
  eskiuc run file.esk [args...]       # compile, run, delete
  eskiuc fmt file.esk                 # reformat in place
  eskiuc fmt --check file.esk         # check formatting
- eskiuc file.esk -Wall               # unused + assign-in-cond
+ eskiuc file.esk -Wall               # unused, assign-in-cond, maybe-uninitialized
  eskiuc file.esk -Wextra             # signed/unsigned warnings
  eskiuc file.esk --asan -o prog      # AddressSanitizer
  eskiuc file.esk --ubsan -o prog     # trapping bounds checks
