@@ -5,8 +5,8 @@ Eskiu is a statically typed systems language with the power of C and the immedia
 **Current version: v0.9.2.** A correctness and hardening release: a full-project audit,
 three fuzzers and eight blind audit rounds fixed about 500 latent bugs across both
 compilers, the standard library and the docs (C semantics, the C ABI, generics, `volatile`,
-strict parsers, HTTP hardening). The known issues planned for 0.9.3 and the full history
-are in the [changelog](../../CHANGELOG.md).
+strict parsers, HTTP hardening). The remaining known issues and the full history are in
+the [changelog](../../CHANGELOG.md).
 
 ---
 

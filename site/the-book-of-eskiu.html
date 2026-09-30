@@ -712,6 +712,7 @@ pre.code-block {
        Green -&gt; { printf(&quot;green\n&quot;); }
        Blue  -&gt; { printf(&quot;blue\n&quot;); }
  }</pre>
+<p>An explicit value is an integer constant expression, folded with C&#x27;s rules for <code>int</code>: 32-bit arithmetic that wraps, and unsigned operands compared and divided as unsigned. So <code>(uint)3 - (uint)5 &gt; 100</code> is 1, and <code>2147483647 + 1</code> is -2147483648, as in clang. Array dimensions and <code>case</code> labels fold the same way.</p>
 <p>Two members may share a value, as in C (<code>enum Level { Low = 1, Mid = 2, Medium = 2 }</code>). A <code>match</code> works on the value, so one arm covers every member with that value, and a second arm for the same value is an error. Declaring the same member name twice, or reusing a member name for a function or global, is also an error.</p>
 <h2 class="section" id="sec-2-8">2.8 type: aliases</h2>
 <p>A type alias gives an existing type a new name. The alias and the original are interchangeable. This is Eskiu&#x27;s equivalent of C&#x27;s typedef:</p>
@@ -1723,7 +1724,7 @@ pre.code-block {
  }                              // sizeof = 8</pre>
 <pre class="code-block"> printf(&quot;%lld %lld\n&quot;, sizeof(Wire), sizeof(Natural));           // 5 8</pre>
 <p class="output"><em>Output:</em> 5 8</p>
-<p>A larger N caps the alignment instead of removing it. A struct declared under <code>pack(N)</code> aligns each field to the smaller of N and the field&#x27;s own alignment, and the struct as a whole to the smaller of N and its largest field alignment, as C does. That alignment also holds when the struct sits inside another struct, an array, a union or a generic type argument, so the outer layout matches clang&#x27;s. The type checker knows these sizes, so a <code>sizeof</code> of such a struct can size an array or set an enum value:</p>
+<p>A larger N caps the alignment instead of removing it. A struct declared under <code>pack(N)</code> aligns each field to the smaller of N and the field&#x27;s own alignment, and the struct as a whole to the smaller of N and its largest field alignment, as C does. A union declared under <code>pack(N)</code> follows the same rule, so <code>#pragma pack(2) union U { char[5] c; int x; }</code> is 6 bytes, as in clang. That alignment also holds when the struct sits inside another struct, an array, a union or a generic type argument, so the outer layout matches clang&#x27;s. The type checker knows these sizes, so a <code>sizeof</code> of such a struct can size an array or set an enum value:</p>
 <pre class="code-block"> #pragma pack(push, 2)
  struct P2 { char a; int b; }          // b at offset 2, sizeof 6, aligned to 2
  #pragma pack(pop)

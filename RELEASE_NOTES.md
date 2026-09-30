@@ -39,22 +39,31 @@ cd eskiu && cmake -S . -B build && cmake --build build
   `!= 0`, element-counting `ptr - ptr`, constant-only global initializers, and constant
   folding with C's truncation rules.
 - **C ABI.** Structs and unions by value across `extern` on AArch64, x86-64 SysV, Windows
-  x64 and 32-bit ARM, callbacks through thunks, narrow integers sign- or zero-extended like
-  clang, `va_list` passed to C the target's way, and bitfields in the target's C layout.
+  x64, 32-bit ARM and 32-bit x86, callbacks through thunks, narrow integers sign- or
+  zero-extended like clang, `va_list` passed to C the target's way (and `va_arg` expanded
+  for the AAPCS64 `va_list` on AArch64 Linux), and bitfields, `#pragma pack` structs and
+  unions in the target's C layout.
 - **Language.** Interface values, `const` receivers, flow-sensitive `?*T` narrowing,
   inline methods and dot-calls on generic structs, generic async functions, `(void)expr`,
   `#if`/`#elif`, `#pragma link` with implied libraries (no more `-lm`, `-lc++` or
-  `-lpthread`), octal string escapes, and `volatile` on every access.
+  `-lpthread`), octal string escapes, `volatile` on every access, `await` in any position
+  of an async function (inside `try`/`catch`, `match`, conditions and any expression),
+  inline `asm` output operands, `null` as an interface value, `*?*T`, generic variants
+  that take their type arguments from the expected type (`Opt<int64> a = Some(5)`), and
+  a `-Wall` warning for a local that may be used uninitialized.
 - **Standard library.** Strict JSON, base64 and HTTP parsing; HTTP/1.1 framing per
   RFC 9112 (chunked bodies, Host rules, requests split across reads); HTTP/2 with body and
-  header-list limits, malformed-request resets and Host checks; regex with RE2 semantics
-  (escapes, POSIX classes, empty loops); and fixes for use-after-free, overflow and
-  per-request leaks.
-- **Tooling.** Three fuzzers with CI gates, `fmt` that never changes program behavior, and
-  the self-hosted compiler matching the C++ one on invalid programs.
+  header-list limits, malformed-request resets and Host checks; read, body, idle and
+  write timeouts in every HTTP server (`HttpLimits`); regex with RE2 semantics over UTF-8
+  (`\p{..}` classes, `(?i)`, `(?:...)`, named groups, POSIX classes); and fixes for
+  use-after-free, overflow and per-request leaks.
+- **Tooling.** Three fuzzers with CI gates, `fmt` that never changes program behavior,
+  the self-hosted compiler matching the C++ one on invalid programs (same messages and
+  line:col), native builds on the target's baseline CPU as in clang, and
+  `tests/linux_docker.sh`, a Linux check of the release from a Mac.
 
-See the full list in [CHANGELOG.md](CHANGELOG.md), including the known issues planned for
-0.9.3.
+See the full list in [CHANGELOG.md](CHANGELOG.md), including the few known issues that
+remain.
 
 ---
 
