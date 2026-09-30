@@ -24,6 +24,16 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local   # or eskiuc-linux-arm64.tar.
 eskiuc --version
 ```
 
+**Windows (x86-64, experimental)**
+
+```powershell
+Expand-Archive eskiuc-windows-x86_64.zip -DestinationPath C:\eskiu   # then add C:\eskiu\bin to PATH
+eskiuc --version
+```
+
+Windows passes the full stdlib and both networking stacks on a native CI runner but is not
+yet part of the release gate.
+
 Or build from source (LLVM 21 or newer, LLVM 22 recommended, and CMake 3.20+):
 
 ```bash
@@ -75,6 +85,20 @@ conversion between unrelated pointer types, writing a captured variable inside a
 `return` inside `finally`, or a conflicting generic deduction. The CHANGELOG section
 "Changed" lists every such rule. Old stdlib names renamed to the `Type_method` convention
 still work and are marked deprecated.
+
+A few valid programs now behave differently, each to match C and clang:
+
+- Structs mixing bitfield types, structs under `#pragma pack(N)` nested in another type,
+  and unions under `#pragma pack(N)` take the target C compiler's layout, so their size
+  can change (a C ABI change for code that shares them with C).
+- Enum values, array dimensions and `case` labels fold with C's 32-bit `int` rules
+  (`2147483647 + 1` wraps to INT_MIN; unsigned operands compare as unsigned).
+- A string escape `\NNN` is octal (`"\012"` is a newline), and an unknown escape is an
+  error.
+- A cancelled future runs the `defer` and `finally` blocks pending at its `await`.
+- A native build targets the target's baseline CPU (`apple-m1` on arm64 Apple, `generic`
+  elsewhere) unless `--mcpu` is given; pass a CPU name such as `--mcpu x86-64-v3` to tune
+  for a specific machine.
 
 The stdlib HTTP servers now time out clients that send nothing, trickle their bytes or
 stop reading (a 10 s request head, 60 s body and HTTP/2 idle, 30 s write), and the async
