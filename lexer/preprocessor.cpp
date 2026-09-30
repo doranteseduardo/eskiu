@@ -1,4 +1,5 @@
 #include "lexer.h"
+#include <cstdint>
 #include <iostream>
 #include <cctype>
 #include <sstream>

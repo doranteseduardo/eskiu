@@ -1,4 +1,5 @@
 #include "type_checker.h"
+#include <cstdint>
 #include <climits>
 #include <functional>
 #include <set>
