@@ -1,0 +1,117 @@
+// H2Server stream/connection errors from RFC 9113: RST_STREAM on an idle stream
+// is a PROTOCOL_ERROR GOAWAY (§6.4), a GOAWAY shorter than 8 bytes is a
+// FRAME_SIZE_ERROR (§6.8), and a HEADERS or PRIORITY that makes a stream depend
+// on itself resets that stream with PROTOCOL_ERROR (§5.3.1). The self-dependent
+// block is still decoded, so the next request's HPACK references resolve.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+void hello(HttpRequest* req, HttpResponse* res) {
+    let v: String; String_init(&v, 8);
+    if (HttpRequest_header(req, "x-note", &v) != 0) { printf("  handler: x-note=%s\n", String_cstr(&v)); }
+    String_free(&v);
+    HttpResponse_set_body(res, "hi\n");
+}
+
+// Print the frames queued in s.out (type, stream, and the error code of
+// RST_STREAM / GOAWAY), then clear it.
+void dump(H2Server* s, string tag) {
+    printf("%s:", tag);
+    int64 o = 0;
+    while (o + 9 <= s.outlen) {
+        let f: H2Frame; h2_read_header(s.out + o, &f);
+        printf(" [type %d sid %d", f.type, f.stream_id);
+        if (f.type == H2_GOAWAY) { printf(" code %lld", h2_get_u32(s.out + o + 9, 4)); }
+        if (f.type == H2_RST_STREAM) { printf(" code %lld", h2_get_u32(s.out + o + 9, 0)); }
+        printf("]");
+        o += 9 + f.length;
+    }
+    printf("\n");
+    s.outlen = 0;
+}
+
+void feed(H2Server* s, int type, int flags, int sid, *uint8 p, int len) {
+    let h: H2Frame; h.type = type; h.flags = flags; h.stream_id = sid; h.length = len;
+    H2Server_step(s, &h, p, hello);
+}
+
+int reqblock(*uint8 b) {
+    int off = 0;
+    off = hpack_encode_header(b, off, (*uint8)":method", 7, (*uint8)"GET", 3);
+    off = hpack_encode_header(b, off, (*uint8)":path", 5, (*uint8)"/", 1);
+    off = hpack_encode_header(b, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    return off;
+}
+
+// The request plus `x-note: indexed` as a literal with incremental indexing
+// (§6.2.1), which adds it to the dynamic table at index 62.
+int reqblock_indexed(*uint8 b) {
+    int off = reqblock(b);
+    b[off++] = 64;
+    off = hpack_encode_str(b, off, (*uint8)"x-note", 6);
+    return hpack_encode_str(b, off, (*uint8)"indexed", 7);
+}
+
+// The request plus a reference to dynamic-table entry 62.
+int reqblock_ref(*uint8 b) {
+    int off = reqblock(b);
+    b[off++] = 128 | 62;
+    return off;
+}
+
+H2Server* fresh(*uint8 p) {
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    feed(s, H2_SETTINGS, 0, 0, p, 0);
+    s.outlen = 0;
+    return s;
+}
+
+void done(H2Server* s) { H2Server_free(s); free((*void)s); }
+
+int main() {
+    *uint8 p = alloc<uint8>(4096);
+
+    H2Server* s = fresh(p);
+    h2_put_u32(p, 0, H2_CANCEL);
+    feed(s, H2_RST_STREAM, 0, 5, p, 4);
+    dump(s, "rst on idle stream 5");
+    done(s);
+
+    s = fresh(p);
+    const int n = reqblock(p);
+    feed(s, H2_HEADERS, 5, 1, p, n);
+    dump(s, "request 1");
+    h2_put_u32(p, 0, H2_CANCEL);
+    feed(s, H2_RST_STREAM, 0, 1, p, 4);
+    dump(s, "rst on closed stream 1");
+    done(s);
+
+    s = fresh(p);
+    feed(s, H2_GOAWAY, 0, 0, p, 3);
+    dump(s, "goaway of 3 bytes");
+    done(s);
+
+    s = fresh(p);
+    h2_put_u32(p, 0, 3);  p[4] = 16;             // depends on stream 3, weight 16
+    const int n3 = reqblock_indexed(p + 5);
+    feed(s, H2_HEADERS, 1 | 4 | 32, 3, p, n3 + 5);
+    dump(s, "headers 3 depending on itself");
+    // Stream 5 refers to the table entry stream 3's block added.
+    const int n5 = reqblock_ref(p);
+    feed(s, H2_HEADERS, 5, 5, p, n5);
+    dump(s, "request 5");
+    h2_put_u32(p, 0, 1);  p[4] = 16;
+    feed(s, H2_HEADERS, 1 | 4 | 32, 7, p, reqblock(p + 5) + 5);
+    dump(s, "headers 7 depending on stream 1");
+    h2_put_u32(p, 0, 9);  p[4] = 16;
+    feed(s, H2_PRIORITY, 0, 9, p, 5);
+    dump(s, "priority 9 on itself");
+    h2_put_u32(p, 0, 7);  p[4] = 16;
+    feed(s, H2_PRIORITY, 0, 11, p, 5);
+    dump(s, "priority 11 on stream 7");
+    done(s);
+
+    free((*void)p);
+    return 0;
+}

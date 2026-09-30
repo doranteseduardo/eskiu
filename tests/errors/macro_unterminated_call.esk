@@ -1,0 +1,7 @@
+// EXPECT-ERROR: 5:11: unterminated argument list invoking macro 'ADD'
+extern int printf(string fmt, ...);
+#define ADD(a, b) ((a) + (b))
+int main() {
+  int x = ADD(1,
+  return 0;
+}

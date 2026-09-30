@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot take the address of this expression
+struct P { int x; }
+P mp() { P p; p.x = 1; return p; }
+int main() { *int q = &mp().x; return *q; }

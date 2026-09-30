@@ -1,0 +1,25 @@
+// sizeof(var) measures the variable's type also when the variable lives in an async
+// frame (a local or parameter of an async fn, hoisted into the frame) or is referenced
+// only by sizeof inside a lambda (an enclosing local).
+import <future>;
+extern int printf(string fmt, ...);
+struct P { int64 a; int64 b; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+
+async int sz(int16 h) {
+    int[5] a; P p; int64 w = 0; int[2][3] g; double d = 0.0; P[3] ps;
+    int x = await rdy<int>(1);
+    printf("%d %d %d %d %d %d %d\n", (int)sizeof(a), (int)sizeof(p), (int)sizeof(w),
+           (int)sizeof(g), (int)sizeof(d), (int)sizeof(ps), (int)sizeof(h));
+    if (x > 0) { int64[4] a; printf("%d\n", (int)sizeof(a)); }
+    return x;
+}
+
+int main() {
+    Future<int>* f = sz((int16)2); future_poll<int>(f, void() {});
+    int[5] a; P p; int64 w = 0;
+    fn()->int l = int() { return (int)sizeof(a) * 10000 + (int)sizeof(p) * 100 + (int)sizeof(w); };
+    fn(double)->int m = int(double d) { double[4] loc; return (int)sizeof(d) * 100 + (int)sizeof(loc); };
+    printf("%d %d\n", l(), m(1.0));
+    return 0;
+}

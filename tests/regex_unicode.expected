@@ -1,0 +1,46 @@
+^.$: 0,2
+^..$: no
+a.c: 0,5
+[é-ë]+: 1,7
+[^a]: 0,3
+.: 0,1
+\x{FFFD}: 1,2
+\x{1F600}: 3,7
+\xE9: 0,2
+\pL+: 2,8
+\p{Lu}\p{Ll}+: 6,11
+\PL+: 3,6
+\p{^L}: 2,3
+[\p{Greek}\d]+: 1,7
+\p{Han}+: 3,9
+\pN+: 1,4
+\p{Zs}: 1,3
+\p{Foo}: error invalid character class range
+(?i)hello: 0,5
+(?i)k: 0,3
+(?i)[a-z]+: 0,3
+(?i)ſ: 0,1
+(?i)σ+: 0,6
+(?i)\W: no
+(?i)[^k]: no
+(?i)\p{Lu}: 0,1
+a(?i)b|c: 0,1
+(a(?i)b)c: no
+(?i:A)a: 0,2
+(?i)A(?-i)a: 0,2
+^b$: no
+(?m)^b$: 2,3
+a.b: no
+(?s)a.b: 0,3
+(?U)a+: 0,1
+(?U)a+?: 0,3
+(?:ab)+: 0,4
+(?:a)(b): 0,2 1,2
+(?P<first>\w+) (?<last>\w+): 0,12 0,3 4,12
+(?P<>x): error invalid named capture
+(?z): error invalid or unsupported Perl syntax
+(?i-): error invalid or unsupported Perl syntax
+\Qa.b*\E: 1,5
+\Qa.b\E+: 0,5
+\Q(x): 0,3
+a\Q\E*: 0,3

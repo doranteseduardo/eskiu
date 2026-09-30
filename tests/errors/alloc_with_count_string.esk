@@ -1,0 +1,3 @@
+// EXPECT-ERROR: alloc_with count must be integer, got string
+import <alloc>;
+int main() { let b: Bump; *int p = alloc_with(&b, int, "a"); return 0; }

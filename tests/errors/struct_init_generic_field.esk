@@ -1,0 +1,3 @@
+// EXPECT-ERROR: field 'v': cannot convert 'string' to 'int'
+struct Box<T> { T v; }
+int main() { let p: Box<int> = Box<int>{v: "s"}; return p.v; }

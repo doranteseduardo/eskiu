@@ -1,0 +1,3 @@
+// EXPECT-ERROR: enum 'L<T>' contains itself by value (through variant 'Cons' of 'L<T>'); use a pointer
+enum L<T> { Cons(T, L<T>), Nil }
+int main() { return 0; }

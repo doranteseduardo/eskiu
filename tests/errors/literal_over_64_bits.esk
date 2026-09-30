@@ -1,0 +1,2 @@
+// EXPECT-ERROR: integer literal '18446744073709551616' does not fit in 64 bits
+int main() { uint64 x = 18446744073709551616; return (int)x; }

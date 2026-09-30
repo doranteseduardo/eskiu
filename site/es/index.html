@@ -6,7 +6,7 @@
     <title>Eskiu: un lenguaje de sistemas auto-hospedado</title>
     <meta name="description" content="Eskiu es un lenguaje de sistemas compilado con async/await, tipos suma, genéricos, HTTP/2 y atómicos. Backend LLVM, memoria manual, compila a un binario independiente. Auto-hospedado desde la v0.3.0." />
     <meta name="theme-color" content="#ffffff" />
-    <link rel="icon" type="image/png" href="../assets/logo.png" />
+    <link rel="icon" type="image/png" href="../../assets/logo.png" />
     <link rel="canonical" href="https://eskiu-lang.org/es/index.html" />
     <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/index.html" />
     <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/index.html" />
@@ -158,7 +158,7 @@
   <body>
     <header class="top">
       <div class="top-in">
-        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+        <a class="brand" href="#"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
         <nav class="top-links">
           <a href="../docs/index.html">docs</a>
           <a href="../the-book-of-eskiu.html">libro</a>
@@ -196,7 +196,7 @@
               compila a sí mismo desde la v0.3.0.
             </p>
           </div>
-          <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Mascota de Eskiu" /></div>
+          <div class="intro-fig"><img src="../../assets/eskiu_round.jpg" alt="Mascota de Eskiu" /></div>
         </div>
 
         <div class="btnrow">
@@ -320,14 +320,14 @@
 <span class="kw">import</span> &lt;channel&gt;;
 
 <span class="aw">async</span> <span class="ty">int</span> <span class="fn">sum_squares</span>(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch) {
-    <span class="kw">let</span> a: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
-    <span class="kw">let</span> b: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
-    <span class="kw">let</span> c: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">chan_recv</span>(ch);
+    <span class="kw">let</span> a: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">Chan_recv</span>(ch);
+    <span class="kw">let</span> b: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">Chan_recv</span>(ch);
+    <span class="kw">let</span> c: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">Chan_recv</span>(ch);
     <span class="kw">return</span> a + b + c;
 }
 
 <span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch = <span class="fn">chan_new</span>&lt;<span class="ty">int</span>&gt;(<span class="nu">8</span>);
-<span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9 -> 14</span></pre>
+<span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">Chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9 -> 14</span></pre>
         </section>
 
         <!-- 3 -->
@@ -335,15 +335,15 @@
           <h2><span class="num">3.</span>Herramientas</h2>
           <p>
             Un solo binario, <code>eskiuc</code>, se encarga de todo. <code>eskiuc run</code> compila
-            y ejecuta de una vez; <code>eskiuc build</code> genera un binario nativo. La biblioteca
+            y ejecuta de una vez; <code>eskiuc app.esk -o app</code> genera un binario nativo. La biblioteca
             estándar viene incluida, así que los imports funcionan sin configurar nada.
           </p>
 <pre><span class="cm">$ eskiuc run app.esk</span>          <span class="cm"># compila + ejecuta en un paso</span>
-<span class="cm">$ eskiuc build app.esk -o app</span>  <span class="cm"># emite un binario nativo independiente</span>
+<span class="cm">$ eskiuc app.esk -o app</span>        <span class="cm"># emite un binario nativo independiente</span>
 <span class="cm">$ eskiuc --version</span></pre>
           <h3>Pruébalo</h3>
           <p>Edita el programa de abajo y córrelo. El servidor lo compila con LLVM y lo ejecuta con el mismo <code>eskiuc run</code>.</p>
-          <div class="pg">
+          <div class="pg" id="try">
             <div class="pg-grid">
               <div class="pg-panel">
                 <div class="pg-bar"><span>main.esk</span><span>editor</span></div>
@@ -356,7 +356,7 @@
             </div>
             <div class="pg-controls">
               <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Ejecutar</span></button>
-              <div class="pg-examples">
+              <div class="pg-examples" id="examples">
                 <button class="pg-ex" onclick="loadExample('hello')">hello</button>
                 <button class="pg-ex" onclick="loadExample('basics')">basics</button>
                 <button class="pg-ex" onclick="loadExample('match')">match</button>
@@ -553,19 +553,19 @@ import <future>;
 import <channel>;
 
 async int sum_squares(Chan<int>* ch) {
-    let a: int = await chan_recv(ch);
-    let b: int = await chan_recv(ch);
-    let c: int = await chan_recv(ch);
+    let a: int = await Chan_recv(ch);
+    let b: int = await Chan_recv(ch);
+    let c: int = await Chan_recv(ch);
     return a + b + c;
 }
 
 int main() {
     Chan<int>* ch = chan_new<int>(8);
-    for (i in 1..4) { chan_send(ch, i * i); }   // 1, 4, 9
+    for (i in 1..4) { Chan_send(ch, i * i); }   // 1, 4, 9
     Future<int>* f = sum_squares(ch);
     future_poll<int>(f, void() {});
     printf("sum of squares = %d\\n", f.value);   // 14
-    free_future<int>(f);  chan_free<int>(ch);
+    free_future<int>(f);  Chan_free<int>(ch);
     return 0;
 }
 `,

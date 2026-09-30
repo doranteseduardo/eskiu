@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 'P_get' cannot be called as method 'get' of 'P'
+// A free `P_get` whose first parameter is not a `*P` is not a method of P.
+struct P { int a; }
+int P_get(int self) { return self; }
+int main() { P p = P{a: 1}; return p.get(); }

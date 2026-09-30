@@ -1,0 +1,6 @@
+// Imported by the LSP server test through a relative path; it has its own
+// type error on line 4, which must not be reported against the importer.
+int helper_value() {
+    int bad = "not an int";
+    return 1;
+}

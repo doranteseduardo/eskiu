@@ -1,0 +1,3 @@
+// EXPECT-ERROR: #include is not supported
+#include "stdio.h"
+int main() { return 0; }

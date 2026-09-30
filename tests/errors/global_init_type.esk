@@ -1,0 +1,3 @@
+// EXPECT-ERROR: initializing 'g': cannot convert 'string' to 'int'
+int g = "str";
+int main() { return g; }

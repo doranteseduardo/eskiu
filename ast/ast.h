@@ -24,7 +24,8 @@ inline std::string eskiuOpWord(const std::string& op) {
     if (op == "!")  return "lnot";  if (op == "~")  return "bnot";
     return "";
 }
-// Make a type spelling safe to embed in a symbol name (`*V3`->`p_V3`, `List<int>`->`List_int`).
+// Make a type spelling safe to embed in a symbol name (`*V3`->`p_V3`, `List<int>`->`List_int`,
+// `V[]`->`V_A_`, so an array or slice never mangles like its element type).
 // A `struct:`/`union:`/`enum:`/`interface:` prefix (how sema spells a nominal expr type) is
 // stripped first, so a decl's written param type `V3` and a call operand's `struct:V3` mangle
 // identically.
@@ -38,6 +39,8 @@ inline std::string eskiuTyMangle(const std::string& tin) {
     for (char c : t) {
         if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') r += c;
         else if (c == '*') r += "p_";
+        else if (c == '[') r += "_A";
+        else if (c == ']') r += "_";
         // '<', '>', ' ', ',' etc. are dropped
     }
     return r;
@@ -85,6 +88,12 @@ public:
 class Decl : public ASTNode {
 public:
     std::string name;
+    // The source file a top-level declaration was parsed from (stamped by the
+    // parser; "" when synthesized). Diagnostics inside it name this file.
+    std::string sourceFile;
+    // Parsed from an `import`ed file (a library): -Wall does not report its unused
+    // functions, as C does not for another translation unit's.
+    bool fromImport = false;
     explicit Decl(const std::string& name) : name(name) {}
     virtual ~Decl() = default;
 };
@@ -102,6 +111,9 @@ public:
     // Per-param `escaping` flag (parallel to params): the param retains the
     // closure beyond the call, so closures passed there get a heap env.
     std::vector<bool> paramEscaping;
+    // Per-param (line, col) of the parameter name (parallel to params; may be
+    // empty for synthesized functions): diagnostics about a parameter point here.
+    std::vector<std::pair<int, int>> paramPositions;
     // `async fn`: the call yields `*Future<returnType>`; the body is lowered to a
     // resumable state machine by the async transform. Declared return type stays
     // in `returnType` (the inner T).
@@ -129,6 +141,8 @@ public:
     bool isStatic = false;   // `static` local: one instance, persists across calls
     bool isExtern = false;   // `extern <type> <name>;` — a global defined in another
                              // translation unit (C interop); external linkage, no init
+    bool rangeBound = false; // a `for (i in A..B)` desugar decl: sema retypes it to the
+                             // bounds' common integer type (ty::rangeVarType)
 
     VarDecl(const std::string& name, const std::string& type, ExprPtr init = nullptr)
         : Decl(name), type(type), initializer(std::move(init)) {}
@@ -156,7 +170,7 @@ public:
     struct Field {
         std::string type;
         std::string name;
-        int bitWidth = 0;   // >0 for a bitfield (e.g. `uint32 x : 1;`), 0 otherwise
+        int bitWidth = 0;   // >0 for a bitfield (e.g. `uint32 x : 1;`), 0 otherwise, -1 for `: 0`
     };
     std::vector<Field> fields;
     std::vector<DeclPtr> methods;
@@ -179,6 +193,7 @@ public:
 class UnionDecl : public Decl {
 public:
     std::vector<StructDecl::Field> fields;
+    int packAlign = 0;                   // `#pragma pack(N)`: cap member alignment at N (0 = natural)
 
     UnionDecl(const std::string& name, const std::vector<StructDecl::Field>& fields)
         : Decl(name), fields(fields) {}
@@ -228,6 +243,10 @@ public:
     // a plain integer enum. Variants are constructed by name (`Circle(2.0)`, or a
     // bare `None`) and consumed with `match`.
     std::vector<std::vector<std::string>> payloads;
+    // Per-member value expression, parallel to `members` (null = a literal value or the
+    // previous member's value + 1). `B = A << 2`: an integer constant expression the type
+    // checker folds into `members` (literals, earlier members, `const` ints, `sizeof`).
+    std::vector<ExprPtr> valueExprs;
     // Non-empty → a generic algebraic enum (e.g. `enum Option<T> { None, Some(T) }`),
     // monomorphized per instantiation like a template struct.
     std::vector<std::string> typeParams;
@@ -312,6 +331,7 @@ public:
     // with `data`/`size`), and the array dimension `N` (literal / const / enum
     // name) when it is an array.
     std::string resolvedElemType;
+    std::string resolvedIterType;   // the iterable's type (the async lowering holds a non-place iterable in a local)
     bool        isArrayIter = false;
     std::string arrayDim;
     std::string label;   // labeled-loop name ("" = unlabeled)
@@ -372,7 +392,9 @@ class SwitchStmt : public Stmt {
 public:
     struct Case {
         ExprPtr value;               // nullptr = default
-        std::vector<StmtPtr> stmts;
+        // A declaration may appear directly after the label (C): its scope is the rest
+        // of the switch body, so the whole switch is one scope.
+        std::vector<BlockItem> stmts;
     };
     ExprPtr subject;
     std::vector<Case> cases;
@@ -391,6 +413,7 @@ public:
     struct Arm {
         std::string variant;                 // variant name, or "" for the `_` default
         std::vector<std::string> bindings;   // payload binding names (for this variant)
+        std::vector<std::string> bindingTypes;   // stamped by the type checker (the async lowering's frame fields)
         StmtPtr body;
     };
     ExprPtr subject;
@@ -419,10 +442,15 @@ public:
         std::string type;
         std::string name;
         StmtPtr     body;
+        int         line = 0;   // of the variable name
+        int         col = 0;
     };
     StmtPtr               body;
     std::vector<CatchClause> catches;
     StmtPtr               finally; // may be nullptr
+    // Synthesized by the async lowering only: `finally` runs only when an exception leaves
+    // the try (no catch matched), not on a normal or early exit.
+    bool                  unwindOnly = false;
 
     TryStmt(StmtPtr body, std::vector<CatchClause> catches, StmtPtr finally)
         : body(std::move(body)), catches(std::move(catches)),
@@ -452,18 +480,22 @@ public:
     void accept(class ASTVisitor* visitor) override;
 };
 
-// Inline assembly: asm("cli") or asm("op" : : "r"(x) : "rax")
+// Inline assembly: asm("cli") or asm("op" : "=r"(y) : "r"(x) : "rax")
 class AsmStmt : public Stmt {
 public:
     std::string asmString;
-    // Extended asm: each entry is (constraint, expression)
+    // Extended asm: each entry is (constraint, expression). An output's constraint
+    // starts with `=` (written) or `+` (read and written); its expression is an lvalue.
+    std::vector<std::pair<std::string, ExprPtr>> outputs;
     std::vector<std::pair<std::string, ExprPtr>> inputs;
     std::vector<std::string> clobbers;
 
     AsmStmt(std::string asmStr,
+            std::vector<std::pair<std::string, ExprPtr>> outputs = {},
             std::vector<std::pair<std::string, ExprPtr>> inputs = {},
             std::vector<std::string> clobbers = {})
         : asmString(std::move(asmStr)),
+          outputs(std::move(outputs)),
           inputs(std::move(inputs)),
           clobbers(std::move(clobbers)) {}
 
@@ -486,6 +518,10 @@ public:
 class Expr : public ASTNode {
 public:
     virtual ~Expr() = default;
+    // Codegen's memo of whether this place is reached from a `volatile` variable, valid
+    // while its set of volatile names has `volMemoSize` entries (CodeGen::volatileRooted).
+    mutable size_t volMemoSize = (size_t)-1;
+    mutable bool volMemo = false;
 };
 
 class BinaryExpr : public Expr {
@@ -497,6 +533,8 @@ public:
 
     BinaryExpr(ExprPtr left, const std::string& op, ExprPtr right)
         : left(std::move(left)), op(op), right(std::move(right)) {}
+    // Frees a long left-leaning chain with a loop, not one nested destructor per operator.
+    ~BinaryExpr() override;
 
     void accept(class ASTVisitor* visitor) override;
 };
@@ -698,6 +736,9 @@ public:
 class SizeofExpr : public Expr {
 public:
     std::string typeName;
+    // `sizeof(expr)` (typeName empty): the size of the operand's type. The operand is
+    // type-checked but never evaluated.
+    ExprPtr operand;
     explicit SizeofExpr(std::string t) : typeName(std::move(t)) {}
     void accept(class ASTVisitor* visitor) override;
 };
@@ -717,6 +758,10 @@ class AwaitExpr : public Expr {
 public:
     ExprPtr operand;
     std::string resolvedType;   // set by the type checker: the awaited value type T'
+    // In a generic async function: per checked instance, its type-argument bindings and
+    // the awaited type (source form). The async transform recovers the type in terms of
+    // the template's parameters from these (the body is shared by every instance).
+    std::vector<std::pair<std::map<std::string, std::string>, std::string>> instanceTypes;
     explicit AwaitExpr(ExprPtr o) : operand(std::move(o)) {}
     void accept(class ASTVisitor* visitor) override;
 };
@@ -738,6 +783,7 @@ public:
 class Program : public ASTNode {
 public:
     std::vector<DeclPtr> declarations;
+    std::vector<std::string> linkLibs;   // `#pragma link("name")`, deduped, in order
 
     explicit Program(const std::vector<DeclPtr>& decls = {})
         : declarations(decls) {}

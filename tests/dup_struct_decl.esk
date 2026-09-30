@@ -1,0 +1,14 @@
+// The same struct declared twice (as when two inputs of a multi-file build share a
+// header-style declaration): the duplicate is merged, not emitted a second time.
+import <io>;
+
+struct Pt { int x; int y; }
+struct Pt { int x; int y; }
+
+int helper(Pt p) { return p.x * 10 + p.y; }
+
+int main() {
+    let p: Pt = Pt{2, 3};
+    printf("%d\n", helper(p));
+    return 0;
+}

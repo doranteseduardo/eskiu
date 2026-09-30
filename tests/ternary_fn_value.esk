@@ -1,0 +1,19 @@
+// A ternary whose arms are named functions decays each arm to a closure value.
+extern int printf(string fmt, ...);
+
+int inc(int x) { return x + 1; }
+int dbl(int x) { return x * 2; }
+int apply(fn(int)->int f, int v) { return f(v); }
+
+fn(int)->int pick(int k) { return k > 0 ? inc : dbl; }
+
+int main() {
+    int k = 1;
+    fn(int)->int f = k > 0 ? inc : dbl;
+    fn(int)->int g = k < 0 ? inc : dbl;
+    printf("%d %d\n", f(10), g(10));
+    printf("%d %d\n", apply(k > 0 ? dbl : inc, 5), pick(0)(7));
+    fn(int)->int h = k > 0 ? int(int x) { return x - 1; } : inc;
+    printf("%d\n", h(3));
+    return 0;
+}

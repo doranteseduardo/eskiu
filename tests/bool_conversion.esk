@@ -1,0 +1,24 @@
+// Conversion to bool is `!= 0` (C _Bool semantics), never a truncation to the low bit.
+extern int printf(string fmt, ...);
+
+bool ret(int x) { return x; }
+bool retf(double d) { return (bool)d; }
+bool nonnull(*int p) { return (bool)p; }
+
+int main() {
+    int two = 2;
+    int big = 256;
+    double half = 0.5;
+    int64 wide = 4294967296;
+    printf("%d %d %d %d\n", (int)(bool)two, (int)(bool)big, (int)(bool)half, (int)(bool)0);
+    printf("%d %d %d\n", (int)ret(4), (int)ret(0), (int)retf(0.25));
+    printf("%d\n", (int)(bool)wide);
+    bool b = two;
+    bool c = (bool)half;
+    printf("%d %d\n", (int)b, (int)c);
+    int x = 5;
+    printf("%d %d\n", (int)nonnull(&x), (int)nonnull(null));
+    uint8 u = (uint8)(bool)512;
+    printf("%d\n", (int)u);
+    return 0;
+}

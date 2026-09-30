@@ -1,0 +1,6 @@
+// A global initializer must be a compile-time constant (C): reading a non-const
+// global is not (only a `const` global folds).
+// EXPECT-ERROR: is not a compile-time constant
+int A = 3;
+int B = A + 1;
+int main() { return B; }

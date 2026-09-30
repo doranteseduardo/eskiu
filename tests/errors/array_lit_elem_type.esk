@@ -1,0 +1,2 @@
+// EXPECT-ERROR: array element: cannot convert 'string' to 'int'
+int main() { int[2] a = {1, "s"}; return 0; }

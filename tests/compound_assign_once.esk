@@ -1,0 +1,49 @@
+// `lv op= v` evaluates the lvalue `lv` exactly once (C semantics), even when it has
+// side effects: an index call, a post-increment, or a call returning a pointer.
+extern int printf(string fmt, ...);
+
+struct V { int x; int y; }
+V operator +(V a, V b) { return V{ x: a.x + b.x, y: a.y + b.y }; }
+struct Box { int[4] v; V p; }
+struct Flags { uint32 lo : 4; uint32 hi : 4; }
+
+int calls = 0;
+int idx() { calls = calls + 1; return 1; }
+Box gb;
+*Box getb() { calls = calls + 1; return &gb; }
+Flags gf;
+*Flags getf() { calls = calls + 1; return &gf; }
+
+int main() {
+    int[4] a = {10, 20, 30, 40};
+    a[idx()] += 5;
+    printf("%d %d\n", a[1], calls);
+    int i = 0;
+    a[i++] += 7;
+    printf("%d %d %d\n", a[0], a[1], i);
+    a[i++] *= 2;
+    printf("%d %d\n", a[1], i);
+    getb().v[2] -= 3;
+    printf("%d %d\n", gb.v[2], calls);
+    V[2] vs;
+    vs[0] = V{ x: 1, y: 2 };
+    int k = 0;
+    vs[k++] += V{ x: 10, y: 20 };
+    printf("%d %d %d\n", vs[0].x, vs[0].y, k);
+    getb().p += V{ x: 3, y: 4 };
+    printf("%d %d %d\n", gb.p.x, gb.p.y, calls);
+    uint8[2] bs = {250, 1};
+    int j = 0;
+    bs[j++] += 10;
+    printf("%d %d\n", (int)bs[0], j);
+    calls = 0;
+    gf.lo = 3;
+    getf().lo += 2;
+    getf().hi |= 5;
+    printf("%d %d %d\n", (int)gf.lo, (int)gf.hi, calls);
+    int x = 3;
+    x <<= 2;
+    x |= 1;
+    printf("%d\n", x);
+    return 0;
+}

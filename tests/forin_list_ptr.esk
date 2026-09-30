@@ -1,0 +1,21 @@
+// for-in over a pointer to a list (`&li`, or a `*List<T>` parameter).
+extern int printf(string fmt, ...);
+import <list>;
+
+int total(List<int>* l) {
+    int s = 0;
+    for (v in l) { s += v; }
+    return s;
+}
+
+int main() {
+    List<int> li;
+    List_init<int>(&li, 4);
+    List_push<int>(&li, 5);
+    List_push<int>(&li, 7);
+    List_push<int>(&li, 9);
+    int s = 0;
+    for (v in &li) { s += v; }
+    printf("%d %d\n", s, total(&li));
+    return 0;
+}

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: undefined variable 'gz'
+int f() { return gz; }
+int gz = 5;
+int main() { return f(); }

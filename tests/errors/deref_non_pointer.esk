@@ -1,0 +1,3 @@
+// EXPECT-ERROR: invalid operand for unary operator
+// `*` needs a pointer operand.
+int main() { int32 x = 1; return *x; }

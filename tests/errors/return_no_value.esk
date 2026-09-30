@@ -1,0 +1,4 @@
+// EXPECT-ERROR: return type mismatch
+// A bare `return;` in a function that returns int.
+int32 f(int32 a) { if (a > 0) { return; } return 1; }
+int main() { return f(1); }

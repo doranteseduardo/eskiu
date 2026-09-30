@@ -1,0 +1,6 @@
+a=3 b=0 c=abcdef
+a=3 b=-1 c=abcdef
+post=7 a=0 b=-1 c=abcdef
+pre=1 a=1
+pd=15 b=15 a=1 c=abcdef
+g0 lo=0 hi=2 g1 lo=0 hi=15

@@ -1,0 +1,47 @@
+// tls_alpn_pick_h2 never reads past the ALPN list: an entry whose length byte
+// runs past the end (a truncated or malformed list from the peer) stops the scan
+// instead of reading the name bytes beyond the buffer. The buffers are sized
+// exactly, so the asan gate catches any over-read. OpenSSL is replaced by
+// in-file stubs so the test links without libssl.
+import <tls>;
+import <mem>;
+extern int printf(string fmt, ...);
+
+*void TLS_server_method() { return (*void)0; }
+*void SSL_CTX_new(*void m) { return (*void)0; }
+void SSL_CTX_free(*void c) { }
+int SSL_CTX_use_certificate_file(*void c, string f, int t) { return 0; }
+int SSL_CTX_use_PrivateKey_file(*void c, string f, int t) { return 0; }
+void SSL_CTX_set_alpn_select_cb(*void c, *void cb, *void a) { }
+*void SSL_new(*void c) { return (*void)0; }
+int SSL_set_fd(*void s, int fd) { return 0; }
+int SSL_get_fd(*void s) { return -1; }
+int SSL_accept(*void s) { return 1; }
+int SSL_read(*void s, *void b, int n) { return 0; }
+int SSL_write(*void s, *void b, int n) { return n; }
+int SSL_shutdown(*void s) { return 0; }
+void SSL_free(*void s) { }
+int SSL_get_error(*void s, int r) { return 0; }
+
+void pick(string label, string bytes, int len) {
+    *uint8 p = alloc<uint8>(len);
+    for (i in 0..len) { p[i] = (uint8)bytes[i]; }
+    *uint8 got = (*uint8)0;
+    uint8 glen = (uint8)0;
+    const int r = tls_alpn_pick_h2(p, len, &got, &glen);
+    printf("%s: %d", label, r);
+    if (r == 1) { printf(" at=%d len=%d", (int)((int64)got - (int64)p), (int)glen); }
+    printf("\n");
+    free((*void)p);
+}
+
+int main() {
+    pick("h2 only", "\x02h2", 3);
+    pick("after http/1.1", "\x08http/1.1\x02h2", 12);
+    pick("no h2", "\x08http/1.1", 9);
+    pick("cut name", "\x02h", 2);
+    pick("cut tail entry", "\x03abc\x02", 5);
+    pick("overlong length", "\x09h2", 3);
+    pick("empty", "", 0);
+    return 0;
+}

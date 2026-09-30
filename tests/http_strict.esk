@@ -1,0 +1,63 @@
+// HTTP/1.1 strictness: http_recv reports a body cut short by the peer closing as
+// 400 (it used to return success with the partial body), conflicting
+// Content-Length values are 400 (identical repeats are fine), a bare LF inside
+// the head is malformed instead of starting a new header line (a smuggling
+// vector), an empty method or path is rejected, and HttpResponse_render sends
+// all body.len bytes even past an embedded NUL.
+import <mem>;
+import <string>;
+import <http>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int proto, *int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int close(int fd);
+
+void recv_case(string label, string raw) {
+    int[2] sv;  socketpair(1, 1, 0, &sv[0]);
+    write(sv[1], (*void)raw, (int64)strlen(raw));
+    close(sv[1]);
+    let r: HttpReq;  HttpReq_init(&r);
+    int st = http_recv(sv[0], &r, (int64)1000);
+    printf("%s: %d", label, st);
+    if (st == 0) { printf(" body=%lld", r.body_len); }
+    printf("\n");
+    HttpReq_free(&r);
+    close(sv[0]);
+}
+
+void parse_case(string label, string raw) {
+    let r: HttpRequest;  r.init();
+    const int ok = r.parse((*uint8)raw, (int)strlen(raw));
+    let h: String;  h.init(8);
+    const int has = r.header("host", &h);
+    printf("%s: ok=%d host=%d[%s]\n", label, ok, has, h.cstr());
+    h.free();
+    r.free();
+}
+
+int main() {
+    recv_case("full body", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhello");
+    recv_case("truncated body", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhel");
+    recv_case("conflicting lengths", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 1\r\nContent-Length: 3\r\n\r\nabc");
+    recv_case("repeated length", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 3\r\ncontent-length: 3\r\n\r\nabc");
+    recv_case("length list", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 3, 3\r\n\r\nabc");
+    recv_case("conflicting list", "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 3, 4\r\n\r\nabcd");
+    recv_case("bare LF header", "GET / HTTP/1.1\r\nX: 1\nHost: smuggled\r\n\r\n");
+    recv_case("empty method", " / HTTP/1.1\r\nHost: h\r\n\r\n");
+    recv_case("empty path", "GET  HTTP/1.1\r\nHost: h\r\n\r\n");
+
+    parse_case("parse ok", "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+    parse_case("parse bare LF", "GET /x HTTP/1.1\r\nX: 1\nHost: smuggled\r\n\r\n");
+    parse_case("parse bare CR", "GET /x HTTP/1.1\r\nX: 1\rHost: smuggled\r\n\r\n");
+    parse_case("parse empty method", " / HTTP/1.1\r\n\r\n");
+    parse_case("parse empty path", "GET  HTTP/1.1\r\n\r\n");
+
+    let res: HttpResponse;  res.init(200);
+    res.set_body("ab");  res.body.push(0);  res.body.push('c');
+    let out: String;  out.init(8);
+    res.render(&out);
+    printf("render len=%lld last=%c nul=%d\n", out.len, (int)out.data[out.len - 1], (int)out.data[out.len - 2]);
+    out.free();
+    res.free();
+    return 0;
+}

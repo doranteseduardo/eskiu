@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -101,7 +101,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
-<p>All code blocks in this document compile and run with <strong>Eskiu v0.9.1</strong>.</p>
+<p>All code blocks in this document compile and run with <strong>Eskiu v0.9.2</strong>.</p>
 <hr>
 <h2 id="installation">Installation</h2>
 <h3 id="prerequisites">Prerequisites</h3>
@@ -116,8 +116,8 @@ and inspecting real compiled programs in about 30 minutes.</p>
 <tbody>
 <tr>
 <td>LLVM</td>
-<td>17+</td>
-<td>Headers and libraries required</td>
+<td>21+</td>
+<td>Headers and libraries required (CI uses 22)</td>
 </tr>
 <tr>
 <td>CMake</td>
@@ -147,13 +147,13 @@ cmake -S . -B build
 cmake --build build -j$(sysctl -n hw.ncpu)
 </code></pre>
 <h3 id="linux-ubuntu-debian">Linux (Ubuntu / Debian)</h3>
-<pre><code class="language-bash">sudo apt-get install -y cmake llvm-17-dev clang-17 build-essential
-cmake -S . -B build
+<pre><code class="language-bash">sudo apt-get install -y cmake llvm-22-dev clang-22 build-essential
+cmake -S . -B build -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
 cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.9.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.9.2 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
@@ -346,7 +346,11 @@ uint8 mask = 0x0F;
 int64 big = 1000000;
 int neg = -42;   // negative literals work anywhere, including global scope
 float f = -3.14;
+int perms = 0755;  // a leading 0 means octal, as in C (493)
 </code></pre>
+<p>Literals follow C. <code>08</code> (an invalid octal digit) and <code>0x</code> with no digits are
+errors, and so is any suffix: write <code>1000</code> rather than <code>1_000</code>, and <code>3.5</code> rather
+than <code>3.5f</code>.</p>
 <h3 id="pointer-types">Pointer types</h3>
 <p>Prefix <code>*</code> to make a type a pointer:</p>
 <pre><code class="language-eskiu">let p: *int = null;
@@ -365,6 +369,11 @@ int prod = a * b;   // 30
 int quot = a / b;   // 3
 int rem  = a % b;   // 1
 </code></pre>
+<p>As in C, operands narrower than <code>int</code> (<code>bool</code>, <code>char</code>, <code>int8</code>, <code>uint8</code>, <code>int16</code>,
+<code>uint16</code>) are promoted to <code>int</code> before arithmetic and comparison. So
+<code>(uint8)200 + (uint8)100</code> is <code>300</code>, and a <code>uint8</code> compared with a negative <code>int8</code>
+compares the values, not the bit patterns. Assigning the result back to a narrow
+variable truncates it.</p>
 <h3 id="comparison">Comparison</h3>
 <p>All comparison operators work on integers, floats, and pointers:</p>
 <pre><code class="language-eskiu">bool eq  = (a == b);
@@ -578,7 +587,9 @@ int main() {
 }
 </code></pre>
 <p>Struct literals accept either named fields (<code>Point { x: 1.0, y: 2.0 }</code>) or
-positional fields (<code>Point { 1.0, 2.0 }</code>).</p>
+positional fields (<code>Point { 1.0, 2.0 }</code>). Fields you leave out are zero-filled, as
+in C. Each field value is type-checked against the field's type, and naming a
+field twice or giving too many values is an error.</p>
 <h3 id="methods-with-self">Methods with self</h3>
 <p>Methods are defined inside the struct body and receive a pointer to the instance
 as <code>self</code>:</p>
@@ -606,6 +617,23 @@ int main() {
 </code></pre>
 <p>The compiler lowers <code>r.area()</code> to <code>Rect_area(ptr %r)</code>: the receiver is passed
 as the first argument.</p>
+<p>A method can also be written as a free function named <code>Type_method</code> whose first
+parameter is the receiver. To call it on a <code>const</code> value, declare the receiver
+<code>const T* self</code>; a method with a plain <code>*T self</code> may change the value, so calling
+it on a <code>const</code> is an error:</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+struct P { int x; }
+int  P_get(const P* self) { return self.x; }
+void P_set(*P self, int v) { self.x = v; }
+
+int main() {
+    const P c = P { x: 4 };
+    printf(&quot;%d\n&quot;, c.get());   // fine: P_get takes const P*
+    // c.set(9);               // error: cannot call method 'set' on a read-only value
+    return 0;
+}
+</code></pre>
 <h3 id="fixed-size-array-fields">Fixed-size array fields</h3>
 <p>A struct field can be a fixed-size array:</p>
 <pre><code class="language-eskiu">struct Packet {
@@ -714,7 +742,7 @@ int main() {
 <h3 id="bounded-generics-constraints">Bounded generics (constraints)</h3>
 <p>A type parameter can require that its concrete type satisfy one or more interfaces, written after a colon. The constraint is checked at the instantiation site, not deep in codegen:</p>
 <pre><code class="language-eskiu">interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` stands for the implementing type
 }
 
 T max&lt;T: Ord&gt;(T a, T b) {
@@ -722,7 +750,7 @@ T max&lt;T: Ord&gt;(T a, T b) {
     return b;
 }
 </code></pre>
-<p>Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int, int)</code> makes <code>int</code> satisfy <code>Ord</code>. See spec §10.6 for the full rules.</p>
+<p>Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a <code>struct Num</code> with <code>int cmp(*Num other)</code> satisfies <code>Ord</code>. Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int a, *int b)</code> makes <code>int</code> satisfy the <code>Ord</code> above (the interface's <code>*Ord</code> becomes <code>*int</code>). See spec §10.6 for the full rules.</p>
 <hr>
 <h2 id="interfaces">Interfaces</h2>
 <p>Interfaces declare a set of method signatures. Any struct that provides matching
@@ -756,7 +784,9 @@ struct Square {
 }
 </code></pre>
 <p><code>Circle</code> and <code>Square</code> both satisfy <code>Drawable</code> automatically because they
-implement a <code>draw()</code> method with a matching signature.</p>
+implement a <code>draw()</code> method with a matching signature. The whole signature has to
+match: a <code>draw</code> that returns a different type or takes different parameters does
+not satisfy the interface.</p>
 <h3 id="passing-a-struct-as-an-interface">Passing a struct as an interface</h3>
 <p>Pass a pointer to the struct where an interface parameter is expected. The
 compiler auto-boxes it into a fat pointer <code>{data_ptr, vtable_ptr}</code> and performs
@@ -776,6 +806,16 @@ int main() {
 <p>Output:</p>
 <pre><code>Circle(r=5.000000)
 Square(s=3.000000)
+</code></pre>
+<p>Pass <code>&amp;c</code>, not <code>c</code>. An interface value refers to the struct through a pointer, so
+passing a struct by value where an interface is expected is a compile error.</p>
+<p>An interface value is an ordinary value: it can be a local, a struct field, a
+parameter or a return value, and it keeps referring to the struct it was made
+from.</p>
+<pre><code class="language-eskiu">let d: Drawable = &amp;c;
+d.draw();
+d = &amp;s;          // now refers to s
+d.draw();
 </code></pre>
 <hr>
 <h2 id="memory">Memory</h2>
@@ -817,6 +857,16 @@ int main() {
 }
 </code></pre>
 <p>Pointer comparisons use integer equality, not floating-point equality.</p>
+<p>For checked null safety, declare the pointer <code>?*T</code>. The compiler then rejects a
+dereference until a check proves the pointer is not null. The check can be an
+<code>if (p != null)</code>, an early exit (<code>if (p == null) { return 0; }</code>), a loop condition,
+the left side of <code>&amp;&amp;</code> or <code>||</code>, or a ternary condition. Assigning to the pointer
+ends what the check proved.</p>
+<pre><code class="language-eskiu">int first(?*int p) {
+    if (p == null) { return -1; }
+    return *p;                 // proven non-null here
+}
+</code></pre>
 <h3 id="dereference">Dereference</h3>
 <pre><code class="language-eskiu">int n = 100;
 let ptr: *int = &amp;n;
@@ -967,11 +1017,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;random&gt;</code></td>
-<td>seedable PRNG (xoshiro256**): <code>rng_seed</code>, <code>rng_next</code>, <code>rng_below</code>, <code>rng_range</code>, <code>rng_double</code>, <code>rng_bool</code>, <code>rng_fill</code></td>
+<td>seedable PRNG (xoshiro256**): <code>Rng_seed</code>, <code>Rng_next</code>, <code>Rng_below</code>, <code>Rng_range</code>, <code>Rng_double</code>, <code>Rng_bool</code>, <code>Rng_fill</code></td>
 </tr>
 <tr>
 <td><code>&lt;regex&gt;</code></td>
-<td>linear-time regex (Thompson NFA): <code>regex_match</code>, <code>regex_compile</code>/<code>regex_search</code> with capture groups (<code>match_group</code>), <code>\d \w \s</code>, <code>* + ? {m,n}</code>, <code>|</code>, <code>( )</code>, <code>^ $</code></td>
+<td>linear-time regex (Thompson NFA) over UTF-8: <code>regex_match</code>, <code>regex_compile</code>/<code>Regex_search</code> with capture groups (<code>Match_group</code>), <code>\d \w \s</code>, <code>\p{L}</code> Unicode classes, <code>* + ? {m,n}</code>, <code>|</code>, <code>( )</code>, <code>(?:)</code>, <code>(?i)</code>, <code>^ $</code>, <code>\b \B</code>, <code>\Q..\E</code> (RE2 syntax, as Go's regexp)</td>
 </tr>
 <tr>
 <td><code>&lt;sort&gt;</code></td>
@@ -987,7 +1037,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;time&gt;</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>time_from_utc</code>, <code>time_format_iso</code>)</td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>
@@ -1003,7 +1053,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;eventloop&gt;</code></td>
-<td>readiness reactor over kqueue/epoll: <code>el_new</code>/<code>el_add_read</code>/<code>el_run</code>/<code>el_stop</code>/<code>el_add_timer</code></td>
+<td>readiness reactor over kqueue/epoll: <code>el_new</code>/<code>EventLoop_add_read</code>/<code>EventLoop_run</code>/<code>EventLoop_stop</code>/<code>EventLoop_add_timer</code></td>
 </tr>
 <tr>
 <td><code>&lt;atomic&gt;</code></td>
@@ -1027,7 +1077,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;channel&gt;</code></td>
-<td>async message channel: <code>chan_new</code>/<code>chan_send</code>/<code>chan_recv</code> (a <code>*Future&lt;T&gt;</code>)</td>
+<td>async message channel: <code>chan_new</code>/<code>Chan_send</code>/<code>Chan_recv</code> (a <code>*Future&lt;T&gt;</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;http_async&gt;</code></td>
@@ -1035,9 +1085,10 @@ import &lt;math&gt;;
 </tr>
 </tbody>
 </table></div>
-<p>Note: when using <code>&lt;math&gt;</code> link with <code>-lm</code>. Library flags are passed straight
-through to the linker, so the one-command form works too:</p>
-<pre><code class="language-bash">eskiuc file.esk -o file -lm
+<p>Modules that need a system library link it themselves (<code>&lt;math&gt;</code> adds <code>-lm</code> on
+Linux through <code>#pragma link("m")</code>), so a program using them builds with no <code>-l</code>
+flag:</p>
+<pre><code class="language-bash">eskiuc file.esk -o file
 </code></pre>
 <h3 id="standard-library-highlights">Standard library highlights</h3>
 <p>A few of the newer modules. See the language spec §14 for the full reference.</p>
@@ -1122,7 +1173,7 @@ int main() {
 }
 </code></pre>
 <h3 id="closures-capturing-from-the-enclosing-scope">Closures: capturing from the enclosing scope</h3>
-<p>A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created.</p>
+<p>A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (<code>x = 1</code>, <code>x++</code> inside the body is a compile error); to share state, write through a pointer or use a global or a <code>static</code> local.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
 int main() {
@@ -1134,7 +1185,9 @@ int main() {
 }
 </code></pre>
 <p>Closures can be passed to higher-order functions exactly like plain lambdas: the <code>fn(T)-&gt;R</code> type is the same in both cases.</p>
-<pre><code class="language-eskiu">int apply(fn(int)-&gt;int f, int x) { return f(x); }
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+
+int apply(fn(int)-&gt;int f, int x) { return f(x); }
 
 int main() {
     int offset = 100;
@@ -1167,8 +1220,8 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>The closure fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair: no trampoline is generated. On Linux, link with <code>-lpthread</code>:</p>
-<pre><code class="language-bash">eskiuc threads.esk -o threads -lpthread
+<p>The closure fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair: no trampoline is generated. The driver links pthread by itself where the platform needs it:</p>
+<pre><code class="language-bash">eskiuc threads.esk -o threads
 ./threads
 </code></pre>
 <hr>
@@ -1196,7 +1249,9 @@ int main() {
 </code></pre>
 <p>Output: <code>caught: division by zero</code></p>
 <h3 id="with-finally">With finally</h3>
-<p>The <code>finally</code> block always executes, whether or not an exception was raised:</p>
+<p>The <code>finally</code> block always executes, whether or not an exception was raised, and
+also when the <code>try</code> body or a <code>catch</code> handler leaves early with <code>return</code>, <code>break</code> or
+<code>continue</code>:</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
 int main() {
@@ -1215,9 +1270,8 @@ int main() {
 cleanup
 </code></pre>
 <h3 id="linking">Linking</h3>
-<p>Exception handling uses the Itanium C++ ABI personality function. Link with <code>-lc++</code> on macOS or <code>-lstdc++</code> on Linux:</p>
-<pre><code class="language-bash">eskiuc file.esk -o file -lc++      # macOS
-eskiuc file.esk -o file -lstdc++   # Linux
+<p>Exception handling uses the Itanium C++ ABI personality function, from the platform C++ runtime. The driver links it when the program uses <code>throw</code> or <code>try</code> (<code>-lc++</code> on macOS, <code>-lstdc++</code> on Linux and Windows), so no flag is needed:</p>
+<pre><code class="language-bash">eskiuc file.esk -o file
 ./file
 </code></pre>
 <hr>
@@ -1242,7 +1296,7 @@ eskiuc file.esk -o file -lstdc++   # Linux
 </tr>
 <tr>
 <td>Real-time error squiggles</td>
-<td>Extension runs <code>eskiuc --test-typechecker</code> on save and parses <code>file:line:col: message</code> output</td>
+<td>Extension runs <code>eskiuc --test-typechecker</code> as you type (on the unsaved buffer) and on save, and parses the <code>file:line:col: message</code> output</td>
 </tr>
 <tr>
 <td>Hover type info</td>
@@ -1267,7 +1321,9 @@ scripting.</p>
 <hr>
 <h2 id="using-the-test-modes">Using the Test Modes</h2>
 <p>The compiler exposes diagnostic flags that stop compilation after a specific
-phase and print what was produced. None of them produce an object file.</p>
+phase and print what was produced. None of them produce an object file. They
+predefine the same macros as a real build (so <code>#ifdef __APPLE__</code> picks the same
+branch), and each exits with a non-zero status when it reports an error.</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -1333,7 +1389,7 @@ struct literals, and template arguments are parsed the way you expect.</p>
 </code></pre>
 <p>Runs type inference and struct field validation. If a struct field name is wrong
 you see the error here, before any IR is generated:</p>
-<pre><code>hello.esk:5:14: struct 'Point' has no member 'z'
+<pre><code>error: hello.esk:5:14: struct 'Point' has no member 'z'
 </code></pre>
 <h3 id="-test-codegen">--test-codegen</h3>
 <pre><code class="language-bash">eskiuc hello.esk --test-codegen
@@ -1365,9 +1421,10 @@ void outb(uint8 val, uint16 port) {
     asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
 }
 </code></pre>
-<p>Syntax: <code>asm("template" : outputs : inputs : clobbers);</code></p>
+<p>Syntax: <code>asm("template" :: inputs : clobbers);</code></p>
 <ul>
-<li>Inputs and outputs are <code>"constraint"(expression)</code> pairs.</li>
+<li>Inputs are <code>"constraint"(expression)</code> pairs.</li>
+<li>Output operands are not supported: the output section stays empty, so the extended form starts with <code>::</code>. Pass results back through memory (a pointer input plus the <code>"memory"</code> clobber).</li>
 <li><code>"memory"</code> in the clobber list acts as a compiler barrier.</li>
 <li>Common constraints: <code>"a"</code> → rax/eax, <code>"Nd"</code> → 8-bit immediate or dx, <code>"r"</code> → any register.</li>
 </ul>
@@ -1409,10 +1466,10 @@ int main() {
     return 0;
 }
 </code></pre>
-<p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code.</p>
+<p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code. As in C, <code>sizeof(x)</code> where <code>x</code> names a variable gives the size of that variable's type (<code>let d: double; sizeof(d)</code> is 8). A name that is neither a type nor a variable is an error.</p>
 <hr>
 <h2 id="unions">Unions</h2>
-<p>A <code>union</code> is declared like a <code>struct</code>, but all fields share offset 0. The size of the union equals the size of its largest field. Reading a field reinterprets the stored bytes as that field's type.</p>
+<p>A <code>union</code> is declared like a <code>struct</code>, but all fields share offset 0. The size of the union equals the size of its largest field, rounded up to the alignment of its most-aligned field, as in C. Reading a field reinterprets the stored bytes as that field's type.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
 union Value {
@@ -1449,6 +1506,8 @@ int main() {
 }
 </code></pre>
 <p><code>*void</code> and <code>*char</code> are exceptions: they always step one byte at a time.</p>
+<p>Subtracting two pointers of the same type gives the number of elements between
+them, as in C: with <code>let q: *int = buf + 3;</code>, <code>q - buf</code> is <code>3</code>.</p>
 <hr>
 <h2 id="whats-next">What's Next</h2>
 <ul>

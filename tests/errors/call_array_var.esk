@@ -1,0 +1,2 @@
+// EXPECT-ERROR: undefined function 'a'
+int main() { int[2] a = {1, 2}; return a(); }

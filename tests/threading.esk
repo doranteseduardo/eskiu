@@ -37,6 +37,7 @@ int main() {
     thread_join(t1);
     thread_join(t2);
     thread_join(t3);
+    free_closure(worker);          // a closure value stays its owner's
     printf("counter=%d\n", s.counter);     // 300000 (no lost updates)
     Mutex_destroy(&s.mtx);
 
@@ -54,6 +55,7 @@ int main() {
     *void t = thread_create(consumer);
     Sem_post(&pg.sem);          // release the worker
     thread_join(t);
+    free_closure(consumer);
     printf("done=%d\n", g.done);   // 42
     Sem_destroy(&g.sem);
 

@@ -62,13 +62,23 @@ function findEskiuc() {
 
 const ESKIUC = findEskiuc();
 
-// Parse "file.esk:8:22: message" → LSP Diagnostic
-function parseErrors(text, fileUri) {
+// The extension's own version (serverInfo), read from package.json next to us.
+const VERSION = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version; }
+    catch { return 'unknown'; }
+})();
+
+// Parse "file.esk:8:22: message" → LSP Diagnostic. Only diagnostics located in
+// `filePath` belong to this document (an error inside an imported module names
+// that module's file, and its line numbers mean nothing here).
+function parseErrors(text, filePath) {
     const diagnostics = [];
-    const re = /^(.+?):(\d+):(\d+):\s*(.+)$/gm;
+    const re = /^(?:error:\s*)?(.+?):(\d+):(\d+):\s*(.+)$/gm;
+    const want = path.resolve(filePath);
     let m;
     while ((m = re.exec(text)) !== null) {
-        const [, , line, col, msg] = m;
+        const [, file, line, col, msg] = m;
+        if (path.resolve(file) !== want) continue;
         const ln  = Math.max(0, parseInt(line, 10) - 1);
         const ch  = Math.max(0, parseInt(col,  10) - 1);
         diagnostics.push({
@@ -87,7 +97,7 @@ function validate(uri, filePath) {
     execFile(ESKIUC, [filePath, '--test-typechecker'], { timeout: 10000 },
         (err, stdout, stderr) => {
             const output = (stdout || '') + (stderr || '');
-            const diagnostics = parseErrors(output, uri);
+            const diagnostics = parseErrors(output, filePath);
             send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
                    params: { uri, diagnostics } });
         }
@@ -105,11 +115,11 @@ function handleMessage(msg) {
     if (method === 'initialize') {
         send({ jsonrpc: '2.0', id, result: {
             capabilities: {
-                textDocumentSync: 2,          // incremental
+                textDocumentSync: 1,          // full: every change carries the whole text
                 diagnosticProvider: { interFileDependencies: false,
                                       workspaceDiagnostics: false },
             },
-            serverInfo: { name: 'eskiu-lsp', version: '0.0.11' },
+            serverInfo: { name: 'eskiu-lsp', version: VERSION },
         }});
         return;
     }
@@ -133,23 +143,31 @@ function handleMessage(msg) {
 
     if (method === 'textDocument/didChange') {
         // Write content to a temp file and validate
-        const { uri, contentChanges } = params.textDocument
-            ? params : { textDocument: params.textDocument, contentChanges: params.contentChanges };
+        const uri = params.textDocument && params.textDocument.uri;
+        const contentChanges = params.contentChanges;
         if (!uri || !uri.endsWith('.esk')) return;
+        // Full sync: the (last) change holds the whole document.
         const content = contentChanges?.[contentChanges.length - 1]?.text;
         if (content == null) return;
-        const tmp = path.join(require('os').tmpdir(), `eskiu_lsp_${Date.now()}.esk`);
-        fs.writeFileSync(tmp, content);
+        // Check the unsaved text from a temp file NEXT TO the original, so relative
+        // imports resolve exactly as they do for the saved file.
+        const orig = uriToPath(uri);
+        let tmp = path.join(path.dirname(orig), `.eskiu_lsp_${process.pid}_${Date.now()}.esk`);
+        try { fs.writeFileSync(tmp, content); }
+        catch {
+            tmp = path.join(require('os').tmpdir(), `eskiu_lsp_${process.pid}_${Date.now()}.esk`);
+            fs.writeFileSync(tmp, content);
+        }
         execFile(ESKIUC, [tmp, '--test-typechecker'], { timeout: 10000 },
             (err, stdout, stderr) => {
-                fs.unlinkSync(tmp);
+                try { fs.unlinkSync(tmp); } catch {}
                 // Remap temp file path back to original URI
                 const output = ((stdout || '') + (stderr || '')).replace(
                     new RegExp(tmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-                    uriToPath(uri)
+                    orig
                 );
                 send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
-                       params: { uri, diagnostics: parseErrors(output, uri) } });
+                       params: { uri, diagnostics: parseErrors(output, orig) } });
             }
         );
         return;

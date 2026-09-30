@@ -1,0 +1,4 @@
+// EXPECT-ERROR: remainder overflows: -9223372036854775808 % -1
+const int64 M = -9223372036854775807 - 1;
+int64 g = M % -1;
+int main() { return 0; }

@@ -1,0 +1,9 @@
+// A global union literal whose member differs in kind from the union's layout member:
+// an address into an int64-laid-out union, an integer into a pointer-laid-out one.
+extern int printf(string f, ...);
+union U { int64 i; *int p; }
+union V { *int p; int64 i; }
+int g = 42;
+U gu = U{p: &g};
+V gv = V{i: 77};
+int main() { printf("%d %d\n", *gu.p, (int)gv.i); return 0; }

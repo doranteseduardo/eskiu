@@ -1,0 +1,23 @@
+extern int printf(string fmt, ...);
+interface Counter { int get(); }
+struct C1 { int n; int get() { return self.n; } }
+int64[4] squares(int64 b) {
+    let r: int64[4];
+    for (i in 0..4) { r[i] = (b + (int64)i) * (b + (int64)i); }
+    return r;
+}
+Counter[2] pair(*C1 a, *C1 b) {
+    let r: Counter[2];
+    r[0] = a;
+    r[1] = b;
+    return r;
+}
+int main() {
+    int64[4] s = squares(3);
+    printf("%lld %lld %lld %lld\n", s[0], s[1], s[2], s[3]);
+    C1 x = C1{n: 7};
+    C1 y = C1{n: 11};
+    Counter[2] k = pair(&x, &y);
+    printf("%d %d\n", k[0].get(), k[1].get());
+    return 0;
+}

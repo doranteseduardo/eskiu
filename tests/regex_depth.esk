@@ -1,0 +1,44 @@
+// regex_compile bounds group nesting: 50000 `(` used to recurse until the stack
+// overflowed (a segfault); past RE_MAX_DEPTH (512) it now fails with an error.
+// Nesting at the limit still compiles and matches.
+import <mem>;
+import <regex>;
+extern int printf(string fmt, ...);
+
+// `depth` groups around a single `a`: ((...(a)...)).
+*char nested(int depth) {
+    *char s = alloc<char>(depth * 2 + 2);
+    for (int i = 0; i < depth; i++) { s[i] = '('; s[depth * 2 - i] = ')'; }
+    s[depth] = 'a';
+    return s;
+}
+
+void report(string label, string pat) {
+    Regex re = regex_compile(pat);
+    if (re.ok == 0) { printf("%s: err=%s\n", label, re.err); Regex_free(&re); return; }
+    let m: Match;
+    int r = Regex_search(&re, "xa", &m);
+    printf("%s: ok groups=%d match=%d at=%d\n", label, re.ngroup, r, m.start);
+    Match_free(&m);
+    Regex_free(&re);
+}
+
+int main() {
+    *char open = alloc<char>(50001);
+    for (int i = 0; i < 50000; i++) { open[i] = '('; }
+    report("50000 open", (string)open);
+    free((*void)open);
+
+    *char deep = nested(50000);
+    report("50000 deep", (string)deep);
+    free((*void)deep);
+
+    *char at = nested(512);
+    report("512 deep", (string)at);
+    free((*void)at);
+
+    *char over = nested(513);
+    report("513 deep", (string)over);
+    free((*void)over);
+    return 0;
+}

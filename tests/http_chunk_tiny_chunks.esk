@@ -1,0 +1,75 @@
+// HttpConnBuf_feed drops the chunked input it has decoded. Its buffer limit
+// (head + 2 * HTTP_SERVE_MAX_BODY) counted every raw byte, so a 1 MiB body in
+// 1-byte chunks (6 raw bytes per body byte) was answered 413. The buffer now
+// holds the head and one unfinished chunk or line, and a trailer section
+// longer than HTTP_CHUNK_TRAILER_MAX is 400.
+import <http>;
+import <string>;
+import <mem>;
+extern int printf(string fmt, ...);
+
+int g_maxcap = 0;
+
+int feed(String* r, int seg) {
+    let b: HttpConnBuf;  b.init();
+    let req: HttpRequest;  req.init();
+    int64 off = 0;
+    int st = -1;
+    while (st == -1 && off < r.len) {
+        int64 k = r.len - off;
+        if (k > seg) { k = seg; }
+        if (k > (int64)(b.cap - b.len)) { k = (int64)(b.cap - b.len); }
+        memcpy(b.data + b.len, (*uint8)r.data + off, k);
+        b.len += (int)k;
+        off += k;
+        st = b.feed(&req);
+        if (b.cap > g_maxcap) { g_maxcap = b.cap; }
+    }
+    printf("st=%d body=%lld", st, req.body.len);
+    if (st == 0 && req.body.len < 20) { printf(" [%s]", req.body.cstr()); }
+    printf("\n");
+    req.free();
+    b.free();
+    return st;
+}
+
+void head(String* r) {
+    r.clear();
+    r.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n");
+}
+
+int main() {
+    let r: String;  r.init(1 << 23);
+    // HTTP_SERVE_MAX_BODY bytes in 1-byte chunks: accepted; one more is 413.
+    head(&r);
+    for (i in 0..HTTP_SERVE_MAX_BODY) { r.append("1\r\nx\r\n"); }
+    r.append("0\r\n\r\n");
+    feed(&r, 65536);
+    head(&r);
+    for (i in 0..HTTP_SERVE_MAX_BODY + 1) { r.append("1\r\nx\r\n"); }
+    r.append("0\r\n\r\n");
+    feed(&r, 65536);
+    // 1-byte chunks with 8000-byte extensions.
+    head(&r);
+    for (i in 0..300) {
+        r.append("1;e=");
+        for (j in 0..8000) { r.push('v'); }
+        r.append("\r\ny\r\n");
+    }
+    r.append("0\r\n\r\n");
+    feed(&r, 4096);
+    printf("buffer bounded: %s\n", g_maxcap <= 65536 ? "yes" : "no");
+    // Trailers: a short section is fine, one over HTTP_CHUNK_TRAILER_MAX is 400.
+    head(&r);
+    r.append("3\r\nabc\r\n0\r\n");
+    for (i in 0..600) { r.append("X-Trailer-Field: 0123456789012345678901234567890123456789012345678901234567890123456789012345\r\n"); }
+    r.append("\r\n");
+    feed(&r, 100);
+    head(&r);
+    r.append("3\r\nabc\r\n0\r\n");
+    for (i in 0..700) { r.append("X-Trailer-Field: 0123456789012345678901234567890123456789012345678901234567890123456789012345\r\n"); }
+    r.append("\r\n");
+    feed(&r, 100);
+    r.free();
+    return 0;
+}

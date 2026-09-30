@@ -1,0 +1,46 @@
+// Inline methods on a generic struct: instantiated per struct instance
+// (Box<int> -> Box_int_get(*Box_int self)), callable as `b.get()` on a value or a pointer.
+extern int printf(string fmt, ...);
+
+struct Box<T> {
+    T v;
+    T get() { return self.v; }
+    void set(T x) { self.v = x; }
+    T twice() { return self.get() + self.get(); }
+    T apply(fn(T)->T f) { return f(self.v); }
+}
+
+struct Pair<A, B> {
+    A a;
+    B b;
+    B second() { return self.b; }
+    A sum_with(A x) { return self.a + x; }
+    Pair<B, A> swap() { return Pair<B, A>{self.b, self.a}; }
+}
+
+// A method only valid for some T is fine while no instance calls it.
+struct Cell<T> { T v; T neg() { return -self.v; } }
+
+int main() {
+    Box<int> b = Box<int>{4};
+    b.set(7);
+    printf("%d %d\n", b.get(), b.twice());
+    int k = 3;
+    printf("%d\n", b.apply(int(int x) { return x * k; }));
+    Box<int>* bp = &b;
+    bp.set(9);
+    printf("%d\n", bp.get());
+
+    Box<double> d = Box<double>{1.5};
+    printf("%.2f\n", d.twice());
+
+    Pair<int, int64> p = Pair<int, int64>{2, 9};
+    printf("%lld %d\n", p.second(), p.sum_with(40));
+    Pair<int64, int> q = p.swap();
+    printf("%lld %d\n", q.a, q.b);
+
+    Cell<string> c = Cell<string>{"s"};
+    Cell<int> ci = Cell<int>{5};
+    printf("%s %d\n", c.v, ci.neg());
+    return 0;
+}

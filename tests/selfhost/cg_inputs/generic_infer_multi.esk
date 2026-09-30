@@ -1,0 +1,34 @@
+// Inferred generic calls where one parameter carries several type parameters:
+// `Pair<A, B> p` binds both A and B, through a pointer, a nested type argument, and
+// the stdlib's `HashMap_get(&m, k, &out)` without explicit <K, V>.
+import <mem>;
+import <map>;
+extern int printf(string fmt, ...);
+
+struct Pair<A, B> { A first; B second; }
+struct Wrap<T> { T inner; }
+
+A Pair_first<A, B>(Pair<A, B> p) { return p.first; }
+B Pair_second<A, B>(*Pair<A, B> p) { return p.second; }
+B Wrap_second<A, B>(Wrap<Pair<A, B>> w) { return w.inner.second; }
+
+int main() {
+    let p: Pair<int, double> = Pair<int, double>{ first: 7, second: 2.5 };
+    printf("%d\n", Pair_first(p));
+    printf("%.1f\n", Pair_second(&p));
+    let q: Pair<int, int>;
+    q.first = 4; q.second = 5;
+    int r = Pair_first(q);
+    printf("%d %d\n", r, q.first());
+    let w: Wrap<Pair<int, int>>;
+    w.inner = q;
+    printf("%d\n", Wrap_second(w));
+    let m: HashMap<int, int>;  HashMap_init<int, int>(&m, 8, int_hash, int_eq);
+    int c = 0;
+    *int s = HashMap_at<int, int>(&m, 3, &c);
+    s[0] = 30;
+    int out = 0;
+    if (HashMap_get(&m, 3, &out) == 1) printf("%d\n", out);
+    HashMap_free<int, int>(&m);
+    return 0;
+}

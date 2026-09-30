@@ -1,0 +1,8 @@
+// EXPECT-ERROR: missing method 'get'
+interface Getter { int get(); }
+struct P<T> { T v; T put() { return self.v; } }
+int use_get(Getter g) { return g.get(); }
+int main() {
+    let p: P<int> = P<int>{ v: 1 };
+    return use_get(&p);
+}

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: does not satisfy constraint 'I'
+interface I { int f(); }
+T g<T: I>(T x) { return x; }
+int main() { return g(3); }

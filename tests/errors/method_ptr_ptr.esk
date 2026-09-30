@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot call method 'get' through
+// Dot syntax dereferences one pointer level; a `**P` receiver needs an explicit `*`.
+struct P { int a; int get() { return self.a; } }
+int main() { P p = P{a: 4}; *P q = &p; **P qq = &q; return qq.get(); }

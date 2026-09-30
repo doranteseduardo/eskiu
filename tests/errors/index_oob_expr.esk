@@ -1,0 +1,3 @@
+// EXPECT-ERROR: array index 3 is out of bounds for array of size 3
+// A constant index expression is folded and checked like a literal index.
+int main() { int[3] a = {1, 2, 3}; return a[1 + 2]; }

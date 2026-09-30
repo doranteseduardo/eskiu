@@ -1,0 +1,13 @@
+// EXPECT-ERROR: duplicate case value in switch
+// `sizeof` of a struct holding an interface value ({data, vtable}) folds.
+interface Sh { int area(); }
+struct If { Sh i; char c; }
+struct Three { *void a; *void b; *void c; }
+int f(int64 n) {
+    switch (n) {
+        case sizeof(If): return 1;
+        case sizeof(Three): return 2;
+    }
+    return 0;
+}
+int main() { return f(24); }

@@ -1,0 +1,8 @@
+// EXPECT-ERROR: method 'set' expects 1 argument(s), got 2
+struct Box<T> { T v; }
+void Box_set<T>(Box<T>* self, T x) { self.v = x; }
+int main() {
+    let b: Box<int>;
+    b.set(1, 2);
+    return 0;
+}

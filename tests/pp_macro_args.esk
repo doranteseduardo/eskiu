@@ -1,0 +1,29 @@
+// Function-like macro arguments: string/char literals are split as a whole (a
+// ',' or ')' inside one does not end the argument), nested macro calls in an
+// argument are expanded first (C rule), and an apostrophe inside a block
+// comment does not stop expansion on the rest of the line.
+extern int printf(string fmt, ...);
+
+#define F(a, b) printf("%s|%s\n", a, b)
+#define C(c) printf("%c\n", c)
+#define ID(x) x
+#define SQ(x) ((x) * (x))
+#define X 42
+
+int get() {
+    /* don't */ return X;
+}
+
+/* a comment that isn't closed here
+   and it's still a comment */ int other() { return X + 1; }
+
+int main() {
+    F("x,y", "z");
+    F("a)b", "(");
+    C(')');
+    C(',');
+    printf("%d\n", ID(ID(3)));
+    printf("%d\n", SQ(SQ(2)));
+    printf("%d %d\n", get(), other());
+    return 0;
+}

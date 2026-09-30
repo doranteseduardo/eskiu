@@ -1,0 +1,2 @@
+// Shared by import_dedup.esk through several spellings; must be parsed once.
+int lib_value() { return 40; }

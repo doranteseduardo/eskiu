@@ -1,9 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <functional>
 #include <map>
+#include <optional>
 #include <set>
+#include <unordered_map>
 #include <vector>
 #include <stack>
 #include "../ast/ast.h"
@@ -11,6 +15,23 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Value.h"
+
+// True when `bb` already ends in a terminator. LLVM 23 made
+// BasicBlock::getTerminator() assert on an unterminated block instead of
+// returning null, so every "is this block closed?" test goes through here.
+inline bool hasTerminator(const llvm::BasicBlock* bb) {
+    return !bb->empty() && bb->back().isTerminator();
+}
+
+// An integer constant of type `ty` holding the low bits of `v`. LLVM 23 stopped
+// implicitly truncating ConstantInt::get(ty, uint64_t) to the type's width, so a
+// sign-extended or wider value (a negative literal, `~x`, a char >= 0x80) must be
+// masked to the width first; this is the same bit pattern on every LLVM version.
+inline llvm::ConstantInt* constIntBits(llvm::Type* ty, uint64_t v) {
+    unsigned bits = ty->getIntegerBitWidth();
+    if (bits < 64) v &= (uint64_t(1) << bits) - 1;
+    return llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(ty), v);
+}
 
 class CodeGen : public ASTVisitor {
 public:
@@ -53,6 +74,9 @@ public:
     // Single-resolver table: post-AsyncTransform type checker's expressionTypeMap.
     // When set, getExprEskiuType returns these resolved types instead of re-deriving.
     const std::map<Expr*, std::string>* resolvedExprTypes = nullptr;
+    // The type checker's generic instances (mangled -> template + args): an instance
+    // reached only through a resolved expression type (a call result) is built on demand.
+    const std::map<std::string, std::pair<std::string, std::vector<std::string>>>* semaInstanceArgs = nullptr;
 
     // Print LLVM IR to stdout
     void printIR() const;
@@ -88,17 +112,48 @@ private:
         unsigned physIndex = 0;     // index into the physical LLVM struct
         unsigned bitOffset = 0;     // bit position within the storage word
         unsigned bitWidth  = 0;     // bitfield width
-        llvm::Type* storageType = nullptr;  // physical slot type
+        llvm::Type* storageType = nullptr;  // physical slot type (a bitfield's declared type)
         bool isSigned = false;
+        // C layout (non-MS targets): the field is addressed by byte offset, not by a
+        // struct element; a bitfield is read through `accessType` (its declared type's
+        // storage unit, or the exact byte span in a packed struct) at `accessAlign`.
+        bool byOffset = false;
+        uint64_t byteOffset = 0;
+        llvm::Type* accessType = nullptr;
+        unsigned accessAlign = 0;
     };
+    // Lay out a struct with bitfields like C on the target: the MS rules on Windows (a
+    // new storage unit when the declared type size changes), else the SysV/AAPCS rules
+    // (a bitfield shares the current unit of its declared type if it fits). Fills the
+    // physical element types and the per-field slots; `llvmPacked` = emit `<{ }>`.
+    void layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
+                              unsigned packN, std::vector<llvm::Type*>& phys,
+                              std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked,
+                              uint64_t& cAlign);
+    // The C alignment of a struct type LLVM lays out as packed (explicit padding) though
+    // C aligns it: a `#pragma pack(N>=2)` struct (min(N, largest field alignment)), a
+    // struct or union holding one, a bitfield struct laid out by hand. Only entries
+    // above 1.
+    std::map<llvm::StructType*, uint64_t> cAlignOverride;
+    int recvTmpCount = 0;   // hidden locals holding a generic dot-call's receiver address
+    // The C alignment of `t`: its cAlignOverride (an array's element's), else LLVM's.
+    uint64_t cAlignOf(llvm::Type* t) const;
+    // Address of a field of a bitfield-layout struct `sname` at `base`.
+    llvm::Value* layoutFieldAddr(const std::string& sname, llvm::Value* base,
+                                 const BitfieldSlot& slot, const llvm::Twine& name = "");
     std::map<std::string, std::map<std::string, BitfieldSlot>> structLayout;
     std::string structBaseTypeOf(const ExprPtr& base);  // resolve a member base to a struct name
     // Normalize a resolved type string to its bare struct/registry key: drop the
     // `struct:` tag and pointer decoration, and mangle+instantiate a template type.
     std::string stripToStructKey(std::string t);
     void storeBitfield(MemberExpr* m, llvm::Value* val); // read-modify-write a bitfield
+    // Storage-word address of bitfield member `m` (base evaluated once); sets `slot`.
+    llvm::Value* bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slot);
+    // Extract (shift, mask, sign-extend) a bitfield's value from its storage word.
+    llvm::Value* loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot, bool vol = false);
     // Masked read-modify-write of a bitfield given the storage-word pointer.
-    void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val);
+    void storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot, llvm::Value* val,
+                           bool unsignedSrc = false, bool vol = false);
 
     // Template struct registry
     std::map<std::string, StructDecl*> templateDecls;
@@ -110,7 +165,7 @@ private:
     // a concrete argument type (e.g. *List_int), filling `subs`.
     void unifyTypeParam(std::string pattern, std::string concrete,
                         const std::set<std::string>& tps,
-                        std::map<std::string, std::string>& subs);
+                        std::map<std::string, std::string>& subs) const;
 
     // Interface registry: name → vtable type + method order
     std::map<std::string, llvm::StructType*> ifaceVtableTypes;
@@ -139,18 +194,48 @@ private:
     // (`{...}`) element-wise with C-style zero-fill. Falls back to scalar folding +
     // coercion. Returns nullptr when the initializer isn't a compile-time constant.
     llvm::Constant* constInitializer(const ExprPtr& expr, llvm::Type* declType);
+    // A bitfield-struct or union literal folded through its byte image (nullptr if a
+    // member is not constant or has no byte form where the layout needs one).
+    llvm::Constant* constAggregateImage(StructInitExpr* si, const std::string& sname);
 
     // Helpers
     llvm::Value* boxAsInterface(const std::string& ifaceName,
                                 const std::string& structName,
                                 llvm::Value* structPtr);
+    // The interface named by `type` ("" if it is not an interface type).
+    std::string interfaceName(const std::string& type) const;
+    // Evaluate `e` for a slot of Eskiu type `targetType`: boxes a struct pointer when the
+    // target is an interface, else a plain evaluateExpr.
+    llvm::Value* evalForType(const ExprPtr& e, const std::string& targetType);
     // Wrap a top-level function in a {fn_ptr, env_ptr} closure value so a bare
     // function name can be passed where a fn(...)->R is expected. The synthesized
     // thunk ignores env and forwards to the target; cached per function.
     llvm::Value* makeFunctionPointer(llvm::Function* target);
+    // The start routine for a thread that owns its closure (see visit(ThreadCreateExpr)).
+    llvm::Function* ownedThreadTrampoline();
     void ensureTemplateInstantiated(const std::string& mangledName,
                                     const std::string& templateName,
                                     const std::vector<std::string>& args);
+    // `t` with every template instance in it mangled to its struct name, keeping the
+    // pointer / array / slice structure around it (`Box<int>*[4]` -> `Box_int*[4]`);
+    // each instance is instantiated so its fields resolve.
+    std::string instanceSpelling(const std::string& t);
+    // Emit (once) the instance `mangledName` of the generic function `fd` under `subs`.
+    llvm::Function* instantiateFnTemplate(FunctionDecl* fd, const std::string& mangledName,
+                                          const std::map<std::string, std::string>& subs);
+    // An inline method of a generic struct, for one instance (`Box_int` + `get` ->
+    // `Box_int_get(*Box_int self)`): the template method (and its substitutions), or null.
+    FunctionDecl* genericMethod(const std::string& instName, const std::string& method,
+                                std::map<std::string, std::string>* subsOut) const;
+    // A generic FREE function `S_m<T..>` taking an instance of the generic struct S first
+    // (the `Type_method` convention, e.g. `List_push<T>(List<T>* self, T item)`), for
+    // `x.m(...)` with x an instance of S: the template (null when there is none).
+    FunctionDecl* genericFreeMethod(const std::string& instName, const std::string& method) const;
+    // Its type arguments for receiver type `recvType` and the call's arguments.
+    std::map<std::string, std::string> genericFreeMethodSubs(FunctionDecl* fd, const std::string& recvType,
+                                                             const std::vector<ExprPtr>& args) const;
+    // Emit that instance method on first use; returns it (null when there is none).
+    llvm::Function* instantiateGenericMethod(const std::string& instName, const std::string& method);
     // Template function registry
     std::map<std::string, FunctionDecl*> funcTemplateDecls;
     // Active type param substitutions during template function instantiation
@@ -158,6 +243,8 @@ private:
 
     // Volatile variable tracking — names of variables declared volatile
     std::set<std::string> volatileVars;
+    bool volatileRooted(const Expr* e) const;
+    llvm::LoadInst* volLoad(llvm::LoadInst* ld, const Expr* root) const;
 
     // Variable type tracking for MemberExpr/IndexExpr resolution
     std::vector<std::map<std::string, std::string>> varTypeStack;
@@ -172,8 +259,36 @@ private:
     // `defer`/`errdefer` bodies (and a try's `finally`) to run LIFO when the scope is
     // left. Normal control-flow exits (return / break / continue / `?`) emit the frames
     // they leave before branching; block fall-through runs its own frame.
-    struct Cleanup { Stmt* body; bool isErr; };   // isErr = errdefer (error-path only)
+    // isErr = errdefer (error-path only). The body is emitted later, at an exit, where a
+    // shadowing declaration may have rebound a name; `names`/`types` are the bindings
+    // visible where it was registered, which the body is resolved against.
+    // prevUnwind is the landingpad that was active before the cleanup was registered: its
+    // body runs under it (an exception inside a defer body skips that defer), and popping
+    // the frame that holds it restores it.
+    struct Cleanup {
+        Stmt* body; bool isErr;
+        std::shared_ptr<const std::map<std::string, llvm::Value*>> names;
+        std::shared_ptr<const std::vector<std::map<std::string, std::string>>> types;
+        llvm::BasicBlock* prevUnwind = nullptr;
+    };
+    Cleanup makeCleanup(Stmt* body, bool isErr);
     std::vector<std::vector<Cleanup>> cleanupScopes;
+    void popCleanupFrame();
+
+    // Defers on the exceptional path. In a program that throws, each `defer` gets a
+    // landingpad for the calls after it: inside a `try` body it runs the pending defers
+    // down to that try and joins its catch dispatch (with the exception pointer); outside
+    // any try it runs the function's pending defers and resumes unwinding.
+    bool programUsesEH = false;
+    struct TryCtx {
+        size_t depth;                      // cleanup frame depth of the try body
+        llvm::BasicBlock* dispatch;        // catch dispatch, entered with the exception ptr
+        std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> incoming;
+    };
+    std::vector<TryCtx> tryStack;
+    void emitDeferPad();
+    bool enumBitfieldUnsigned(const std::string& type);
+    void ensureEHRuntime();
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
 
@@ -208,11 +323,47 @@ private:
             cg->loopStack.pop_back();
         }
     };
+    // RAII: a nested function body (a lambda, or a template instantiated mid-expression)
+    // is a fresh control-flow context. Save and reset everything that belongs to the
+    // enclosing body (defer/finally cleanups, loop and break/continue targets, the active
+    // landingpad of a surrounding `try`), restoring it on scope exit, so the nested body
+    // never runs the outer defers or branches/unwinds into the outer function's blocks.
+    struct BodyContext {
+        CodeGen* cg;
+        std::vector<std::vector<Cleanup>> cleanups;
+        size_t bcd, ccd;
+        llvm::BasicBlock* bt; llvm::BasicBlock* ct; llvm::BasicBlock* unwind;
+        std::vector<LoopFrame> loops;
+        std::vector<TryCtx> tries;
+        explicit BodyContext(CodeGen* c)
+            : cg(c), cleanups(std::move(c->cleanupScopes)),
+              bcd(c->breakCleanupDepth), ccd(c->continueCleanupDepth),
+              bt(c->breakTarget), ct(c->continueTarget), unwind(c->unwindTarget),
+              loops(std::move(c->loopStack)), tries(std::move(c->tryStack)) {
+            cg->tryStack.clear();
+            cg->cleanupScopes.clear();
+            cg->breakCleanupDepth = cg->continueCleanupDepth = 0;
+            cg->breakTarget = cg->continueTarget = nullptr;
+            cg->unwindTarget = nullptr;
+            cg->loopStack.clear();
+        }
+        ~BodyContext() {
+            cg->cleanupScopes = std::move(cleanups);
+            cg->breakCleanupDepth = bcd; cg->continueCleanupDepth = ccd;
+            cg->breakTarget = bt; cg->continueTarget = ct;
+            cg->unwindTarget = unwind;
+            cg->loopStack = std::move(loops);
+            cg->tryStack = std::move(tries);
+        }
+    };
     // Emit (in LIFO order) every cleanup body in frames at index >= depth. On a normal
     // exit (errorPath=false) errdefer bodies are skipped; the `?`-propagation error path
     // passes errorPath=true so both run. Does not pop — the owning scope pops when it ends.
     void runCleanupsToDepth(size_t depth, bool errorPath);
     bool blockTerminated();   // is the current basic block already terminated?
+    // Emit a statement body as its own scope (variables + defer cleanups), even when it
+    // is a single unbraced statement.
+    void emitScopedBody(const StmtPtr& body);
     // Address of element `idx` of an indexable base (fixed array / slice / pointer /
     // string). Shared by index-read, index-write (lvalue), and slice construction.
     llvm::Value* indexElemAddr(const ExprPtr& base, llvm::Value* idx, bool doCheck = true);
@@ -232,9 +383,63 @@ private:
                                     llvm::ArrayRef<llvm::Value*> args,
                                     const llvm::Twine& name = "");
 
+    // C ABI lowering for `extern` functions with by-value aggregate params/returns
+    // (codegen_cabi.cpp). Each param/return is classified for the target: Direct
+    // (unchanged), Coerce (one value of `ty`), Expand (the elements of the literal
+    // struct `ty` as separate args), Indirect (pointer to a caller copy), ByVal
+    // (pointer + byval), Sret (hidden result pointer).
+    enum class CAbiTarget { None, AArch64, SysV, Win64, ARM32, X86 };
+    struct CAbiArg {
+        enum Kind { Direct, Coerce, Expand, Indirect, ByVal, Sret } kind = Direct;
+        llvm::Type* ty = nullptr;
+        unsigned align = 0;        // Indirect / ByVal / Sret alignment
+        unsigned stackAlign = 0;   // `alignstack` for a stack-passed coerced arg (0 = none)
+    };
+    struct CAbiSig {
+        llvm::FunctionType* logical = nullptr;   // Eskiu-level signature
+        llvm::FunctionType* lowered = nullptr;   // the declared C signature
+        CAbiArg ret;
+        std::vector<CAbiArg> params;
+    };
+    std::map<std::string, CAbiSig> externAbi;    // externs declared with a lowered signature
+    CAbiTarget cabiTarget() const;
+    void cabiLeaves(llvm::Type* ty, uint64_t base,
+                    std::vector<std::pair<uint64_t, llvm::Type*>>& out) const;
+    CAbiArg classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget tgt,
+                         unsigned& freeInt, unsigned& freeSSE) const;
+    // 32-bit x86 (clang's X86_32ABIInfo): the C fields of an aggregate (a union's
+    // members; false for a bitfield struct), whether it is returned in registers, and
+    // the scalar a single-element struct is made of.
+    bool x86Fields(llvm::Type* ty, std::vector<llvm::Type*>& out) const;
+    bool x86RetInRegs(llvm::Type* ty) const;
+    llvm::Type* x86SingleElement(llvm::Type* ty) const;
+    // Fill `sig` for `logical`; false when no lowering is needed (no aggregate / target).
+    bool buildCAbiSig(llvm::FunctionType* logical, CAbiSig& sig) const;
+    void addCAbiAttrs(const CAbiSig& sig,
+                      const std::function<void(unsigned, llvm::Attribute)>& add) const;
+    llvm::Function* declareCAbiExtern(const std::string& name, const CAbiSig& sig);
+    llvm::Value* cabiReinterpret(llvm::Value* v, llvm::Type* to);
+    // Call a lowered extern with logical argument values; returns the logical result.
+    llvm::Value* emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
+                              const std::vector<llvm::Value*>& args, bool allowInvoke = true);
+    // The address C should call for the Eskiu function `target` (a raw callback): the
+    // function itself, or a `__cabi_<name>` thunk with the lowered C signature when it
+    // takes or returns an aggregate by value.
+    llvm::Function* cabiCallbackThunk(llvm::Function* target);
+    llvm::Attribute::AttrKind cabiExtAttr(const std::string& eskiuType, llvm::Type* llty) const;
+    // An `extern` parameter of fn type is a C function pointer (a bare `ptr`), per
+    // extern: which parameters are. Functions the program defines are never lowered.
+    std::map<std::string, std::vector<bool>> externFnPtrParams;
+    std::map<std::string, std::vector<bool>> externVaListParams;
+    llvm::Value* evalCVaList(const ExprPtr& arg);
+    llvm::Value* emitVaArg(llvm::Value* ap, llvm::Type* ty);
+    std::set<std::string> definedFunctionNames;
+    // The C function pointer passed for `arg` (a named top-level function or null).
+    llvm::Value* evalCFnPointer(const ExprPtr& arg);
+
     // sret (structure return) support for large struct returns
     // Maps function name → actual return struct type (the LLVM function itself returns void)
-    std::map<std::string, llvm::StructType*> funcSretTypes;
+    std::map<std::string, llvm::Type*> funcSretTypes;
     // Active sret pointer for the current function (null if not sret)
     llvm::Value* currentSretParam = nullptr;
 
@@ -247,21 +452,36 @@ private:
 
     // Resolve the Eskiu type string of an expression (for struct/array access)
     std::string getExprEskiuType(const ExprPtr& expr) const;
+    std::string bitfieldReadEskiu(const std::string& key, const std::string& member,
+                                  const std::string& declType) const;
+    llvm::Value* bitfieldReadValue(llvm::Value* v, const std::string& key, const std::string& member);
+    std::string getExprEskiuTypeRaw(const ExprPtr& expr) const;   // before C promotion
     // The structural fallback: derive an expression's Eskiu type from the AST when
     // the single-resolver table has no entry. Split out so getExprEskiuType can,
     // under ESKIU_RESOLVER_DEBUG, cross-check the table against this derivation.
     std::string deriveExprEskiuType(const ExprPtr& expr) const;
+    std::string deriveExprEskiuTypeUncached(const ExprPtr& expr) const;
+    // While visit(BinaryExpr) handles a chain inside a template body (where operand types
+    // are derived, and deriving a chain node derives the whole chain below it), the
+    // derived types of the chain's own nodes, each computed once. Null otherwise.
+    std::unordered_map<const Expr*, std::optional<std::string>>* chainTypeMemo = nullptr;
 
     // Expand a type alias to its underlying type string (peels pointers), so
     // downstream logic sees e.g. "*uint8" instead of an alias name like "Bytes".
     std::string expandAlias(const std::string& t) const;
 
+    // Binary operators whose integer operands undergo C's integer promotions (to `int`
+    // when narrower): arithmetic, bitwise, shifts, and comparisons.
+    static bool isIntPromotingOp(const std::string& op);
     // True if the Eskiu type widens with zero-extension (unsigned / char / bool).
     bool eskiuUnsigned(const std::string& t) const;
     // Widen or truncate integer `val` to `ty`, choosing zero- vs sign-extension by
     // the source's signedness. The single place integer width coercion happens, so
     // an unsigned source never sign-extends (e.g. (int)(uint8)200 stays 200).
     llvm::Value* coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
+    llvm::Value* emitTruthy(llvm::Value* val);
+    llvm::Type* pointerStrideType(const std::string& eskTy);
+    std::string exceptionTypeName(const std::string& raw) const;
 
     // Integer->float conversion, choosing UIToFP vs SIToFP by source signedness.
     llvm::Value* intToFloat(llvm::Value* val, llvm::Type* ty, bool unsignedSrc);
@@ -302,6 +522,19 @@ private:
     void visit(BreakStmt* node) override;
     void visit(ExprStmt* node) override;
     void visit(BinaryExpr* node) override;
+    // Inside a template instantiation (whose body the type checker skips, so no opFunc
+    // is stamped): resolve `op` over the operands' concrete types to a user operator
+    // overload by its canonical mangled name. "" = a built-in operator.
+    std::string resolveOpInTemplate(const std::string& op, const std::vector<ExprPtr>& operands) const;
+    std::string resolveOpInTemplateTypes(const std::string& op,
+                                         const std::vector<std::string>& operandTypes) const;
+    // `lv op= v` with a side-effecting lvalue: evaluate lv's address once.
+    void emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp);
+    int compoundSeq = 0;
+    // The pieces of visit(BinaryExpr): `lhs = rhs`, and one built-in operator applied to
+    // an already evaluated left operand (the right one is evaluated here).
+    void emitAssignment(BinaryExpr* node);
+    llvm::Value* emitBuiltinBinary(BinaryExpr* node, llvm::Value* left);
     void visit(UnaryExpr* node) override;
     void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;
@@ -334,8 +567,11 @@ private:
     void visit(AwaitExpr* node) override;
     void visit(ThreadCreateExpr* node) override;
 
-    // Union registry: name → fields (all share offset 0; stored as [N x i8])
+    // Union registry: name → fields (all share offset 0)
     std::map<std::string, std::vector<StructDecl::Field>> unionFields;
+    // Union LLVM storage type → its members' LLVM types (the C-ABI classifier needs
+    // every member, since the storage type keeps only the most-aligned one).
+    std::map<llvm::StructType*, std::vector<llvm::Type*>> unionMemberTypes;
     void visit(ThreadJoinStmt* node) override;
     void visit(ThrowStmt* node) override;
     void visit(TryStmt* node) override;
@@ -345,6 +581,25 @@ private:
 
     // `const` integer values, by name — so a const can be used as an array size.
     std::map<std::string, long long> constInts;
+    // Folded values (in the declared type) of top-level `const` scalars, by name, so a
+    // constant initializer evaluated before the globals exist can reference them.
+    std::map<std::string, llvm::Constant*> constGlobalValues;
+    // The folded value of each `const` scalar variable, keyed by its storage (alloca or
+    // global): reading the variable yields the constant, so it folds in initializers
+    // and case labels and is resolved through normal (shadowing-aware) name lookup.
+    std::map<llvm::Value*, llvm::Constant*> constValueOf;
+    // Nonzero while foldViaCodegen evaluates an expression for its constant value.
+    int constEvalDepth = 0;
+    // Evaluate `expr` with the ordinary expression codegen into a scratch function and
+    // return the value if it folded to a constant (converted to `targetTy` when given),
+    // else nullptr. So a constant initializer computes exactly what the same expression
+    // computes at run time (promotions, signedness, wrapping).
+    // With `asIface`, the value is converted to that interface (a boxed `&global`).
+    llvm::Constant* foldViaCodegen(const ExprPtr& expr, llvm::Type* targetTy,
+                                   const std::string& asIface = "");
+    // Fold a numeric `const` declaration's initializer in its declared type, recording
+    // it for array dimensions (constInts) and, at top level, by name. nullptr if not.
+    llvm::Constant* foldConstDecl(VarDecl* v);
     // Resolve an array-dimension string (a decimal literal, an enum constant, or
     // a const int) to its value. Returns false if it cannot be resolved.
     bool resolveArrayDim(const std::string& dim, uint64_t& out) const;
@@ -366,8 +621,7 @@ private:
     llvm::Value* buildVariant(const std::string& variant, const std::vector<ExprPtr>& args);
     // Core builder: { tag, payload } value with payload fields of `fieldTypes`.
     llvm::Value* buildEnumValue(llvm::StructType* et, int tag,
-                                const std::vector<llvm::Type*>& fieldTypes,
-                                const std::vector<ExprPtr>& args);
+                                const std::vector<std::string>& fieldTypes, const std::vector<ExprPtr>& args);
     // Monomorphize a generic enum for `typeArgs`; returns the mangled instance name
     // (and creates its struct type + records enumInstanceArgs on first use).
     std::string ensureEnumInst(const std::string& genericName,
@@ -396,16 +650,25 @@ private:
         const std::vector<std::pair<std::string, std::string>>& params);
     // Create the LLVM struct type shell for a (non-template) struct. Idempotent.
     void declareStructType(StructDecl* node);
-    // #pragma pack(N>=2): manual layout capping each field's alignment at packN.
-    // Fills `phys` with field types interleaved with i8 padding and `slots` with
-    // one non-bitfield entry per field (physIndex into `phys`). Returns true if a
-    // layout was produced (always, for packN>=2 with no bitfields).
+    void layoutStruct(const std::string& name, const std::vector<StructDecl::Field>& fields,
+                      bool isPacked, int packAlign);
+    // Manual layout at the C alignment of each field (cAlignOf), capped at packN for
+    // #pragma pack(N>=2) (0 = no cap): used for a pack(N) struct and for one holding a
+    // field LLVM would place at another offset. Fills `phys` with field types interleaved
+    // with i8 padding and `slots` with one non-bitfield entry per field (physIndex into
+    // `phys`); `align` is the struct's C alignment. False when a field is a bitfield.
     bool buildPackedLayout(const std::vector<StructDecl::Field>& fields, unsigned packN,
                            std::vector<llvm::Type*>& phys,
-                           std::map<std::string, BitfieldSlot>& slots);
+                           std::map<std::string, BitfieldSlot>& slots, uint64_t& align);
 
     // Expression evaluation (returns LLVM Value)
     std::stack<llvm::Value*> exprValueStack;
     llvm::Value* evaluateExpr(const ExprPtr& expr);
     llvm::Value* evaluateLValue(const ExprPtr& expr);
+    // Address of `expr` for a READ (member access, indexing, a method receiver): like
+    // evaluateLValue, but an rvalue aggregate (a call result, `a + b`, `c ? s : t`, a
+    // struct literal) is materialized into a temporary, so `mk().a[1]` and `(a+b).y`
+    // work. A store target still goes through the strict evaluateLValue.
+    llvm::Value* evaluateAddress(const ExprPtr& expr);
+    bool lvalueAllowTemp = false;   // set while evaluateAddress is resolving an address
 };

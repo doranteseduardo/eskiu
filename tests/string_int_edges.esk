@@ -1,0 +1,34 @@
+// String integer edge cases: INT_MIN renders fully (it used to print "-"), a
+// zero-capacity String_init still has room for its NUL, String_to_int accepts a
+// leading '+', and out-of-range input saturates instead of overflowing.
+import <string>;
+extern int printf(string fmt, ...);
+
+int parse(string s) {
+    let t: String;  String_from(&t, s);
+    int v = String_to_int(&t);
+    String_free(&t);
+    return v;
+}
+
+int main() {
+    let s: String;  String_init(&s, 4);
+    String_from_int(&s, -2147483647 - 1);
+    printf("intmin=[%s]\n", String_cstr(&s));
+    String_from_int(&s, 2147483647);
+    printf("intmax=[%s]\n", String_cstr(&s));
+    String_from_int(&s, -45);
+    printf("neg=[%s]\n", String_cstr(&s));
+    String_free(&s);
+
+    let z: String;  String_init(&z, 0);
+    printf("empty=[%s] len=%lld\n", String_cstr(&z), z.len);
+    String_append(&z, "hi");
+    printf("z=[%s]\n", String_cstr(&z));
+    String_free(&z);
+
+    printf("+42=%d -42=%d x=%d -2147483648=%d 99999999999=%d -99999999999=%d\n",
+           parse("+42"), parse("-42"), parse("x"), parse("-2147483648"),
+           parse("99999999999"), parse("-99999999999"));
+    return 0;
+}

@@ -1,0 +1,30 @@
+// A closure param of an async fn that the body only calls is still retained by the
+// frame (the resume calls it after the call returns): the call's lambda gets a heap
+// env, so it survives the caller's frame. Here the await completes after `start`
+// has returned and its stack has been reused.
+import <future>;
+extern int printf(string fmt, ...);
+
+Future<int>* gate;
+
+async int worker(fn(int)->int score) {
+    int k = await gate;
+    return score(k);
+}
+
+Future<int>* start(int base) {
+    int local = base * 10;
+    return worker(int(int x) { return x + local; });
+}
+
+int churn(int n) { int[64] buf; for (i in 0..64) { buf[i] = n + i; } return buf[63]; }
+
+int main() {
+    gate = future_new<int>();
+    Future<int>* f = start(4);
+    future_poll<int>(f, void() {});
+    printf("%d ", churn(7));
+    future_complete<int>(gate, 2);
+    printf("%d %d\n", f.state, f.value);
+    return 0;
+}

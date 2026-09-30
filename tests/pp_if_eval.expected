@@ -1,0 +1,10 @@
+char escapes ok
+|| skips ok
+&& skips ok
+?: skips else ok
+?: skips then ok
+INT64_MIN / -1 wraps ok
+INT64_MIN % -1 ok
+overflow wraps ok
+mul wraps ok
+64-bit ok

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: undefined variable 'zz'
+int main() { fn()->int g = int() { return zz; }; return g(); }

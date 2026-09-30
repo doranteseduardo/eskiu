@@ -1,0 +1,43 @@
+// `for (x in E)` evaluates E exactly once.
+import <list>;
+import <future>;
+extern int printf(string fmt, ...);
+int calls = 0;
+int[4] arr;
+int[] view() { calls += 1; return arr[0..4]; }
+int[3] mk() { calls += 10; int[3] r = {1, 2, 3}; return r; }
+List<int> lst;
+*List<int> getl() { calls += 100; return &lst; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+async int run() {
+  int t = 0;
+  for (x in view()) { int q = await rdy<int>(1); t += q; }
+  for (x in mk()) { int q = await rdy<int>(x); t += q; }
+  for (v in getl()) { int q = await rdy<int>(v); t += q; }
+  return t;
+}
+int main() {
+  int t = 0;
+  for (x in view()) { t += 1; }
+  printf("iters=%d calls=%d\n", t, calls);
+  for (x in mk()) { t += x; }
+  printf("t=%d calls=%d\n", t, calls);
+  lst.init(2); lst.push(4); lst.push(5);
+  for (v in getl()) { t += v; }
+  printf("t=%d calls=%d\n", t, calls);
+  int[5] a = {1, 2, 3, 4, 5};
+  int k = 0;
+  for (x in a[k..k + 3]) { k = 1; t += x; }
+  printf("t=%d\n", t);
+  int[2][3] m = {{1, 2, 3}, {10, 20, 30}};
+  int j = 0;
+  for (x in m[j]) { j = 1; t += x; }
+  List<int>[2] ls; ls[0] = lst; ls[1].init(1);
+  j = 0;
+  for (v in ls[j]) { j = 1; t += v; }
+  printf("t=%d\n", t);
+  calls = 0;
+  Future<int>* f = run();
+  printf("async t=%d calls=%d\n", f.value, calls);
+  return 0;
+}

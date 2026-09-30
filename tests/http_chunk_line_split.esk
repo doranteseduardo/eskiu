@@ -1,0 +1,57 @@
+// HTTP_CHUNK_LINE_MAX holds for a complete chunk-size or trailer line too. It
+// was only checked while a line was unfinished, so a 9000-byte chunk extension
+// was 400 when read in 100-byte pieces but accepted in one read (and by
+// HttpRequest_parse_status): the verdict depended on the segmentation.
+import <http>;
+import <string>;
+import <mem>;
+extern int printf(string fmt, ...);
+
+int feed(String* r, int seg) {
+    let b: HttpConnBuf;  b.init();
+    let req: HttpRequest;  req.init();
+    int64 off = 0;
+    int st = -1;
+    while (st == -1 && off < r.len) {
+        int64 k = r.len - off;
+        if (k > seg) { k = seg; }
+        if (k > (int64)(b.cap - b.len)) { k = (int64)(b.cap - b.len); }
+        memcpy(b.data + b.len, (*uint8)r.data + off, k);
+        b.len += (int)k;
+        off += k;
+        st = b.feed(&req);
+    }
+    req.free();
+    b.free();
+    return st;
+}
+
+void check(string what, String* r) {
+    let one: HttpRequest;  one.init();
+    printf("%s: one read %d, 100-byte reads %d, parse_status %d\n", what, feed(r, 1000000), feed(r, 100),
+           HttpRequest_parse_status(&one, (*uint8)r.data, (int)r.len, 1000));
+    one.free();
+}
+
+int main() {
+    let r: String;  r.init(64);
+    r.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5;x=");
+    for (i in 0..9000) { r.push('a'); }
+    r.append("\r\nhello\r\n0\r\n\r\n");
+    check("long chunk ext", &r);
+
+    r.clear();
+    r.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX: ");
+    for (i in 0..9000) { r.push('v'); }
+    r.append("\r\n\r\n");
+    check("long trailer", &r);
+
+    // Just under the limit: accepted either way.
+    r.clear();
+    r.append("POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5;x=");
+    for (i in 0..8000) { r.push('a'); }
+    r.append("\r\nhello\r\n0\r\nX: v\r\n\r\n");
+    check("short chunk ext", &r);
+    r.free();
+    return 0;
+}

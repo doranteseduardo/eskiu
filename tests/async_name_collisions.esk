@@ -1,0 +1,24 @@
+// Locals and parameters named like the async transform's synthesized names (the frame
+// pointer `__fr`, the frame's `st` / `ret` / `awaiting` fields, the await temporaries,
+// the shadow renames, the resume function) must not collide with them.
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+int __g_resume = 7;
+async int g(int __fr, int st) {
+    int ret = 1; int awaiting = 2; int __aw0 = 3; int __aw_t0 = 4; int __forin_i_0 = 5;
+    int x = 10;
+    int x__s0 = 20;
+    if (__fr > 0) { int x = 30; x__s0 = x__s0 + x; }
+    int a = await produce(__fr);
+    await produce(1);
+    int[3] nums; nums[0] = 1; nums[1] = 2; nums[2] = 3;
+    int total = 0;
+    for (n in nums) { int v = await produce(n); total = total + v; }
+    return a + st + ret + awaiting + __aw0 + __aw_t0 + __forin_i_0 + x + x__s0 + total + __g_resume;
+}
+int main() {
+    Future<int>* r = g(100, 1000);
+    printf("%d\n", r.value);
+    return 0;
+}

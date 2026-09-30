@@ -1,0 +1,16 @@
+// sizeof(variable) measures the variable's type (C semantics).
+extern int printf(string f, ...);
+struct Big { int64 a; int64 b; int64 c; }
+int64 g = 5;
+int64 psize(Big p) { return sizeof(p); }
+int main() {
+    let d: double = 1.0;
+    let b: Big;
+    let c: char = 'a';
+    int[4] arr;
+    let p: *int = null;
+    printf("%d %d %d %d %d %d %d\n", (int)sizeof(d), (int)sizeof(b), (int)sizeof(c),
+           (int)sizeof(arr), (int)sizeof(p), (int)sizeof(g), (int)psize(b));
+    printf("%d %d\n", (int)sizeof(Big), (int)sizeof(int16));
+    return 0;
+}

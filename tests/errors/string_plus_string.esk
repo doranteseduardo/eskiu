@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid operands for operator
+int main() { let x: string = "a" + "b"; return 0; }

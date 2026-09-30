@@ -1,0 +1,3 @@
+// EXPECT-ERROR: unknown type 'Nope'
+struct S { Nope n; int v; }
+int main() { let s: S; s.v = 1; return s.v; }

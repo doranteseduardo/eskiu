@@ -1,0 +1,21 @@
+// Valid forms next to the stricter checks: a lambda whose return type is reconciled to
+// the declared one, an enum-member case label, a struct named like an enum member and a
+// narrowed pointer stepped by itself.
+extern int printf(string f, ...);
+enum Col { R, G }
+struct G { int v; }
+int pick(int v) { switch (v) { case 7: return 1; case R: return 2; } return 0; }
+int main() {
+    let f: fn(int)->float = int(int x) { return x * 2; };
+    let g: G = G{v: 3};
+    int[4] a = {5, 6, 7, 8};
+    ?*int p = &a[0];
+    int t = 0;
+    if (p != null) {
+        p = p + 1;
+        t = *p;
+        t = t + *p;
+    }
+    printf("%.1f %d %d %d %d\n", (double)f(2), g.v, pick(7), pick(0), t);
+    return 0;
+}

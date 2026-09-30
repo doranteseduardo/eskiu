@@ -1,0 +1,14 @@
+// A generic prototype before its use; the definition comes after (and may call
+// another generic declared the same way).
+extern int printf(string fmt, ...);
+
+T twice<T>(T x);
+T thrice<T>(T x);
+
+int main() {
+    printf("%.1f %d %d\n", twice<double>(1.5), twice(4), thrice<int>(2));
+    return 0;
+}
+
+T twice<T>(T x) { return x + x; }
+T thrice<T>(T x) { return twice<T>(x) + x; }

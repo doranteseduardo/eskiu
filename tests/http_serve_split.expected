@@ -1,0 +1,68 @@
+== http_serve
+split head and body:
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 19
+
+POST /up body=hello
+--
+split chunked:
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 15
+
+POST /c body=hi
+--
+closed early:
+HTTP/1.1 400 Bad Request
+Content-Length: 0
+
+
+--
+HEAD:
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 13
+
+
+--
+304:
+HTTP/1.1 304 Not Modified
+Content-Type: text/plain
+
+
+--
+== http_serve_async
+split head and body:
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 19
+
+POST /up body=hello
+--
+split chunked:
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 15
+
+POST /c body=hi
+--
+closed early:
+HTTP/1.1 400 Bad Request
+Content-Length: 0
+
+
+--
+HEAD:
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 13
+
+
+--
+304:
+HTTP/1.1 304 Not Modified
+Content-Type: text/plain
+
+
+--

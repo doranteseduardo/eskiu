@@ -1,0 +1,3 @@
+// EXPECT-ERROR: #endif without #if
+int main() { return 0; }
+#endif

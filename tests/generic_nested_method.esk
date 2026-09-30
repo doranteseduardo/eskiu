@@ -1,0 +1,29 @@
+// An inline method of a generic struct reached through a field whose type is
+// the instance (`Box<T> b` in `Wrap<T>`), never named directly elsewhere.
+extern int printf(string fmt, ...);
+
+struct Box<T> {
+    T v;
+    T get() { return self.v; }
+    void set(T x) { self.v = x; }
+}
+
+struct Wrap<T> {
+    Box<T> b;
+    T twice() { return self.b.get() + self.b.get(); }
+}
+
+struct Holder { Box<double> d; }
+
+int main() {
+    let w: Wrap<int> = Wrap<int>{ b: Box<int>{ v: 7 } };
+    printf("%d\n", w.b.get());
+    w.b.set(9);
+    printf("%d %d\n", w.b.get(), w.twice());
+    let p: *Box<int> = &w.b;
+    p.set(11);
+    printf("%d\n", p.get());
+    let h: Holder = Holder{ d: Box<double>{ v: 1.5 } };
+    printf("%.1f\n", h.d.get());
+    return 0;
+}

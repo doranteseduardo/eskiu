@@ -1,0 +1,4 @@
+// EXPECT-ERROR: type alias 'A1' refers to itself
+type A1 = B1;
+type B1 = A1;
+int main() { let x: A1; return 0; }

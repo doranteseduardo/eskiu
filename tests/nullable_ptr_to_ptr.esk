@@ -1,0 +1,33 @@
+// A pointer to a nullable pointer is spelled `*?*T`: the `*` it is reached through is
+// plain, the pointer it holds is checked. `?*T*` stays a nullable pointer to `*T`.
+extern int printf(string fmt, ...);
+
+// Store a pointer through an out-parameter; the slot may hold null.
+void find(*?*int out, *int cand, bool ok) {
+    if (ok) { *out = cand; } else { *out = null; }
+}
+
+int deref_or(*?*int pp, int d) {
+    ?*int p = *pp;
+    if (p != null) { return *p; }
+    return d;
+}
+
+struct Slot { ?*int v; }
+
+int main() {
+    int x = 42;
+    ?*int slot = null;
+    find(&slot, &x, true);
+    printf("%d\n", deref_or(&slot, -1));
+    find(&slot, &x, false);
+    printf("%d\n", deref_or(&slot, -1));
+    let s: Slot;
+    s.v = &x;
+    *?*int ps = &s.v;
+    printf("%d\n", deref_or(ps, 0));
+    *int px = &x;
+    ?*int* npp = &px;
+    if (npp != null) { printf("%d\n", **npp); }
+    return 0;
+}

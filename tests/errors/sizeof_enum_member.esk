@@ -1,0 +1,3 @@
+// EXPECT-ERROR: unknown type 'R'
+enum C { R, G }
+int main() { return (int)sizeof(R); }

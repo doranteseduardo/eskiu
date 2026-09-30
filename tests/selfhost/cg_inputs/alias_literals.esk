@@ -1,0 +1,15 @@
+// An array literal initializes a variable whose type is an alias of an array, and a
+// struct literal may name a struct through an alias (also of a generic instance).
+extern int printf(string f, ...);
+type A3 = int[3];
+type LI = Box<int>;
+type PP = Pt;
+struct Box<T> { T v; }
+struct Pt { int x; int y; }
+int main() {
+    A3 a = {1, 2, 3};
+    LI b = LI{v: 5};
+    PP p = PP{x: 7, y: 8};
+    printf("%d %d %d %d %d\n", a[0], a[2], b.v, p.x, p.y);
+    return 0;
+}

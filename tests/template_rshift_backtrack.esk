@@ -1,0 +1,22 @@
+// `x < y >> 1` parses as `x < (y >> 1)`: the failed template-call attempt on
+// `x<` must not leave the `>>` split into two `>` tokens.
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; }
+
+int ident<T>(T a) { return 1; }
+
+int main() {
+    int x = 1;
+    int y = 8;
+    bool b = x < y >> 1;
+    printf("%d\n", (int)b);
+    int z = y >> 2;
+    printf("%d\n", z);
+    bool c = x < y >> 3;
+    printf("%d\n", (int)c);
+    Box<Box<int>> bb = Box<Box<int>>{ Box<int>{ 7 } };
+    printf("%d\n", bb.v.v);
+    printf("%d\n", ident<int>(3) + (y >> 1));
+    return 0;
+}

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: unexpected_char.esk:2:24: unexpected character '@'
+int main() { int x = 1 @ 2; return x; }

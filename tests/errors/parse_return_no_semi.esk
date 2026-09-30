@@ -1,0 +1,2 @@
+// EXPECT-ERROR: 2:23: Expected ';'
+int main() { return 0 }

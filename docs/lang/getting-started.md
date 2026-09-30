@@ -3,7 +3,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.9.1**.
+All code blocks in this document compile and run with **Eskiu v0.9.2**.
 
 ---
 
@@ -13,7 +13,7 @@ All code blocks in this document compile and run with **Eskiu v0.9.1**.
 
 | Tool         | Minimum version | Notes                             |
 | ------------ | --------------- | --------------------------------- |
-| LLVM         | 17+             | Headers and libraries required    |
+| LLVM         | 21+             | Headers and libraries required (CI uses 22) |
 | CMake        | 3.20+           | Build system                      |
 | C++ compiler | C++17           | GCC 7+, Clang 5+, or Apple Clang  |
 | clang        | any recent      | Used to link the final binary     |
@@ -37,8 +37,8 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 ### Linux (Ubuntu / Debian)
 
 ```bash
-sudo apt-get install -y cmake llvm-17-dev clang-17 build-essential
-cmake -S . -B build
+sudo apt-get install -y cmake llvm-22-dev clang-22 build-essential
+cmake -S . -B build -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
 cmake --build build -j$(nproc)
 ```
 
@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.9.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.9.2 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -211,7 +211,12 @@ uint8 mask = 0x0F;
 int64 big = 1000000;
 int neg = -42;   // negative literals work anywhere, including global scope
 float f = -3.14;
+int perms = 0755;  // a leading 0 means octal, as in C (493)
 ```
+
+Literals follow C. `08` (an invalid octal digit) and `0x` with no digits are
+errors, and so is any suffix: write `1000` rather than `1_000`, and `3.5` rather
+than `3.5f`.
 
 ### Pointer types
 
@@ -239,6 +244,12 @@ int prod = a * b;   // 30
 int quot = a / b;   // 3
 int rem  = a % b;   // 1
 ```
+
+As in C, operands narrower than `int` (`bool`, `char`, `int8`, `uint8`, `int16`,
+`uint16`) are promoted to `int` before arithmetic and comparison. So
+`(uint8)200 + (uint8)100` is `300`, and a `uint8` compared with a negative `int8`
+compares the values, not the bit patterns. Assigning the result back to a narrow
+variable truncates it.
 
 ### Comparison
 
@@ -520,7 +531,9 @@ int main() {
 ```
 
 Struct literals accept either named fields (`Point { x: 1.0, y: 2.0 }`) or
-positional fields (`Point { 1.0, 2.0 }`).
+positional fields (`Point { 1.0, 2.0 }`). Fields you leave out are zero-filled, as
+in C. Each field value is type-checked against the field's type, and naming a
+field twice or giving too many values is an error.
 
 ### Methods with self
 
@@ -553,6 +566,26 @@ int main() {
 
 The compiler lowers `r.area()` to `Rect_area(ptr %r)`: the receiver is passed
 as the first argument.
+
+A method can also be written as a free function named `Type_method` whose first
+parameter is the receiver. To call it on a `const` value, declare the receiver
+`const T* self`; a method with a plain `*T self` may change the value, so calling
+it on a `const` is an error:
+
+```eskiu
+extern int printf(string fmt, ...);
+
+struct P { int x; }
+int  P_get(const P* self) { return self.x; }
+void P_set(*P self, int v) { self.x = v; }
+
+int main() {
+    const P c = P { x: 4 };
+    printf("%d\n", c.get());   // fine: P_get takes const P*
+    // c.set(9);               // error: cannot call method 'set' on a read-only value
+    return 0;
+}
+```
 
 ### Fixed-size array fields
 
@@ -697,7 +730,7 @@ A type parameter can require that its concrete type satisfy one or more interfac
 
 ```eskiu
 interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` stands for the implementing type
 }
 
 T max<T: Ord>(T a, T b) {
@@ -706,7 +739,7 @@ T max<T: Ord>(T a, T b) {
 }
 ```
 
-Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int, int)` makes `int` satisfy `Ord`. See spec §10.6 for the full rules.
+Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a `struct Num` with `int cmp(*Num other)` satisfies `Ord`. Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int a, *int b)` makes `int` satisfy the `Ord` above (the interface's `*Ord` becomes `*int`). See spec §10.6 for the full rules.
 
 ---
 
@@ -750,7 +783,9 @@ struct Square {
 ```
 
 `Circle` and `Square` both satisfy `Drawable` automatically because they
-implement a `draw()` method with a matching signature.
+implement a `draw()` method with a matching signature. The whole signature has to
+match: a `draw` that returns a different type or takes different parameters does
+not satisfy the interface.
 
 ### Passing a struct as an interface
 
@@ -777,6 +812,20 @@ Output:
 ```
 Circle(r=5.000000)
 Square(s=3.000000)
+```
+
+Pass `&c`, not `c`. An interface value refers to the struct through a pointer, so
+passing a struct by value where an interface is expected is a compile error.
+
+An interface value is an ordinary value: it can be a local, a struct field, a
+parameter or a return value, and it keeps referring to the struct it was made
+from.
+
+```eskiu
+let d: Drawable = &c;
+d.draw();
+d = &s;          // now refers to s
+d.draw();
 ```
 
 ---
@@ -833,6 +882,19 @@ int main() {
 ```
 
 Pointer comparisons use integer equality, not floating-point equality.
+
+For checked null safety, declare the pointer `?*T`. The compiler then rejects a
+dereference until a check proves the pointer is not null. The check can be an
+`if (p != null)`, an early exit (`if (p == null) { return 0; }`), a loop condition,
+the left side of `&&` or `||`, or a ternary condition. Assigning to the pointer
+ends what the check proved.
+
+```eskiu
+int first(?*int p) {
+    if (p == null) { return -1; }
+    return *p;                 // proven non-null here
+}
+```
 
 ### Dereference
 
@@ -937,29 +999,30 @@ Available modules:
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
-| `<random>`   | seedable PRNG (xoshiro256\*\*): `rng_seed`, `rng_next`, `rng_below`, `rng_range`, `rng_double`, `rng_bool`, `rng_fill` |
-| `<regex>`    | linear-time regex (Thompson NFA): `regex_match`, `regex_compile`/`regex_search` with capture groups (`match_group`), `\d \w \s`, `* + ? {m,n}`, `|`, `( )`, `^ $` |
+| `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
+| `<regex>`    | linear-time regex (Thompson NFA) over UTF-8: `regex_match`, `regex_compile`/`Regex_search` with capture groups (`Match_group`), `\d \w \s`, `\p{L}` Unicode classes, `* + ? {m,n}`, `|`, `( )`, `(?:)`, `(?i)`, `^ $`, `\b \B`, `\Q..\E` (RE2 syntax, as Go's regexp) |
 | `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function |
 | `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`time_from_utc`, `time_format_iso`) |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`) |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
-| `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`el_add_read`/`el_run`/`el_stop`/`el_add_timer` |
+| `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |
 | `<atomic>`   | atomic `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
 | `<future>`   | the `async`/`await` runtime: `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
 | `<executor>` | `Executor`: event loop + thread-safe ready-queue + self-pipe wakeup |
 | `<net_async>`| async leaf futures: `net_read_async`, `net_accept_async` |
 | `<timer>`    | `timer_after(lp, ms)`: a `*Future<int>` that completes after a delay (timeouts) |
-| `<channel>`  | async message channel: `chan_new`/`chan_send`/`chan_recv` (a `*Future<T>`) |
+| `<channel>`  | async message channel: `chan_new`/`Chan_send`/`Chan_recv` (a `*Future<T>`) |
 | `<http_async>`| non-blocking concurrent HTTP/1.1 server: `http_serve_async` |
 
-Note: when using `<math>` link with `-lm`. Library flags are passed straight
-through to the linker, so the one-command form works too:
+Modules that need a system library link it themselves (`<math>` adds `-lm` on
+Linux through `#pragma link("m")`), so a program using them builds with no `-l`
+flag:
 
 ```bash
-eskiuc file.esk -o file -lm
+eskiuc file.esk -o file
 ```
 
 ### Standard library highlights
@@ -1071,7 +1134,7 @@ int main() {
 
 ### Closures: capturing from the enclosing scope
 
-A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created.
+A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (`x = 1`, `x++` inside the body is a compile error); to share state, write through a pointer or use a global or a `static` local.
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -1088,6 +1151,8 @@ int main() {
 Closures can be passed to higher-order functions exactly like plain lambdas: the `fn(T)->R` type is the same in both cases.
 
 ```eskiu
+extern int printf(string fmt, ...);
+
 int apply(fn(int)->int f, int x) { return f(x); }
 
 int main() {
@@ -1132,10 +1197,10 @@ int main() {
 }
 ```
 
-The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair: no trampoline is generated. On Linux, link with `-lpthread`:
+The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair: no trampoline is generated. The driver links pthread by itself where the platform needs it:
 
 ```bash
-eskiuc threads.esk -o threads -lpthread
+eskiuc threads.esk -o threads
 ./threads
 ```
 
@@ -1172,7 +1237,9 @@ Output: `caught: division by zero`
 
 ### With finally
 
-The `finally` block always executes, whether or not an exception was raised:
+The `finally` block always executes, whether or not an exception was raised, and
+also when the `try` body or a `catch` handler leaves early with `return`, `break` or
+`continue`:
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -1197,11 +1264,10 @@ cleanup
 
 ### Linking
 
-Exception handling uses the Itanium C++ ABI personality function. Link with `-lc++` on macOS or `-lstdc++` on Linux:
+Exception handling uses the Itanium C++ ABI personality function, from the platform C++ runtime. The driver links it when the program uses `throw` or `try` (`-lc++` on macOS, `-lstdc++` on Linux and Windows), so no flag is needed:
 
 ```bash
-eskiuc file.esk -o file -lc++      # macOS
-eskiuc file.esk -o file -lstdc++   # Linux
+eskiuc file.esk -o file
 ./file
 ```
 
@@ -1224,7 +1290,7 @@ Restart VS Code. `.esk` files will have syntax highlighting immediately.
 | Feature | How it works |
 |---------|-------------|
 | Syntax highlighting | TextMate grammar (`eskiu.tmLanguage.json`) |
-| Real-time error squiggles | Extension runs `eskiuc --test-typechecker` on save and parses `file:line:col: message` output |
+| Real-time error squiggles | Extension runs `eskiuc --test-typechecker` as you type (on the unsaved buffer) and on save, and parses the `file:line:col: message` output |
 | Hover type info | Extension calls `eskiuc --hover-at LINE:COL` and shows the result in a tooltip |
 | Go-to-definition | Extension calls `eskiuc --definition-at LINE:COL` and jumps to the returned location |
 
@@ -1247,7 +1313,9 @@ scripting.
 ## Using the Test Modes
 
 The compiler exposes diagnostic flags that stop compilation after a specific
-phase and print what was produced. None of them produce an object file.
+phase and print what was produced. None of them produce an object file. They
+predefine the same macros as a real build (so `#ifdef __APPLE__` picks the same
+branch), and each exits with a non-zero status when it reports an error.
 
 | Flag                      | Phase        | Output                       | When to use                                   |
 | ------------------------- | ------------ | ---------------------------- | --------------------------------------------- |
@@ -1288,7 +1356,7 @@ Runs type inference and struct field validation. If a struct field name is wrong
 you see the error here, before any IR is generated:
 
 ```
-hello.esk:5:14: struct 'Point' has no member 'z'
+error: hello.esk:5:14: struct 'Point' has no member 'z'
 ```
 
 ### --test-codegen
@@ -1341,9 +1409,10 @@ void outb(uint8 val, uint16 port) {
 }
 ```
 
-Syntax: `asm("template" : outputs : inputs : clobbers);`
+Syntax: `asm("template" :: inputs : clobbers);`
 
-- Inputs and outputs are `"constraint"(expression)` pairs.
+- Inputs are `"constraint"(expression)` pairs.
+- Output operands are not supported: the output section stays empty, so the extended form starts with `::`. Pass results back through memory (a pointer input plus the `"memory"` clobber).
 - `"memory"` in the clobber list acts as a compiler barrier.
 - Common constraints: `"a"` → rax/eax, `"Nd"` → 8-bit immediate or dx, `"r"` → any register.
 
@@ -1403,13 +1472,13 @@ int main() {
 }
 ```
 
-`sizeof` is resolved entirely at compile time and produces no runtime code.
+`sizeof` is resolved entirely at compile time and produces no runtime code. As in C, `sizeof(x)` where `x` names a variable gives the size of that variable's type (`let d: double; sizeof(d)` is 8). A name that is neither a type nor a variable is an error.
 
 ---
 
 ## Unions
 
-A `union` is declared like a `struct`, but all fields share offset 0. The size of the union equals the size of its largest field. Reading a field reinterprets the stored bytes as that field's type.
+A `union` is declared like a `struct`, but all fields share offset 0. The size of the union equals the size of its largest field, rounded up to the alignment of its most-aligned field, as in C. Reading a field reinterprets the stored bytes as that field's type.
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -1454,6 +1523,9 @@ int main() {
 ```
 
 `*void` and `*char` are exceptions: they always step one byte at a time.
+
+Subtracting two pointers of the same type gives the number of elements between
+them, as in C: with `let q: *int = buf + 3;`, `q - buf` is `3`.
 
 ---
 

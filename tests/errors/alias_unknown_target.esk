@@ -1,0 +1,3 @@
+// EXPECT-ERROR: unknown type 'Foo'
+type X = Foo;
+int main() { return 0; }

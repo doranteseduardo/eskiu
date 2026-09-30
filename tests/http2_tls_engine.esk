@@ -1,0 +1,153 @@
+// Both h2-over-TLS servers (blocking http2_tls_serve_conn and the async
+// http2_tls_conn_async) share the h2c server's H2Server engine, so they handle
+// what their own frame loops ignored: PADDED DATA, CONTINUATION, PING (the async
+// server never answered it), a header list over 64 fields (431, handler not
+// called; it used to be dispatched empty), and window overflow (GOAWAY 3).
+// OpenSSL is replaced by the C companion (http2_tls_engine.c), whose "SSL" is
+// the plain socket.
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <channel>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <tls>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int protocol, *int sv);
+extern int shutdown(int fd, int how);
+
+EventLoop* g_lp;
+int g_calls = 0;
+*uint8 g_buf;
+int g_len = 0;
+
+void echo(HttpRequest* req, HttpResponse* res) {
+    g_calls++;
+    let b: String;  b.init(32);
+    b.append(req.method.cstr());  b.push(' ');  b.append(req.path.cstr());
+    b.append(" body=");  b.append(req.body.cstr());
+    HttpResponse_set_body(res, b.cstr());
+    b.free();
+}
+
+void begin() {
+    g_len = 0;
+    string p = h2_preface();
+    for (i in 0..24) { g_buf[g_len++] = (uint8)p[i]; }
+    g_len += h2_frame_finish(g_buf + g_len, H2_SETTINGS, 0, 0, 0);
+}
+
+void frame(int type, int flags, int sid, *uint8 p, int n) {
+    for (i in 0..n) { g_buf[g_len + 9 + i] = p[i]; }
+    g_len += h2_frame_finish(g_buf + g_len, type, flags, sid, n);
+}
+
+int req_block(*uint8 blk, string method, string path) {
+    int off = hpack_encode_header(blk, 0, (*uint8)":method", 7, (*uint8)method, strlen(method));
+    off = hpack_encode_header(blk, off, (*uint8)":path", 5, (*uint8)path, strlen(path));
+    off = hpack_encode_header(blk, off, (*uint8)":scheme", 7, (*uint8)"https", 5);
+    return off;
+}
+
+// Serve the queued client bytes with the blocking (async == 0) or async TLS
+// server, then summarize the server's frames.
+void run(string label, int async_mode) {
+    *int sv = alloc<int>(2);
+    socketpair(1, 1, 0, sv);
+    net_send(sv[1], (*void)g_buf, (int64)g_len);
+    shutdown(sv[1], 1);
+    g_calls = 0;
+    *void ctx = tls_server_ctx("cert", "key");
+    if (async_mode == 0) {
+        http2_tls_serve_conn(tls_accept(ctx, sv[0]), echo);
+        net_close(sv[0]);
+    } else {
+        Chan<int>* done = chan_new<int>(1);
+        Future<uint8>* f = http2_tls_conn_async(g_lp, sv[0], ctx, echo, done);
+        if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+        free_future<uint8>(f);
+        Chan_free<int>(done);
+    }
+    SSL_CTX_free(ctx);
+
+    *uint8 rb = alloc<uint8>(65536);
+    int total = 0;
+    int64 k = net_recv(sv[1], (*void)rb, (int64)65536);
+    while (k > 0) { total += (int)k; k = net_recv(sv[1], (*void)(rb + total), (int64)(65536 - total)); }
+    printf("%s %s:", async_mode == 0 ? "blocking" : "async", label);
+    let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
+    *HpackHeader hs = alloc<HpackHeader>(16);
+    int pos = 0;
+    while (pos + 9 <= total) {
+        let fr: H2Frame;  h2_read_header(rb + pos, &fr);
+        *uint8 pl = rb + pos + 9;
+        if (fr.type == H2_HEADERS) {
+            int n = hpack_decode(&dec, pl, fr.length, hs, 16);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) { printf(" HEADERS(%.*s)", hs[i].vlen, (string)hs[i].value); }
+            }
+        } else if (fr.type == H2_DATA) {
+            printf(" DATA[%.*s]", fr.length, (string)pl);
+        } else if (fr.type == H2_GOAWAY) {
+            printf(" GOAWAY(%lld)", h2_get_u32(pl, 4));
+        } else if (fr.type == H2_PING) {
+            printf(" PING(ack=%d,%.*s)", fr.flags & 1, 8, (string)pl);
+        }
+        pos += 9 + fr.length;
+    }
+    printf(" calls=%d\n", g_calls);
+    HpackDecoder_free(&dec);
+    free((*void)hs);
+    free((*void)rb);
+    net_close(sv[1]);
+    free((*void)sv);
+}
+
+int main() {
+    g_lp = el_new(16);
+    g_buf = alloc<uint8>(65536);
+    *uint8 blk = alloc<uint8>(4096);
+    *uint8 p = alloc<uint8>(64);
+    for (int mode = 0; mode < 2; mode++) {
+        begin();
+        int bl = req_block(blk, "POST", "/pad");
+        frame(H2_HEADERS, H2_FLAG_END_HEADERS, 1, blk, bl);
+        p[0] = (uint8)2;  p[1] = (uint8)'h';  p[2] = (uint8)'i';  p[3] = (uint8)0;  p[4] = (uint8)0;
+        frame(H2_DATA, H2_FLAG_END_STREAM | H2_FLAG_PADDED, 1, p, 5);
+        run("padded", mode);
+
+        begin();
+        bl = req_block(blk, "GET", "/continued");
+        frame(H2_HEADERS, H2_FLAG_END_STREAM, 1, blk, 3);
+        frame(H2_CONTINUATION, H2_FLAG_END_HEADERS, 1, blk + 3, bl - 3);
+        run("continuation", mode);
+
+        begin();
+        frame(H2_PING, 0, 0, (*uint8)"tlsping!", 8);
+        run("ping", mode);
+
+        begin();
+        bl = req_block(blk, "GET", "/many");
+        for (i in 0..70) {
+            uint8[3] nm;
+            nm[0] = (uint8)'h';  nm[1] = (uint8)('0' + i / 10);  nm[2] = (uint8)('0' + i % 10);
+            bl = hpack_encode_header(blk, bl, &nm[0], 3, (*uint8)"v", 1);
+        }
+        frame(H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, 1, blk, bl);
+        run("70 headers", mode);
+
+        begin();
+        uint8[4] wu;  h2_put_u32(&wu[0], 0, (int64)2147483647);
+        frame(H2_WINDOW_UPDATE, 0, 0, &wu[0], 4);
+        run("window overflow", mode);
+    }
+    free((*void)p);
+    free((*void)blk);
+    free((*void)g_buf);
+    EventLoop_free(g_lp);
+    return 0;
+}

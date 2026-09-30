@@ -16,6 +16,11 @@ verifier) and treats three outcomes as findings:
              missed: valid IR, wrong semantics that the optimizer diverged on.
   BUILDFAIL— clang could not build the emitted IR at some -O level (IR the LLVM
              verifier accepted but the real pipeline rejects).
+  ORACLE   — a program from the C-translatable generator (c_oracle.py) printed
+             something different from its C translation built by clang -O0
+             -fwrapv, under the C++ eskiuc (-O0 and -O2) or the self-hosted
+             eskiuc-esk; or one of them rejected / crashed on it. This is the only
+             oracle outside the Eskiu compilers, so it catches bugs both share.
   OUTPUT   — a program with KNOWN expected stdout produced something else (the
              expected-output oracle, for the backslash generators below). RUNFAIL
              is its build/run-failure sibling. Catches uniformly-mis-lexed
@@ -36,10 +41,17 @@ Inputs come from two sources:
 
 Usage:
   python3 tests/fuzz/eskiu_fuzz.py --iterations 2000 [--seed 1] [--eskiuc PATH]
+  python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 20000 --seed 1 --jobs 8
+  python3 tests/fuzz/eskiu_fuzz.py --oracle-repro SEED:INDEX   # print one program
+  python3 tests/fuzz/eskiu_fuzz.py --oracle-reduce SEED:INDEX  # shrink a finding
 Findings are written to tests/fuzz/findings/ and the run exits non-zero if any.
 """
 
 import argparse, os, random, re, subprocess, sys, glob, pathlib
+from concurrent.futures import ThreadPoolExecutor
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from fuzz_util import run_limited, DEFAULT_JOBS, default_eskiuc_esk
 
 HERE = pathlib.Path(__file__).resolve().parent
 TESTS = HERE.parent
@@ -340,17 +352,15 @@ def classify(eskiuc, src, timeout=15):
     import tempfile
     with tempfile.NamedTemporaryFile("w", suffix=".esk", delete=False) as f:
         f.write(src); path = f.name
-    try:
-        p = subprocess.run([eskiuc, "--test-codegen", path],
-                           capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.unlink(path); return ("HANG", "timeout")
+    status, rc, sout, serr = run_limited([eskiuc, "--test-codegen", path], timeout)
     os.unlink(path)
-    out = (p.stdout or "") + (p.stderr or "")
+    if status != "OK":
+        return ("HANG", status.lower())
+    out = sout + serr
     if "LLVM verification failed" in out:
         return ("VERIFIER", out.split("LLVM verification failed", 1)[1][:300])
-    if p.returncode < 0 or p.returncode in (134, 138, 139):
-        return ("CRASH", f"rc={p.returncode}: {out[-300:]}")
+    if rc < 0 or rc in (134, 138, 139):
+        return ("CRASH", f"rc={rc}: {out[-300:]}")
     if any(mk in out for mk in CRASH_MARKERS):
         return ("CRASH", out[-300:])
     return ("OK", "")
@@ -391,14 +401,12 @@ def emit_ir(eskiuc, src, timeout=15):
     import tempfile
     with tempfile.NamedTemporaryFile("w", suffix=".esk", delete=False) as f:
         f.write(src); path = f.name
-    try:
-        p = subprocess.run([eskiuc, "--test-codegen", path],
-                           capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.unlink(path); return None
+    status, _, sout, _ = run_limited([eskiuc, "--test-codegen", path], timeout)
     os.unlink(path)
+    if status != "OK":
+        return None
     # The IR is printed between the two "====" banner separators.
-    lines, depth, ir = (p.stdout or "").split("\n"), 0, []
+    lines, depth, ir = sout.split("\n"), 0, []
     for ln in lines:
         if ln.startswith("===="):
             depth += 1; continue
@@ -407,11 +415,10 @@ def emit_ir(eskiuc, src, timeout=15):
     return "\n".join(ir) if ir else None
 
 def run_bin(path, timeout=10):
-    try:
-        r = subprocess.run([path], capture_output=True, text=True, timeout=timeout)
-        return (r.stdout, r.returncode)
-    except subprocess.TimeoutExpired:
-        return (None, "timeout")
+    status, rc, out, _ = run_limited([path], timeout)
+    if status != "OK":
+        return (None, status.lower())
+    return (out, rc)
 
 def differential(clang, ir, timeout=15):
     """Return ('DIFF'|'BUILDFAIL'|'OK', detail). Requires UB-free input."""
@@ -422,14 +429,13 @@ def differential(clang, ir, timeout=15):
         outs = {}
         for lvl in ("O0", "O2"):
             binp = os.path.join(d, lvl)
-            try:
-                c = subprocess.run([clang, f"-{lvl}", "-x", "ir", llp, "-o", binp, "-lm"],
-                                   capture_output=True, text=True, timeout=timeout)
-            except subprocess.TimeoutExpired:
-                return ("BUILDFAIL", f"clang -{lvl} timed out")
-            if c.returncode != 0:
+            status, crc, _, cerr = run_limited([clang, f"-{lvl}", "-x", "ir", llp, "-o", binp, "-lm"],
+                                               timeout)
+            if status != "OK":
+                return ("BUILDFAIL", f"clang -{lvl}: {status.lower()}")
+            if crc != 0:
                 # clang rejected verifier-passing IR — itself a finding.
-                return ("BUILDFAIL", f"clang -{lvl}: {(c.stderr or '')[-300:]}")
+                return ("BUILDFAIL", f"clang -{lvl}: {cerr[-300:]}")
             outs[lvl] = run_bin(binp)
         if outs["O0"] != outs["O2"]:
             return ("DIFF", f"O0={outs['O0']!r} O2={outs['O2']!r}")
@@ -447,16 +453,87 @@ def output_oracle(eskiuc, src, expected, timeout=15):
     import tempfile
     with tempfile.NamedTemporaryFile("w", suffix=".esk", delete=False) as f:
         f.write(src); path = f.name
-    try:
-        p = subprocess.run([eskiuc, "run", path], capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.unlink(path); return ("HANG", "timeout")
+    status, rc, sout, serr = run_limited([eskiuc, "run", path], timeout)
     os.unlink(path)
-    if p.returncode != 0:
-        return ("RUNFAIL", f"rc={p.returncode}: {((p.stderr or '') + (p.stdout or ''))[-300:]}")
-    if p.stdout != expected:
-        return ("OUTPUT", f"expected {expected!r} got {p.stdout!r}")
+    if status != "OK":
+        return ("HANG", status.lower())
+    if rc != 0:
+        return ("RUNFAIL", f"rc={rc}: {(serr + sout)[-300:]}")
+    if sout != expected:
+        return ("OUTPUT", f"expected {expected!r} got {sout!r}")
     return ("OK", "")
+
+
+# ── External oracle (C translation) ─────────────────────────────────────────────
+#
+# Each program is generated from its own RNG seeded by "SEED:INDEX", so a finding
+# is reproducible on its own (--oracle-repro) and a parallel run is deterministic.
+
+def oracle_rng(seed, idx):
+    return random.Random(f"{seed}:{idx}")
+
+def oracle_compilers(args, clang):
+    env = dict(os.environ, CC=clang, CLANG=clang)
+    comps = [("cpp", [args.eskiuc], env), ("cpp-O2", [args.eskiuc, "-O2"], env)]
+    if args.eskiuc_esk and os.path.exists(args.eskiuc_esk):
+        comps.append(("self", [args.eskiuc_esk], env))
+    return comps
+
+def oracle_run(args, clang):
+    import c_oracle
+    comps = oracle_compilers(args, clang)
+    print(f"C oracle: {args.oracle} programs, builds: {', '.join(c[0] for c in comps)}, "
+          f"jobs {args.jobs}")
+    def one(idx):
+        esk, c = c_oracle.gen_program(oracle_rng(args.seed, idx))
+        kind, detail = c_oracle.check_program(esk, c, comps, clang)
+        return idx, kind, detail, esk, c
+    counts = {}
+    findings = 0
+    with ThreadPoolExecutor(max_workers=args.jobs) as ex:
+        for idx, kind, detail, esk, c in ex.map(one, range(args.oracle)):
+            counts[kind] = counts.get(kind, 0) + 1
+            if kind != "OK":
+                findings += 1
+                base = FINDINGS / f"oracle_{kind.lower()}_{args.seed}_{idx}"
+                with open(str(base) + ".esk", "w") as f: f.write(esk)
+                with open(str(base) + ".c", "w") as f: f.write(c)
+                print(f"[ORACLE {kind}] {args.seed}:{idx} -> {base}.esk\n    {detail.strip()[:300]}")
+    print(f"C oracle: {args.oracle} programs, " +
+          ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    return findings
+
+
+def oracle_reduce(args, clang, spec, verbose=True):
+    """Shrink one oracle finding (line-group ddmin), keeping its kind."""
+    import c_oracle
+    sd, ix = spec.split(":")
+    items = c_oracle.gen_items(oracle_rng(int(sd), int(ix)))
+    comps = oracle_compilers(args, clang)
+    esk, c = c_oracle.render(items)
+    kind, detail = c_oracle.check_program(esk, c, comps, clang)
+    if kind == "OK":
+        print("program passes; nothing to reduce"); return
+    label = kind.rsplit("-", 1)[0]
+    comps = [x for x in comps if x[0] == label]
+    def msg(d):
+        # a reject/crash must keep its message (minus the location) while shrinking
+        return re.sub(r"\S+\.esk(:\d+)*:?", "", d).strip().split("\n")[0][:80]
+    want = msg(detail) if kind.endswith(("REJECT", "CRASH")) else None
+    print(f"reducing {spec}: {kind} ({len(items)} lines)")
+    def pred(cand):
+        e, cc = c_oracle.render(cand)
+        k, d = c_oracle.check_program(e, cc, comps, clang)
+        return k == kind and (want is None or msg(d) == want)
+    red = c_oracle.reduce_items(items, pred,
+                                log=(lambda n: print(f"  {n} lines", flush=True)) if verbose else None)
+    e, cc = c_oracle.render(red)
+    FINDINGS.mkdir(exist_ok=True)
+    base = FINDINGS / f"reduced_{sd}_{ix}"
+    with open(str(base) + ".esk", "w") as f: f.write(e)
+    with open(str(base) + ".c", "w") as f: f.write(cc)
+    if verbose: print(e)
+    print(f"{spec}: {kind} -> {base}.esk / .c ({len(red)} lines)")
 
 
 def main():
@@ -466,8 +543,32 @@ def main():
     ap.add_argument("--eskiuc", default=os.environ.get("ESKIUC", str(ROOT / "build" / "eskiuc")))
     ap.add_argument("--no-differential", action="store_true",
                     help="skip the O0-vs-O2 runtime differential (auto-skipped if clang is absent)")
+    ap.add_argument("--eskiuc-esk", default=default_eskiuc_esk(),
+                    help="self-hosted compiler also checked by the C oracle (skipped if missing)")
+    ap.add_argument("--oracle", type=int, default=0,
+                    help="number of C-oracle programs to generate and check")
+    ap.add_argument("--oracle-only", action="store_true",
+                    help="run only the C oracle (skip the mutation/generation loop)")
+    ap.add_argument("--oracle-repro", metavar="SEED:INDEX",
+                    help="print the Eskiu and C sources of one oracle program and exit")
+    ap.add_argument("--oracle-reduce", metavar="SEED:INDEX",
+                    help="shrink oracle findings (comma-separated) into findings/reduced_SEED_INDEX.*")
+    ap.add_argument("--jobs", type=int, default=DEFAULT_JOBS,
+                    help="parallel oracle checks (default: at most 4)")
     args = ap.parse_args()
-    if args.seed is not None: random.seed(args.seed)
+    if args.oracle_repro:
+        import c_oracle
+        sd, ix = args.oracle_repro.split(":")
+        esk, c = c_oracle.gen_program(oracle_rng(int(sd), int(ix)))
+        print(esk); print("/* ---- C ---- */"); print(c)
+        return
+    if args.oracle_reduce:
+        specs = args.oracle_reduce.split(",")
+        with ThreadPoolExecutor(max_workers=args.jobs) as ex:
+            list(ex.map(lambda sp: oracle_reduce(args, find_clang(), sp, len(specs) == 1), specs))
+        return
+    if args.seed is None: args.seed = random.randrange(1 << 30)
+    random.seed(args.seed)
 
     if not os.path.exists(args.eskiuc):
         print(f"error: eskiuc not found at {args.eskiuc}", file=sys.stderr); sys.exit(2)
@@ -479,6 +580,13 @@ def main():
     seeds = [open(p).read() for p in glob.glob(str(TESTS / "*.esk"))]
     FINDINGS.mkdir(exist_ok=True)
     findings = 0
+
+    if args.oracle:
+        if not clang:
+            print("error: the C oracle needs clang (set ESKIU_CLANG)", file=sys.stderr); sys.exit(2)
+        findings += oracle_run(args, clang)
+    if args.oracle_only:
+        args.iterations = 0
 
     for it in range(args.iterations):
         # 20%: backslash-in-comment/string lexing check — its own expected-output
@@ -523,7 +631,7 @@ def main():
             with open(fn, "w") as f: f.write(src)
             print(f"[{kind}] iter {it} -> {fn}\n    {detail.strip()[:200]}")
 
-    print(f"\n{args.iterations} iterations, {findings} finding(s).")
+    print(f"\n{args.iterations} iterations + {args.oracle} oracle programs, {findings} finding(s).")
     sys.exit(1 if findings else 0)
 
 

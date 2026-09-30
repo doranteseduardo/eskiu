@@ -1,0 +1,41 @@
+// A generic struct instance satisfies an interface through its inline methods or
+// through generic free `Type_method` functions; the vtable instantiates them.
+extern int printf(string fmt, ...);
+
+interface Getter { int get(); }
+interface Shape { double area(); string name(); }
+interface Applier { int apply(int x); }
+
+struct Box<T> {
+    T v;
+    T get() { return self.v; }
+}
+
+struct Sq<T> { T side; }
+double Sq_area<T>(Sq<T>* self) { return (double)(self.side * self.side); }
+string Sq_name<T>(Sq<T>* self) { return "sq"; }
+
+struct Cell<T> { T v; }
+T Cell_apply<T>(Cell<T>* self, T x) { return self.v + x; }
+
+int use_get(Getter g) { return g.get(); }
+int use_apply(Applier a) { return a.apply(5); }
+
+int main() {
+    let b: Box<int> = Box<int>{ v: 7 };
+    printf("%d %d\n", b.get(), use_get(&b));
+    let g: Getter = &b;
+    b.v = 8;
+    printf("%d\n", g.get());
+
+    let s1: Sq<int> = Sq<int>{ side: 3 };
+    let s2: Sq<double> = Sq<double>{ side: 1.5 };
+    let shapes: Shape[2];
+    shapes[0] = &s1;
+    shapes[1] = &s2;
+    for (int i = 0; i < 2; i++) printf("%s %.2f\n", shapes[i].name(), shapes[i].area());
+
+    let c: Cell<int> = Cell<int>{ v: 7 };
+    printf("%d\n", use_apply(&c));
+    return 0;
+}

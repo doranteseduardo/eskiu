@@ -21,82 +21,202 @@ extern int64   strlen(string s);
 int64 mp_find(*uint8 hay, int64 hlen, int64 from, *uint8 needle, int64 nlen) {
     if (from < 0 || from >= hlen) { return -1; }
     *void p = memmem((*void)(hay + from), hlen - from, (*void)needle, nlen);
-    if (p == null) { return -1; }
-    return (int64)((*uint8)p - hay);
+    return p == null ? -1 : (int64)((*uint8)p - hay);
 }
 
-// Parse the boundary token from a Content-Type value
-// ("multipart/form-data; boundary=----abc"). Strips optional quotes. 1 = ok.
+char mp_lc(char c) {
+    return (c >= 'A' && c <= 'Z') ? (char)((int)c + 32) : c;
+}
+
+// Parse the `boundary` parameter from a Content-Type value
+// ("multipart/form-data; boundary=----abc"). The parameters after the media
+// type are read as name=value pairs (RFC 9110 §5.6.6): the name is matched
+// case-insensitively and as a whole (so `notboundary=` is not it), and a quoted
+// value may hold spaces and `\`-escapes. 1 = found (non-empty), else 0.
 int multipart_boundary(String* ctype, String* out) {
-    String_clear(out);
-    string key = "boundary=";
-    int n = ctype.len;
-    int klen = strlen(key);
-    int i = 0;
-    while (i + klen <= n) {
-        int j = 0;
-        int hit = 1;
-        while (j < klen) {
-            if (ctype.data[i + j] != key[j]) { hit = 0; }
-            j = j + 1;
+    out.clear();
+    const int64 n = ctype.len;
+    int64 i = 0;
+    while (i < n && ctype.data[i] != ';') { i++; }           // skip the media type
+    while (i < n) {
+        i++;                                                 // past ';'
+        while (i < n && (ctype.data[i] == ' ' || ctype.data[i] == '\t')) { i++; }
+        const int64 ns = i;
+        while (i < n && ctype.data[i] != '=' && ctype.data[i] != ';') { i++; }
+        int64 ne = i;
+        while (ne > ns && (ctype.data[ne - 1] == ' ' || ctype.data[ne - 1] == '\t')) { ne--; }
+        const string key = "boundary";
+        bool is_boundary = ne - ns == 8;
+        for (int64 j = 0; is_boundary && j < 8; j++) {
+            if (mp_lc(ctype.data[ns + j]) != key[j]) { is_boundary = false; }
         }
-        if (hit == 1) {
-            int k = i + klen;
-            if (k < n && ctype.data[k] == 34) { k = k + 1; }
-            while (k < n) {
-                char c = ctype.data[k];
-                if (c == 34 || c == 59 || c == 32 || c == 13) { break; }
-                String_push(out, c);
-                k = k + 1;
+        if (i >= n || ctype.data[i] != '=') { continue; }    // a parameter without a value
+        i++;
+        out.clear();
+        if (i < n && ctype.data[i] == '"') {                 // quoted-string
+            i++;
+            while (i < n && ctype.data[i] != '"') {
+                if (ctype.data[i] == '\\' && i + 1 < n) { i++; }
+                out.push(ctype.data[i]);
+                i++;
             }
-            if (out.len > 0) { return 1; }
-            return 0;
+            if (i < n) { i++; }                              // closing quote
+        } else {                                             // token
+            while (i < n && ctype.data[i] != ';' && ctype.data[i] != ' ' &&
+                   ctype.data[i] != '\t' && ctype.data[i] != '\r') {
+                out.push(ctype.data[i]);
+                i++;
+            }
         }
-        i = i + 1;
+        if (is_boundary) { return out.len > 0 ? 1 : 0; }
+        while (i < n && ctype.data[i] != ';') { i++; }       // to the next parameter
+    }
+    out.clear();
+    return 0;
+}
+
+// A delimiter line is `--boundary` followed by `--` (the close delimiter) or by
+// optional spaces/tabs and CRLF (RFC 2046 §5.1.1). `at` is the first '-' and
+// `dlen` the length of `--boundary`. Returns the offset just past the line
+// (past its CRLF), -2 for the close delimiter, or -1 if this is not one.
+int64 mp_delim_end(*uint8 body, int64 blen, int64 at, int64 dlen) {
+    int64 k = at + dlen;
+    if (k + 1 < blen && body[k] == '-' && body[k + 1] == '-') { return -2; }
+    while (k < blen && (body[k] == ' ' || body[k] == '\t')) { k++; }
+    if (k + 1 < blen && body[k] == '\r' && body[k + 1] == '\n') { return k + 2; }
+    return -1;
+}
+
+// The offset of the next delimiter's CRLF (the "\r\n--boundary" that ends the
+// part body) at or after `from`, or -1. `dl` is "\r\n--boundary" (`dllen` bytes).
+int64 mp_next_delim(*uint8 body, int64 blen, int64 from, *uint8 dl, int64 dllen) {
+    int64 at = mp_find(body, blen, from, dl, dllen);
+    while (at >= 0) {
+        if (mp_delim_end(body, blen, at + 2, dllen - 2) != -1) { return at; }
+        at = mp_find(body, blen, at + 1, dl, dllen);
+    }
+    return -1;
+}
+
+// 1 if the parameter list in body[i..e) (the part of a Content-Disposition
+// value after its disposition type, starting at a ';') has a `name` parameter
+// whose value is exactly `name`. Parameter names are matched
+// case-insensitively and as a whole (so `filename=` is not `name=`), with
+// optional whitespace around ';' and '='; a value is a token or a
+// quoted-string with `\`-escapes (RFC 7578 §4.2, RFC 9110 §5.6.6).
+int mp_params_name_is(*uint8 body, int64 i, int64 e, string name) {
+    const int64 nlen = strlen(name);
+    while (i < e) {
+        if (body[i] != ';') { return 0; }
+        i++;
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+        const int64 ks = i;
+        while (i < e && body[i] != '=' && body[i] != ';' && body[i] != ' ' && body[i] != '\t') { i++; }
+        const int64 ke = i;
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+        bool is_name = ke - ks == 4 && mp_lc((char)body[ks]) == 'n' && mp_lc((char)body[ks + 1]) == 'a' &&
+                       mp_lc((char)body[ks + 2]) == 'm' && mp_lc((char)body[ks + 3]) == 'e';
+        if (i >= e || body[i] != '=') { continue; }       // a parameter without a value
+        i++;
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
+        bool same = true;
+        int64 vl = 0;
+        if (i < e && body[i] == '"') {                     // quoted-string
+            i++;
+            while (i < e && body[i] != '"') {
+                if (body[i] == '\\' && i + 1 < e) { i++; }
+                if (vl >= nlen || body[i] != (uint8)name[vl]) { same = false; }
+                vl++;
+                i++;
+            }
+            if (i >= e) { return 0; }                      // unterminated
+            i++;
+        } else {                                           // token
+            while (i < e && body[i] != ';' && body[i] != ' ' && body[i] != '\t') {
+                if (vl >= nlen || body[i] != (uint8)name[vl]) { same = false; }
+                vl++;
+                i++;
+            }
+        }
+        if (is_name) { return same && vl == nlen ? 1 : 0; }
+        while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
     }
     return 0;
 }
 
-// Locate the form-data part with `name="<name>"`. On success returns 1 and sets
-// *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent.
+// 1 if the part headers in body[hs..he) (CRLF-separated lines) carry a
+// Content-Disposition header (name matched case-insensitively) whose `name`
+// parameter is exactly `name`. Other headers are ignored, so a `name=` in a
+// Content-Type parameter does not name the part.
+int mp_headers_name_is(*uint8 body, int64 hs, int64 he, string name) {
+    const string cd = "content-disposition";
+    int64 ls = hs;
+    while (ls < he) {
+        int64 le = ls;
+        while (le < he && !(body[le] == '\r' && le + 1 < he && body[le + 1] == '\n')) { le++; }
+        bool is_cd = le - ls > 19;
+        for (int64 j = 0; is_cd && j < 19; j++) {
+            if (mp_lc((char)body[ls + j]) != cd[j]) { is_cd = false; }
+        }
+        if (is_cd && body[ls + 19] == ':') {
+            int64 i = ls + 20;
+            while (i < le && body[i] != ';') { i++; }      // skip the disposition type
+            if (mp_params_name_is(body, i, le, name) == 1) { return 1; }
+        }
+        ls = le + 2;
+    }
+    return 0;
+}
+
+// Locate the form-data part whose Content-Disposition carries `name="<name>"`
+// (see mp_headers_name_is). On success returns 1 and sets
+// *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent. A delimiter
+// counts only at the start of the body or of a line ("\r\n--boundary"), and
+// only when the rest of its line is `--` or whitespace, so `--boundary` inside
+// a part's content does not split it.
 int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
                    **uint8 out_ptr, *int64 out_len) {
-    int bl = boundary.len;
-    int dlen = bl + 2;
-    *uint8 delim = alloc<uint8>(dlen);
-    delim[0] = 45;  delim[1] = 45;
-    int i = 0;  while (i < bl) { delim[2 + i] = (uint8)boundary.data[i]; i = i + 1; }
+    const int64 bl = boundary.len;
+    if (bl == 0) { return 0; }
+    const int64 dllen = bl + 4;
+    *uint8 dl = alloc<uint8>(dllen);                 // "\r\n--" + boundary
+    defer free(dl);
+    dl[0] = '\r';  dl[1] = '\n';  dl[2] = '-';  dl[3] = '-';
+    for (i in 0..bl) { dl[4 + i] = (uint8)boundary.data[i]; }
 
-    // Build the "name=\"<name>\"" needle.
-    int nlen = strlen(name);
-    int needle_len = nlen + 7;                       // name="" → 6 chars + the name
-    *uint8 needle = alloc<uint8>(needle_len);
-    string pre = "name=\"";
-    int p = 0;  while (p < 6) { needle[p] = (uint8)pre[p]; p = p + 1; }
-    int q = 0;  while (q < nlen) { needle[6 + q] = (uint8)name[q]; q = q + 1; }
-    needle[6 + nlen] = 34;                            // closing quote
+    const string crlf2 = "\r\n\r\n";
 
-    string crlf2 = "\r\n\r\n";
-
-    int found = 0;
-    int64 pos = mp_find(body, blen, 0, delim, dlen);
-    while (pos >= 0 && found == 0) {
-        int64 part_start = pos + dlen;
-        int64 next = mp_find(body, blen, part_start, delim, dlen);
+    // The first delimiter: at the very start, or after a preamble line.
+    int64 at = -1;
+    if (blen >= bl + 2 && memcmp((*void)body, (*void)(dl + 2), bl + 2) == 0 &&
+        mp_delim_end(body, blen, 0, bl + 2) != -1) {
+        at = 0;
+    } else {
+        const int64 d = mp_next_delim(body, blen, 0, dl, dllen);
+        if (d >= 0) { at = d + 2; }
+    }
+    while (at >= 0) {
+        const int64 part_start = mp_delim_end(body, blen, at, bl + 2);
+        if (part_start < 0) { break; }                // the close delimiter (or junk)
+        const int64 next = mp_next_delim(body, blen, part_start, dl, dllen);
         if (next < 0) { break; }
-        int64 he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
-        if (he >= 0) {
-            int64 nh = mp_find(body, he, part_start, needle, needle_len);
-            if (nh >= 0) {
-                int64 cstart = he + 4;
-                int64 cend   = next - 2;
-                if (cend > cstart) { out_ptr[0] = body + cstart;  out_len[0] = cend - cstart;  found = 1; }
+        // The headers end at the blank line; a part with no headers starts with it.
+        int64 he = -1;
+        if (part_start + 1 < blen && body[part_start] == '\r' && body[part_start + 1] == '\n') {
+            he = part_start - 2;
+        } else {
+            he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
+        }
+        if (he >= part_start - 2) {
+            const bool named = he > part_start && mp_headers_name_is(body, part_start, he, name) == 1;
+            const int64 cstart = he + 4;
+            if (named && next >= cstart) {
+                out_ptr[0] = body + cstart;
+                out_len[0] = next - cstart;
+                return 1;
             }
         }
-        pos = next;
+        at = next + 2;
     }
-
-    free(delim);
-    free(needle);
-    return found;
+    return 0;
 }

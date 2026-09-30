@@ -37,7 +37,7 @@ Maximal sequence of LLVM IR instructions with no branches except at the end. Eve
 An operator that takes exactly two operands. Eskiu supports arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical (`&&`, `||`) binary operators. Precedence rules determine evaluation order when operators appear without parentheses. See also: unary operator, precedence.
 
 **bitfield**
-A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Consecutive bitfields pack into storage words of their declared type; reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
+A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Bitfields are laid out the way the target's C compiler lays them out (SysV/AAPCS rules on Linux, macOS and bare-metal ARM, MS rules on Windows); reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
 
 **BlockItem**
 Union type used internally in the parser and AST to represent a single item inside a block statement: either a declaration (VarDecl, StructDecl) or an executable statement. Storing both as `BlockItem` allows the parser to handle declaration-in-block uniformly. See also: BlockStmt, declaration, statement.
@@ -54,7 +54,7 @@ The point at which a self-hosted compiler reproduces its own output. Eskiu's boo
 ## C
 
 **channel**
-An async message queue between tasks (`Chan<T>` in `<channel>`). `chan_recv` returns a `*Future<T>` that completes with the next item: immediately if one is buffered, otherwise when a `chan_send` hands a value off to the parked receiver. See also: Future, await.
+An async message queue between tasks (`Chan<T>` in `<channel>`). `Chan_recv` returns a `*Future<T>` that completes with the next item: immediately if one is buffered, otherwise when a `Chan_send` hands a value off to the parked receiver. See also: Future, await.
 
 **closure**
 A function value that captures variables from its enclosing scope. Represented as a two-word fat pointer `{fn_ptr, env_ptr}`: a non-capturing closure has a null environment, while a capturing one packages its captured variables into an environment struct. The type annotation is `fn(T,...)->R` in both cases. See also: escaping, fat pointer, lambda.
@@ -85,13 +85,13 @@ A parameter qualifier (`escaping fn(int)->void cb`) marking a function-pointer p
 A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS) or epoll (Linux). Implemented as `EventLoop` in `<eventloop>`, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.
 
 **executor**
-A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Executor` in `<executor>`). Completion may occur on any thread; `executor_schedule` enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.
+A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Executor` in `<executor>`). Completion may occur on any thread; `Executor_schedule` enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.
 
 **expression**
 A syntactic form that evaluates to a value and has a type. Examples: `3 + 4`, `add(5, 2)`, `point.x`, `*ptr`. Expressions form the leaves and internal nodes of most AST subtrees. See also: lvalue, rvalue, statement.
 
 **ExternDecl**
-AST node representing a declaration of a function whose implementation lives in an external C library. Syntax: `extern int printf(string fmt, ...);`. The type checker records the function signature; the code generator emits an LLVM `declare` instruction so the linker can resolve it. See also: variadic, declaration.
+AST node representing a declaration of a function whose implementation lives in an external C library. Syntax: `extern int printf(string fmt, ...);`. The type checker records the function signature; the code generator emits an LLVM `declare` instruction so the linker can resolve it. A struct passed or returned by value follows the target's C calling convention, and a parameter of fn type is a C function pointer (the call passes a top-level function by name or `null`). See also: variadic, declaration.
 
 ## F
 
@@ -128,8 +128,11 @@ The unit of the HTTP/2 wire protocol (RFC 7540): a 9-byte binary header (length,
 **identifier**
 A name chosen by the programmer to label a variable, function, struct, or parameter. In Eskiu, identifiers must begin with a letter or underscore and may contain letters, digits, and underscores. The lexer emits an `IDENT` token; the parser stores the raw string in `IdentExpr` or declaration nodes.
 
+**integer promotion**
+The C rule that converts an operand narrower than `int` (`bool`, `char`, `int8`, `int16`, `uint8`, `uint16`) to `int` before an arithmetic, bitwise, shift or comparison operator is applied. Eskiu follows it since v0.9.2, so `(uint8)200 + (uint8)100` is `300`. See also: type coercion.
+
 **interface**
-A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods: no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}`, and method calls dispatch dynamically through the vtable. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
+A structurally typed contract defined by a method set (`interface Drawable { void draw(); }`). A concrete type satisfies an interface implicitly whenever it provides all the named methods with matching signatures: no explicit `implements` declaration is required. An interface value is a fat pointer `{data_ptr, vtable_ptr}` made from a pointer to the struct (`&x`); it can be stored in a local or field, passed and returned, and method calls dispatch dynamically through the vtable. Passing a struct by value where an interface is expected is an error. See also: vtable, fat pointer, bounded generic / type-parameter constraint.
 
 **intrinsic**
 A function declared with the `intrinsic` qualifier whose calls the compiler lowers to inline IR rather than an ordinary call. Used for operations that must compile directly to specific instructions, such as the `<atomic>` cell operations. See also: atomic, declaration.
@@ -170,8 +173,11 @@ A function qualifier (`must_use *uint8 grab() { ... }`) that makes discarding th
 
 ## N
 
+**narrowing**
+The type checker's knowledge that a `?*T` variable is non-null at a given point, established by a null check: `if (x != null)`, an early exit such as `if (x == null) { return; }`, a loop condition, the left side of `&&`/`||`, or a ternary condition. Narrowing is flow-sensitive: an assignment to the variable ends it, and a shadowing declaration of the same name is not narrowed. While narrowed, the variable may be dereferenced and passed where a `*T` is expected. See also: nullable pointer.
+
 **nullable pointer (`?*T`)**
-A checked pointer type that may hold `null`. Unlike a bare `*T` (C-nullable but unchecked), a `?*T` cannot be dereferenced, indexed, or member-accessed until it is proven non-null; `if (x != null) { ... }` narrows it to non-null in that branch. A `*T` widens to `?*T` implicitly; the reverse needs a check. It lowers to a bare pointer, so the safety is entirely at compile time. See also: pointer, narrowing.
+A checked pointer type that may hold `null`. Unlike a bare `*T` (C-nullable but unchecked), a `?*T` cannot be dereferenced, indexed, or member-accessed until it is proven non-null; a null check such as `if (x != null) { ... }` narrows it to non-null. A `*T` widens to `?*T` implicitly; the reverse needs a check. It lowers to a bare pointer, so the safety is entirely at compile time. See also: pointer, narrowing.
 
 ## O
 

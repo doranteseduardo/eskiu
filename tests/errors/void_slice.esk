@@ -1,0 +1,2 @@
+// EXPECT-ERROR: variable 's' cannot have type 'void'
+int main() { void[] s; return (int)s.len; }

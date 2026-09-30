@@ -1,0 +1,11 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A call may assign the global, so its narrowing ends at the call.
+extern int printf(string fmt, ...);
+struct N { int v; }
+?*N g = null;
+void clear() { g = null; }
+int main() {
+    if (g != null) { printf("%d\n", g.v); clear();
+        printf("%d\n", g.v); }
+    return 0;
+}

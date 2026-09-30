@@ -1,0 +1,3 @@
+// EXPECT-ERROR: return type mismatch: expected void
+int f() { fn()->void g = void() { return 5; }; g(); return 0; }
+int main() { return f(); }

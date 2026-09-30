@@ -1,0 +1,12 @@
+// EXPECT-ERROR: duplicate case value in switch
+// A `const` label folds through its initializer, so `L` and `6` collide.
+const int K = 3;
+const int L = K * 2;
+int f(int v) {
+    switch (v) {
+        case L: return 1;
+        case 6: return 2;
+        default: return 0;
+    }
+}
+int main() { return f(6); }

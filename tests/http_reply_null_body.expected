@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK\r
+Content-Type: text/plain\r
+Content-Length: 0\r
+Connection: close\r
+\r
+--
+HTTP/1.1 200 OK\r
+Content-Type: text/plain\r
+X-A: 1\r
+Content-Length: 2\r
+Connection: close\r
+\r
+ok--

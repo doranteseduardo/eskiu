@@ -1,0 +1,25 @@
+extern int printf(string fmt, ...);
+interface I { int f(); }
+struct S { int v; int f() { return self.v; } }
+struct T { int w; int f() { return self.w * 10; } }
+S gs = S{v: 4};
+T gt = T{w: 5};
+I[2] garr = {&gs, &gt};
+I mk(*S p) { return p; }
+int call(I x) { return x.f(); }
+int main() {
+    S s = S{v: 3};
+    T t = T{w: 7};
+    I[3] arr = {&s, &t};
+    arr[2] = &s;
+    int sum = 0;
+    for (x in arr) { sum += x.f(); }
+    printf("%d %d %d\n", arr[1].f(), sum, garr[1].f() + garr[0].f());
+    I i = mk(&s);
+    *I pi = &i;
+    s.v = 8;
+    printf("%d\n", pi.f());
+    fn(I)->int g = call;
+    printf("%d %d\n", g(&t), g(i));
+    return 0;
+}

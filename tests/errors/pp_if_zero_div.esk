@@ -1,0 +1,4 @@
+// EXPECT-ERROR: division by zero in #if expression
+#if 1 / 0
+#endif
+int main() { return 0; }

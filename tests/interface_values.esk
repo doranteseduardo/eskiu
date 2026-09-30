@@ -1,0 +1,38 @@
+// An interface value is a {data, vtable} fat pointer held by value: it can be a local,
+// a struct field, a return value, or an argument, and it refers to a struct via &x.
+extern int printf(string fmt, ...);
+
+interface Shape { double area(); int64 id(int8 k); }
+struct Sq { double s; int64 tag; double area() { return self.s * self.s; } int64 id(int8 k) { return self.tag + (int64)k; } }
+struct Ci { int r; double area() { return 3.0 * (double)(self.r * self.r); } int64 id(int8 k) { return (int64)k * 2; } }
+struct Box<T> { T v; int n; }
+struct Holder { Shape sh; int k; }
+
+double total(Shape a, Shape b) { return a.area() + b.area(); }
+int64 idsum(Shape s) { return s.id((int8)-1) + s.id((int8)100); }
+Shape pick(bool first, *Sq a, *Ci b) { if (first) { return a; } return b; }
+Shape pass(Shape s) { return s; }
+double viaHolder(*Holder h) { return h.sh.area(); }
+
+int main() {
+    let q: Sq; q.s = 2.0; q.tag = 10000000000;
+    let c: Ci; c.r = 1;
+    printf("%.1f\n", total(&q, &c));
+    printf("%lld %lld\n", idsum(&q), idsum(&c));
+    let b: Box<Sq>; b.v = q; b.n = 1;
+    printf("%.1f\n", total(&b.v, &c));
+    let h: Holder; h.sh = &q; h.k = 1;
+    printf("%.1f\n", h.sh.area());
+    q.s = 3.0;
+    printf("%.1f %.1f\n", h.sh.area(), viaHolder(&h));
+    let s: Shape = &q;
+    printf("%.1f\n", s.area());
+    s = &c;
+    printf("%.1f\n", s.area());
+    printf("%.1f %.1f\n", pick(true, &q, &c).area(), pick(false, &q, &c).area());
+    Shape t = pass(s);
+    printf("%.1f\n", t.area());
+    Holder h2 = Holder{ sh: &c, k: 2 };
+    printf("%.1f %d\n", h2.sh.area(), h2.k);
+    return 0;
+}

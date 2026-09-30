@@ -1,0 +1,6 @@
+// EXPECT-ERROR: cannot assign to captured variable 'count'
+int main() {
+    int count = 0;
+    let f: fn(int)->int = int(int v) { count = count + v; return count; };
+    return f(1);
+}

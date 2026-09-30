@@ -1,0 +1,2 @@
+// EXPECT-ERROR: unknown type 'Nope'
+int main() { return (int)sizeof(Nope); }

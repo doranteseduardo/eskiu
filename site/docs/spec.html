@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.9.1" />
+  <meta name="description" content="Version: v0.9.2" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -99,7 +99,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
     <div class="content">
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.9.1</p>
+<p><strong>Version:</strong> v0.9.2</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -126,6 +126,7 @@ clang file.o -o file        # link it yourself
 </code></pre>
 <hr>
 <h2 id="2-lexical-elements">2. Lexical Elements</h2>
+<p>A source file is bytes; a leading UTF-8 byte order mark (<code>EF BB BF</code>) is skipped.</p>
 <h3 id="21-comments">2.1 Comments</h3>
 <p>Single-line comments begin with <code>//</code> and extend to the end of the line. A trailing backslash does <strong>not</strong> continue the comment onto the next line (unlike C). Block comments are enclosed in <code>/* ... */</code> and may span multiple lines. Comments do not nest.</p>
 <pre><code class="language-eskiu">// This is a single-line comment
@@ -152,7 +153,7 @@ alloc_with
 const  volatile  static  escaping  must_use  asm
 thread_create  thread_join
 try  catch  finally  throw  defer  errdefer
-async  await
+async  await  operator
 sizeof  free_closure  union  enum
 </code></pre>
 <h3 id="24-literals">2.4 Literals</h3>
@@ -169,7 +170,9 @@ sizeof  free_closure  union  enum
 <p>Negative literals are first-class values and can be used in any expression context, including global variable initialisers and struct field initialisers.</p>
 <p><strong>Float literals</strong> contain a decimal point. They have type <code>double</code> (f64) by default;
 assigning one to a <code>float</code> (f32) variable or field coerces it down (a <code>double</code>→<code>float</code>
-cast). Integer literals are <code>int</code> (i32), widening to <code>int64</code> when they exceed 32 bits.</p>
+cast). Integer literals are <code>int</code> (i32), widening to <code>int64</code> when they exceed 32 bits.
+A float literal may carry an exponent (<code>1e10</code>, <code>2.5e-3</code>), which needs at least one
+digit. An integer literal that does not fit in 64 bits is a lexical error.</p>
 <pre><code class="language-eskiu">3.14    2.0    0.5
 </code></pre>
 <p><strong>String literals</strong> are sequences of characters enclosed in double quotes. The same escape sequences are recognized in string and character literals:</p>
@@ -202,8 +205,12 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 <td>Vertical tab</td>
 </tr>
 <tr>
-<td><code>\0</code></td>
-<td>NUL byte</td>
+<td><code>\a</code></td>
+<td>Alert (bell, byte 7)</td>
+</tr>
+<tr>
+<td><code>\b</code></td>
+<td>Backspace (byte 8)</td>
 </tr>
 <tr>
 <td><code>\\</code></td>
@@ -218,12 +225,22 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 <td>Single quote</td>
 </tr>
 <tr>
+<td><code>\?</code></td>
+<td>Question mark</td>
+</tr>
+<tr>
+<td><code>\NNN</code></td>
+<td>Raw byte from one to three octal digits, at most <code>\377</code> (e.g. <code>\0</code> is NUL, <code>\012</code> is a newline)</td>
+</tr>
+<tr>
 <td><code>\xNN</code></td>
 <td>Raw byte from one or two hex digits (e.g. <code>\xC3</code> is byte <code>0xC3</code>)</td>
 </tr>
 </tbody>
 </table></div>
-<p>An unrecognized escape (<code>\q</code>) yields the character itself (<code>q</code>).</p>
+<p>Any other escape (<code>\q</code>), an octal escape above <code>\377</code>, and <code>\x</code> with no hex digit are
+errors located at the backslash. As in C, an octal escape takes at most three digits
+(<code>"\1234"</code> is <code>S</code> followed by <code>4</code>), and <code>\0</code> followed by a non-octal character is NUL.</p>
 <pre><code class="language-eskiu">&quot;Hello, world!\n&quot;
 &quot;path\\to\\file&quot;
 &quot;column\theader&quot;
@@ -345,6 +362,8 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 </tbody>
 </table></div>
 <p>Signedness is tracked by the compiler for correct arithmetic and comparison codegen. Signed and unsigned variants of the same width share the same LLVM integer type (e.g., <code>int8</code> and <code>uint8</code> are both <code>i8</code>).</p>
+<p>Arithmetic follows C's integer promotions: an operand narrower than <code>int</code> (<code>bool</code>, <code>char</code>, <code>int8</code>, <code>int16</code>, <code>uint8</code>, <code>uint16</code>) is converted to <code>int</code> before an arithmetic, bitwise, shift, or comparison operator is applied. So <code>(uint8)200 + (uint8)100</code> is <code>300</code>, <code>(uint8)200 &gt; (int8)-1</code> is true, and <code>true + true</code> is <code>2</code>. Storing the result back into a narrow variable truncates it, as in C. Converting any integer, floating, or pointer value to <code>bool</code> yields <code>value != 0</code>.</p>
+<p>After promotion, two operands of different types meet under C's usual arithmetic conversions: the wider operand's type wins, and at equal width an unsigned operand makes the result unsigned, so <code>(int32)-1 + (uint32)5</code> is the <code>uint32</code> <code>4</code> and <code>(int32)-1 &lt; (uint32)5</code> is false. A shift has the type of its promoted left operand, and unary <code>-</code> and <code>~</code> promote a narrow operand to <code>int</code> first. The two arms of a ternary meet the same way (two different narrow arms give an <code>int</code>). An integer literal that does not fit in <code>int</code> has type <code>int64</code>, so <code>3000000000 * 2</code> is <code>6000000000</code>. Constant initializers fold with exactly these rules.</p>
 <h3 id="32-pointer-types">3.2 Pointer Types</h3>
 <p>A pointer type is written with a leading <code>*</code>:</p>
 <pre><code class="language-eskiu">*int       // pointer to int
@@ -355,6 +374,12 @@ cast). Integer literals are <code>int</code> (i32), widening to <code>int64</cod
 <pre><code class="language-eskiu">let ptr: *int = null;
 let buf: *uint8 = null;
 </code></pre>
+<p>A pointer converts implicitly only to a pointer to the same type (adding <code>const</code> is
+fine). <code>null</code> converts to any pointer, a <code>*void</code> converts to and from any pointer, and
+the byte pointers <code>string</code>, <code>*char</code>, <code>*int8</code> and <code>*uint8</code> interconvert. Any other change
+of pointee, such as <code>*int</code> to <code>*Big</code> or <code>**int</code> to <code>*int</code>, needs an explicit cast
+(<code>(*Big)p</code>). A <code>*void</code> points at no type, so it cannot be dereferenced (<code>*p</code> is a compile
+error); cast it to a typed pointer first.</p>
 <h4 id="checked-nullable-pointers-t">Checked nullable pointers (<code>?*T</code>)</h4>
 <p>A plain <code>*T</code> may hold <code>null</code> (as in C), and dereferencing a null one is undefined. For
 opt-in null safety, write <code>?*T</code>, a <strong>checked nullable pointer</strong>. The compiler will not let
@@ -368,9 +393,30 @@ if (q != null) {
 </code></pre>
 <p>A non-null <code>*T</code> converts to <code>?*T</code> implicitly (widening); going the other way (<code>?*T</code> to
 <code>*T</code>) drops the check and so requires narrowing (or an explicit cast). <code>?*T</code> has the same
-representation as <code>*T</code> (a bare pointer); the checking is entirely at compile time.</p>
+representation as <code>*T</code> (a bare pointer); the checking is entirely at compile time. The
+<code>?</code> marks a pointer type only: <code>?int</code> is an error. The <code>?</code> applies to the whole type it starts, so <code>?*T*</code> is a nullable pointer to <code>*T</code>. A <code>?</code> after a leading <code>*</code> and before another one makes the inner pointer nullable: <code>*?*T</code> is a pointer to a nullable pointer to <code>T</code> (an out-parameter that may receive <code>null</code>). Dereferencing it once gives a <code>?*T</code>, which must be checked before it is dereferenced again, and it does not convert to <code>**T</code>, which would drop that check (<code>&amp;p</code> of a <code>?*T</code> variable <code>p</code> is a <code>*?*T</code>).</p>
+<p>A null-check narrows in these forms: the then-branch of <code>if (x != null)</code> (and the else of
+<code>if (x == null)</code>), <code>if (x)</code>, <code>!(x == null)</code>, the right operand of <code>x != null &amp;&amp; ...</code> and of
+<code>x == null || ...</code>, either arm of a <code>?:</code> on such a condition, the body of
+<code>while (x != null)</code> or <code>for (...; x != null; ...)</code>, and the rest of a block after an early
+exit such as <code>if (x == null) { return 0; }</code> (unless the branch that falls through assigns
+<code>x</code>). While narrowed, <code>x</code> can be passed or assigned
+where a <code>*T</code> is expected. Narrowing applies to the variable itself: assigning to it (other
+than storing an address <code>&amp;y</code>), taking its address, or reassigning it anywhere in an
+enclosing loop ends it, and a shadowing declaration of the same name is not narrowed. A
+variable whose address has been taken (<code>&amp;x</code>, before the check or anywhere in an enclosing
+loop) is not narrowed, since a write through that pointer can store null behind the check;
+for a global the address counts anywhere in the program. A global's narrowing also ends at
+every call and <code>await</code>, and at <code>alloc_with</code> (a call to the alloc method), <code>thread_create</code>
+and <code>thread_join</code>, since the code they run may assign it: a test of a global earlier in a
+condition does not hold after a later operand that calls (<code>gp != null &amp;&amp; f() &amp;&amp; gp.v</code>),
+nor in a branch or ternary arm guarded by such a condition, nor after an early-exit guard
+whose condition or fall-through branch calls something. A user operator (<code>a + b</code> on a
+struct with an <code>operator +</code>) is a call too. A lambda body never sees a global's narrowing
+from where the lambda is written, since it runs later. A <code>static</code> local is one cell shared
+by every call and closure, so it follows the rule for globals.</p>
 <h3 id="33-array-types">3.3 Array Types</h3>
-<p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a compile-time integer constant: a decimal literal, an <code>enum</code> member, or a <code>const int</code> (see §4.6). Array types are supported both as struct fields and as local variables:</p>
+<p>Fixed-size arrays use the form <code>T[N]</code> where <code>N</code> is a positive integer constant expression, as in C: numbers, <code>enum</code> members and <code>const int</code>s (see §4.6), casts to an integer type, the integer operators including comparisons and <code>?:</code> (<code>int[K &lt;&lt; 1]</code>, <code>int[K &gt; 2 ? 4 : 1]</code>), and <code>sizeof(T)</code> (<code>uint8[sizeof(Header)]</code>), whose value is the target's layout size. An array of an array alias puts the new dimension outermost: with <code>type Row = int[3]</code>, <code>Row[2]</code> is <code>int[2][3]</code>. Array types are supported both as struct fields and as local variables:</p>
 <pre><code class="language-eskiu">struct QRBuffer {
     uint8[858] left;
     uint8[858] right;
@@ -383,9 +429,15 @@ int main() {
 }
 </code></pre>
 <p>When a leading <code>*</code> meets a trailing <code>[N]</code>, the <strong>array binds outermost</strong>: <code>*T[N]</code> is an
-<em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. A <em>pointer to an
-array</em> is written with a trailing star instead: <code>T[N]*</code>. For example <code>*Node[7]</code> is seven
-<code>Node</code> pointers, while <code>Node[7]*</code> points at a seven-<code>Node</code> array.</p>
+<em>array of N pointers</em> (each element a <code>*T</code>), i.e. it reads as <code>(*T)[N]</code>. For example
+<code>*Node[7]</code> is seven <code>Node</code> pointers, so <code>*p</code> of one is an error (index it first, <code>*p[0]</code>).
+There is no source spelling for a pointer to a whole array (<code>T[N]*</code> does not parse, and
+<code>&amp;arr</code> is not a <code>*T[N]</code>); point at the first element instead, <code>*Node p = &amp;arr[0];</code>, and
+index through it (<code>p[i]</code>), or name the array with an alias: with <code>type Row = int[3]</code>, a
+<code>*Row</code> points at a whole <code>int[3]</code> (<code>(*p)[2]</code>).</p>
+<p>The same rule applies to a function type: <code>fn(int)-&gt;int[2]</code> is an <em>array of 2 function
+values</em>, not a function returning an array (a function cannot return an array), so
+<code>fs[1](41)</code> calls the second element.</p>
 <p><code>uint8[858]</code> lowers to <code>[858 x i8]</code> in LLVM IR.</p>
 <p>An array may be initialized with a brace list <code>{ e0, e1, ... }</code>. As in C, listing fewer
 elements than the size zero-fills the rest, and <code>{}</code> zero-fills the whole array; listing
@@ -446,7 +498,7 @@ let items: List&lt;float&gt;;
 </code></pre>
 <p><code>Result&lt;int, string&gt;</code> lowers to <code>%Result_int_string</code> in LLVM IR.</p>
 <h3 id="36-interface-types">3.6 Interface Types</h3>
-<p>Interface types are structural: any struct that provides all required methods satisfies the interface without an explicit declaration. When a struct is passed as an interface, the compiler auto-boxes the value into a fat pointer <code>{data_ptr, vtable_ptr}</code>.</p>
+<p>Interface types are structural: any struct that provides all required methods satisfies the interface without an explicit declaration. An interface value is a fat pointer <code>{data_ptr, vtable_ptr}</code>; the compiler builds one from a pointer to a conforming struct (<code>&amp;x</code>) wherever an interface is expected (see §9.4). Passing the struct itself by value is an error. Each required method must match the interface's signature (return type and parameter types after the receiver; a type spelled with the interface's own name stands for the implementing type).</p>
 <pre><code class="language-eskiu">interface Drawable { void draw(); }
 // any struct with a draw() method satisfies Drawable
 </code></pre>
@@ -496,12 +548,20 @@ C, with one exception. Implicit (no cast needed):</p>
   fractional part, so it must be written out: <code>int n = (int)3.9;</code> gives <code>3</code>; <code>int n =
   3.9;</code> is a compile error.</li>
 </ul>
-<p>Two statically-known mistakes are also compile errors:</p>
+<p>Statically-known mistakes are also compile errors:</p>
 <ul>
 <li>An <strong>integer literal that does not fit</strong> its target type: <code>int8 x = 300;</code> (300 is
   outside <code>int8</code>'s range). A literal that fits is fine: <code>uint8 c = 255;</code>.</li>
-<li><strong>Division or remainder by a literal zero</strong>: <code>x / 0</code>, <code>x % 0</code>.</li>
+<li><strong>Integer division or remainder by zero</strong>, or of the most negative value by <code>-1</code>, when
+  the operands are constant: a literal (<code>x / 0</code>), a <code>const</code> name, a <code>sizeof</code> (§5.8),
+  a cast (<code>x / (int)0.5</code>) or an expression of those. <code>M / -1</code> with <code>const int M =
+  -2147483647 - 1</code> does not fit an <code>int</code>.</li>
+<li>A <strong>floating constant converted to an integer type that cannot hold it</strong>, written as a
+  literal or reached through <code>const</code> names and arithmetic: <code>(int)1e10</code>, <code>(int)D</code> with
+  <code>const double D = 1e10</code>, <code>(uint32)(0.0 - 1.0)</code>.</li>
 </ul>
+<p>A constant shift count out of range and a constant array index out of bounds are errors
+by the same folding (<code>a &lt;&lt; sizeof(int64) * 8</code>, <code>a[sizeof(int)]</code> on an <code>int[4]</code>).</p>
 <pre><code class="language-eskiu">int64 big = strlen(s);   // ok: no cast needed for the length
 int   n   = strlen(s);   // ok: int64 to int truncates, as in C
 int   x   = (int)3.9;    // ok: explicit
@@ -522,6 +582,7 @@ string name = &quot;Eskiu&quot;;
 *int ptr = null;
 </code></pre>
 <p>Both forms are equivalent. The type annotation is required in both; type inference is not supported.</p>
+<p>A variable is visible from its declaration to the end of the enclosing block. A declaration in a nested block may <strong>shadow</strong> an outer variable of the same name; the outer variable is unchanged and visible again after the inner block ends. Declaring the same name twice in one scope is an error, and so are these other duplicates: two parameters with one name, a local in a function's outermost block that reuses a parameter's name (the parameters and that block share one scope, as in C), two fields (or a field and a method) with one name in a struct, a repeated enum member, a second <code>default:</code> in a <code>switch</code>, a global and a function (or a struct and a function) with one name, and a function prototype whose signature differs from its definition. A prototype that matches its definition, and an <code>extern</code> declaration next to the variable's definition, are allowed.</p>
 <h3 id="43-pointer-variables">4.3 Pointer Variables</h3>
 <pre><code class="language-eskiu">let p: *int = null;
 if (p != null) {
@@ -538,7 +599,7 @@ pt.y = 2.5;
 <pre><code class="language-eskiu">volatile let uart: *uint8 = (uint8*) 0x3F8;
 *uart = 'A';   // store is always emitted, not eliminated by optimiser
 </code></pre>
-<p><code>volatile</code> applies to all LLVM loads and stores that touch the declared pointer. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.</p>
+<p><code>volatile</code> applies to every load and store of the variable itself and of any place reached from it by <code>*</code>, <code>[]</code> or <code>.</code> (<code>*uart</code>, <code>uart[i]</code>, <code>dev.ctrl</code>), including <code>++</code>/<code>--</code>, compound assignment and the storage word of a bitfield (<code>dev.mode = 5</code> reads and writes the word with volatile accesses), for locals and globals. The initializing store of a volatile variable is volatile too. It has no effect on variables that are never accessed through a pointer, but the canonical use is MMIO pointer variables as shown above.</p>
 <h3 id="46-constants-const">4.6 Constants (<code>const</code>)</h3>
 <p>The <code>const</code> qualifier declares an immutable, typed binding. It prefixes either declaration form, must be initialised, and may not be reassigned:</p>
 <pre><code class="language-eskiu">const int MAX = 100;
@@ -557,7 +618,7 @@ int main() {
     return sizeof(Ring);          // 16
 }
 </code></pre>
-<p>Array dimensions accept a decimal literal, an <code>enum</code> member, or a <code>const int</code>. <code>const</code> bindings are block-scoped like any other variable.</p>
+<p>An array dimension is an integer constant expression: literals, <code>enum</code> members and <code>const</code> ints, combined with the integer operators, <code>?:</code>, parentheses and casts to an integer type, which truncate as in C (<code>int[(uint8)258]</code> has 2 elements, <code>int[CAP * 2]</code> 8). It must be positive. <code>const</code> bindings are block-scoped like any other variable.</p>
 <p><strong><code>const</code> works on any type</strong> (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a <code>const</code> value:</p>
 <pre><code class="language-eskiu">const string name = &quot;Eskiu&quot;;   // any type may be const
 const let p: Point = Point { x: 1.0, y: 2.0 };
@@ -616,6 +677,7 @@ c = &amp;w;     // error: cannot assign to read-only location 'c'  (binding is c
 *c = 10;    // allowed: the pointee is writable
 </code></pre>
 <p>Const-correctness is enforced on conversions: adding const (<code>int*</code> → <code>const int*</code>) is always allowed, but any conversion that would <strong>drop</strong> a const qualifier (in an initializer, assignment, call argument, or return) is a compile error. <code>const</code> has no ABI effect; it is stripped before code generation. It applies uniformly to locals, parameters, struct fields and return types.</p>
+<p>A method call <code>x.m()</code> passes <code>&amp;x</code> as <code>self</code>, so on a <code>const</code> value (or through a <code>const T*</code>) it is allowed only when the method declares a read-only receiver, <code>int P_get(const P* self)</code>. A method whose <code>self</code> is a plain <code>*P</code> may write through it and is rejected there.</p>
 <h3 id="47-static-locals-static">4.7 Static Locals (<code>static</code>)</h3>
 <p>The <code>static</code> qualifier gives a <strong>local</strong> variable a single instance that persists across calls, exactly as in C. Its storage lives for the whole program, not the enclosing call, so it retains its value between invocations:</p>
 <pre><code class="language-eskiu">int next() {
@@ -628,7 +690,8 @@ next();   // 1
 next();   // 2
 next();   // 3
 </code></pre>
-<p>A <code>static</code> local's initializer must be a <strong>compile-time constant</strong> (a literal); a runtime expression is rejected. An uninitialised <code>static</code> local is zero-initialised. Two <code>static</code> locals in different functions never alias, even if they share a name. <code>static</code> on a global is rejected, since a global already has static storage.</p>
+<p>A <code>static</code> local's initializer must be a <strong>compile-time constant</strong>; a runtime expression is rejected. An uninitialised <code>static</code> local is zero-initialised. Two <code>static</code> locals in different functions never alias, even if they share a name. <code>static</code> on a global is rejected, since a global already has static storage. A closure that uses a <code>static</code> local refers to that one cell, like a global, rather than capturing a copy.</p>
+<p>The same constant rule applies to a <strong>global</strong> variable's initializer, as in C: it may be a literal, an enum member, a top-level <code>const</code>, <code>sizeof</code>, the address of a global (<code>&amp;g</code>), a non-capturing lambda, any unary, binary, ternary or cast expression over those (<code>int C = 3 + 1;</code>, <code>double q = 1.0 / 4.0;</code>), or an array or struct literal built from them. A top-level function name is a constant too (<code>Op g = add;</code>, as in C): it decays to a closure with no environment. A call or a read of a non-<code>const</code> variable is a compile error ("initializer of global 'X' is not a compile-time constant"), since no code runs before <code>main</code> to compute it.</p>
 <hr>
 <h2 id="5-operators">5. Operators</h2>
 <h3 id="51-arithmetic">5.1 Arithmetic</h3>
@@ -815,7 +878,8 @@ next();   // 3
 </tbody>
 </table></div>
 <p>The compound bitwise/shift operators are desugared by the parser: <code>x op= e</code> is equivalent to <code>x = x op e</code>.</p>
-<p>The left-hand side must be an lvalue: a named variable, a pointer dereference (<code>*ptr = value</code>), or a field access. Assigning through a dereferenced pointer parameter works correctly. <code>*ptr = value</code> stores through the pointer as expected.</p>
+<p>The left-hand side must be an lvalue: a named variable, a pointer dereference (<code>*ptr = value</code>), or a field access. A field or element of a temporary (<code>mk().x</code>, <code>arr()[0]</code>) is not an lvalue: it can be read, but not assigned, have its address taken, or (an array) be sliced. Assigning through a dereferenced pointer parameter works correctly. <code>*ptr = value</code> stores through the pointer as expected.</p>
+<p>Evaluation order: the address of the left-hand side is computed first (its index, pointer and call subexpressions run), then the right-hand side, then the store. So <code>a[f()] = g()</code> calls <code>f</code> before <code>g</code>, and <code>getp().x = g()</code> calls <code>getp</code> first. A compound assignment <code>x op= e</code> evaluates the address of <code>x</code> once, in the same order.</p>
 <h3 id="551-increment-and-decrement">5.5.1 Increment and Decrement</h3>
 <p><code>++</code> and <code>--</code> add or subtract one from an integer or pointer lvalue, in place. Both prefix
 and postfix forms are supported: <code>++x</code>/<code>--x</code> yield the new value, <code>x++</code>/<code>x--</code> yield the old
@@ -859,6 +923,7 @@ int b = ++j;   // j incremented, then b = new j
 *uint8 mid = buf + 512;    // 512 bytes into the buffer
 *uint8 back = mid - 512;   // back to start
 </code></pre>
+<p>Subtracting two pointers of the same type gives an <code>int64</code> count of <strong>elements</strong> between them, as in C: <code>(pi + 3) - pi</code> is <code>3</code> for a <code>*int</code>, not <code>12</code>.</p>
 <h3 id="58-sizeof-expression">5.8 sizeof Expression</h3>
 <p><code>sizeof(T)</code> is a compile-time constant expression that evaluates to the size of type <code>T</code> in bytes as an <code>int64</code>. It works for all Eskiu types, including structs and unions.</p>
 <pre><code class="language-eskiu">sizeof(int)    // 4
@@ -867,13 +932,18 @@ sizeof(float)  // 4
 sizeof(double) // 8
 sizeof(Grid)   // 12  (3 float fields)
 </code></pre>
-<p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code.</p>
+<p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code. As in C, <code>sizeof(x)</code> where <code>x</code> names a variable (or a parameter or global) gives the size of that variable's type; a name that is neither a type nor a variable is an error.</p>
+<p>The operand may also be an expression: <code>sizeof(*p)</code>, <code>sizeof(a[0])</code>, <code>sizeof(s.field)</code> give the size of the expression's type, and the expression is not evaluated (<code>sizeof(f())</code> does not call <code>f</code>). The operand is read as a type when it is a bare name or a spelling built over a primitive or an already declared type (<code>sizeof(*Node)</code>, <code>sizeof(int[4])</code>); otherwise it is an expression.</p>
+<p>The type checker folds <code>sizeof</code> of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and <code>#pragma pack(N)</code> included), using the target's layout (<code>--target</code>), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate <code>case</code>) and <code>enum</code> member values see it. A union declared under <code>#pragma pack(N)</code> folds too.</p>
 <h3 id="59-conditional-ternary">5.9 Conditional (ternary)</h3>
 <p><code>cond ? a : b</code> evaluates <code>cond</code>, then evaluates and yields <strong>exactly one</strong> of the two
 arms (so side effects in the unused arm never run). The condition may be a bool,
 integer, or pointer (non-zero / non-null is true). The two arms must share a common
 type: identical types pass through, two numerics promote to the wider (C-style, e.g.
 <code>int</code> and <code>double</code> yield <code>double</code>), and otherwise the arms must be mutually assignable.
+When the value goes to an interface (a declaration, assignment, return or argument of
+that type), each arm converts to it on its own, so the arms may point at different
+structs that satisfy it: <code>Shape s = round ? &amp;c : &amp;sq;</code>.
 The operator is right-associative, so <code>a ? b : c ? d : e</code> parses as <code>a ? b : (c ? d : e)</code>.</p>
 <pre><code class="language-eskiu">int m = a &gt; b ? a : b;                       // max
 char g = s &gt;= 90 ? 'A' : s &gt;= 80 ? 'B' : 'C';  // right-associative chain
@@ -1015,7 +1085,7 @@ allocation. The standard library marks <code>alloc</code> this way:</p>
 <pre><code class="language-eskiu">must_use *T dup&lt;T&gt;(T* p) { ... }
 
 dup(&amp;x);              // error: result of 'dup' must be used (it is marked must_use)
-let y = dup(&amp;x);      // ok
+*int y = dup(&amp;x);     // ok (x is an int)
 
 alloc&lt;uint8&gt;(64);     // error: the allocation is leaked (alloc is must_use)
 </code></pre>
@@ -1026,7 +1096,8 @@ consumed; only a bare call statement discards it.</p>
     printf(&quot;%s\n&quot;, msg);
 }
 </code></pre>
-<p>A <code>void</code> function may use <code>return;</code> with no operand or allow control to fall off the end of the body.</p>
+<p>A <code>void</code> function may use <code>return;</code> with no operand or allow control to fall off the end of the body. It may also <code>return f();</code> where <code>f</code> is itself <code>void</code> (the call runs, nothing is returned).</p>
+<p>A call to a <code>void</code> function has no value: it can be a statement, the operand of <code>return</code> in a <code>void</code> function, or both arms of a <code>?:</code> used as a statement (<code>c ? f() : g();</code>), but not an operand of an operator (<code>&amp;&amp;</code>, <code>||</code>, a comparison, arithmetic), a condition, an initializer, or an argument (also not one passed through <code>...</code>, as in <code>printf("%d", f())</code>).</p>
 <p>The one function that may not be <code>void</code> is <code>main</code>: its return value is the process exit
 code, so it must return <code>int</code> (<code>int main()</code> or <code>int main(int argc, string* argv)</code>). A
 <code>void main()</code> is a compile error.</p>
@@ -1051,6 +1122,12 @@ builtins <code>va_start(ap)</code>, <code>va_arg&lt;T&gt;(ap)</code> (one argume
 as <code>double</code> (read it with <code>va_arg&lt;double&gt;</code>), and integer types narrower than <code>int</code>
 arrive as <code>int</code>. There is no automatic count of the arguments: pass it explicitly
 (as <code>n</code> above) or use a sentinel.</p>
+<p><code>va_start</code> is only allowed in a function with a <code>...</code> parameter. Each of the three
+builtins takes exactly one <code>va_list</code> operand (a <code>va_list</code> may also be passed to another
+function, which then reads it with <code>va_arg</code>). <code>T</code> in <code>va_arg&lt;T&gt;</code> must be a scalar: an
+integer, a floating-point type or a pointer; a struct, union, sum type or array is a
+compile error. So is a type the promotions widen (<code>va_arg&lt;float&gt;</code>, <code>va_arg&lt;char&gt;</code>,
+<code>va_arg&lt;int8&gt;</code>, ...): read the promoted <code>double</code> or <code>int</code> and convert it.</p>
 <h3 id="64-extern-declarations">6.4 Extern Declarations</h3>
 <p><code>extern</code> declares a C function or global variable available to Eskiu code. See §13 for details.</p>
 <h3 id="641-intrinsic-declarations">6.4.1 Intrinsic Declarations</h3>
@@ -1082,11 +1159,12 @@ int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 let add: fn(int)-&gt;int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 </code></pre>
+<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. Taking the address of a captured variable's storage (<code>&amp;base</code>, <code>&amp;p.a</code>, <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error for the same reason ("cannot take the address of captured variable"). To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (<code>p.set(5)</code>, where <code>set</code> takes <code>*P self</code>) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (<code>*P pp = &amp;p;</code> outside the lambda, <code>pp.set(5)</code> inside) to modify the original.</p>
 <p>Under the hood, <code>fn(T)-&gt;R</code> is a two-word fat pointer <code>{fn_ptr, env_ptr}</code>. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in <code>env_ptr</code>. Lambdas that capture nothing have <code>env_ptr = null</code> and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains <code>fn(T)-&gt;R</code> in both cases.</p>
 <p><strong>Escape analysis and closure lifetime.</strong> Where the environment lives depends on whether the closure <em>escapes</em> its creating function:</p>
 <ul>
 <li>A <strong>non-escaping</strong> closure (one that is only called, or passed to a parameter that is not marked <code>escaping</code>) has its environment allocated on the <strong>stack</strong>. This costs nothing and needs no cleanup (the common <code>map</code>/<code>filter</code>/callback-invoked-in-place case).</li>
-<li>An <strong>escaping</strong> closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an <code>escaping</code> parameter) has its environment allocated on the <strong>heap</strong>, so it remains valid after the creating function returns. Release it with <code>free_closure(f)</code> (a no-op for non-capturing closures, whose env is null).</li>
+<li>An <strong>escaping</strong> closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an <code>escaping</code> parameter) has its environment allocated on the <strong>heap</strong>, so it remains valid after the creating function returns. Release it with <code>free_closure(f)</code> (a no-op for non-capturing closures, whose env is null; <code>f</code> must be a closure value).</li>
 </ul>
 <p>A parameter that retains the closure beyond the call (stores it, returns it, hands it to another <code>escaping</code> parameter) must be declared <code>escaping</code>:</p>
 <pre><code class="language-eskiu">// stores cb beyond the call -&gt; the parameter is `escaping`
@@ -1095,6 +1173,7 @@ void on_ready(int fd, escaping fn(int)-&gt;void cb) { handlers[fd] = cb; }
 // only calls f -&gt; no annotation; closures passed here stay on the stack
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
 </code></pre>
+<p>Passing a non-<code>escaping</code> closure parameter straight on to another function's non-<code>escaping</code> parameter is also fine, since that callee can only call it too. A lambda that captures a non-<code>escaping</code> parameter escapes it with the lambda unless the lambda itself cannot outlive the call: it is passed straight to a non-<code>escaping</code> parameter, or bound to a local that is only called. Returning such a lambda, storing it, passing it to an <code>escaping</code> parameter or to <code>thread_create</code> needs the parameter marked <code>escaping</code>.</p>
 <p>This is checked: using a non-<code>escaping</code> closure parameter beyond a direct call is a compile error pointing you at <code>escaping</code>, so a closure can never silently outlive its stack environment. <code>escaping</code> and <code>free_closure</code> are reserved words (§2.3).</p>
 <p><strong>Named functions as values.</strong> A top-level function used as a value (rather than called) decays to a <code>fn(T,...)-&gt;R</code>, so it can be assigned or passed directly, no lambda wrapper needed:</p>
 <pre><code class="language-eskiu">void worker() { /* ... */ }
@@ -1130,16 +1209,25 @@ List_push(&amp;nums, 7);
 int first = List_get(&amp;nums, 0);
 </code></pre>
 <p>Inference unifies each parameter type against the concrete argument type
-structurally (peeling pointers and matching template instances), so a <code>List&lt;T&gt;*</code>
-parameter binds <code>T</code> from a <code>List&lt;int&gt;*</code> argument. If a type parameter cannot be
+structurally (peeling pointers, matching template instances and slice element types),
+so a <code>List&lt;T&gt;*</code> parameter binds <code>T</code> from a <code>List&lt;int&gt;*</code> argument and a <code>T[]</code> parameter
+binds <code>T</code> from an <code>int[]</code> slice (<code>sum(a[0..4])</code>). If a type parameter cannot be
 inferred from any argument, pass the type arguments explicitly. Each unique set
 of type arguments generates a separate monomorphic instantiation.</p>
+<p>A binding from a composite parameter type (<code>*T</code>, <code>List&lt;T&gt;*</code>) takes precedence. When a
+type parameter is bound only by parameters spelled as the bare type parameter (<code>T a, T
+b</code>), every such argument must deduce the same type. Integer deductions that differ meet
+at their common type by the usual arithmetic conversions (section 3.1), so
+<code>max(1, big)</code> with <code>int64 big</code> is <code>max&lt;int64&gt;</code> and does not truncate; any other
+disagreement (<code>max(1.5, (float)2.5)</code>, <code>pick(1, "s")</code>) is a type error. Once the type
+arguments are known, every argument is checked against the instantiated parameter type,
+as for any call (<code>swap(&amp;i64, &amp;i32)</code> against <code>*T</code> is an error).</p>
 <h3 id="67-thread-primitives">6.7 Thread Primitives</h3>
 <p><code>thread_create</code> and <code>thread_join</code> are language keywords that spawn and await OS threads.</p>
 <pre><code class="language-eskiu">thread_create(fn()-&gt;void worker) -&gt; *void
 thread_join(*void handle) -&gt; void
 </code></pre>
-<p><code>thread_create</code> accepts any <code>fn()-&gt;void</code> value, including a closure, and returns an opaque <code>*void</code> thread handle. <code>thread_join</code> blocks the calling thread until the spawned thread completes.</p>
+<p><code>thread_create</code> accepts any <code>fn()-&gt;void</code> value, including a closure, and returns an opaque <code>*void</code> thread handle. <code>thread_join</code> blocks the calling thread until the spawned thread completes. Any other worker type, or a <code>thread_join</code> operand that is not a <code>*void</code> handle, is a compile error.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 
 int main() {
@@ -1154,13 +1242,37 @@ let worker: fn()-&gt;void = void() { printf(&quot;thread %d\n&quot;, id); };
 *void t = thread_create(worker);
 thread_join(t);
 </code></pre>
-<p><strong>Implementation detail.</strong> The closure fat pointer <code>{fn_ptr, env_ptr}</code> maps directly to the <code>(start_routine, arg)</code> pair expected by <code>pthread_create</code>. No trampoline function is generated. On Linux, link the final binary with <code>-lpthread</code>.</p>
+<p><strong>Ownership.</strong> A lambda written in the call (<code>thread_create(void() { ... })</code>) belongs to the new thread: its environment is freed when the thread body returns. A closure value passed in (<code>thread_create(worker)</code>) stays its owner's, since one closure may start several threads; release it with <code>free_closure(worker)</code> after the last <code>thread_join</code>.</p>
+<p><strong>Implementation detail.</strong> For a closure value, the fat pointer <code>{fn_ptr, env_ptr}</code> maps directly to the <code>(start_routine, arg)</code> pair expected by <code>pthread_create</code>. A lambda written in the call starts through a small trampoline that runs it and then frees its environment. When a program calls <code>thread_create</code>, the driver links <code>-lpthread</code> on Linux and Windows (mingw) by itself; macOS has pthread in libSystem.</p>
 <h3 id="68-async-functions-and-await">6.8 Async Functions and <code>await</code></h3>
 <p>An <code>async</code> function lowers to a resumable state machine and executes over the
-<code>&lt;eventloop&gt;</code>/<code>&lt;executor&gt;</code> runtime. Single and multiple awaits, <code>return await</code>,
-<code>x = await E</code>, <code>async void</code>, and every control-flow construct containing an await
-(<code>if</code>/<code>while</code>/C-style <code>for</code>/<code>switch</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>) are
+<code>&lt;eventloop&gt;</code>/<code>&lt;executor&gt;</code> runtime. Single and multiple awaits, <code>async void</code>, and every
+control-flow construct containing an await (<code>if</code>/<code>while</code>/<code>do</code>-<code>while</code>/C-style
+<code>for</code>/<code>switch</code>/<code>match</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>, and <code>try</code>/<code>catch</code>) are
 supported; a pending future is cancelled with <code>future_drop</code>.</p>
+<p>An <code>await</code> may appear anywhere in an expression: a <code>let</code> initializer, a <code>return</code> value,
+an assignment or compound assignment (<code>x += await f();</code>), a call argument, an operand
+(<code>a + await f()</code>), a condition (<code>while (await more())</code>), a <code>switch</code> or <code>match</code> subject, a
+<code>for-in</code> iterable and a range bound (<code>for (i in 0..await n())</code>). Evaluation keeps the
+order of the synchronous expression: an operand with a side effect written before the
+await is evaluated before it, an assignment target (<code>a[i()] += await f()</code>) is evaluated
+once, before the await, and an await in the right operand of <code>&amp;&amp;</code>/<code>||</code> or in an arm of
+<code>?:</code> runs only when that operand is evaluated. A switch subject, a <code>for-in</code> iterable and
+a range bound are evaluated once, before the statement; a loop condition or step is
+evaluated on every pass.</p>
+<p>Inside <code>try</code> an await may sit in the body and in a <code>catch</code> handler. An exception thrown
+before or after a suspension is caught by the handler of the try it is thrown in, and
+the <code>finally</code> runs exactly once on every exit: normal completion, a caught or uncaught
+exception, an early <code>return</code>, <code>break</code> or <code>continue</code>, and cancellation. A future dropped
+while suspended runs the <code>finally</code> blocks and <code>defer</code>s pending at its await once,
+innermost first, before its frame is freed (a <code>defer</code> in a block split by an await runs
+at every exit of that block, as in a plain function).</p>
+<p>Rejected with a located error: an <code>await</code> inside a <code>finally</code> or a <code>defer</code> body (both run
+when a cancelled future is dropped, which cannot suspend), labeled <code>break</code>/<code>continue</code>,
+an <code>await</code> in a <code>sizeof</code> operand, an <code>asm</code> input or a <code>thread_join</code>, and in a generic
+async function an await in a <code>match</code> arm that binds a payload, or an await after an
+operand with a side effect or inside a <code>?:</code> arm (their types differ per instance). Bind
+the value first with <code>let v = await ...;</code>.</p>
 <p>An <code>async</code> function is declared with the <code>async</code> modifier before the return type. Its
 <em>declared</em> return type is the value it ultimately produces, but a <strong>call</strong> to it
 yields a <code>*Future&lt;T&gt;</code>, a handle to the eventual result, rather than <code>T</code> directly:</p>
@@ -1182,7 +1294,8 @@ from a leaf primitive (<code>&lt;net_async&gt;</code>) or from calling another a
 (<code>&lt;future&gt;</code>, <code>&lt;executor&gt;</code>, <code>&lt;net_async&gt;</code>); the generic combinators <code>spawn&lt;T&gt;</code> (detach
 a fire-and-forget task), <code>select2&lt;A,B&gt;</code> (first-of-two) and <code>join2&lt;A,B&gt;</code> (all-of-two)
 take typed futures with no cast at the call site, <code>&lt;timer&gt;</code> <code>timer_after(lp, ms)</code> is a
-leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a real timeout), and
+leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a real timeout; dropping
+a combinator before it resolves drops its inputs with it), and
 <code>&lt;http_async&gt;</code> is a non-blocking HTTP server built on the accept loop. See
 <code>docs/dev/async-design.md</code> for the runtime contract and the lowering design.</p>
 <h3 id="69-exception-handling">6.9 Exception Handling</h3>
@@ -1198,7 +1311,7 @@ leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a 
 </code></pre>
 <p>Multiple <code>catch</code> clauses may be chained. The <code>finally</code> clause is optional. Either <code>catch</code> or <code>finally</code> (or both) must follow <code>try</code>.</p>
 <h4 id="throw">throw</h4>
-<p><code>throw expr</code> throws the value of <code>expr</code> as an exception. Any Eskiu value type may be thrown: <code>string</code>, <code>int</code>, a pointer, etc.</p>
+<p><code>throw expr</code> throws the value of <code>expr</code> as an exception. Any Eskiu value type may be thrown: <code>string</code>, an integer of any width, <code>float</code>, <code>double</code>, a pointer, or a struct by value. The value is copied into the exception object with its own type, so a <code>catch</code> of the same type receives it unchanged. Inside a generic function the thrown type is the instance's type (<code>throw x</code> with <code>x: T</code> in <code>f&lt;double&gt;</code> is caught by <code>catch (double d)</code>).</p>
 <pre><code class="language-eskiu">int divide(int a, int b) {
     if (b == 0) {
         throw &quot;division by zero&quot;;
@@ -1207,7 +1320,7 @@ leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a 
 }
 </code></pre>
 <h4 id="catching-exceptions">Catching exceptions</h4>
-<p>Each <code>catch</code> clause names a type and a variable. If the thrown value matches the declared type, control transfers to that clause and the variable holds the thrown value.</p>
+<p>Each <code>catch</code> clause names a type and a variable. If the thrown value's static type is the declared type (after aliases are resolved), control transfers to that clause and the variable holds the thrown value. There is no conversion: a thrown <code>int</code> is not caught by <code>catch (int64 e)</code>.</p>
 <pre><code class="language-eskiu">try {
     int r = divide(10, 0);
 } catch (string e) {
@@ -1215,7 +1328,8 @@ leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a 
 }
 </code></pre>
 <h4 id="finally">finally</h4>
-<p>The <code>finally</code> block executes unconditionally after the <code>try</code> body and any <code>catch</code> clause, regardless of whether an exception was raised.</p>
+<p>The <code>finally</code> block executes unconditionally after the <code>try</code> body and any <code>catch</code> clause, regardless of whether an exception was raised. It also runs when the body or a <code>catch</code> handler leaves early with <code>return</code>, <code>break</code>, <code>continue</code> or <code>?</code>, and when a <code>catch</code> handler throws (directly or from a call); the new exception then propagates after the <code>finally</code> body.</p>
+<p>A <code>finally</code> block may not leave the function: a <code>return</code> or a <code>?</code> inside it is a compile error, since it would discard the pending exit (a return value, or an exception being unwound). A <code>break</code> or <code>continue</code> inside it is allowed, and a lambda written there is its own function.</p>
 <pre><code class="language-eskiu">try {
     throw &quot;error&quot;;
 } catch (string e) {
@@ -1227,9 +1341,8 @@ leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a 
 <h4 id="unhandled-exceptions">Unhandled exceptions</h4>
 <p>If no <code>catch</code> clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler, the program terminates.</p>
 <h4 id="linking">Linking</h4>
-<p>Exceptions use the platform C++ runtime, so link the final program with <code>-lc++</code> on macOS or <code>-lstdc++</code> on Linux (library flags go straight through to the linker):</p>
-<pre><code class="language-bash">eskiuc file.esk -o file -lc++      # macOS
-eskiuc file.esk -o file -lstdc++   # Linux
+<p>Exceptions use the platform C++ runtime. When a program contains <code>throw</code> or <code>try</code>, the driver links that runtime by itself: <code>-lc++</code> on macOS and <code>-lstdc++</code> on Linux and Windows (mingw). A bare-metal target gets nothing, and <code>--no-default-libs</code> turns this off (see the Linking paragraph of §16).</p>
+<pre><code class="language-bash">eskiuc file.esk -o file            # no -l flag needed
 </code></pre>
 <hr>
 <h2 id="7-control-flow">7. Control Flow</h2>
@@ -1242,7 +1355,7 @@ eskiuc file.esk -o file -lstdc++   # Linux
     printf(&quot;zero\n&quot;);
 }
 </code></pre>
-<p>The condition must evaluate to a <code>bool</code> or integer (non-zero is true). Braces are required around each branch body.</p>
+<p>The condition must evaluate to a <code>bool</code>, a number (non-zero is true; a float compares with <code>0.0</code>, so NaN is true) or a pointer, <code>string</code> and <code>?*T</code> included (non-null is true). An interface value is true when it is not <code>null</code>. A struct, array, slice or closure is not a condition. Braces around a branch body are optional: as in C, an unbraced body is a single statement (<code>if (x &gt; 0) n++; else n--;</code>), and it is its own scope (see §7.8 for what that means for <code>defer</code>).</p>
 <h3 id="72-for">7.2 for</h3>
 <p>C-style three-part form:</p>
 <pre><code class="language-eskiu">for (int i = 0; i &lt; 10; i += 1) {
@@ -1267,10 +1380,24 @@ the underlying collection. <code>break</code> and <code>continue</code> work as 
   for (i in 0..10) {        // 0,1,…,9
       printf("%d\n", i);
   }</code></p>
-<p>A range desugars to <code>for (int i = A; i &lt; B; i = i + 1)</code>, so an empty range
-  (<code>A &gt;= B</code>) runs zero times.</p>
+<p>A range desugars to <code>for (T i = A; i &lt; B; i = i + 1)</code>, so an empty range
+  (<code>A &gt;= B</code>) runs zero times. <code>B</code> is evaluated once, before the first iteration:
+  <code>for (i in 0..n())</code> calls <code>n()</code> once, and changing a variable used in <code>B</code> inside
+  the body does not change the number of iterations.</p>
+<p>Both bounds are read in the enclosing scope, before the loop variable exists. A
+  bound that names the loop variable means the outer variable of that name, as in C's
+  <code>for (int i2 = a; i2 &lt; b; ...)</code>: with an outer <code>int i = 3</code>, <code>for (i in 0..i)</code> runs
+  <code>0, 1, 2</code>. When <code>B</code> names the loop variable it is evaluated before <code>A</code>; otherwise
+  <code>A</code> is evaluated first.</p>
+<p>The loop variable's type <code>T</code> is the common type of the two bounds under C's usual
+  arithmetic conversions: each bound is promoted to at least <code>int</code>, the wider one
+  wins, and at equal width an unsigned bound makes <code>T</code> unsigned. So <code>0..n</code> with
+  <code>n: int64</code> counts in <code>int64</code>, and two <code>uint8</code> bounds count in <code>int</code>. A bare
+  integer literal bound takes the first of <code>int</code>, <code>int64</code>, <code>uint64</code> that holds its
+  value. A bound that is not an integer (a <code>float</code>, a pointer) is a compile error.</p>
 <ul>
-<li><strong>Fixed-size arrays</strong> (<code>T[N]</code>), including array fields:</li>
+<li><strong>Fixed-size arrays</strong> (<code>T[N]</code>), including array fields. Over a multidimensional
+  array <code>T[N][M]</code> the loop variable is each row, a <code>T[M]</code>:</li>
 </ul>
 <p><code>eskiu
   int[4] xs;
@@ -1305,6 +1432,11 @@ the underlying collection. <code>break</code> and <code>continue</code> work as 
 <p>The form desugars to an index-counted loop: for an array the bound is its
 compile-time length; for a slice the bound is its <code>.len</code>; for a List-like value
 the bound is its <code>size</code> field, and each element is read through <code>data[i]</code>.</p>
+<p>The iterable is evaluated once, before the first iteration. A variable, or a field or
+constant-index element of one, is read in place, so the loop sees writes the body makes
+to it. Anything else (a call, an index by a variable) is held in a temporary: a
+List-like value that has an address by a pointer to it, an array, slice or pointer by
+value (an array is then copied).</p>
 <h3 id="73-while">7.3 while</h3>
 <pre><code class="language-eskiu">while (condition) {
     // body
@@ -1353,8 +1485,9 @@ first, before control leaves. A labeled jump may not escape a <code>defer</code>
 }
 </code></pre>
 <p><code>switch</code> dispatches on an integer value. <code>break</code> exits the enclosing switch. If <code>break</code> is omitted, control falls through to the next case. The type checker validates that each <code>case</code> value is compatible with the type of the <code>switch</code> subject expression.</p>
+<p>A declaration may follow a <code>case</code> or <code>default</code> label directly, without braces. As in C, the whole switch body is one scope: the variable is visible from its declaration to the end of the switch, including the cases after it, and two cases may not declare the same name. A jump to a later case skips the initialization, so the variable is uninitialized there until assigned (this is not diagnosed).</p>
 <h3 id="75-return">7.5 return</h3>
-<p>Returns a value from the current function. A <code>void</code> function uses <code>return;</code> with no operand.</p>
+<p>Returns a value from the current function. A <code>void</code> function uses <code>return;</code> with no operand, or <code>return f();</code> with a <code>void</code> call.</p>
 <pre><code class="language-eskiu">int sign(int x) {
     if (x &gt; 0) return 1;
     if (x &lt; 0) return -1;
@@ -1379,38 +1512,53 @@ first, before control leaves. A labeled jump may not escape a <code>defer</code>
 enclosing block is left. It is the ergonomic way to pair a resource acquisition with its
 release: write the cleanup right next to the thing it cleans up, and it runs on <strong>every</strong>
 path out of the block, so you never leak on an early return or a propagated error.</p>
-<pre><code class="language-eskiu">int process(string path) {
-    *uint8 buf = alloc&lt;uint8&gt;(4096);
-    defer free(buf);                 // runs however this function exits
+<pre><code class="language-eskiu">Result&lt;int, string&gt; read_into(*uint8 buf, string path);
 
-    if (path[0] == 0) { return -1; } // buf freed
-    int n = read_into(buf)?;         // buf freed if the `?` propagates an error
-    return n;                        // buf freed
+Result&lt;int, string&gt; process(string path) {
+    *uint8 buf = alloc&lt;uint8&gt;(4096);
+    defer free(buf);                        // runs however this function exits
+
+    if (path[0] == 0) { return Err&lt;int, string&gt;(&quot;empty path&quot;); }   // buf freed
+    int n = read_into(buf, path)?;          // buf freed if the `?` propagates an error
+    return Ok&lt;int, string&gt;(n);              // buf freed
 }
 </code></pre>
+<p><code>?</code> needs the enclosing function to return a <code>Result</code> (§10.5), so the example returns
+<code>Result&lt;int, string&gt;</code>.</p>
 <p>Rules:</p>
 <ul>
 <li>Deferred statements run in <strong>LIFO</strong> order: the last one registered runs first.</li>
 <li><code>defer</code> runs on fall-through, <code>return</code>, <code>break</code>, <code>continue</code>, and <code>?</code>-propagation. It is
-  block-scoped, so a <code>defer</code> in a loop body runs at the end of <strong>each iteration</strong>.</li>
+  block-scoped, so a <code>defer</code> in a loop body runs at the end of <strong>each iteration</strong>. An
+  unbraced body (<code>if (c) defer f();</code>, a single-statement loop body, a <code>switch</code> case, a
+  <code>match</code> arm) is its own scope too: the defer runs when that body ends, and only if it
+  was reached.</li>
 <li>The deferred statement is evaluated when the block is left (it reads variables' values
   at exit time), after any <code>return</code> value has been computed.</li>
 <li>A defer body may not <code>return</code>, or <code>break</code>/<code>continue</code> out of itself (that would jump out
   of the cleanup); doing so is a compile error.</li>
 </ul>
-<p><code>defer</code> complements <code>try</code>/<code>finally</code> (§10): <code>finally</code> is for catch-and-cleanup around a
-block, while <code>defer</code> colocates a one-off release with its acquisition. For cleanup that
-must also run when an exception unwinds past the scope, use <code>try</code>/<code>finally</code>.</p>
+<p><code>defer</code> also runs when an exception unwinds out of the block: a <code>defer</code> in a <code>try</code> body
+runs before that <code>try</code>'s <code>catch</code> handles the exception, and a <code>defer</code> in a function the
+exception propagates through runs when an outer <code>try</code> catches it. (An exception no <code>try</code>
+catches ends the program without running cleanups, as in C++.) An <code>errdefer</code> does not run
+on an exception, only on <code>?</code>-propagation.</p>
+<p><code>defer</code> complements <code>try</code>/<code>finally</code> (§6.9): <code>finally</code> is for catch-and-cleanup around a
+block, while <code>defer</code> colocates a one-off release with its acquisition.</p>
 <p><strong><code>errdefer</code></strong> is a variant that runs its statement only on the <strong>error exit</strong> path,
 namely when the function leaves through <code>?</code>-propagation (an <code>Err</code> is returned early). It
 does not run on a normal <code>return</code>, on fall-through, or on <code>break</code>/<code>continue</code>. This is the
 tool for undoing partial work when a fallible step fails partway through, while keeping it
 on success:</p>
-<pre><code class="language-eskiu">Connection open_ready(string host) {
-    Connection c = connect(host)?;
-    errdefer close(c);        // closed only if a later `?` fails; kept on success
-    handshake(c)?;            // if this errors, close(c) runs and the Err propagates
-    return c;                 // success: c survives, errdefer does not run
+<pre><code class="language-eskiu">Result&lt;int, string&gt; connect(string host);
+Result&lt;int, string&gt; handshake(int fd);
+extern int close(int fd);
+
+Result&lt;int, string&gt; open_ready(string host) {
+    int fd = connect(host)?;
+    errdefer close(fd);             // closed only if a later `?` fails; kept on success
+    handshake(fd)?;                 // if this errors, close(fd) runs and the Err propagates
+    return Ok&lt;int, string&gt;(fd);     // success: fd stays open, errdefer does not run
 }
 </code></pre>
 <p>On the error path both kinds run in LIFO order (an <code>errdefer</code> registered after a <code>defer</code>
@@ -1431,7 +1579,7 @@ struct Rect {
 }
 </code></pre>
 <p>Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.</p>
-<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Consecutive bitfields pack into storage words of their declared type; reads mask and shift out the field (signed fields sign-extend), and writes are read-modify-write. You cannot take the address of a bitfield.</p>
+<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend); a bitfield whose values all fit an <code>int</code> (fewer than 32 bits, or at most 32 for a signed one) is read as an <code>int</code>, as C promotes it, so <code>u - 1</code> of a <code>uint32 u : 3</code> holding 0 is -1 (a postfix <code>f++</code> keeps the declared type, as in clang). Writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A <code>bool</code> bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (<code>int x : 0</code> is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).</p>
 <pre><code class="language-eskiu">struct Flags {
     uint32 ready  : 1;
     uint32 mode   : 3;
@@ -1442,7 +1590,7 @@ let f: Flags = Flags { ready: 1, mode: 5, weight: 9 };
 f.mode = 2;   // leaves ready and weight untouched
 </code></pre>
 <h3 id="82-methods-with-implicit-self">8.2 Methods with Implicit self</h3>
-<p>Methods are declared inside the struct body. Inside a method body, <code>self</code> refers to a pointer to the receiver struct.</p>
+<p>Methods are declared inside the struct body. Inside a method body, <code>self</code> refers to a pointer to the receiver struct. Because <code>self</code> is that implicit parameter, an inline method may not declare a parameter named <code>self</code>.</p>
 <pre><code class="language-eskiu">struct Counter {
     int count;
 
@@ -1455,7 +1603,17 @@ f.mode = 2;   // leaves ready and weight untouched
     }
 }
 </code></pre>
-<p>Methods are lowered to regular functions with a leading pointer parameter, e.g., <code>Counter_increment(*Counter self)</code>.</p>
+<p>Methods are lowered to regular functions with a leading pointer parameter, e.g., <code>Counter_increment(*Counter self)</code>. A method may also be written at top level in that lowered form, <code>int Counter_get(*Counter self) { ... }</code>, and it is called the same way (<code>c.get()</code>). To call a method on a <code>const</code> value, write the receiver as <code>const T* self</code> (see §4.6).</p>
+<p>Dot syntax also reaches a <strong>generic</strong> free function on an instance of a generic struct. When <code>x</code> has type <code>S&lt;A..&gt;</code> (or <code>*S&lt;A..&gt;</code>) and there is a generic function <code>S_m&lt;T..&gt;</code> whose first parameter is the struct (<code>S&lt;T..&gt;*</code>, or <code>S&lt;T..&gt;</code> by value), then <code>x.m(args)</code> is the call <code>S_m&lt;A..&gt;(&amp;x, args)</code>, or <code>S_m&lt;A..&gt;(x, args)</code> when <code>x</code> is already a pointer. The type arguments come from the receiver: a type parameter named in the first parameter's type takes the receiver's argument at that position, and any other one is inferred from the call's arguments. The arguments are checked against the instantiated parameter types, as for any call. This is how the standard library's generic containers read:</p>
+<pre><code class="language-eskiu">import &lt;list&gt;;
+
+List&lt;int&gt; l; l.init(4);      // List_init&lt;int&gt;(&amp;l, 4)
+l.push(8);                   // List_push&lt;int&gt;(&amp;l, 8)
+int n = l.len();             // List_len&lt;int&gt;(&amp;l)
+int first = l.get(0);        // List_get&lt;int&gt;(&amp;l, 0)
+l.free();
+</code></pre>
+<p>It works the same way inside a generic body, where the receiver's type arguments are the enclosing instance's (<code>void Box_twice&lt;T&gt;(Box&lt;T&gt;* self, T x) { self.set(x); }</code>). An inline method declared in the struct body takes precedence over a free function of the same name.</p>
 <h3 id="82a-operator-overloading">8.2a Operator Overloading</h3>
 <p>A type can give meaning to an operator by declaring <code>operator &lt;op&gt;</code>, so <code>a + b</code> reads as algebra instead of a nested call. This is aimed at value types like vectors and matrices, where the notation carries the meaning.</p>
 <pre><code class="language-eskiu">struct V3 { float x; float y; float z; }
@@ -1464,9 +1622,10 @@ V3 operator +(V3 a, V3 b)     { let r: V3; r.x = a.x + b.x; r.y = a.y + b.y; r.z
 V3 operator *(V3 a, double s) { let r: V3; r.x = a.x * (float)s; r.y = a.y * (float)s; r.z = a.z * (float)s; return r; }
 V3 operator -(V3 a)           { let r: V3; r.x = 0.0 - a.x; r.y = 0.0 - a.y; r.z = 0.0 - a.z; return r; }
 
-V3 p = (q - t) * 2.0;   // resolves to the two operators above
+V3 p = (q + t) * 2.0;   // operator + and then operator *(V3, double)
+V3 n = -q;              // the unary operator -
 </code></pre>
-<p>Overloadable: the binary operators <code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, the unary operators <code>- ! ~</code>, and subscript <code>[]</code>. Compound assignment (<code>v += w</code>) is defined as <code>v = v + w</code>, using the overloaded <code>+</code>. The short-circuit operators <code>&amp;&amp;</code> / <code>||</code>, the pointer operators <code>*</code> / <code>&amp;</code>, and <code>=</code> / <code>.</code> are structural and cannot be overloaded.</p>
+<p>Overloadable: the binary operators <code>+ - * / % == != &lt; &gt; &lt;= &gt;= &amp; | ^ &lt;&lt; &gt;&gt;</code>, the unary operators <code>- ! ~</code>, and subscript <code>[]</code>. A binary operator and <code>[]</code> take exactly two parameters, <code>!</code> and <code>~</code> exactly one, and <code>-</code> one (negation) or two (subtraction); any other count is a compile error. Compound assignment (<code>v += w</code>) is defined as <code>v = v + w</code>, using the overloaded <code>+</code>. The short-circuit operators <code>&amp;&amp;</code> / <code>||</code>, the pointer operators <code>*</code> / <code>&amp;</code>, and <code>=</code> / <code>.</code> are structural and cannot be overloaded.</p>
 <p>Resolution is entirely static and structural:</p>
 <ul>
 <li>A type gets an operator simply by declaring one for it. There is no trait or <code>impl</code> block to register; if an <code>operator</code> exists for the operand types, the operator resolves to it, otherwise the operands must be built-in.</li>
@@ -1480,7 +1639,11 @@ V3 p = (q - t) * 2.0;   // resolves to the two operators above
 <p><strong>Positional initialization:</strong></p>
 <pre><code class="language-eskiu">Point p = Point { 1.5, 2.5 };
 </code></pre>
-<p>Fields are assigned in declaration order in the positional form. All fields must be provided.</p>
+<p>Fields are assigned in declaration order in the positional form. A field the literal leaves out is zero-filled (as in C), in either form. Each value is checked against its field's type (an integer literal must fit the field), and naming a field twice, naming a field the struct does not have, or giving more positional values than there are fields is an error.</p>
+<pre><code class="language-eskiu">struct P { int x; int y; double z; }
+P a = P { y: 5 };        // x = 0, y = 5, z = 0.0
+P b = P { 1 };           // x = 1, y = 0, z = 0.0
+</code></pre>
 <h3 id="84-field-access-and-mutation">8.4 Field Access and Mutation</h3>
 <pre><code class="language-eskiu">let p: Point;
 p.x = 1.0;
@@ -1500,7 +1663,7 @@ int val = counter.get();
 </code></pre>
 <p><code>uint8[858]</code> lowers to <code>[858 x i8]</code> in LLVM IR.</p>
 <h3 id="86-union-types">8.6 Union Types</h3>
-<p>A <code>union</code> declaration is identical in syntax to <code>struct</code>, but all fields share offset 0. The size of the union equals the size of its largest field. Accessing a field reinterprets the underlying bytes as the field's type. No explicit cast is needed.</p>
+<p>A <code>union</code> declaration is identical in syntax to <code>struct</code>, but all fields share offset 0. The size of the union equals the size of its largest field, rounded up to the alignment of its most-aligned field, and the union is aligned like that field (the C layout). Accessing a field reinterprets the underlying bytes as the field's type. No explicit cast is needed.</p>
 <pre><code class="language-eskiu">union Value {
     int    i;
     float  f;
@@ -1517,8 +1680,9 @@ u.i = 0x3F800000;   // bit pattern for 1.0f
 printf(&quot;%f\n&quot;, u.f); // prints 1.0
 </code></pre>
 <p><code>sizeof(Value)</code> returns the size of the largest field: <code>sizeof(*uint8)</code> = 8 on a 64-bit target in this example.</p>
+<p>A union literal initializes exactly one member, named or positional (<code>Value{f: 1.5}</code>, <code>Value{7}</code> sets <code>i</code>); the remaining bytes are zero. Naming two members is an error. A union literal is a constant initializer for a global or <code>static</code> when its member value is constant.</p>
 <h3 id="87-enums">8.7 Enums</h3>
-<p>An <code>enum</code> declares a set of named integer constants. Members take consecutive values starting at 0; an explicit <code>= N</code> resets the running value, and the next member continues from there. The enum type itself is an <code>int</code> (<code>i32</code>), so enum values work in arithmetic, comparisons, and <code>switch</code>.</p>
+<p>An <code>enum</code> declares a set of named integer constants. Members take consecutive values starting at 0; an explicit <code>= N</code> resets the running value, and the next member continues from there. <code>N</code> is an integer constant expression, as in C: literals, the members before it (of this or another enum), top-level <code>const</code> ints declared earlier, <code>sizeof</code> (§5.8), casts, the integer operators, <code>!</code>, <code>&amp;&amp;</code>, <code>||</code> and <code>?:</code> (<code>enum Flag { A = 1, B = A &lt;&lt; 2, C }</code> gives <code>C == 5</code>; <code>D = K &gt; 2 ? 4 : 1</code>). The expression is evaluated with C's typed integer rules (§3.1: the usual arithmetic conversions, 32-bit wraparound, unsigned comparison and division, the arithmetic right shift of a signed value, <code>sizeof</code> as an unsigned size), as are array dimensions and <code>case</code> labels: <code>((uint)3 - (uint)5) / 2 &gt; 100</code> is 1 and <code>(1 &lt;&lt; 31) &gt;&gt; 31</code> is -1. A value that is not constant is a compile error, and every value must fit an <code>int</code>. The enum type itself is an <code>int</code> (<code>i32</code>), so enum values work in arithmetic, comparisons, and <code>switch</code>.</p>
 <pre><code class="language-eskiu">enum Color  { Red, Green, Blue }            // 0, 1, 2
 enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
 
@@ -1526,7 +1690,7 @@ let c: Color = Green;            // c == 1
 if (c == Red) { /* ... */ }
 </code></pre>
 <p>Members are unscoped. <code>Red</code> is used directly, as in C. The enum name may be used anywhere a type is expected (it behaves as <code>int</code>).</p>
-<p>A classic enum may also be consumed with <code>match</code>, which checks the dispatch is exhaustive (every variant covered, or a <code>_</code> default), so adding a variant turns every unhandled <code>match</code> into a compile error. This is the same guarantee algebraic enums get; <code>switch</code> stays available for a non-exhaustive dispatch.</p>
+<p>A classic enum may also be consumed with <code>match</code>, which checks the dispatch is exhaustive (every variant covered, or a <code>_</code> default), so adding a variant turns every unhandled <code>match</code> into a compile error. This is the same guarantee algebraic enums get; <code>switch</code> stays available for a non-exhaustive dispatch. Two members may share a value, as in C (<code>enum E { A = 1, B = 1 }</code>); since <code>match</code> dispatches on the value, one arm covers every member with that value, and two arms for equal values are an error.</p>
 <pre><code class="language-eskiu">int dx(Color c) {
     match c {
         Red   -&gt; { return -1; }
@@ -1537,7 +1701,7 @@ if (c == Red) { /* ... */ }
 }
 </code></pre>
 <h4 id="871-algebraic-enums-tagged-unions">8.7.1 Algebraic enums (tagged unions)</h4>
-<p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload), and a value is destructured with <code>match</code>:</p>
+<p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type: a tagged union, not an integer. Each variant is constructed by name (with arguments for its payload; a payload-free variant is written bare, and <code>Unit()</code> is an error), and a value is destructured with <code>match</code>:</p>
 <pre><code class="language-eskiu">enum Shape {
     Circle(float),
     Rect(float, float),
@@ -1555,28 +1719,37 @@ float area(Shape s) {
 Shape a = Circle(2.0);          // construct; payload-free variants are bare (`Unit`)
 </code></pre>
 <p>Algebraic enums may be <strong>generic</strong> and are monomorphized per instantiation, like
-template structs. The type arguments of a generic variant are inferred from the
-payload arguments when they determine them (<code>Some(42)</code> → <code>Option&lt;int&gt;</code>); otherwise
-(a payload-free variant like <code>None</code>, or one that under-determines the type like
-<code>Either</code>'s <code>Left</code>) write them explicitly:</p>
+template structs. Where an instance of the variant's enum is expected (a declaration,
+an assignment, a <code>return</code>, an argument of a function or of a generic function called
+with explicit type arguments, a struct-literal field, an array-literal element, or the
+payload of another variant), the variant takes that instance's type arguments, and its
+payload is checked against them: <code>Option&lt;int64&gt; a = Some(42)</code> builds an
+<code>Option&lt;int64&gt;</code>, <code>Option&lt;Option&lt;int64&gt;&gt; b = Some(Some(5))</code> an <code>Option&lt;int64&gt;</code> inside,
+and a bare <code>None</code> or an under-determining <code>Left(7)</code> is accepted there. Elsewhere the type
+arguments are inferred from the payload arguments when they determine them (<code>Some(42)</code>
+→ <code>Option&lt;int&gt;</code>); otherwise (a payload-free variant like <code>None</code>, or one that
+under-determines the type like <code>Either</code>'s <code>Left</code>) write them explicitly (<code>None&lt;int&gt;()</code>,
+<code>Left&lt;int, string&gt;(7)</code>). Inside a generic function only a type as written is used (a
+declared type, the declared return type): <code>return None;</code> in an <code>Option&lt;T&gt;</code> function is
+<code>None&lt;T&gt;()</code>; an assignment or an argument there needs the type arguments written:</p>
 <pre><code class="language-eskiu">enum Option&lt;T&gt;    { None, Some(T) }
 enum Either&lt;A, B&gt; { Left(A), Right(B) }
 
-Option&lt;int&gt; x = Some&lt;int&gt;(42);
-Option&lt;int&gt; y = None&lt;int&gt;();
-Either&lt;int, string&gt; e = Left&lt;int, string&gt;(7);
+Option&lt;int64&gt; x = Some(42);
+Option&lt;int&gt; y = None;
+Either&lt;int, string&gt; e = Left(7);
 
-match x { Some(v) -&gt; printf(&quot;%d\n&quot;, v);  None -&gt; printf(&quot;none\n&quot;); }
+match x { Some(v) -&gt; printf(&quot;%lld\n&quot;, v);  None -&gt; printf(&quot;none\n&quot;); }
 </code></pre>
 <p>A <code>match</code> must be <strong>exhaustive</strong>: every variant must have an arm, or there must be
 a <code>_</code> default. Otherwise it is a compile error naming the missing variants. A
-variant may not appear in two arms. The arm body is any statement (often a block
+variant may not appear in two arms, and a match has at most one <code>_</code> default. The arm body is any statement (often a block
 or a <code>return</code>). The value is
 laid out as <code>{ tag, payload }</code>, where the payload area is sized to the largest
 variant. (A <code>match</code> subject is parsed without a trailing struct literal, like the
 condition of an <code>if</code>; wrap it in parens if you need one.)</p>
 <h3 id="88-type-aliases">8.8 Type Aliases</h3>
-<p><code>type Name = ExistingType;</code> introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers and templates.</p>
+<p><code>type Name = ExistingType;</code> introduces a name for an existing type. The alias is fully interchangeable with its underlying type. It resolves before type checking and code generation. Aliases work for any type, including pointers, arrays, slices, fn types, interfaces, enums and templates: a value of an alias type derefs, indexes, calls, boxes, matches and dispatches methods and operators exactly as a value of the target type. An alias of an array or slice given more dimensions keeps them outer (<code>type IS = int[]; IS[2]</code> is two slices).</p>
 <pre><code class="language-eskiu">type u8      = uint8;
 type Bytes   = *uint8;
 type IntList = List&lt;int&gt;;
@@ -1605,7 +1778,7 @@ struct WireHeader {     // packed (sizeof == 5)
 }
 #pragma pack(pop)       // subsequent structs use natural alignment again
 </code></pre>
-<p><code>#pragma pack(1)</code> and <code>packed struct</code> are equivalent (fully packed, no padding). <code>#pragma pack(N)</code> for <code>N &gt; 1</code> caps each field's alignment at <code>N</code>: a field whose natural alignment exceeds <code>N</code> is aligned to <code>N</code> instead, and the struct's total size rounds up to its own alignment (<code>min(max-field-alignment, N)</code>). This matches the C <code>#pragma pack(N)</code> ABI. For example, under <code>pack(4)</code> a <code>struct { char a; int64 b; int16 c; }</code> lays out <code>a@0</code>, <code>b@4</code>, <code>c@12</code> with <code>sizeof == 16</code>. Packed layout (any <code>N</code>) composes with bitfields and is reflected by <code>sizeof</code> and by every field access.</p>
+<p><code>#pragma pack(1)</code> and <code>packed struct</code> are equivalent (fully packed, no padding). <code>#pragma pack(N)</code> for <code>N &gt; 1</code> caps each field's alignment at <code>N</code>: a field whose natural alignment exceeds <code>N</code> is aligned to <code>N</code> instead, and the struct's total size rounds up to its own alignment (<code>min(max-field-alignment, N)</code>). This matches the C <code>#pragma pack(N)</code> ABI. For example, under <code>pack(4)</code> a <code>struct { char a; int64 b; int16 c; }</code> lays out <code>a@0</code>, <code>b@4</code>, <code>c@12</code> with <code>sizeof == 16</code>. <code>N</code> must be 1, 2, 4, 8 or 16 (as in C); any other alignment is a compile error at the pragma. Packed layout (any <code>N</code>) composes with bitfields and is reflected by <code>sizeof</code> and by every field access. A struct declared under <code>pack(N)</code> keeps its alignment <code>min(max-field-alignment, N)</code> wherever it is used, as in C: as a field or array element of another struct (declared under any packing that does not cap it lower) and as a union member. A union declared under <code>pack(N)</code> caps each member's alignment at <code>N</code> the same way: <code>#pragma pack(2) union U { char[5] c; int x; }</code> is 6 bytes and 2-aligned.</p>
 <hr>
 <h2 id="9-interfaces">9. Interfaces</h2>
 <h3 id="91-declaration">9.1 Declaration</h3>
@@ -1637,13 +1810,15 @@ interface Greeter {
     d.draw();
 }
 </code></pre>
-<p>Dispatch is performed via the vtable pointer in the fat pointer.</p>
+<p>Dispatch is performed via the vtable pointer in the fat pointer. The arguments are checked against the interface's declaration of the method (count and types), like a direct call.</p>
 <h3 id="94-passing-structs-as-interfaces">9.4 Passing Structs as Interfaces</h3>
 <p>Passing a struct pointer to a function expecting an interface auto-boxes it into a fat pointer <code>{data_ptr, vtable_ptr}</code>:</p>
 <pre><code class="language-eskiu">Circle c;
 c.radius = 5.0;
 render(&amp;c);   // &amp;c is auto-boxed into a Drawable fat pointer
 </code></pre>
+<p>The same boxing happens wherever an interface-typed slot receives a struct pointer: a local (<code>let d: Drawable = &amp;c;</code>), an assignment, a struct field, and a <code>return</code> from a function declared to return the interface. The interface value is held by value, so it can be stored and returned freely; it keeps referring to the struct it was boxed from. Passing the struct itself (<code>render(c)</code>) is a compile error: an interface refers to a struct through a pointer, so write <code>&amp;c</code>.</p>
+<p><code>null</code> converts to an interface, giving the empty value <code>{null, null}</code> (in a declaration, an assignment, a return, an argument or a field). An interface value compares with <code>null</code> (<code>d == null</code>, <code>d != null</code>) and is a condition that is true when it refers to a struct (<code>if (d)</code>, <code>!d</code>, <code>d &amp;&amp; ...</code>); it compares with nothing else. Calling a method through an empty interface value crashes, so test it first. A global or <code>static</code> interface is initialized with <code>null</code> or the address of a global struct (<code>Drawable d = &amp;gc;</code>), a link-time constant.</p>
 <h3 id="95-implementation-detail-fat-pointer">9.5 Implementation Detail: Fat Pointer</h3>
 <p>Under the hood, an interface value is a two-word fat pointer:</p>
 <pre><code>{ i8* data_ptr, i8* vtable_ptr }
@@ -1663,6 +1838,17 @@ struct Box&lt;T&gt; {
     int valid;
 }
 </code></pre>
+<p>A template struct may declare methods in its body. Each method is generated per struct instance, on the first call: for <code>Box&lt;int&gt;</code> the method <code>get</code> becomes <code>Box_int_get(*Box_int self)</code>. A method that only makes sense for some type arguments is fine as long as no other instance calls it.</p>
+<pre><code class="language-eskiu">struct Cell&lt;T&gt; {
+    T v;
+    T get() { return self.v; }
+    T twice() { return self.v + self.v; }
+}
+
+Cell&lt;int&gt; c = Cell&lt;int&gt;{ 21 };
+int n = c.twice();                // 42
+</code></pre>
+<p>A generic function in the <code>Type_method</code> form (<code>T Cell_peek&lt;T&gt;(Cell&lt;T&gt;* self)</code>) is also callable as <code>c.peek()</code>, with its type arguments taken from the receiver (§8.2).</p>
 <h3 id="102-template-functions">10.2 Template Functions</h3>
 <pre><code class="language-eskiu">T identity&lt;T&gt;(T x) {
     return x;
@@ -1681,8 +1867,12 @@ p.second = 3.14;
 
 int big = max&lt;int&gt;(10, 20);
 </code></pre>
+<p>The body of a template is type-checked once per instance, with the concrete type arguments substituted, after the rest of the program. An error that exists only for some type arguments (an operator the concrete type lacks, a value passed where a method takes a pointer) is reported at the offending expression, with the instance named:</p>
+<pre><code>error: f.esk:3:28: invalid operands for operator: struct:Box and struct:Box (in instantiation of twice&lt;Box&gt;)
+</code></pre>
 <h3 id="104-using-result-from-stdlib">10.4 Using Result<T,E> from stdlib</h3>
 <pre><code class="language-eskiu">import &lt;result&gt;;
+extern int printf(string fmt, ...);
 
 int main() {
     let r: Result&lt;int, string&gt; = Ok&lt;int, string&gt;(42);
@@ -1718,8 +1908,8 @@ Result&lt;int, string&gt; compute(int a, int b, int c) {
     return Ok&lt;int, string&gt;(y + 1);
 }
 </code></pre>
-<p>A value is treated as Result-like if it has an <code>int ok</code> field and a <code>value</code>
-field; the standard library's <code>Result&lt;T, E&gt;</code> satisfies this. Applying <code>?</code> to an
+<p>A value is treated as Result-like if it has an <code>ok</code> field of an integer type or
+<code>bool</code> (zero is the error) and a <code>value</code> field; the standard library's <code>Result&lt;T, E&gt;</code> satisfies this. Applying <code>?</code> to an
 expression of any other type is a compile error.</p>
 <h3 id="106-bounded-type-parameters-constraints">10.6 Bounded type parameters (constraints)</h3>
 <p>A type parameter may carry one or more interface constraints, written after a
@@ -1728,7 +1918,7 @@ parameter satisfy the named interface(s), the same structural match used for
 <code>interface</code> values (§9): the type must provide a method for each signature in the
 interface.</p>
 <pre><code class="language-eskiu">interface Ord {
-    int cmp(*Self other);
+    int cmp(*Ord other);    // `Ord` here stands for the implementing type
 }
 
 // `T` must satisfy `Ord`, checked at the call site, not deep in codegen.
@@ -1744,10 +1934,14 @@ struct Cache&lt;K: Hashable + Eq, V&gt; {
     int len;
 }
 </code></pre>
+<p>Inside an interface, a parameter type spelled with the interface's own name stands for
+the implementing type (§9), so <code>struct Num { int v; int cmp(*Num o) {...} }</code> satisfies
+<code>Ord</code> above. There is no <code>Self</code> keyword: <code>*Self</code> is an ordinary (unknown) type name and
+no struct matches it.</p>
 <p>The constraint is enforced when the template is instantiated. If the concrete
 type does not satisfy the interface, the compiler reports the error at the
 instantiation site:</p>
-<pre><code>error: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter)
+<pre><code>error: main.esk:9:15: type 'int' does not satisfy constraint 'Ord' (required by a bounded type parameter): missing method 'cmp'
 </code></pre>
 <p>Constraints are checked for both explicit (<code>max&lt;Num&gt;(...)</code>) and inferred
 (<code>max(a, b)</code>) instantiations, and for template structs the moment a concrete
@@ -1757,7 +1951,7 @@ still keyed on the concrete type arguments (§10.3).</p>
 the interface's methods. A <em>primitive</em> type (<code>int</code>, <code>float</code>, …) has no methods, so
 it satisfies a constraint through a <strong>free function</strong> named like the interface
 method whose first parameter is that primitive, e.g. <code>int cmp(int, int)</code> makes
-<code>int</code> satisfy <code>interface Ord { int cmp(Self) }</code>. Inside a generic body a
+<code>int</code> satisfy <code>interface Ord { int cmp(Ord other); }</code>. Inside a generic body a
 constrained call <code>t.cmp(x)</code> on such a <code>t</code> lowers to <code>cmp(t, x)</code>. So both
 <code>max&lt;T: Ord&gt;(int…)</code> and a constraint-bounded <code>Map&lt;K: Hashable, V&gt;</code> over <code>int</code> keys
 type-check and compile. (The function-pointer <code>HashMap&lt;K, V&gt;</code> from the standard
@@ -1766,7 +1960,9 @@ library remains for cases where you want to thread <code>hash</code>/<code>eq</c
 <h2 id="11-memory">11. Memory</h2>
 <h3 id="111-stack-allocation">11.1 Stack Allocation</h3>
 <p>All variables declared in a function body are allocated on the stack. Stack memory is reclaimed automatically when the enclosing function returns. There is no garbage collector.</p>
-<pre><code class="language-eskiu">int main() {
+<pre><code class="language-eskiu">struct Point { float x; float y; }
+
+int main() {
     int x = 10;
     Point p;
     p.x = 1.0;
@@ -1793,6 +1989,9 @@ free(buf);
 *int pi = alloc&lt;int&gt;(8);
 *int  p2 = pi + 1;        // 4 bytes forward, next int element
 </code></pre>
+<p><code>p - q</code> between two pointers counts the elements between them (an <code>int64</code>). Both must
+point to the same type, as in C (<code>const</code>, <code>?</code> and aliases aside); <code>*int - *char</code> is a
+compile error.</p>
 <p>The subscript operator <code>ptr[i]</code> reads or writes the <code>i</code>-th element and is exactly equivalent to <code>*(ptr + i)</code> (typed by the pointee). It is the idiomatic way to index allocated buffers and array fields:</p>
 <pre><code class="language-eskiu">*int xs = alloc&lt;int&gt;(4);
 xs[0] = 10;
@@ -1834,7 +2033,7 @@ if (p != null) {
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 </code></pre>
 <p>Freestanding mode does not remove any other language features. The standard library modules (<code>stdlib/result.esk</code>, etc.) remain available but must not import libc functions that are absent from the target.</p>
-<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global.</p>
+<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator. <code>n</code> must be an integer, the allocator must be a pointer to it (<code>&amp;a</code>, or a <code>*Type</code> value), its type must have the <code>alloc</code> method (a free <code>&lt;Type&gt;_alloc</code> or an inline <code>alloc</code>) of that shape (the allocator, then an integer size, returning a pointer), and <code>T</code> must be a known type with a size (not <code>void</code>); otherwise it is a compile error.</p>
 <pre><code class="language-eskiu">import &lt;alloc&gt;;
 
 *uint8 backing = alloc&lt;uint8&gt;(4096);   // one slab from the host (or a static buffer in freestanding)
@@ -1869,7 +2068,7 @@ let a: Bump;  Bump_init(&amp;a, backing, 4096);
 <tr>
 <td><code>FirstFit</code></td>
 <td>general-purpose, first-fit search with region splitting (after Thompson's original)</td>
-<td><code>FirstFit_free</code> returns a region (adjacent-region coalescing is a planned refinement)</td>
+<td><code>FirstFit_free</code> returns a region and merges it with adjacent free regions (the free list is kept in address order); freeing null is a no-op</td>
 </tr>
 </tbody>
 </table></div>
@@ -1897,7 +2096,7 @@ import &quot;../shared/types.esk&quot;;
 <p><code>import "path"</code> resolves the path relative to the directory of the importing file, as before.</p>
 <p>All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.</p>
 <h3 id="122-deduplication">12.2 Deduplication</h3>
-<p>Each file is parsed and processed at most once per compilation, regardless of how many files import it. Circular imports are detected and do not cause infinite loops.</p>
+<p>Each file is parsed and processed at most once per compilation, regardless of how many files import it. Files are identified by their canonical path, so two different relative spellings of the same file (a diamond import) count as one. Circular imports are detected and do not cause infinite loops.</p>
 <h3 id="123-example">12.3 Example</h3>
 <pre><code class="language-eskiu">// main.esk
 import &lt;io&gt;;
@@ -1932,6 +2131,7 @@ int last_error() {
 }
 </code></pre>
 <p>An extern variable lives at the top level and carries no initializer (its definition, and value, live in the other object). <code>extern const &lt;type&gt; &lt;name&gt;;</code> declares a read-only C global.</p>
+<p>The definition may also be in the same program: an <code>extern</code> next to the variable's own definition (before or after it, or in another file compiled with it) names that one variable. In the other direction, every Eskiu global has external (C) linkage under its own name, so C code can reach it with <code>extern int name;</code>. A <code>static</code> local stays private to its function.</p>
 <h3 id="133-calling-extern-functions">13.3 Calling Extern Functions</h3>
 <p><code>extern</code> functions are called exactly like Eskiu functions:</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
@@ -1949,6 +2149,10 @@ extern *void memcpy(*void dst, *void src, int64 n);
 extern *void memset(*void ptr, int value, int64 n);
 </code></pre>
 <p>(For heap allocation, prefer <code>import &lt;mem&gt;</code> and <code>alloc&lt;T&gt;</code>/<code>free</code> over declaring <code>malloc</code>/<code>free</code> as <code>extern</code> yourself; see §11.2.)</p>
+<p>A struct or union may be passed to or returned from an <code>extern</code> function <strong>by value</strong>. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM, in both compilers (the self-hosted one picks the convention from <code>--target</code>). See <code>docs/dev/abi.md</code> for the per-target rules.</p>
+<pre><code class="language-eskiu">struct Vec2 { double x; double y; }
+extern Vec2 vec2_add(Vec2 a, Vec2 b);   // a C function taking and returning structs
+</code></pre>
 <h3 id="134-passing-an-eskiu-function-as-a-c-callback">13.4 Passing an Eskiu function as a C callback</h3>
 <p>Many C APIs take a function pointer (<code>qsort</code>, <code>signal</code>, OpenSSL's ALPN selector,
 …). Casting a <strong>top-level</strong> Eskiu function to a pointer type yields its bare C
@@ -1962,7 +2166,17 @@ qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C 
 </code></pre>
 <p>The callback's signature must match what the C side expects (C ABI). This works
 only for top-level functions (a closure or fn-pointer variable still carries an
-environment and is not C-callable).</p>
+environment and is not C-callable). A callback that takes or returns a struct by
+value works too: C reaches it through a generated thunk with the C calling
+convention.</p>
+<p>An <code>extern</code> parameter of fn type is a C function pointer, so the prototype can
+spell the callback's signature and the call passes a top-level function by name
+(or <code>null</code>), with no cast:</p>
+<pre><code class="language-eskiu">extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)-&gt;int cmp);
+
+qsort((*void)arr, (int64)5, (int64)4, cmp);
+</code></pre>
+<p>Passing anything else there (a lambda, a fn-typed variable) is a compile error.</p>
 <hr>
 <h2 id="14-stdlib">14. Stdlib</h2>
 <p>Eskiu ships a set of standard library files in the <code>stdlib/</code> directory. Import a module by name with <code>import &lt;name&gt;;</code> (the canonical form, resolved by the compiler); <code>import "stdlib/name.esk";</code> with a relative path also works.</p>
@@ -1984,7 +2198,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/string.esk</code></td>
-<td><code>String</code> struct; <code>String_init</code>, <code>String_from</code>, <code>String_append</code>, <code>String_concat</code>, <code>String_push</code>, <code>String_char_at</code>, <code>String_set</code>, <code>String_clear</code>, <code>String_index_of</code>, <code>String_eq</code>, <code>String_eq_cstr</code>, <code>String_reverse</code>, <code>String_substring</code>, <code>String_from_int</code>, <code>String_to_int</code>, <code>String_cstr</code>, <code>String_len</code>, <code>String_free</code>, <code>String_starts_with</code>, <code>String_ends_with</code>, <code>String_trim</code>, <code>String_next_token</code> (streaming split), <code>String_split</code>/<code>String_split_free</code> (into a <code>List&lt;String&gt;</code>)</td>
+<td><code>String</code> struct; <code>String_init</code>, <code>String_from</code>, <code>String_append</code>, <code>String_concat</code>, <code>String_push</code>, <code>String_char_at</code>, <code>String_set</code>, <code>String_clear</code>, <code>String_index_of</code>, <code>String_eq</code>, <code>String_eq_cstr</code>, <code>String_reverse</code>, <code>String_substring</code>, <code>String_from_int</code>, <code>String_to_int</code>, <code>String_cstr</code>, <code>String_len</code>, <code>String_free</code>, <code>String_starts_with</code>, <code>String_ends_with</code>, <code>String_trim</code>, <code>String_next_token</code> (streaming split), <code>String_split</code>/<code>String_split_free</code> (into a <code>List&lt;String&gt;</code>). <code>String_to_int</code> accepts a leading sign and saturates at the <code>int</code> range. <code>String_is_space</code> is deprecated; use <code>is_space</code> from <code>&lt;ctype&gt;</code></td>
 </tr>
 <tr>
 <td><code>stdlib/ctype.esk</code></td>
@@ -1992,11 +2206,11 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/math.esk</code></td>
-<td><code>extern</code> declarations for <code>sqrt</code>, <code>fabs</code>, <code>pow</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code></td>
+<td><code>extern</code> declarations for <code>sqrt</code>, <code>fabs</code>, <code>pow</code>, <code>floor</code>, <code>ceil</code>, <code>fmod</code>, <code>abs</code></td>
 </tr>
 <tr>
 <td><code>stdlib/io.esk</code></td>
-<td><code>extern</code> declarations for <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code></td>
+<td><code>extern</code> declarations for <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>, <code>getchar</code>, <code>putchar</code></td>
 </tr>
 <tr>
 <td><code>stdlib/mem.esk</code></td>
@@ -2008,7 +2222,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/net.esk</code></td>
-<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_accept_addr</code> (accept + peer IPv4), <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_send_str</code>, <code>net_close</code> (plus the raw POSIX <code>extern</code>s and a portable <code>sockaddr_in</code>)</td>
+<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_accept_addr</code> (accept + peer IPv4), <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_send_str</code>, <code>net_close</code>, socket timeouts (<code>net_set_recv_timeout</code>, <code>net_set_send_timeout</code>, <code>net_set_timeouts</code>, <code>net_would_block</code>; the <code>struct timeval</code> is two C <code>long</code>s, so 8 bytes on 32-bit ARM), deadlines (<code>net_deadline</code>, <code>NET_TIMED_OUT</code>) and a blocking readiness wait (<code>net_wait_ready</code>, over <code>poll</code> / <code>WSAPoll</code>) (plus the raw POSIX <code>extern</code>s and a portable <code>sockaddr_in</code>)</td>
 </tr>
 <tr>
 <td><code>stdlib/alloc.esk</code></td>
@@ -2016,7 +2230,27 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/time.esk</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code></td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; a UTC civil calendar: <code>DateTime</code> (year/month/day/hour/min/sec plus <code>wday</code>/<code>yday</code>), <code>time_to_utc(t, &amp;dt)</code> (epoch seconds to fields), <code>DateTime_to_epoch</code>, and <code>DateTime_format_iso</code> (ISO 8601, e.g. <code>2026-07-13T18:30:00Z</code>)</td>
+</tr>
+<tr>
+<td><code>stdlib/random.esk</code></td>
+<td><code>Rng</code>, a seedable xoshiro256** generator (not cryptographic): <code>Rng_seed</code>, <code>Rng_next</code> (raw 64-bit), <code>Rng_below</code> (unbiased <code>[0, n)</code>), <code>Rng_range</code> (<code>[lo, hi)</code>), <code>Rng_bool</code>, <code>Rng_double</code> (<code>[0.0, 1.0)</code>), <code>Rng_fill</code> (random bytes)</td>
+</tr>
+<tr>
+<td><code>stdlib/regex.esk</code></td>
+<td>A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): <code>regex_compile(pattern) -&gt; Regex</code> (check <code>.ok</code> / <code>.err</code>), <code>Regex_search(&amp;re, text, &amp;m)</code> for the leftmost match with capture groups, <code>Match_group</code>, <code>Match_free</code>, <code>Regex_free</code>, and the one-shot <code>regex_match(pattern, text)</code>. RE2 syntax and semantics (as Go's regexp) over UTF-8: <code>.</code>, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, <code>.</code>, classes <code>[a-z]</code>/<code>[^...]</code> with POSIX names inside (<code>[[:alpha:]]</code>, <code>[[:^space:]]</code>), the ASCII shorthands <code>\d \w \s</code> (and negations; <code>\s</code> is <code>[\t\n\f\r ]</code>), Unicode classes <code>\pL</code>, <code>\p{Lu}</code>, <code>\p{Greek}</code>, <code>\P{..}</code>, <code>\p{^..}</code> (general categories, scripts, <code>Any</code>; the Unicode 15 tables are <code>stdlib/regex_unicode.esk</code>), <code>* + ? {m} {m,} {m,n}</code> (lazy with <code>?</code>; any other <code>{</code> is a literal), <code>|</code>, groups, non-capturing <code>(?:...)</code>, named <code>(?P&lt;name&gt;...)</code> / <code>(?&lt;name&gt;...)</code>, the flags <code>(?i)</code> (simple case folding) <code>(?m)</code> <code>(?s)</code> <code>(?U)</code> for the rest of a group or scoped <code>(?flags:...)</code>, <code>^</code> / <code>$</code>, <code>\A</code> / <code>\z</code>, the ASCII word boundaries <code>\b</code> / <code>\B</code>, <code>\xHH</code> / <code>\x{10FFFF}</code> and octal escapes, literal text <code>\Q...\E</code> (any other escaped letter or digit is an error)</td>
+</tr>
+<tr>
+<td><code>stdlib/sort.esk</code></td>
+<td>Generic in-place heapsort <code>sort&lt;T&gt;(a, n, cmp)</code> and binary search <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> (index or <code>-1</code>) over a <code>*T</code> array; <code>cmp</code> is <code>fn(*T, *T)-&gt;int</code> (negative / zero / positive)</td>
+</tr>
+<tr>
+<td><code>stdlib/url.esk</code></td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (keys and values are decoded, <code>+</code> to a space)</td>
+</tr>
+<tr>
+<td><code>stdlib/uuid.esk</code></td>
+<td><code>uuid_v4(&amp;rng, &amp;out)</code>: an RFC 4122 version-4 UUID string (<code>xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx</code>) drawn from a <code>&lt;random&gt;</code> <code>Rng</code></td>
 </tr>
 <tr>
 <td><code>stdlib/env.esk</code></td>
@@ -2024,7 +2258,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/base64.esk</code></td>
-<td><code>base64_encode</code> / <code>base64_decode</code> over byte buffers, plus <code>base64_encoded_len</code> / <code>base64_decoded_len</code> and the <code>base64_value</code> / <code>base64_digit</code> primitives</td>
+<td><code>base64_encode</code> / <code>base64_decode</code> over byte buffers (decoding rejects bad padding and truncated input), plus <code>base64_encoded_len</code> / <code>base64_decoded_len</code> and the <code>base64_value</code> / <code>base64_digit</code> primitives</td>
 </tr>
 <tr>
 <td><code>stdlib/bytes.esk</code></td>
@@ -2036,11 +2270,11 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/http.esk</code></td>
-<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_header</code>, <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>, and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code>. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, into a <code>*uint8</code> body), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
+<td>HTTP/1.1: <code>HttpRequest</code> + <code>HttpRequest_parse</code>/<code>_parse_status</code>/<code>_header</code> (RFC 9112 framing, the same as <code>http_recv</code>: <code>_parse_status</code> is 0 for a complete request, -1 when more bytes are needed, else the HTTP error status), <code>HttpResponse</code> + <code>HttpResponse_header</code>/<code>_set_body</code>/<code>_render</code>/<code>_render_head</code> (a HEAD response: Content-Length, no body; a 1xx, 204 or 304 has neither; <code>HttpResponse_header</code> returns 1, or 0 and adds nothing for a name that is not a token or a value with a CR or LF, which would inject a header line; a Content-Length the handler sets is not sent next to the automatic one, only a 1xx, 204 or 304 keeps it), and a threaded worker pool <code>http_serve(port, nworkers, handler)</code> where <code>handler</code> is <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code> (<code>http_serve_with(port, nworkers, handler, lim)</code> takes an <code>HttpLimits</code>); it reads each request until complete (<code>HttpConnBuf_feed</code>, incremental: the head is parsed once and a chunked body decoded as it arrives), answering a bad one 400, 413, 501 or 505 without the handler (limits: a head over <code>HTTP_SERVE_MAX_HEAD</code>, 64 KiB, is 400, a body over <code>HTTP_SERVE_MAX_BODY</code>, 1 MiB, 413). <code>HttpLimits</code> (<code>HttpLimits_init</code> / <code>http_limits()</code> give the defaults) holds every server's timeouts in ms, 0 turning one off: <code>header_ms</code> (<code>HTTP_HEADER_TIMEOUT_MS</code>, 10 s: the whole head; trickled bytes do not extend it), <code>body_ms</code> (<code>HTTP_BODY_TIMEOUT_MS</code>, 60 s: the body once the head is in), <code>idle_ms</code> (<code>HTTP_IDLE_TIMEOUT_MS</code>, 60 s: an HTTP/2 connection with no open stream), <code>write_ms</code> (<code>HTTP_WRITE_TIMEOUT_MS</code>, 30 s: the client must take the answer; an HTTP/2 stream counts it from the last response data sent), <code>write_total_ms</code> (<code>HTTP_WRITE_TOTAL_MS</code>, 5 min: an HTTP/2 stream's whole response must be sent within it from when it is ready, however the peer paces its window updates; past it the stream is reset with CANCEL and its buffered response freed, the connection stays open), and <code>max_open</code> (<code>HTTP_MAX_OPEN_CONNS</code>, 1024: connections an async server holds at once; one past it is closed at once). A request cut by <code>header_ms</code> or <code>body_ms</code> after some of it arrived is answered 408; a peer that sent nothing is just closed. <code>http_serve</code> applies them with <code>SO_RCVTIMEO</code> (set to what is left of the deadline before each read) and <code>SO_SNDTIMEO</code>. <code>http_chunked_step</code> decodes a chunked body incrementally; a chunk-size or trailer line longer than <code>HTTP_CHUNK_LINE_MAX</code> (8192 bytes, CRLF included) is malformed however it was split into reads. The servers and <code>http_recv</code> drop the chunked input they have decoded, so their buffer holds the head and one unfinished chunk or line, and they reject a trailer section longer than <code>HTTP_CHUNK_TRAILER_MAX</code> (64 KiB) with 400. Plus a binary-safe full-body reader <code>HttpReq</code> + <code>http_recv</code> (loops until the Content-Length body arrives, or decodes a chunked body, into a <code>*uint8</code> body; RFC 9112 framing: <code>Transfer-Encoding</code> with <code>Content-Length</code>, a missing, repeated or invalid <code>Host</code> (not uri-host [":" port]), whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than <code>chunked</code> 501), <code>HttpReq_header</code>, <code>http_reply</code>, <code>http_reply_error</code>: for uploads a single-recv String body would corrupt binary bytes</td>
 </tr>
 <tr>
 <td><code>stdlib/multipart.esk</code></td>
-<td>Extract a named part from a <code>multipart/form-data</code> body over raw bytes: <code>multipart_boundary(ct, out)</code> and <code>multipart_part(body, len, boundary, name, *out_ptr, *out_len)</code> (returns a slice into the body)</td>
+<td>Extract a named part from a <code>multipart/form-data</code> body over raw bytes: <code>multipart_boundary(ct, out)</code> and <code>multipart_part(body, len, boundary, name, *out_ptr, *out_len)</code> (the part whose <code>Content-Disposition</code> <code>name</code> parameter is <code>name</code>; returns a slice into the body)</td>
 </tr>
 <tr>
 <td><code>stdlib/map.esk</code></td>
@@ -2052,7 +2286,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/eventloop.esk</code></td>
-<td>Readiness reactor over kqueue (macOS) / epoll (Linux): <code>EventLoop</code>, <code>el_new</code>, <code>el_add_read</code>, <code>el_add_write</code>, <code>el_del</code>, <code>el_run</code>, <code>el_stop</code>, <code>el_free</code>, plus a timer wheel (<code>el_add_timer</code>/<code>el_del_timer</code>). Callback is <code>fn(EventLoop*, int)-&gt;void</code></td>
+<td>Readiness reactor over kqueue (macOS) / epoll (Linux): <code>EventLoop</code>, <code>el_new</code>, <code>EventLoop_add_read</code>, <code>EventLoop_add_write</code>, <code>EventLoop_del</code>, <code>EventLoop_run</code>, <code>EventLoop_stop</code>, <code>EventLoop_free</code>, plus a timer wheel (<code>EventLoop_add_timer</code>/<code>EventLoop_del_timer</code>). Callback is <code>fn(EventLoop*, int)-&gt;void</code></td>
 </tr>
 <tr>
 <td><code>stdlib/atomic.esk</code></td>
@@ -2060,7 +2294,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/json.esk</code></td>
-<td>JSON builder + parser. Builder: <code>Json</code> + <code>Json_init</code>/<code>_free</code>/<code>_cstr</code>, <code>Json_obj_begin</code>/<code>_end</code>, <code>Json_arr_begin</code>/<code>_end</code>, <code>Json_key</code>, <code>Json_str</code>, <code>Json_int</code>, <code>Json_bool</code>, <code>Json_null</code> (auto separators). Parser: <code>json_parse(src) -&gt; *JsonValue</code> + <code>JsonValue_kind</code>/<code>_len</code>/<code>_at</code>/<code>_get</code>/<code>_as_int</code>/<code>_as_double</code>/<code>_as_bool</code>/<code>_as_cstr</code>/<code>_free</code></td>
+<td>JSON builder + parser. Builder: <code>Json</code> + <code>Json_init</code>/<code>_free</code>/<code>_cstr</code>, <code>Json_obj_begin</code>/<code>_end</code>, <code>Json_arr_begin</code>/<code>_end</code>, <code>Json_key</code>, <code>Json_str</code>, <code>Json_int</code>, <code>Json_bool</code>, <code>Json_null</code> (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, <code>\uXXXX</code> escapes decoded; returns <code>null</code> on malformed input): <code>json_parse(src) -&gt; *JsonValue</code> + <code>JsonValue_kind</code>/<code>_len</code>/<code>_at</code>/<code>_get</code>/<code>_as_int</code>/<code>_as_double</code>/<code>_as_bool</code>/<code>_as_cstr</code>/<code>_free</code></td>
 </tr>
 <tr>
 <td><code>stdlib/sysheap.esk</code></td>
@@ -2068,15 +2302,15 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/future.esk</code></td>
-<td>The async runtime's <code>Future&lt;T&gt;</code> (the locked compiler↔generated-code contract): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>, and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
+<td>The async runtime's <code>Future&lt;T&gt;</code> (the locked compiler↔generated-code contract): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>/<code>free_future_polled</code> (the latter also frees the waker a hand-driven <code>future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
 </tr>
 <tr>
 <td><code>stdlib/executor.esk</code></td>
-<td><code>Executor</code>, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: <code>executor_new</code>, <code>executor_schedule</code>, <code>executor_run</code></td>
+<td><code>Executor</code>, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: <code>executor_new</code>, <code>Executor_schedule</code>, <code>Executor_run</code>, <code>Executor_stop</code>, <code>Executor_free</code></td>
 </tr>
 <tr>
 <td><code>stdlib/net_async.esk</code></td>
-<td>Leaf futures for non-blocking network I/O over <code>&lt;eventloop&gt;</code>: <code>net_set_nonblocking</code>, <code>net_read_async</code>, <code>net_write_async</code>, <code>net_accept_async</code>, each registers an fd and completes its <code>*Future&lt;int&gt;</code> when ready</td>
+<td>Leaf futures for non-blocking network I/O over <code>&lt;eventloop&gt;</code>: <code>net_set_nonblocking</code>, <code>net_read_async</code>, <code>net_write_async</code>, <code>net_accept_async</code>, each registers an fd and completes its <code>*Future&lt;int&gt;</code> when ready; <code>net_read_deadline_async</code>, <code>net_write_deadline_async</code> and <code>net_ready_deadline_async</code> race the same against a <code>timer_after</code> (via <code>select2</code>) and complete with <code>NET_TIMED_OUT</code> once the deadline passes</td>
 </tr>
 <tr>
 <td><code>stdlib/timer.esk</code></td>
@@ -2084,7 +2318,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/channel.esk</code></td>
-<td><code>Chan&lt;T&gt;</code>, an async message channel over the Future runtime: <code>chan_new&lt;T&gt;(cap)</code>, <code>chan_send</code>, and <code>chan_recv</code> (a <code>*Future&lt;T&gt;</code> that completes with the next item)</td>
+<td><code>Chan&lt;T&gt;</code>, an async message channel over the Future runtime: <code>chan_new&lt;T&gt;(cap)</code>, <code>Chan_send</code>, <code>Chan_recv</code> (a <code>*Future&lt;T&gt;</code> that completes with the next item), and <code>Chan_free</code></td>
 </tr>
 <tr>
 <td><code>stdlib/either.esk</code></td>
@@ -2096,7 +2330,7 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/http_async.esk</code></td>
-<td>Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: <code>http_serve_async</code>, with the same <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code> handler interface as <code>&lt;http&gt;</code></td>
+<td>Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: <code>http_serve_async</code> (and <code>http_serve_async_with(lp, fd, handler, max_conns, lim)</code> for other <code>HttpLimits</code>; the reads and the write race a timer, and at most <code>lim.max_open</code> connections are open at once), with the same <code>fn(HttpRequest*, HttpResponse*)-&gt;void</code> handler interface as <code>&lt;http&gt;</code>. Each connection socket is non-blocking and the answer is written with <code>net_write_async</code>, so a client that does not read parks only its own connection</td>
 </tr>
 <tr>
 <td><code>stdlib/http2.esk</code></td>
@@ -2112,16 +2346,18 @@ environment and is not C-callable).</p>
 </tr>
 <tr>
 <td><code>stdlib/http2_server.esk</code></td>
-<td>HTTP/2 (h2c, cleartext) server over the async event loop: drives the opening handshake then a frame-dispatch loop, multiplexes interleaved streams to per-stream slots, HPACK-decodes a completed request into an <code>HttpRequest</code>, and encodes the <code>HttpResponse</code> back as a HEADERS frame plus flow-controlled DATA frames: <code>http2_serve_async</code></td>
+<td>HTTP/2 (h2c, cleartext) server over the async event loop, <code>http2_serve_async</code> (<code>http2_serve_async_with</code> / <code>http2_serve_conn_async_with</code> take an <code>HttpLimits</code>: a connection without the preface and SETTINGS by <code>header_ms</code> is closed, one with no open stream gets GOAWAY NO_ERROR after <code>idle_ms</code> (PING does not extend it), a stream must be received within <code>body_ms</code> and its response taken within <code>write_ms</code> of the last data sent and within <code>write_total_ms</code> in all (a stream past <code>write_total_ms</code> is reset with CANCEL, <code>H2Server_expire</code>); the transport reads with <code>H2Server_deadline</code> after <code>H2Server_tick</code> and on a timeout calls <code>H2Server_timed_out_with</code>). The protocol is the transport-agnostic <code>H2Server</code> engine (also used by <code>&lt;tls&gt;</code>): multiplexed streams, flow control in both directions, padding, CONTINUATION, and RFC 9113 connection/stream errors; a completed request is HPACK-decoded into an <code>HttpRequest</code> and the <code>HttpResponse</code> goes back as a HEADERS frame plus flow-controlled DATA frames. Request bodies are bounded: at most <code>s.max_body</code> bytes per stream (default <code>HTTP_SERVE_MAX_BODY</code>, 1 MiB) and <code>s.max_buffered</code> across a connection's streams (default <code>H2_MAX_BUFFERED</code>, 4 MiB), both settable after <code>H2Server_init</code>; a request past either, or with a content-length past <code>max_body</code>, is answered 413 without the handler and its stream reset with NO_ERROR. A request's decoded header list is bounded too: more than <code>H2_MAX_HEADERS</code> (64) fields, more than <code>H2_MAX_HEADER_LIST</code> bytes (64 KiB, counted as <code>SETTINGS_MAX_HEADER_LIST_SIZE</code> counts them: name + value + 32 per field, and advertised in the server's SETTINGS), or more than <code>s.max_buffered</code> leaves (the open streams' header lists count toward it with their bodies) is answered 431 without the handler. The HTTP/1.1 Host rules apply: a host field or <code>:authority</code> that is not uri-host [":" port] is 400, and two host fields or a host that differs from <code>:authority</code> (ignoring case) is malformed (RST_STREAM PROTOCOL_ERROR); without a host field the handler sees <code>:authority</code> as its Host header. A response header line with a non-token name or an LF or NUL in its value is not sent</td>
 </tr>
 <tr>
 <td><code>stdlib/tls.esk</code></td>
-<td>TLS for HTTP/2 over OpenSSL (libssl) with ALPN negotiating <code>"h2"</code>: a server <code>SSL_CTX</code> that loads a cert/key and selects <code>"h2"</code>, plus blocking (<code>http2_tls_serve_conn</code>) and async (<code>http2_tls_serve_async</code>) h2-over-TLS servers that run the <code>&lt;http2&gt;</code> protocol over the encrypted stream</td>
+<td>TLS for HTTP/2 over OpenSSL (libssl) with ALPN negotiating <code>"h2"</code>: a server <code>SSL_CTX</code> that loads a cert/key and selects <code>"h2"</code>, plus blocking (<code>http2_tls_serve_conn</code>) and async (<code>http2_tls_serve_async</code>) h2-over-TLS servers that run the <code>&lt;http2&gt;</code> protocol over the encrypted stream, with the h2c server's deadlines (<code>http2_tls_serve_conn_with</code>, <code>http2_tls_serve_async_with</code> take an <code>HttpLimits</code>; the handshake counts toward <code>header_ms</code>, and <code>tls_accept</code> bounds a blocking handshake too, <code>tls_accept_with</code> with other limits). The blocking calls (<code>tls_accept_with</code>, <code>tls_read_full_deadline</code>, <code>tls_write_all_deadline</code>, <code>http2_tls_serve_conn_with</code>) run the socket non-blocking and wait with <code>poll</code> on what is left of the deadline, so a peer that trickles bytes inside one TLS record cannot stretch it (a socket timeout restarts with every byte OpenSSL's record loop reads); <code>tls_accept_with</code> leaves the socket non-blocking</td>
 </tr>
 </tbody>
 </table></div>
+<p>Modules built around a struct name their operations <code>Type_method</code>, so they can also be called with dot syntax (<code>rng.next()</code> calls <code>Rng_next(&amp;rng)</code>). A keyword after <code>.</code> is a member name, so <code>j.int(5)</code> and <code>j.bool(1)</code> call <code>&lt;json&gt;</code>'s <code>Json_int</code> and <code>Json_bool</code>. Functions that create a value keep a lowercase module name (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>, <code>regex_compile</code>). Release 0.9.2 renamed the older lowercase forms: <code>rng_*</code> to <code>Rng_*</code>, <code>regex_search</code>/<code>regex_free</code>/<code>match_*</code> to <code>Regex_*</code>/<code>Match_*</code>, <code>heap_*</code> to <code>Heap_*</code>, <code>el_*</code> to <code>EventLoop_*</code>, <code>executor_*</code> to <code>Executor_*</code>, <code>chan_*</code> to <code>Chan_*</code>, <code>hpack_decoder_init</code>/<code>hpack_decoder_free</code> and <code>hpack_huff_build</code>/<code>hpack_huff_free</code> to <code>HpackDecoder_init</code>/<code>HpackDecoder_free</code> and <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (the other <code>hpack_huff_*</code> functions, <code>hpack_huff_code</code>, <code>hpack_huff_len</code>, <code>hpack_huff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code>, keep their names), <code>h2_conn_init</code>/<code>h2_stream_init</code>/<code>h2_can_send</code> to <code>H2Conn_init</code>/<code>H2Stream_init</code>/<code>H2Conn_can_send</code>, and <code>time_from_utc</code>/<code>time_format_iso</code> to <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>. The old names still work as deprecated wrappers and will be removed in a later release.</p>
 <h3 id="result">Result<T,E></h3>
 <pre><code class="language-eskiu">import &lt;result&gt;;
+extern int printf(string fmt, ...);
 
 Result&lt;int, string&gt; divide(int a, int b) {
     if (b == 0) return Err&lt;int, string&gt;(&quot;division by zero&quot;);
@@ -2140,6 +2376,7 @@ int main() {
 </code></pre>
 <h3 id="list">List<T></h3>
 <pre><code class="language-eskiu">import &lt;list&gt;;
+extern int printf(string fmt, ...);
 
 int main() {
     let items: List&lt;int&gt;;
@@ -2155,6 +2392,7 @@ int main() {
 </code></pre>
 <h3 id="string">String</h3>
 <pre><code class="language-eskiu">import &lt;string&gt;;
+extern int printf(string fmt, ...);
 
 int main() {
     let s: String;
@@ -2182,6 +2420,7 @@ common path; the raw <code>extern</code>s (<code>socket</code>, <code>bind</code
 <code>sockaddr_in</code> are also exported for anything more specialised. It is a pure
 stdlib module. Sockets need no compiler support beyond the C FFI.</p>
 <pre><code class="language-eskiu">import &lt;net&gt;;
+import &lt;mem&gt;;
 
 extern int printf(string fmt, ...);
 
@@ -2225,7 +2464,7 @@ int main() {
 </tr>
 <tr>
 <td><code>net_send(fd, buf, n)</code> / <code>net_recv(fd, buf, n)</code></td>
-<td>Send / receive raw bytes (<code>int64</code> count)</td>
+<td>Send / receive raw bytes (<code>int64</code> count). A send to a closed peer returns <code>-1</code> (<code>EPIPE</code>); it never raises <code>SIGPIPE</code></td>
 </tr>
 <tr>
 <td><code>net_send_str(fd, s)</code></td>
@@ -2235,6 +2474,18 @@ int main() {
 <td><code>net_close(fd)</code></td>
 <td>Close a socket</td>
 </tr>
+<tr>
+<td><code>net_set_recv_timeout(fd, ms)</code> / <code>net_set_send_timeout(fd, ms)</code> / <code>net_set_timeouts(fd, recv_ms, send_ms)</code></td>
+<td>Bound a blocking <code>recv</code> / <code>send</code> (<code>SO_RCVTIMEO</code> / <code>SO_SNDTIMEO</code>; 0 waits forever). One that runs out returns <code>-1</code> with <code>net_would_block()</code> 1</td>
+</tr>
+<tr>
+<td><code>net_deadline(ms) -&gt; int64</code></td>
+<td>An absolute monotonic deadline <code>ms</code> from now (0 for none), for the <code>*_deadline</code> reads and writes, which return <code>NET_TIMED_OUT</code> (-3) once it passes</td>
+</tr>
+<tr>
+<td><code>net_wait_ready(fd, mode, deadline) -&gt; int</code></td>
+<td>Wait until <code>fd</code> is readable (<code>mode</code> 0) or writable (1) by <code>deadline</code> (0 = none), with <code>poll</code> (<code>WSAPoll</code> on Windows): 0 when ready (an error or hang-up counts, for the next call to report), <code>NET_TIMED_OUT</code> once the deadline passed, <code>-1</code> if the wait failed</td>
+</tr>
 </tbody>
 </table></div>
 <p><code>sockaddr_in</code> differs between macOS and Linux; <code>&lt;net&gt;</code> selects the right layout
@@ -2243,6 +2494,15 @@ A concurrent server combines <code>&lt;net&gt;</code> with <code>thread_create</
 accepted connection to a worker (see §6.5 for passing a function as a value).
 Complete programs are in <code>examples/http_server.esk</code> and
 <code>examples/tcp_echo_server.esk</code>.</p>
+<p>The HTTP servers (<code>http_serve</code>, <code>http_serve_async</code>, <code>http2_serve_async</code> and the TLS
+servers) bound request heads, bodies and header lists, and they disconnect slow clients
+under <code>&lt;http&gt;</code>'s <code>HttpLimits</code>: a request head (or the HTTP/2 preface and SETTINGS) must
+arrive within <code>HTTP_HEADER_TIMEOUT_MS</code> (10 s) and a body within <code>HTTP_BODY_TIMEOUT_MS</code>
+(60 s), an HTTP/2 connection with no open stream is closed with GOAWAY after
+<code>HTTP_IDLE_TIMEOUT_MS</code> (60 s), a client must take an answer within
+<code>HTTP_WRITE_TIMEOUT_MS</code> (30 s), and the async servers hold at most
+<code>HTTP_MAX_OPEN_CONNS</code> (1024) connections at once. The <code>*_with</code> variants take other
+limits.</p>
 <hr>
 <h2 id="15-inline-assembly">15. Inline Assembly</h2>
 <p>Eskiu supports inline assembly via the <code>asm(...)</code> statement, which lowers directly to an LLVM inline asm node.</p>
@@ -2254,22 +2514,24 @@ asm(&quot;nop&quot;);
 <p>The string is passed verbatim to the assembler. No inputs, outputs, or clobbers are specified.</p>
 <h3 id="152-extended-form">15.2 Extended Form</h3>
 <p>The extended form follows GCC-compatible inline assembly syntax:</p>
-<pre><code>asm(&quot;template&quot; :: inputs : clobbers);
+<pre><code>asm(&quot;template&quot; : outputs : inputs : clobbers);
 </code></pre>
 <pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+asm(&quot;add $0, $1, $2&quot; : &quot;=r&quot;(sum) : &quot;r&quot;(a), &quot;r&quot;(b));     // AArch64
+asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));                // x86-64
 </code></pre>
 <ul>
-<li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>.</li>
-<li><strong>Outputs</strong>: not yet supported. The output section must be empty, so the extended form always begins with <code>::</code> (the parser has no output-operand rule and <code>AsmStmt</code> has no output field). Return results through a clobbered register or memory instead.</li>
-<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs. Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
+<li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>. The outputs are numbered first, then the inputs, as in GCC and clang.</li>
+<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs, written by the asm. A constraint starts with <code>=</code> (written only: <code>"=r"</code>, the early-clobber <code>"=&amp;r"</code>, a specific register such as <code>"=a"</code>, or memory <code>"=m"</code>) or <code>+</code> (read and written: <code>"+r"</code>, <code>"+m"</code>). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a <code>const</code>) of an integer type other than <code>bool</code>, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A <code>+r</code> output also feeds the lvalue's current value in through an input tied to it.</li>
+<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs (a constraint may not start with <code>=</code> or <code>+</code>). Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
 <li><strong>Clobbers</strong>: comma-separated list of clobbered resources. <code>"memory"</code> tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).</li>
 </ul>
 <p>Sections are separated by <code>:</code>. Trailing sections may be omitted if empty.</p>
 <h3 id="153-notes">15.3 Notes</h3>
 <ul>
 <li>Inline assembly is only meaningful when targeting a platform whose assembler understands the instructions. Use <code>--target</code> to select the appropriate triple (see §16).</li>
-<li><code>asm</code> is a statement, not an expression. It does not produce a value.</li>
-<li>The compiler performs no validation of the assembly template or constraints beyond forwarding them to LLVM.</li>
+<li><code>asm</code> is a statement, not an expression. It does not produce a value; results come back through output operands.</li>
+<li>Beyond the output rules above, the compiler performs no validation of the assembly template or constraints; they are forwarded to LLVM.</li>
 </ul>
 <hr>
 <h2 id="16-cli-flags">16. CLI Flags</h2>
@@ -2323,7 +2585,7 @@ asm(&quot;nop&quot;);
 </tr>
 <tr>
 <td><code>eskiuc file.esk -Wall -o prog</code></td>
-<td>Enable lint warnings: unused vars/params/functions, assignment-in-condition</td>
+<td>Enable lint warnings in the program's own files (not in imported modules): unused vars/params/functions, assignment-in-condition, a local that may be used uninitialized</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -Wextra -o prog</code></td>
@@ -2331,11 +2593,15 @@ asm(&quot;nop&quot;);
 </tr>
 <tr>
 <td><code>eskiuc file.esk -O2 -o prog</code></td>
-<td>Optimize: run the LLVM middle-end (<code>-O1</code>/<code>-O2</code>/<code>-O3</code>). <code>-O0</code> (default) emits naive IR straight to the backend</td>
+<td>Optimize: run the LLVM middle-end (<code>-O1</code>/<code>-O2</code>/<code>-O3</code>). <code>-O0</code> (default) emits naive IR straight to the backend. A level above 3 is rejected</td>
 </tr>
 <tr>
-<td><code>eskiuc file.esk -o prog -lpthread</code></td>
+<td><code>eskiuc file.esk -o prog -lfoo</code></td>
 <td>Link, passing library flags through to the linker</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk -o prog --no-default-libs</code></td>
+<td>Link only what <code>-l</code> names: skip <code>#pragma link</code> and the implied runtimes</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -o file.o</code></td>
@@ -2386,13 +2652,22 @@ asm(&quot;nop&quot;);
 <p><strong>Linking.</strong> When the <code>-o</code> output is not an object file (no <code>.o</code> suffix) and <code>-c</code>
 is absent, <code>eskiuc</code> links the program into an executable by invoking the system
 C toolchain (<code>$CC</code>, then <code>cc</code>/<code>clang</code>/<code>gcc</code> on the <code>PATH</code>) exactly as <code>rustc</code>
-and <code>clang</code> do internally. <code>-l&lt;lib&gt;</code> and <code>-L&lt;path&gt;</code> flags, and any <code>--link-arg=&lt;arg&gt;</code>,
+and <code>clang</code> do internally. <code>$CC</code> may include arguments (<code>CC="clang --target=..."</code>). <code>-l&lt;lib&gt;</code> and <code>-L&lt;path&gt;</code> flags, and any <code>--link-arg=&lt;arg&gt;</code>,
 are forwarded to the linker. A C toolchain must therefore be installed (it is the
-only build-time dependency besides LLVM). With <code>--freestanding</code> (or a <code>.o</code> output)
+only build-time dependency besides LLVM).</p>
+<p>The driver also adds the libraries the program itself implies, so the usual ones
+never need a flag. It links each <code>#pragma link("name")</code> library the program and
+its imports name (the stdlib uses this for <code>libm</code> on Linux, <code>pthread</code> on Linux and
+Windows, and <code>ws2_32</code> on Windows). It links the C++ exception runtime when the
+program throws or catches (<code>-lc++</code> on macOS, <code>-lstdc++</code> on Linux and Windows) and
+<code>-lpthread</code> when it calls <code>thread_create</code> (Linux and Windows). These come after
+every object and <code>--link-arg</code>, once each, and a library already given with <code>-l</code>
+is not repeated. <code>--no-default-libs</code> turns all of them off for custom linking.
+Nothing is added when no executable is linked. With <code>--freestanding</code> (or a <code>.o</code> output)
 no linking happens, so bare-metal targets are linked yourself (see the kernel's
 <code>ld.lld</code> invocation).</p>
-<p><strong>Running directly.</strong> <code>eskiuc run file.esk [args...]</code> compiles to a temporary executable, runs it (forwarding <code>args...</code>), then deletes it, propagating the program's exit code, handy for quick iteration. Compiler flags go <em>before</em> the script and program arguments <em>after</em> it (<code>eskiuc run --asan file.esk -- input.txt</code>). Because a leading <code>#!</code> line is ignored, a script can also start with <code>#!/usr/bin/env eskiuc run</code> and, once <code>chmod +x</code>'d, be executed directly.</p>
-<p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace, collapses consecutive blank lines, and ensures a final newline, but leaves each line's content (operator spacing, comments, string contents) exactly as written, so it never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
+<p><strong>Running directly.</strong> <code>eskiuc run file.esk [args...]</code> compiles to a temporary executable, runs it (forwarding <code>args...</code>), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, <code>run</code> exits with <code>128 +</code> the signal number, as a shell does. Compiler flags (including ones that take a value, such as <code>--target TRIPLE</code>) go <em>before</em> the script and program arguments <em>after</em> it; a <code>--</code> right after the script is dropped, so <code>eskiuc run --asan file.esk -- input.txt</code> passes only <code>input.txt</code>. Because a leading <code>#!</code> line is ignored, a script can also start with <code>#!/usr/bin/env eskiuc run</code> and, once <code>chmod +x</code>'d, be executed directly.</p>
+<p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing <code>\</code>, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal, including every line of a string that spans lines) exactly as written and keeps every other blank line, so line numbers (<code>__LINE__</code>, diagnostics) do not move. It never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
 <p><strong>Sanitizers.</strong> <code>--asan</code> instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; <code>--ubsan</code> inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with <code>eskiuc run</code>.</p>
 <p><code>--hover-at</code> and <code>--definition-at</code> accept the format <code>LINE:COL</code> with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.</p>
 <h3 id="cross-compilation">Cross-compilation</h3>
@@ -2431,13 +2706,14 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 <hr>
 <h2 id="17-error-reporting">17. Error Reporting</h2>
 <p>The compiler emits diagnostics with full source location information:</p>
-<pre><code>file.esk:8:22: undefined variable 'foo'
-file.esk:14:5: type mismatch: expected int, got float
+<pre><code>error: file.esk:8:22: undefined variable 'foo'
+error: file.esk:14:5: type mismatch: expected int, got float
 </code></pre>
-<p>The format is <code>file:line:col: message</code>. Line and column numbers are 1-based.</p>
+<p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>. Every mode, including the <code>--test-*</code> modes, exits with a non-zero status when it reports an error.</p>
+<p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable") when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>
 <hr>
 <h2 id="18-preprocessor">18. Preprocessor</h2>
-<p>A small text pass runs before lexing. It supports <strong>object-like and function-like macros</strong> and <strong>conditional compilation</strong>. Directives occupy their own line (the first non-blank character is <code>#</code>), and both directive lines and skipped lines are blanked out so reported line numbers match the original source.</p>
+<p>A small text pass runs before lexing. It supports <strong>object-like and function-like macros</strong> and <strong>conditional compilation</strong>. Directives occupy their own line (the first non-blank character is <code>#</code>); a line inside a string literal that spans lines is string text, never a directive, and no macro expands in it. Both directive lines and skipped lines are blanked out so reported line numbers match the original source.</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -2467,19 +2743,50 @@ file.esk:14:5: type mismatch: expected int, got float
 <td>Begin a block compiled only if <code>NAME</code> is / is not defined</td>
 </tr>
 <tr>
+<td><code>#if expr</code> / <code>#elif expr</code></td>
+<td>Begin a block / an alternative compiled only if the integer expression is non-zero</td>
+</tr>
+<tr>
 <td><code>#else</code> / <code>#endif</code></td>
 <td>Else branch / end of a conditional</td>
 </tr>
 <tr>
 <td><code>#error message</code></td>
-<td>Abort compilation with <code>message</code> (only on an active <code>#ifdef</code> branch)</td>
+<td>Abort compilation with <code>message</code> (only on an active branch)</td>
 </tr>
 <tr>
 <td><code>#pragma pack(...)</code></td>
 <td>Struct packing directive; see §8.9</td>
 </tr>
+<tr>
+<td><code>#pragma link("name")</code></td>
+<td>Link the executable with <code>-lname</code> (see below)</td>
+</tr>
 </tbody>
 </table></div>
+<p>An <code>#if</code>/<code>#elif</code> expression is a C-style integer constant expression: integer and
+character literals, macros (expanded first), <code>defined NAME</code> / <code>defined(NAME)</code>, the
+unary <code>! ~ - +</code>, the arithmetic, shift, relational, equality, bitwise and logical
+operators, <code>?:</code> and parentheses. An identifier left after expansion counts as <code>0</code>.
+It is evaluated on 64-bit signed integers with two's-complement wraparound (so
+<code>INT64_MIN / -1</code> is <code>INT64_MIN</code>), and a character literal decodes with the same
+escapes as in code. <code>&amp;&amp;</code>, <code>||</code> and <code>?:</code> do not evaluate the operand they skip, so
+<code>#if 1 || 1 / 0</code> is fine. A division by zero that is evaluated, a shift count
+outside 0..63, and an integer literal that does not fit in 64 bits are errors.</p>
+<p>Any other directive is an error, as is <code>#include</code> (use <code>import</code>), an <code>#else</code>,
+<code>#elif</code> or <code>#endif</code> without its <code>#if</code>, a second <code>#else</code>, and a conditional left
+open at the end of the file. Inside a skipped branch, unknown directives are
+ignored. Macro bodies may not use <code>#</code> (stringification) or <code>##</code> (token pasting).
+Arguments to a function-like macro are split at top-level commas (string and
+character literals stay whole) and are macro-expanded before substitution, so
+<code>SQ(SQ(2))</code> works as in C. An invocation must pass as many arguments as the macro
+has parameters (a one-parameter macro accepts <code>F()</code> as one empty argument), and an
+argument list left open at the end of the line is an error. A replacement that ends
+in the name of a function-like macro picks up the <code>(...)</code> that follows it, so after
+<code>#define CALLF F</code>, <code>CALLF(2)</code> expands <code>F(2)</code>, also when the <code>(</code> is on a later line. Comments count as whitespace: a <code>//</code>
+or <code>/* */</code> comment in a directive is not part of the macro body, and one inside an
+argument list does not end the argument. Files with CRLF line endings are handled,
+including <code>\</code> continuations.</p>
 <p>Two predefined macros expand in place: <code>__LINE__</code> (the current source line, an
 integer) and <code>__FILE__</code> (the current file path, a string literal). Together with
 <code>#error</code> they support assertions and build guards:</p>
@@ -2497,6 +2804,8 @@ printf(&quot;%s:%d: reached\n&quot;, __FILE__, __LINE__);
     ((x) * (x)         \
      + 2 * (x) + 1)
 
+extern int printf(string fmt, ...);
+
 int main() {
     int n = MAX;          // 100
     int s = SQ(n);        // ((100) * (100))
@@ -2507,8 +2816,21 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>Substitution is identifier-aware and leaves string and character literals untouched. Expansion is <strong>recursive</strong>: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is <strong>shared across files</strong>, so a <code>#define</code> propagates into files pulled in by <code>import</code> and into the other inputs of a multi-file compile. A function-like macro <em>invocation</em> must fit on a single (post-continuation) line.</p>
-<p>Unlike the other directives, <code>#pragma</code> is not consumed by the preprocessor. It is passed through to the compiler. Only <code>#pragma pack</code> is acted upon (§8.9); any other pragma is ignored.</p>
+<p>Substitution is identifier-aware and leaves string and character literals untouched. Expansion is <strong>recursive</strong>: a macro whose body references other macros is expanded fully (a macro is never re-expanded within its own expansion). The macro table is <strong>shared across files</strong> and follows the text in order, like C's <code>#include</code>: an imported file sees the macros defined before its <code>import</code> line (not the ones defined after it), its own <code>#define</code>s reach the importing file's later lines, and each input of a multi-file compile sees the macros of the inputs before it. A function-like macro invocation may span lines: its argument list continues until the matching <code>)</code> (a newline inside it reads as a space), and the <code>(</code> itself may start a later line, past blank lines and comments (<code>ADD</code> then <code>(1, 2)</code> on the next line is a call, as in C). A function-like macro name with no <code>(</code> after it is left as a plain name.</p>
+<p>Unlike the other directives, <code>#pragma</code> is not consumed by the preprocessor. It is passed through to the compiler. <code>#pragma pack</code> (§8.9) and <code>#pragma link</code> are acted upon; any other pragma is ignored. A pragma may appear at the top level, inside a function body or inside a struct body; a <code>pack</code> inside a struct body applies to the structs declared after it (as in C), not to the enclosing one.</p>
+<p><code>#pragma link("name")</code> asks the driver to link the executable with <code>-lname</code>. The
+name is what follows <code>-l</code> (letters, digits, <code>_ . + -</code>, not starting with <code>-</code>), in
+double quotes; any other form is an error. A pragma in an imported module counts
+like one in the main file, each library is linked once however many files name
+it, and the order of first appearance is kept. Because the preprocessor has
+already run, a pragma inside an inactive <code>#ifdef</code> branch has no effect, which is
+how a module links a library on one platform only:</p>
+<pre><code class="language-eskiu">#ifdef __linux__
+#pragma link(&quot;m&quot;)      // glibc keeps libm apart from libc
+#endif
+</code></pre>
+<p>The libraries are only used when <code>eskiuc</code> links an executable; <code>-c</code>, a <code>.o</code>
+output and <code>--freestanding</code> ignore them, and <code>--no-default-libs</code> drops them.</p>
 <h3 id="predefined-macros">Predefined macros</h3>
 <p>The compiler predefines these:</p>
 <div class="tablewrap"><table>
@@ -2523,22 +2845,37 @@ int main() {
 <tr>
 <td><code>__LINE__</code></td>
 <td>current source line, an integer</td>
-<td>refreshed for every line; reflects the line of the <em>use</em>, after line-splicing</td>
+<td>refreshed for every logical line; on a <code>\</code>-continued line it is the line where that logical line starts</td>
 </tr>
 <tr>
 <td><code>__FILE__</code></td>
 <td>current file path, a string literal</td>
-<td>the path as passed to the compiler or resolved by <code>import</code>; distinct per file in a multi-file build</td>
+<td>the path as passed to the compiler or resolved by <code>import</code>, with <code>\</code> and <code>"</code> escaped; distinct per file in a multi-file build</td>
 </tr>
 <tr>
 <td><code>__APPLE__</code></td>
-<td><code>1</code> (macOS only)</td>
-<td>host-OS macro; exactly one of <code>__APPLE__</code>/<code>__linux__</code> is defined</td>
+<td><code>1</code> (Apple targets)</td>
+<td>target-OS macro, from <code>--target</code> or the host</td>
 </tr>
 <tr>
 <td><code>__linux__</code></td>
-<td><code>1</code> (Linux only)</td>
+<td><code>1</code> (Linux targets)</td>
 <td></td>
+</tr>
+<tr>
+<td><code>_WIN32</code></td>
+<td><code>1</code> (Windows targets)</td>
+<td>also defined for 64-bit Windows</td>
+</tr>
+<tr>
+<td><code>_WIN64</code></td>
+<td><code>1</code> (64-bit Windows targets)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>__aarch64__</code> / <code>__x86_64__</code> / <code>__arm__</code></td>
+<td><code>1</code></td>
+<td>target-architecture macro, from <code>--target</code> or else the build host (at most one is defined)</td>
 </tr>
 <tr>
 <td><code>__ESKIU_FREESTANDING__</code></td>
@@ -2547,11 +2884,13 @@ int main() {
 </tr>
 </tbody>
 </table></div>
+<p>At most one OS family is defined. A bare-metal triple (OS <code>none</code>, e.g. <code>aarch64-none-elf</code>) defines none of them.</p>
 <p><code>__LINE__</code> and <code>__FILE__</code> are ordinary object-like macros (so substitution
 respects identifier boundaries and skips string/char literals) but their values
 are maintained by the compiler. <code>__LINE__</code> is re-set to the physical line number
-of each logical line before that line is expanded, so a <code>__LINE__</code> inside a
-multi-line continuation still reports the line where it textually appears.
+of each logical line before that line is expanded. Line splicing happens first, so
+a <code>__LINE__</code> on the second physical line of a <code>\</code>-continued line reports the line
+where the logical line starts, not the line where it textually appears.
 <code>__FILE__</code> is threaded from the file currently being compiled or imported, so in
 a multi-file or <code>import</code>-driven build each file sees its own path. Together with
 <code>#error</code> they support assertions, build guards, and <code>file:line</code> diagnostics:</p>
@@ -2567,9 +2906,8 @@ This is how <code>&lt;net&gt;</code> selects the correct <code>sockaddr_in</code
 </code></pre>
 <h3 id="shebang-lines">Shebang lines</h3>
 <p>If the first line of a file begins with <code>#!</code> (e.g. <code>#!/usr/bin/env eskiuc run</code>),
-the preprocessor treats it as an unrecognized directive and blanks it out,
-preserving line numbers. This lets a <code>.esk</code> file be marked executable
-(<code>chmod +x</code>) and run directly as a script; see <code>eskiuc run</code> in §17.</p>
+the preprocessor ignores it and blanks it out, preserving line numbers. This lets a <code>.esk</code> file be marked executable
+(<code>chmod +x</code>) and run directly as a script; see <code>eskiuc run</code> in §16.</p>
     </div>
   </div>
   <footer>

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot assign to read-only location
+struct P { int x; }
+void P_set(const P* self, int v) { self.x = v; }
+int main() { P p = P{x: 1}; p.set(3); return p.x; }

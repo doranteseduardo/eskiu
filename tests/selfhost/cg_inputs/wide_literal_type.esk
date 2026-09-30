@@ -1,0 +1,18 @@
+// An integer literal that does not fit int is an int64 (C: long), so it widens the
+// operation it appears in: `x ^ -9223372036854775808` is signed 64-bit, and OR-ing it
+// with a uint32 stays signed. -2^63 is an int64, not a uint64. Found by the C oracle
+// in tests/fuzz/eskiu_fuzz.py.
+extern int printf(string fmt, ...);
+
+const uint32 K = (uint32)((~100000) / (true ? -9223372036854775808 : 1));
+
+int main() {
+    uint32 u = 0;
+    int32 x = -5;
+    bool b = -264 < (u | (x ^ -9223372036854775808));
+    printf("%d\n", (int)b);                                  // 1
+    printf("%d\n", (int)(-1 < (u | 3000000000)));            // 1
+    printf("%lld\n", (int64)(u + 3000000000));               // 3000000000
+    printf("%u\n", K);                                       // 0
+    return 0;
+}

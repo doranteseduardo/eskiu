@@ -1,0 +1,10 @@
+// A type alias of a pointer compares with `null` like the pointer itself.
+extern int printf(string f, ...);
+type VP = *void;
+int main() {
+    VP vp = null;
+    int x = 3;
+    VP wp = (*void)&x;
+    if (vp == null && wp != null) { printf("ok\n"); }
+    return 0;
+}

@@ -76,7 +76,7 @@ NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
-VERSION = "v0.9.1"
+VERSION = "v0.9.2"
 GH = "https://github.com/doranteseduardo/eskiu"
 
 CSS = """
@@ -214,13 +214,13 @@ PAGE_TOP = """<!doctype html>
   <title>{title} · Eskiu</title>
   <meta name="description" content="{desc}" />
   <link rel="canonical" href="https://eskiu-lang.org/{out}" />
-  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
   <style>{css}</style>
 </head>
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="assets/logo.png" alt="Eskiu" />eskiu <span class="v">{version}</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">{version}</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>

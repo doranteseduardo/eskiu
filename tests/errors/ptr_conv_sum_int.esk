@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot convert
+enum Opt { Some(int), None }
+int main() { int64 big = 0; *Opt o = &big; return 0; }

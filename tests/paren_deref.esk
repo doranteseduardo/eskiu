@@ -1,0 +1,32 @@
+// A parenthesized dereference `(*p)` is an expression, not a cast to `*p`:
+// `(*p) - 1` subtracts, `(*p)++` increments the pointee. `(*T)x` stays a cast
+// when T is a declared type or a type parameter in scope.
+extern int printf(string fmt, ...);
+
+struct S { int a; }
+
+*T first<T>(*void raw) { return (*T)raw; }
+
+int main() {
+    int v = 5;
+    *int p = &v;
+    int a = (*p);
+    (*p)++;
+    printf("%d %d\n", a, v);
+    (*p) = 3;
+    int b = 2 * (*p);
+    int c = (*p) - 1;
+    int d = (*p) + (*p) * 2;
+    printf("%d %d %d %d\n", v, b, c, d);
+    (*p)--;
+    printf("%d\n", v);
+    *int* pp = &p;
+    (**pp)++;
+    printf("%d\n", v);
+    S s = S{ 7 };
+    *S sp = &s;
+    printf("%d\n", (*sp).a);
+    *void raw = (*void)&v;
+    printf("%d\n", *first<int>(raw));
+    return (*p) - 3;
+}

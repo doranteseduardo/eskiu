@@ -1,0 +1,3 @@
+// EXPECT-ERROR: its field 'v' would be 'void'
+struct Box<T> { T v; }
+int main() { Box<void> b; return 0; }

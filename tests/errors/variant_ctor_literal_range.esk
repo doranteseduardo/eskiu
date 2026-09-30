@@ -1,0 +1,3 @@
+// EXPECT-ERROR: variant 'A' argument 1: integer literal 300 is out of range for 'int8'
+enum E { A(int8), B }
+int main() { E e = A(300); return 0; }

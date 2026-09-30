@@ -15,12 +15,12 @@
 
 // Restore the max-heap property at `root` within the first `n` elements.
 void heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
-    while (1) {
+    while (true) {
         int child = 2 * root + 1;
         if (child >= n) { return; }
-        if (child + 1 < n && cmp(&a[child], &a[child + 1]) < 0) { child = child + 1; }
+        if (child + 1 < n && cmp(&a[child], &a[child + 1]) < 0) { child++; }
         if (cmp(&a[root], &a[child]) >= 0) { return; }
-        T tmp = a[root];
+        const T tmp = a[root];
         a[root] = a[child];
         a[child] = tmp;
         root = child;
@@ -30,15 +30,13 @@ void heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
 // Sort the first `n` elements of `a` ascending by `cmp`.
 void sort<T>(*T a, int n, fn(*T, *T)->int cmp) {
     if (n < 2) { return; }
-    int i = n / 2;
-    while (i > 0) {
-        i = i - 1;
+    // Build the max-heap bottom-up, from the last parent down to the root.
+    for (int i = n / 2 - 1; i >= 0; i--) {
         heap_sift<T>(a, i, n, cmp);
     }
-    int end = n;
-    while (end > 1) {
-        end = end - 1;
-        T tmp = a[0];
+    // Move the max to the end of the shrinking heap, then repair the root.
+    for (int end = n - 1; end > 0; end--) {
+        const T tmp = a[0];
         a[0] = a[end];
         a[end] = tmp;
         heap_sift<T>(a, 0, end, cmp);
@@ -51,8 +49,8 @@ int bsearch<T>(*T a, int n, T key, fn(*T, *T)->int cmp) {
     int lo = 0;
     int hi = n;
     while (lo < hi) {
-        int mid = lo + (hi - lo) / 2;
-        int c = cmp(&a[mid], &key);
+        const int mid = lo + (hi - lo) / 2;
+        const int c = cmp(&a[mid], &key);
         if (c == 0) { return mid; }
         if (c < 0) { lo = mid + 1; }
         else { hi = mid; }

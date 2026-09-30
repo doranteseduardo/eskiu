@@ -1,0 +1,4 @@
+photo: found=1 len=3 [PIC]
+doc: found=1 len=4 [FILE]
+photo: found=0 len=-1 []
+empty: found=1 len=0 []

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: conflicting declaration of function 'f'
+int f(int x);
+int f(int x, int y) { return 1; }
+int main() { return f(1); }

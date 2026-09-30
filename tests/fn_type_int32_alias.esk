@@ -1,0 +1,11 @@
+// `int32` and `int` are the same type, so fn types spelled with either match.
+extern int printf(string f, ...);
+int32 f(int32 x) { return x + 1; }
+int g(int x) { return x * 2; }
+int apply(fn(int32)->int32 h, int v) { return h(v); }
+int main() {
+    fn(int)->int q = f;
+    fn(int32)->int32 r = g;
+    printf("%d %d %d\n", q(1), r(3), apply(g, 5));
+    return 0;
+}

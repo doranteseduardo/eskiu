@@ -1,0 +1,41 @@
+// A generic struct instantiated with a slice or array type, spelled through an alias
+// (`type IS = int[]`) or directly: its `*T` field is a pointer to the slice or array (not
+// a slice of pointers), set from `&s` in a struct literal and read back, and a `T[2]`
+// field of an array type is two of those arrays.
+extern int printf(string fmt, ...);
+
+type IS = int[];
+struct Box<T> { *T p; }
+struct Two<T> { T[2] v; }
+
+int total(Box<IS> b) {
+    int t = 0;
+    IS v = *b.p;
+    for (i in 0..(int)v.len) { t = t + v[i]; }
+    return t;
+}
+
+int main() {
+    int[4] a = {3, 5, 7, 9};
+    IS s = a[1..4];
+    Box<IS> b = Box<IS>{ p: &s };
+    IS back = *b.p;
+    printf("%d %lld %d\n", back[0], back.len, total(b));
+    Box<IS> c;
+    c.p = &s;
+    (*c.p)[2] = 11;
+    printf("%d %d\n", a[3], total(c));
+
+    Box<int[]> d = Box<int[]>{ p: &s };
+    int[] e = *d.p;
+    printf("%lld %d\n", e.len, e[0]);
+    int[3] arr = {1, 2, 4};
+    Box<int[3]> f = Box<int[3]>{ p: &arr };
+    (*f.p)[1] = 20;
+    printf("%d %d\n", arr[1], (*f.p)[2]);
+    Two<int[3]> w;
+    w.v[1][2] = 6;
+    w.v[0][0] = 1;
+    printf("%d %d %d\n", w.v[1][2], w.v[0][0], (int)sizeof(Two<int[3]>));
+    return 0;
+}

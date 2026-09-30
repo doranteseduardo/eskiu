@@ -1,0 +1,5 @@
+// EXPECT-ERROR: alloc_with: 'A3_alloc' must have the shape '*void A3_alloc(*A3 self, int64 size)'
+// The alloc method takes the allocator and the size in bytes.
+struct A3 { int z; }
+*void A3_alloc(A3* self) { return null; }
+int main() { A3 b; *int p = alloc_with(&b, int, 2); return 0; }

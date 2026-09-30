@@ -1,0 +1,6 @@
+// EXPECT-ERROR: cannot cast 'array-literal' to 'S'
+// A `{...}` literal is only an initializer; a struct value is written `S{...}`.
+struct S { int a; }
+int main() {
+    return ((S){1}).a;
+}

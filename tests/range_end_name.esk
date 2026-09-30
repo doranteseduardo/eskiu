@@ -1,0 +1,14 @@
+// A range loop `for (i in A..B)` keeps its bound in a synthesized local; a user
+// variable of the same spelling (`__end_i`), read in the body or in the bound, must
+// still mean the user's variable.
+extern int printf(string fmt, ...);
+int main() {
+    int __end_i = 100;
+    int sum = 0;
+    for (i in 0..3) { sum = sum + __end_i; }
+    for (i in 0..__end_i) { if (i == 5) { break; } sum = sum + 1; }
+    int __end_j = 2;
+    for (j in 0..4) { for (k in 0..__end_j) { sum = sum + 1000; } }
+    printf("%d\n", sum);
+    return 0;
+}

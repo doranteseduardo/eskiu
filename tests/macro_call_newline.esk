@@ -1,0 +1,24 @@
+// A function-like macro whose name is followed by a newline (and blanks or comments)
+// before its `(` is still invoked, as in C; one with no `(` after it stays a name.
+extern int printf(string fmt, ...);
+
+#define ADD(a, b) ((a) + (b))
+#define TWICE(x) ((x) * 2)
+
+int TWICE_n = 5;
+
+int main() {
+    int a = ADD
+        (1, 2);
+    int b = TWICE   // the argument list is on the next line
+    (a);
+    int c = ADD
+
+        /* a comment */
+        (b,
+         10);
+    int d = TWICE_n;
+    printf("%d %d %d %d\n", a, b, c, d);
+    printf("line %d\n", __LINE__);
+    return 0;
+}

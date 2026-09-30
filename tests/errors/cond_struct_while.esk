@@ -1,0 +1,3 @@
+// EXPECT-ERROR: condition must be boolean, numeric, or a pointer, got
+struct P { int a; }
+int main() { P p = P{a: 1}; while (p) { } return 0; }

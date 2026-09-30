@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot assign to read-only location
+int main() { int[3] a = {1, 2, 3}; const int* r = &a[0]; r[1] = 9; return a[1]; }

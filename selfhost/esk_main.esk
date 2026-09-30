@@ -2,11 +2,12 @@
 //
 //   preprocess (pp_run) → parse (parse_program) → type-check (sema_check) → codegen
 //
-// Emits LLVM IR text for FILE to stdout (pipe to clang to get a native binary), exactly
-// like cg_main, but with the semantic-analysis pass wired in: if type checking fails the
-// driver reports the failure and exits non-zero WITHOUT emitting IR (a real compiler
-// rejects ill-typed input rather than miscompiling it). On success only the `.ll` reaches
-// stdout, so the output stays pipe-clean.
+// Like the C++ eskiuc: `-o prog` links an executable (through clang), a `.o` output, -c or
+// --freestanding stops at the object, and no -o writes FILE.o. `--test-codegen` emits the
+// LLVM IR text to stdout instead (pipe it to clang), exactly like cg_main but with the
+// semantic-analysis pass wired in: if type checking fails the driver reports the failure
+// and exits non-zero WITHOUT emitting IR (a real compiler rejects ill-typed input rather
+// than miscompiling it). On success only the `.ll` reaches stdout, so it stays pipe-clean.
 //
 // This is the front of the self-hosting bootstrap: `esk_main` compiled by itself compiles
 // the whole compiler. See tests/selfhost/cg_bootstrap.sh.
@@ -19,18 +20,170 @@ import "sema.esk";
 import "async_lower.esk";
 import "codegen.esk";
 import "fmt.esk";
+import "bigstack.esk";
 
 extern int64 write(int fd, *void buf, int64 n);
-extern int    system(string cmd);   // shell out to clang for the -o native-binary path
 extern int    remove(string path);  // delete the temp .ll after linking
+extern int    fork();               // spawn clang / the `run` program without a shell
+extern int    execvp(string file, *string argv);
+extern int    waitpid(int pid, *int status, int options);
+extern void   _exit(int code);
 extern string getenv(string name);  // $CLANG selects the clang binary (default "clang")
 extern int    getpid();             // unique temp-exe name for `run`
+extern int    mkstemps(string tmpl, int suffixlen);   // the unique temp .ll (temp_ll_path)
+extern int    close(int fd);
+#ifdef __APPLE__
+extern int    _NSGetExecutablePath(*uint8 buf, *uint32 size);   // locate stdlib next to us
+#else
+extern int64  readlink(string path, string buf, int64 n);
+#endif
 
 // Diagnostics go to stderr (fd 2), never stdout — stdout carries only the emitted .ll.
 void eprint(string s) {
     int64 n = 0;
     while (s[n] != 0) { n = n + 1; }
     write(2, (*void)s, n);
+}
+
+// Run args[0] with `args` as its argv (execvp: no shell, so spaces, quotes and `$`
+// in an argument reach the program verbatim). Returns its exit code, 128+N when it
+// was killed by signal N (the shell convention), or 127 if it could not be started.
+int spawn_wait(List<string>* args) {
+    int n = List_len<string>(args);
+    *string av = alloc<string>((int64)(n + 1));    // zeroed, so av[n] is the NULL terminator
+    int i = 0;
+    while (i < n) { av[i] = List_get<string>(args, i); i = i + 1; }
+    int pid = fork();
+    if (pid < 0) { eprint("error: fork failed\n"); return 127; }
+    if (pid == 0) {
+        execvp(av[0], av);
+        eprint("error: cannot run '"); eprint(av[0]); eprint("'\n");
+        _exit(127);
+    }
+    let st: int = 0;
+    if (waitpid(pid, &st, 0) < 0) { return 127; }
+    int sig = st & 127;
+    if (sig == 0) { return (st >> 8) & 255; }       // WIFEXITED → WEXITSTATUS
+    return 128 + sig;                               // WIFSIGNALED → 128 + WTERMSIG
+}
+
+// Append the words of a command such as $CLANG ("clang -m64") to `args`.
+void push_words(List<string>* args, string cmd) {
+    int n = 0;
+    while (cmd[n] != 0) { n = n + 1; }
+    int i = 0;
+    while (i < n) {
+        while (i < n && ((int)cmd[i] == 32 || (int)cmd[i] == 9)) { i = i + 1; }
+        int st = i;
+        while (i < n && (int)cmd[i] != 32 && (int)cmd[i] != 9) { i = i + 1; }
+        if (i > st) {
+            *uint8 w = alloc<uint8>((int64)(i - st + 1));
+            int k = 0;
+            while (k < i - st) { w[k] = (uint8)cmd[st + k]; k = k + 1; }
+            List_push<string>(args, (string)w);
+        }
+    }
+}
+
+// Options that take a value (`-o out`, `--target T`, or `--target=T`). The self-host
+// driver implements -o/--target/--mcpu/--link-arg/-l/-L; the rest are C++-only.
+int is_value_opt(string o) {
+    if (cg_streq(o, "-o") == 1 || cg_streq(o, "-l") == 1 || cg_streq(o, "-L") == 1) { return 1; }
+    if (cg_streq(o, "-O") == 1) { return 1; }                          // `-O 2`, like `-O2`
+    if (cg_streq(o, "--target") == 1 || cg_streq(o, "-target") == 1) { return 1; }
+    if (cg_streq(o, "--mcpu") == 1 || cg_streq(o, "-mcpu") == 1) { return 1; }
+    if (cg_streq(o, "--link-arg") == 1 || cg_streq(o, "-link-arg") == 1) { return 1; }
+    if (cg_streq(o, "--mattr") == 1 || cg_streq(o, "-mattr") == 1) { return 1; }
+    if (cg_streq(o, "--reloc") == 1 || cg_streq(o, "-reloc") == 1) { return 1; }
+    if (cg_streq(o, "--hover-at") == 1 || cg_streq(o, "-hover-at") == 1) { return 1; }
+    if (cg_streq(o, "--definition-at") == 1 || cg_streq(o, "-definition-at") == 1) { return 1; }
+    return 0;
+}
+
+// s[0, n) and s[n, end) as fresh strings.
+string str_prefix(string s, int n) {
+    *uint8 b = alloc<uint8>((int64)(n + 1));
+    int i = 0;
+    while (i < n) { b[i] = (uint8)s[i]; i = i + 1; }
+    return (string)b;
+}
+string str_after(string s, int n) {
+    int len = n;
+    while (s[len] != 0) { len = len + 1; }
+    *uint8 b = alloc<uint8>((int64)(len - n + 1));
+    int i = n;
+    while (i < len) { b[i - n] = (uint8)s[i]; i = i + 1; }
+    return (string)b;
+}
+
+int str_starts(string s, string pre) {
+    int i = 0;
+    while (pre[i] != 0) { if (s[i] != pre[i]) { return 0; } i = i + 1; }
+    return 1;
+}
+
+int str_contains(string s, string sub) {
+    int i = 0;
+    while (s[i] != 0) {
+        int j = 0;
+        while (sub[j] != 0 && s[i + j] == sub[j]) { j = j + 1; }
+        if (sub[j] == 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+int file_exists(string path) {
+    let n: int64 = 0;
+    *uint8 b = fs_read_all(path, &n);
+    if (b == null) { return 0; }
+    return 1;
+}
+
+// Where stdlib/ lives, like the C++ resolveStdlibPath: $ESKIU_ROOT, else the install
+// layout next to this binary (<prefix>/bin/eskiuc-esk → <prefix>/lib/eskiu, or the
+// dev tree build/eskiuc-esk → build/..). null when none is found (imports then
+// resolve against the current directory).
+string find_stdlib_root() {
+    string env = getenv("ESKIU_ROOT");
+    if (env != null) { if (env[0] != 0) { return env; } }
+    uint8[4096] buf;
+    int got = 0;
+#ifdef __APPLE__
+    let sz: uint32 = 4096;
+    if (_NSGetExecutablePath(&buf[0], &sz) == 0) { got = 1; }
+#else
+    int64 rn = readlink("/proc/self/exe", (string)&buf[0], 4095);
+    if (rn > 0) { buf[rn] = 0; got = 1; }
+#endif
+    if (got == 0) { return null; }
+    string exe = realpath((string)&buf[0], null);
+    if (exe == null) { return null; }
+    string bindir = str_dir(exe);
+    string prefix = str_dir(bindir);
+    string inst = cg_cat(prefix, "/lib/eskiu");
+    if (file_exists(cg_cat(inst, "/stdlib/result.esk")) == 1) { return inst; }
+    string dev = cg_cat(bindir, "/..");
+    if (file_exists(cg_cat(dev, "/stdlib/result.esk")) == 1) { return dev; }
+    return null;
+}
+
+// A fresh, uniquely named `.ll` file in the temp dir ($TMPDIR, else /tmp), created
+// with mkstemps so it never names (or replaces) an existing file, such as a user's
+// `<out>.ll`. Returns its path, or null when it cannot be created.
+string temp_ll_path() {
+    string dir = getenv("TMPDIR");
+    if (dir == null) { dir = "/tmp"; }
+    else if (dir[0] == 0) { dir = "/tmp"; }
+    int dn = 0;
+    while (dir[dn] != 0) { dn = dn + 1; }
+    string sep = "/";
+    if (dn > 0 && (int)dir[dn - 1] == 47) { sep = ""; }
+    string path = cg_cat(dir, cg_cat(sep, "eskiu-XXXXXX.ll"));
+    int fd = mkstemps(path, 3);
+    if (fd < 0) { return null; }
+    close(fd);
+    return path;
 }
 
 int bytes_eq(*uint8 a, int an, *uint8 b, int bn) {
@@ -78,7 +231,7 @@ int run_fmt(List<string>* files, int check) {
     return 0;
 }
 
-int main(int argc, string* argv) {
+int esk_main(int argc, string* argv) {
     // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
     // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
     // the form the bootstrap harness pipes to clang.
@@ -102,6 +255,16 @@ int main(int argc, string* argv) {
     string mode = "";        // "" = compile; else --version / --test-{lexer,parser,typechecker,codegen}
     int san = 0;             // 0 = none, 1 = address, 2 = undefined
     int safe = 0;            // --safe: opt-in runtime slice/array bounds checks
+    int compile_only = 0;    // -c: emit an object file, do not link
+    int freestanding = 0;    // --freestanding: no libc; object only (link it yourself)
+    string triple = "";      // --target TRIPLE (passed to clang; picks the OS macro)
+    string mcpu = "";        // --mcpu CPU
+    string optflag = "";     // -O0..-O3 (clang optimizes the emitted IR)
+    List<string> linkx;      // -l / -L / --link-arg, forwarded to the link
+    List_init<string>(&linkx, 4);
+    List<string> linked;     // library names given with -l (the implied ones skip these)
+    List_init<string>(&linked, 4);
+    int default_libs = 1;    // --no-default-libs clears it: link only what -l names
     // `esk_main run script.esk [args...]`: compile to a temp exe, run it forwarding
     // [args...], propagate its exit code, then delete it (matches the C++ `run`). Any
     // flags before the script go to the compiler; the first non-flag is the script and
@@ -112,30 +275,80 @@ int main(int argc, string* argv) {
     int start = 1;
     if (argc >= 2 && cg_streq(argv[1], "run") == 1) { runmode = 1; start = 2; }
     int gotscript = 0;
+    int sawsep = 0;
     int ai = start;
     while (ai < argc) {
+        string a = argv[ai];
         if (runmode == 1 && gotscript == 1) {
-            List_push<string>(&runargs, argv[ai]);   // everything after the script is program argv
+            // Everything after the script is program argv; a `--` right after it only
+            // separates, so it is dropped (like the C++ `run`).
+            if (sawsep == 0 && List_len<string>(&runargs) == 0 && cg_streq(a, "--") == 1) { sawsep = 1; }
+            else { List_push<string>(&runargs, a); }
             ai = ai + 1;
             continue;
         }
-        if (cg_streq(argv[ai], "-o") == 1) {
+        // `run -- script.esk`: a `--` before the script ends the compiler flags, and the
+        // next argument is the script even if it starts with '-' (like the C++ `run`).
+        if (runmode == 1 && cg_streq(a, "--") == 1) {
+            if (ai + 1 < argc) { List_push<string>(&infiles, argv[ai + 1]); gotscript = 1; }
+            ai = ai + 2;
+            continue;
+        }
+        // Options with a value take it as the next argument or after `=`.
+        string val = null;
+        string opt = a;
+        int eqi = 0;
+        while (a[eqi] != 0 && (int)a[eqi] != 61) { eqi = eqi + 1; }
+        if ((int)a[0] == 45 && a[eqi] == 61) { opt = str_prefix(a, eqi); val = str_after(a, eqi + 1); }
+        if (is_value_opt(opt) == 1 && val == null) {
+            if (ai + 1 >= argc) { eprint("error: option '"); eprint(opt); eprint("' needs a value\n"); return 1; }
             ai = ai + 1;
-            if (ai < argc) { outfile = argv[ai]; }
-        } else if (cg_streq(argv[ai], "--asan") == 1) {
-            san = 1;
-        } else if (cg_streq(argv[ai], "--ubsan") == 1) {
-            san = 2;
-        } else if (cg_streq(argv[ai], "--safe") == 1) {
-            safe = 1;
-        } else if (cg_streq(argv[ai], "--version") == 1
-                || cg_streq(argv[ai], "--test-lexer") == 1
-                || cg_streq(argv[ai], "--test-parser") == 1
-                || cg_streq(argv[ai], "--test-typechecker") == 1
-                || cg_streq(argv[ai], "--test-codegen") == 1) {
-            mode = argv[ai];
-        } else if (argv[ai][0] != 45) {   // not a flag ('-') → input file; unknown flags like -Wall/-Wextra are accepted and ignored
-            List_push<string>(&infiles, argv[ai]);
+            val = argv[ai];
+        }
+        if (cg_streq(opt, "-o") == 1) { outfile = val; }
+        else if (cg_streq(opt, "--target") == 1 || cg_streq(opt, "-target") == 1) { triple = val; }
+        else if (cg_streq(opt, "--mcpu") == 1 || cg_streq(opt, "-mcpu") == 1) { mcpu = val; }
+        else if (cg_streq(opt, "--link-arg") == 1 || cg_streq(opt, "-link-arg") == 1) { List_push<string>(&linkx, val); }
+        else if (cg_streq(opt, "-l") == 1) { List_push<string>(&linkx, cg_cat("-l", val)); List_push<string>(&linked, val); }
+        else if (cg_streq(opt, "-L") == 1) { List_push<string>(&linkx, cg_cat("-L", val)); }
+        else if ((int)a[0] == 45 && (int)a[1] == 108 && a[2] != 0) {                                   // -lfoo
+            List_push<string>(&linkx, a);
+            List_push<string>(&linked, str_after(a, 2));
+        }
+        else if ((int)a[0] == 45 && (int)a[1] == 76 && a[2] != 0) { List_push<string>(&linkx, a); }    // -Lpath
+        else if ((int)a[0] == 45 && (int)a[1] == 79) {                                                 // -O<n>
+            if (cg_streq(opt, "-O") == 1) { a = cg_cat("-O", val); }
+            if (a[2] == 0 || a[3] != 0 || (int)a[2] < 48 || (int)a[2] > 51) {
+                eprint("error: invalid optimization level '"); eprint(a); eprint("' (use -O0, -O1, -O2 or -O3)\n");
+                return 1;
+            }
+            optflag = a;
+        }
+        else if (cg_streq(a, "-c") == 1) { compile_only = 1; }
+        else if (cg_streq(a, "--no-default-libs") == 1 || cg_streq(a, "-no-default-libs") == 1) { default_libs = 0; }
+        else if (cg_streq(a, "--freestanding") == 1 || cg_streq(a, "-freestanding") == 1) { freestanding = 1; }
+        else if (cg_streq(a, "--asan") == 1) { san = 1; }
+        else if (cg_streq(a, "--ubsan") == 1) { san = 2; }
+        else if (cg_streq(a, "--safe") == 1) { safe = 1; }
+        else if (cg_streq(a, "-Wall") == 1 || cg_streq(a, "-Wextra") == 1
+              || cg_streq(a, "--Wall") == 1 || cg_streq(a, "--Wextra") == 1) { }   // lint warnings: C++ only
+        else if (cg_streq(a, "--version") == 1
+                || cg_streq(a, "--test-lexer") == 1
+                || cg_streq(a, "--test-parser") == 1
+                || cg_streq(a, "--test-typechecker") == 1
+                || cg_streq(a, "--test-codegen") == 1) {
+            mode = a;
+        }
+        else if (is_value_opt(opt) == 1) {
+            eprint("error: option '"); eprint(opt); eprint("' is not supported by the self-hosted driver\n");
+            return 1;
+        }
+        else if ((int)a[0] == 45 && a[1] != 0) {
+            eprint("error: unknown option '"); eprint(a); eprint("'\n");
+            return 1;
+        }
+        else {
+            List_push<string>(&infiles, a);
             gotscript = 1;
         }
         ai = ai + 1;
@@ -147,16 +360,59 @@ int main(int argc, string* argv) {
         outfile = (string)&runexe[0];
     }
     if (cg_streq(mode, "--version") == 1) {
-        printf("Eskiu 0.9.1\n");
+        printf("Eskiu 0.9.2\n");
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
-        eprint("usage: esk_main [-o <out>] [--asan|--ubsan] [--safe] [--test-*] <file.esk> [more.esk ...]\n");
+        eprint("usage: esk_main [-o <out>] [-c] [-O<n>] [--target T] [--asan|--ubsan] [--safe] [--freestanding] [-l<lib>] [-L<dir>] [--link-arg A] [--no-default-libs] [--test-*] <file.esk> [more.esk ...]\n");
         return 1;
     }
     string infile = List_get<string>(&infiles, 0);   // primary file: test modes + diagnostics
+    // Refuse an output path that names an input (`-o prog.esk` would replace the source).
+    if (outfile != null && runmode == 0) {
+        string oc = canonical_path(outfile);
+        int ii = 0;
+        while (ii < List_len<string>(&infiles)) {
+            if (cg_streq(canonical_path(List_get<string>(&infiles, ii)), oc) == 1) {
+                eprint("error: output file '"); eprint(outfile); eprint("' would overwrite the input '");
+                eprint(List_get<string>(&infiles, ii)); eprint("'\n");
+                return 1;
+            }
+            ii = ii + 1;
+        }
+    }
 
-    // --test-lexer runs the lexer on the raw file (no preprocessing), matching lex_main.
+    // Every mode preprocesses exactly like a real compile (the C++ test modes share the
+    // build's predefined macros): the host OS macro picks the stdlib platform branch
+    // (kqueue vs epoll, sockaddr layout) and __FILE__ is the real path.
+    // The platform macro follows --target, else the build host (C++ seedPredefinedMacros);
+    // a bare-metal triple defines none.
+    if (triple[0] == 0) {
+#ifdef __APPLE__
+        g_pp_os = "__APPLE__";
+#else
+        g_pp_os = "__linux__";
+#endif
+    } else if (str_contains(triple, "linux") == 1) { g_pp_os = "__linux__"; }
+    else if (str_contains(triple, "apple") == 1 || str_contains(triple, "darwin") == 1
+             || str_contains(triple, "macos") == 1) { g_pp_os = "__APPLE__"; }
+    else if (str_contains(triple, "windows") == 1 || str_contains(triple, "win32") == 1
+             || str_contains(triple, "mingw") == 1) {
+        g_pp_os = "_WIN32";
+        if (str_contains(triple, "x86_64") == 1 || str_contains(triple, "amd64") == 1
+            || str_contains(triple, "aarch64") == 1 || str_contains(triple, "arm64") == 1) { List_push<string>(&g_pp_predef, "_WIN64"); }
+    } else { g_pp_os = ""; }
+    if (freestanding == 1) { List_push<string>(&g_pp_predef, "__ESKIU_FREESTANDING__"); }
+    // The architecture macro (__aarch64__ / __x86_64__ / __arm__) follows the triple's
+    // prefix, else the host's (C++ seedPredefinedMacros).
+    if (triple[0] == 0) { g_pp_arch = cg_host_arch_macro(); }
+    else if (str_starts(triple, "aarch64") == 1 || str_starts(triple, "arm64") == 1) { g_pp_arch = "__aarch64__"; }
+    else if (str_starts(triple, "x86_64") == 1 || str_starts(triple, "amd64") == 1) { g_pp_arch = "__x86_64__"; }
+    else if (str_starts(triple, "arm") == 1 || str_starts(triple, "thumb") == 1) { g_pp_arch = "__arm__"; }
+    else { g_pp_arch = ""; }
+    g_stdlib_root = find_stdlib_root();
+
+    // --test-lexer: preprocess, then print the token stream (C++ testLexer).
     if (cg_streq(mode, "--test-lexer") == 1) {
         let ln: int64 = 0;
         *uint8 lraw = fs_read_all(infile, &ln);
@@ -166,23 +422,16 @@ int main(int argc, string* argv) {
             eprint((string)&eb[0]);
             return 1;
         }
-        lex_dump(lraw, (int)ln);
+        let lperr: int = 0;
+        string lpp = pp_run((string)lraw, (int)ln, infile, &lperr);
+        *uint8 lsrc = (*uint8)lpp;
+        int llen = g_pp_out_len;
+        g_lex_file = infile;
+        lex_dump(lsrc, llen);
+        if (lperr != 0 || g_lex_errs > 0) { return 1; }
         return 0;
     }
 
-    // The C++ `--test-parser`/`--test-typechecker` return before the compile path, so
-    // they never predefine the platform macro; match that (empty) so the token stream
-    // and AST are identical. A real compile and `--test-codegen` need the host OS to
-    // pick the right stdlib platform branch (kqueue vs epoll, sockaddr layout).
-    if (cg_streq(mode, "--test-parser") == 1 || cg_streq(mode, "--test-typechecker") == 1) {
-        g_pp_os = "";
-    } else {
-#ifdef __APPLE__
-        g_pp_os = "__APPLE__";
-#else
-        g_pp_os = "__linux__";
-#endif
-    }
     // --test-typechecker prints its banner before parsing (matches tc_main).
     if (cg_streq(mode, "--test-typechecker") == 1) {
         printf("Type checking: %s\n", infile);
@@ -197,6 +446,9 @@ int main(int argc, string* argv) {
     int fi = 0;
     while (fi < List_len<string>(&infiles)) {
         string f = List_get<string>(&infiles, fi);
+        // Register the root input, so an import cycle back to it (or an input an
+        // earlier input already imported) is not parsed twice.
+        if (register_file(f) == 0) { fi = fi + 1; continue; }
         let flen: int64 = 0;
         *uint8 raw = fs_read_all(f, &flen);
         if (raw == null) {
@@ -205,22 +457,13 @@ int main(int argc, string* argv) {
             eprint((string)&eb[0]);
             return 1;
         }
-        // --test-parser matches the C++ parse test, which leaves __FILE__ empty; a real
-        // compile and the other modes expand it to the actual path.
-        string ppfile = f;
-        if (cg_streq(mode, "--test-parser") == 1) { ppfile = ""; }
         let pperr: int = 0;
-        string pp = pp_run((string)raw, (int)flen, ppfile, &pperr);
-        if (pperr != 0) {                   // an active `#error` directive aborts the build
-            uint8[512] eb;
-            sprintf((string)&eb[0], "error: %s: #error directive\n", f);
-            eprint((string)&eb[0]);
-            return 1;
-        }
+        string pp = pp_run((string)raw, (int)flen, f, &pperr);
+        if (pperr != 0) { return 1; }       // a directive error (reported by pp_run) aborts the build
         *uint8 src = (*uint8)pp;
-        int plen = 0;
-        while (src[plen] != 0) { plen = plen + 1; }
+        int plen = g_pp_out_len;
         let p: Parser;
+        g_lex_file = f;
         p_init(&p, src, plen);
         p.basedir = str_dir(f);
         parse_into(&p, prog);
@@ -229,17 +472,22 @@ int main(int argc, string* argv) {
 
     if (cg_streq(mode, "--test-parser") == 1) { print_program(prog); return 0; }
 
-    // Semantic analysis: run for a real compile and for --test-typechecker; skip it for
-    // --test-codegen (matches cg_main, whose IR the cg gate compares behaviorally). A
-    // failed check must NOT emit IR.
-    if (cg_streq(mode, "--test-codegen") == 0) {
+    // Semantic analysis runs in every mode that goes past parsing (a real compile,
+    // --test-typechecker and --test-codegen, like the C++). A failed check must NOT
+    // emit IR.
+    {
         let sm: Sema;
         sema_init(&sm, infile);
+        sema_set_target(&sm, triple);  // sizeof folds to the target's layout
         int ok = sema_check(&sm, prog);
         if (cg_streq(mode, "--test-typechecker") == 1) {
             printf("========================================================\n");
             if (ok == 1) { printf("Type checking succeeded!\n"); return 0; }
             printf("Type checking failed!\n");
+            return 1;
+        }
+        if (ok == 0 && cg_streq(mode, "--test-codegen") == 1) {
+            eprint("Type checking failed!\n");
             return 1;
         }
         if (ok == 0) {
@@ -254,36 +502,92 @@ int main(int argc, string* argv) {
 
     let g: Codegen;
     cg_init(&g);
+    cg_set_target(&g, triple);         // the C ABI (and pointer size) follow --target
     g.safe = safe;                     // --safe → emit runtime bounds checks
     cg_program(&g, prog);
-    if (outfile == null || cg_streq(mode, "--test-codegen") == 1) {
-        // No -o (or --test-codegen): emit the .ll to stdout (the bootstrap harness pipes it to clang).
+    // No -o writes the object <input>.o, like the C++ driver (it links only with -o).
+    if (outfile == null && runmode == 0 && cg_streq(mode, "--test-codegen") == 0) {
+        outfile = cg_cat(infile, ".o");
+    }
+    if (cg_streq(mode, "--test-codegen") == 1) {
+        // --test-codegen: emit the .ll to stdout (the bootstrap harness pipes it to clang).
         printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
         printf("\n");
         printf("%s", (string)String_cstr(&g.out));        // function definitions
         return 0;
     }
 
-    // -o: assemble the full IR, write it to a temp .ll next to the output, and invoke
+    // -o: assemble the full IR, write it to a fresh temp .ll (see temp_ll_path), and invoke
     // clang to link a native binary end to end.
     let ir: String;
     String_init(&ir, 8192);
     String_append(&ir, (string)String_cstr(&g.globals));
     String_append(&ir, "\n");
     String_append(&ir, (string)String_cstr(&g.out));
-    string tmp = cg_cat(outfile, ".ll");
-    if (fs_write_all(tmp, (*uint8)String_cstr(&ir), String_len(&ir)) == 0) {
+    string tmp = temp_ll_path();
+    if (tmp == null || fs_write_all(tmp, (*uint8)String_cstr(&ir), String_len(&ir)) == 0) {
         eprint("error: cannot write temporary IR\n");
         return 1;
     }
     string cc = getenv("CLANG");        // clang emits from .ll; cc/gcc can't, so no findCDriver ladder
     if (cc == null) { cc = "clang"; }
-    string sanflag = "";
-    if (san == 1) { sanflag = " -fsanitize=address"; }
-    else if (san == 2) { sanflag = " -fsanitize=undefined"; }
-    uint8[2048] cmd;
-    sprintf((string)&cmd[0], "%s%s %s -o %s", cc, sanflag, tmp, outfile);
-    int rc = system((string)&cmd[0]);
+    List<string> cargs;
+    List_init<string>(&cargs, 8);
+    push_words(&cargs, cc);
+    if (san == 1) { List_push<string>(&cargs, "-fsanitize=address"); }
+    else if (san == 2) { List_push<string>(&cargs, "-fsanitize=undefined"); }
+    // Object only when asked (-c, a .o output, --freestanding), else link. The IR
+    // carries no target triple, so clang's -Woverride-module note is expected noise.
+    int olen = 0;
+    while (outfile[olen] != 0) { olen = olen + 1; }
+    int want_obj = compile_only;
+    if (freestanding == 1) { want_obj = 1; }
+    if (olen >= 2 && (int)outfile[olen - 2] == 46 && (int)outfile[olen - 1] == 111) { want_obj = 1; }
+    if (runmode == 1) { want_obj = 0; }
+    List_push<string>(&cargs, "-Wno-override-module");
+    if (triple[0] != 0) { List_push<string>(&cargs, "-target"); List_push<string>(&cargs, triple); }
+    if (mcpu[0] != 0) { List_push<string>(&cargs, cg_cat("-mcpu=", mcpu)); }
+    if (optflag[0] != 0) { List_push<string>(&cargs, optflag); }
+    if (want_obj == 1) { List_push<string>(&cargs, "-c"); }
+    List_push<string>(&cargs, tmp);
+    List_push<string>(&cargs, "-o");
+    List_push<string>(&cargs, outfile);
+    if (want_obj == 0) {
+        int li = 0;
+        while (li < List_len<string>(&linkx)) { List_push<string>(&cargs, List_get<string>(&linkx, li)); li = li + 1; }
+        // The libraries the program implies (C++ implicitLinkLibs): its `#pragma link`s,
+        // then the C++ exception runtime when it throws or catches and pthread when it
+        // spawns threads, for the platform g_pp_os names. After every object, once each.
+        if (default_libs == 1) {
+            List<string> implied;
+            List_init<string>(&implied, 4);
+            int pi = 0;
+            while (pi < List_len<string>(&g_link_libs)) { List_push<string>(&implied, List_get<string>(&g_link_libs, pi)); pi = pi + 1; }
+            int gnu = 0;
+            if (cg_streq(g_pp_os, "__linux__") == 1 || cg_streq(g_pp_os, "_WIN32") == 1) { gnu = 1; }
+            if (g.uses_eh == 1) {
+                if (cg_streq(g_pp_os, "__APPLE__") == 1) { List_push<string>(&implied, "c++"); }
+                else if (gnu == 1) { List_push<string>(&implied, "stdc++"); }
+            }
+            if (g.uses_threads == 1 && gnu == 1) { List_push<string>(&implied, "pthread"); }
+            int ii2 = 0;
+            while (ii2 < List_len<string>(&implied)) {
+                string lib = List_get<string>(&implied, ii2);
+                int dup = 0;
+                int di = 0;
+                while (di < List_len<string>(&linked)) {
+                    if (cg_streq(List_get<string>(&linked, di), lib) == 1) { dup = 1; }
+                    di = di + 1;
+                }
+                if (dup == 0) {
+                    List_push<string>(&cargs, cg_cat("-l", lib));
+                    List_push<string>(&linked, lib);
+                }
+                ii2 = ii2 + 1;
+            }
+        }
+    }
+    int rc = spawn_wait(&cargs);
     remove(tmp);
     if (rc != 0) {
         eprint("error: clang failed to link the output\n");
@@ -291,18 +595,27 @@ int main(int argc, string* argv) {
     }
     if (runmode == 0) { return 0; }
 
-    // run: exec the temp binary, forwarding the program's argv, then delete it and
-    // return its exit code. Absolute /tmp path, so the shell runs it directly.
-    let cmdline: String;
-    String_init(&cmdline, 256);
-    String_append(&cmdline, outfile);
+    // run: exec the temp binary with the program's argv (no shell), then delete it and
+    // return its exit status (128+N if a signal killed it, like the C++ `run`).
+    List<string> pargs;
+    List_init<string>(&pargs, 4);
+    List_push<string>(&pargs, outfile);
     int k = 0;
     while (k < List_len<string>(&runargs)) {
-        String_append(&cmdline, " ");
-        String_append(&cmdline, List_get<string>(&runargs, k));
+        List_push<string>(&pargs, List_get<string>(&runargs, k));
         k = k + 1;
     }
-    int st = system((string)String_cstr(&cmdline));
+    int st = spawn_wait(&pargs);
     remove(outfile);
-    return (st / 256) % 256;   // WEXITSTATUS: the child's low-8-bit exit code
+    return st;
+}
+
+// Run the driver on a thread with a large stack, so deeply nested input reaches the
+// parser's nesting limit instead of overflowing the stack (see bigstack.esk).
+void main_body() { big_rc = esk_main(big_argc, big_argv); }
+int main(int argc, string* argv) {
+    big_argc = argc;
+    big_argv = argv;
+    run_on_big_stack(main_body);
+    return big_rc;
 }

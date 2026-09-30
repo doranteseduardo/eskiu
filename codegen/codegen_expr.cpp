@@ -1,67 +1,267 @@
 #include "codegen.h"
+#include "../sema/type.h"
 #include "../ast/type_qual.h"
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
 #include "../template_utils.h"
 
+// An expression with no side effects: evaluating it twice is the same as once.
+static bool isPureExpr(const ExprPtr& e) {
+    if (!e) return true;
+    if (dynamic_cast<IdentExpr*>(e.get()) || dynamic_cast<LiteralExpr*>(e.get()) ||
+        dynamic_cast<SizeofExpr*>(e.get()))
+        return true;
+    if (auto* m = dynamic_cast<MemberExpr*>(e.get())) return isPureExpr(m->base);
+    if (auto* ix = dynamic_cast<IndexExpr*>(e.get()))
+        return ix->opFunc.empty() && isPureExpr(ix->base) && isPureExpr(ix->index) && isPureExpr(ix->highIndex);
+    if (auto* u = dynamic_cast<UnaryExpr*>(e.get())) return u->opFunc.empty() && isPureExpr(u->operand);
+    if (auto* c = dynamic_cast<CastExpr*>(e.get())) return isPureExpr(c->expr);
+    if (auto* b = dynamic_cast<BinaryExpr*>(e.get()))
+        return b->op != "=" && b->opFunc.empty() && isPureExpr(b->left) && isPureExpr(b->right);
+    return false;
+}
+
+// An access through a `volatile` variable: the variable itself, or a place reached from
+// it by `*`, `[]` or `.` (`*reg`, `reg[i]`, `dev.ctrl`). Its loads and stores are volatile.
+bool CodeGen::volatileRooted(const Expr* e) const {
+    // Each place walked remembers the answer (Expr::volMemo), so a long `a.b.c...` chain,
+    // whose every level asks, walks to its root once instead of once per level.
+    if (volatileVars.empty()) return false;
+    const size_t gen = volatileVars.size();
+    std::vector<const Expr*> walked;
+    bool res = false;
+    while (e) {
+        if (e->volMemoSize == gen) { res = e->volMemo; break; }
+        walked.push_back(e);
+        if (auto* id = dynamic_cast<const IdentExpr*>(e)) { res = volatileVars.count(id->name) > 0; break; }
+        if (auto* u = dynamic_cast<const UnaryExpr*>(e)) {
+            if (u->op != "*" || !u->opFunc.empty()) break;
+            e = u->operand.get();
+        } else if (auto* ix = dynamic_cast<const IndexExpr*>(e)) {
+            if (!ix->opFunc.empty()) break;
+            e = ix->base.get();
+        } else if (auto* m = dynamic_cast<const MemberExpr*>(e)) {
+            e = m->base.get();
+        } else {
+            break;
+        }
+    }
+    for (const Expr* w : walked) { w->volMemoSize = gen; w->volMemo = res; }
+    return res;
+}
+
+llvm::LoadInst* CodeGen::volLoad(llvm::LoadInst* ld, const Expr* root) const {
+    if (volatileRooted(root)) ld->setVolatile(true);
+    return ld;
+}
+
+void CodeGen::emitCompoundAssign(BinaryExpr* node, BinaryExpr* rhsOp) {
+    // `lv op= v` (parsed as `lv = lv op v` sharing the lvalue node) where evaluating `lv`
+    // has side effects (`a[f()] += 1`, `a[i++] += 1`): compute the lvalue's address ONCE,
+    // then run the ordinary `*p = *p op v` through a temporary pointer, so the operator
+    // (built-in or overloaded), coercions and --safe checks are the usual ones.
+    std::string tmp = "__cmpd." + std::to_string(compoundSeq++);
+    llvm::AllocaInst* slot = entryAlloca(llvm::PointerType::get(*context, 0), nullptr, tmp);
+    defineSymbol(tmp, slot);
+    if (volatileRooted(node->left.get())) volatileVars.insert(tmp);
+    ExprPtr target;
+    auto* mem = dynamic_cast<MemberExpr*>(node->left.get());
+    if (mem && structLayout.count(structBaseTypeOf(mem->base))) {
+        // A field of a bitfield-packed struct has no address of its own: evaluate the
+        // struct's address once instead, and read-modify-write `(*p).field`.
+        std::string bt = getExprEskiuType(mem->base);
+        bool baseIsPtr = !bt.empty() && (bt.front() == '*' || bt.back() == '*');
+        builder->CreateStore(baseIsPtr ? evaluateExpr(mem->base) : evaluateAddress(mem->base), slot);
+        defineVarType(tmp, baseIsPtr ? bt : "*" + bt);
+        target = std::make_shared<MemberExpr>(
+            std::make_shared<UnaryExpr>("*", std::make_shared<IdentExpr>(tmp)), mem->member);
+    } else {
+        std::string lt = getExprEskiuType(node->left);
+        builder->CreateStore(evaluateLValue(node->left), slot);
+        defineVarType(tmp, "*" + lt);
+        target = std::make_shared<UnaryExpr>("*", std::make_shared<IdentExpr>(tmp));
+    }
+    ExprPtr deref = target;
+    auto bin = std::make_shared<BinaryExpr>(deref, rhsOp->op, rhsOp->right);
+    bin->opFunc = rhsOp->opFunc;
+    BinaryExpr assign(deref, "=", bin);
+    assign.accept(this);
+}
+
+std::string CodeGen::resolveOpInTemplate(const std::string& op,
+                                         const std::vector<ExprPtr>& operands) const {
+    if (typeParamOverride.empty()) return "";
+    std::vector<std::string> tys;
+    for (const auto& e : operands) tys.push_back(getExprEskiuType(e));
+    return resolveOpInTemplateTypes(op, tys);
+}
+
+std::string CodeGen::resolveOpInTemplateTypes(const std::string& op,
+                                              const std::vector<std::string>& operandTypes) const {
+    if (typeParamOverride.empty()) return "";
+    static const std::set<std::string> nums = {"int","int8","int16","int32","int64","uint",
+        "uint8","uint16","uint32","uint64","float","double","char","bool"};
+    std::vector<std::string> tys;
+    bool anyNominal = false;
+    for (const auto& ot : operandTypes) {
+        std::string t = expandAlias(ot);
+        if (t.empty() || t == "unknown") return "";
+        if (t.rfind("struct:", 0) == 0) t = t.substr(7);
+        if (!nums.count(t) && t.front() != '*' && t.back() != '*' && t != "string") anyNominal = true;
+        tys.push_back(t);
+    }
+    if (!anyNominal) return "";
+    std::string n = eskiuOpName(op, tys);
+    if (!n.empty() && module->getFunction(n)) return n;
+    // An overload is named from its declared spellings (`Vec<int>`), while an operand
+    // here may carry the instance's mangled struct name (`Vec_int`): retry with the
+    // source form of each generic instance.
+    std::function<std::string(const std::string&)> sourceForm = [&](const std::string& t) {
+        auto ia = templateInstanceArgs.find(t);
+        if (ia == templateInstanceArgs.end()) return t;
+        std::string s = ia->second.first + "<";
+        for (size_t i = 0; i < ia->second.second.size(); ++i)
+            s += (i ? "," : "") + sourceForm(ia->second.second[i]);
+        return s + ">";
+    };
+    {
+        std::vector<std::string> src;
+        for (const auto& t : tys) src.push_back(sourceForm(t));
+        if (src != tys) {
+            std::string n2 = eskiuOpName(op, src);
+            if (!n2.empty() && module->getFunction(n2)) return n2;
+            tys = src;
+        }
+    }
+    // A numeric operand may coerce to the overload's declared numeric parameter.
+    for (size_t i = 0; i < tys.size(); ++i) {
+        if (!nums.count(tys[i])) continue;
+        for (const auto& alt : nums) {
+            std::vector<std::string> t2 = tys;
+            t2[i] = alt;
+            std::string n2 = eskiuOpName(op, t2);
+            if (!n2.empty() && module->getFunction(n2)) return n2;
+        }
+    }
+    return "";
+}
+
+// A left-leaning chain of built-in operators (`a + b + c ...`, `p && q && ...`) is as
+// deep as it is long, so its left spine is emitted with a loop: evaluate the leftmost
+// operand, then apply each operator bottom-up to the running value. An assignment or an
+// overloaded operator ends the spine (it is evaluated as an ordinary operand).
 void CodeGen::visit(BinaryExpr* node) {
-    // Assignment: evaluate left as lvalue (pointer), not rvalue
-    if (node->op == "=") {
-        // Bitfield assignment is a read-modify-write, not a plain store.
-        if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
-            auto lit = structLayout.find(structBaseTypeOf(mem->base));
-            if (lit != structLayout.end()) {
-                auto sit = lit->second.find(mem->member);
-                if (sit != lit->second.end() && sit->second.isBitfield) {
-                    llvm::Value* rhs = evaluateExpr(node->right);
-                    storeBitfield(mem, rhs);
-                    exprValueStack.push(rhs);
-                    return;
-                }
-            }
+    if (node->op == "=") { emitAssignment(node); return; }
+    // In a template body the overload lookup derives operand types from the AST, so each
+    // chain node's type is derived once (see chainTypeMemo) instead of once per operator.
+    std::unordered_map<const Expr*, std::optional<std::string>> memo;
+    struct MemoScope {
+        CodeGen& cg;
+        decltype(cg.chainTypeMemo) saved;
+        ~MemoScope() { cg.chainTypeMemo = saved; }
+    } memoScope{*this, chainTypeMemo};
+    if (!typeParamOverride.empty()) {
+        for (Expr* b = node; auto* bin = dynamic_cast<BinaryExpr*>(b); b = bin->left.get()) {
+            if (bin->op == "=") break;
+            memo[bin];
         }
-        llvm::Value* lhs = evaluateLValue(node->left);
-        llvm::Value* rhs = evaluateExpr(node->right);
-        // Coerce RHS to match the lvalue's expected element type.
-        // Prefer the LHS's declared (static) scalar type: a union member lvalue
-        // collapses to the union's base pointer (all fields at offset 0), so the
-        // alloca/GEP type encodes the union storage, not the selected field — and
-        // a double would be stored whole into a float field without truncation.
-        llvm::Type* elemType = nullptr;
-        std::string lhsEskiu = getExprEskiuType(node->left);
-        if (!lhsEskiu.empty()) {
-            llvm::Type* st = getTypeFromString(lhsEskiu);
-            if (st && (st->isFloatingPointTy() || st->isIntegerTy()))
-                elemType = st;
-        }
-        if (!elemType) {
-            if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(lhs))
-                elemType = alloca->getAllocatedType();
-            else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
-                elemType = gep->getResultElementType();
-        }
-        if (elemType)
-            rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
-        bool storeVol = false;
-        if (auto* ident = llvm::dyn_cast<llvm::AllocaInst>(lhs)) {
-            storeVol = volatileVars.count(ident->getName().str()) > 0;
-        }
-        auto* si = builder->CreateStore(rhs, lhs);
-        si->setVolatile(storeVol);
-        exprValueStack.push(rhs);
+        chainTypeMemo = &memo;
+    }
+    auto overloadOf = [&](BinaryExpr* b) {
+        if (b->op == "&&" || b->op == "||") return std::string();
+        return b->opFunc.empty() ? resolveOpInTemplate(b->op, {b->left, b->right}) : b->opFunc;
+    };
+    // Operator overload: sema resolved this to a user `operator op(...)`. Lower it as a call
+    // to that function (reusing the struct-by-value call ABI) instead of a built-in op.
+    std::string opFn = overloadOf(node);
+    if (!opFn.empty()) {
+        auto call = std::make_shared<CallExpr>(
+            std::make_shared<IdentExpr>(opFn),
+            std::vector<ExprPtr>{node->left, node->right});
+        call->accept(this);
         return;
     }
+    std::vector<BinaryExpr*> spine{node};
+    while (auto* l = dynamic_cast<BinaryExpr*>(spine.back()->left.get())) {
+        if (l->op == "=" || !overloadOf(l).empty()) break;
+        spine.push_back(l);
+    }
+    llvm::Value* value = evaluateExpr(spine.back()->left);
+    for (size_t i = spine.size(); i-- > 0;) value = emitBuiltinBinary(spine[i], value);
+    exprValueStack.push(value);
+}
 
+void CodeGen::emitAssignment(BinaryExpr* node) {
+    // Compound assignment with a side-effecting lvalue: evaluate the lvalue once.
+    if (auto* rb = dynamic_cast<BinaryExpr*>(node->right.get())) {
+        if (rb->left.get() == node->left.get() && !isPureExpr(node->left)) {
+            emitCompoundAssign(node, rb);
+            return;
+        }
+    }
+    // Evaluation order: the target's address first, then the right-hand side, then the
+    // store (a[f()] = g() calls f before g), as compound assignment does.
+    // Bitfield assignment is a read-modify-write, not a plain store.
+    if (auto* mem = dynamic_cast<MemberExpr*>(node->left.get())) {
+        auto lit = structLayout.find(structBaseTypeOf(mem->base));
+        if (lit != structLayout.end()) {
+            auto sit = lit->second.find(mem->member);
+            if (sit != lit->second.end() && sit->second.isBitfield) {
+                const BitfieldSlot* slot = nullptr;
+                llvm::Value* gep = bitfieldWordPtr(mem, slot);
+                llvm::Value* rhs = evaluateExpr(node->right);
+                storeBitfieldInto(gep, *slot, rhs, eskiuUnsigned(getExprEskiuType(node->right)),
+                                  volatileRooted(mem));
+                exprValueStack.push(rhs);
+                return;
+            }
+        }
+    }
+    llvm::Value* lhs = evaluateLValue(node->left);
+    llvm::Value* rhs = evalForType(node->right, getExprEskiuType(node->left));
+    // Coerce RHS to match the lvalue's expected element type.
+    // Prefer the LHS's declared (static) scalar type: a union member lvalue
+    // collapses to the union's base pointer (all fields at offset 0), so the
+    // alloca/GEP type encodes the union storage, not the selected field — and
+    // a double would be stored whole into a float field without truncation.
+    llvm::Type* elemType = nullptr;
+    std::string lhsEskiu = getExprEskiuType(node->left);
+    if (!lhsEskiu.empty()) {
+        llvm::Type* st = getTypeFromString(lhsEskiu);
+        if (st && (st->isFloatingPointTy() || st->isIntegerTy()))
+            elemType = st;
+    }
+    if (!elemType) {
+        if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(lhs))
+            elemType = alloca->getAllocatedType();
+        else if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(lhs))
+            elemType = gep->getResultElementType();
+    }
+    if (elemType)
+        rhs = coerceValue(rhs, elemType, eskiuUnsigned(getExprEskiuType(node->right)));
+    bool storeVol = volatileRooted(node->left.get());
+    auto* si = builder->CreateStore(rhs, lhs);
+    si->setVolatile(storeVol);
+    exprValueStack.push(rhs);
+}
+
+llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     // Short-circuit logical operators: the RHS must be evaluated ONLY when the LHS
     // doesn't already decide the result, so a guarded expression like
     // `p != null && p.field` (or any RHS unsafe when the LHS is false/true) is not
     // executed. Evaluating both operands eagerly — as the plain path below does —
     // was a correctness bug.
     if (node->op == "&&" || node->op == "||") {
-        llvm::Value* l = evaluateExpr(node->left);
-        if (!l->getType()->isIntegerTy(1))
-            l = builder->CreateICmpNE(l, llvm::ConstantInt::get(l->getType(), 0));
+        llvm::Value* l = left;
+        l = emitTruthy(l);
+        // A constant left operand decides statically (keeps a constant `a && b` constant).
+        if (auto* lc = llvm::dyn_cast<llvm::ConstantInt>(l)) {
+            if (lc->isZero() == (node->op == "&&")) return lc;
+            llvm::Value* r = evaluateExpr(node->right);
+            r = emitTruthy(r);
+            return r;
+        }
         llvm::BasicBlock* startBB = builder->GetInsertBlock();
         llvm::BasicBlock* rhsBB  = llvm::BasicBlock::Create(*context, "sc.rhs", currentFunction);
         llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "sc.cont", currentFunction);
@@ -71,33 +271,26 @@ void CodeGen::visit(BinaryExpr* node) {
             builder->CreateCondBr(l, contBB, rhsBB);   // l true → result true; false → eval RHS
         builder->SetInsertPoint(rhsBB);
         llvm::Value* r = evaluateExpr(node->right);
-        if (!r->getType()->isIntegerTy(1))
-            r = builder->CreateICmpNE(r, llvm::ConstantInt::get(r->getType(), 0));
+        r = emitTruthy(r);
         llvm::BasicBlock* rhsEndBB = builder->GetInsertBlock();   // RHS may have added blocks
         builder->CreateBr(contBB);
         builder->SetInsertPoint(contBB);
         llvm::PHINode* phi = builder->CreatePHI(llvm::Type::getInt1Ty(*context), 2);
         phi->addIncoming(builder->getInt1(node->op == "||"), startBB);  // short-circuit value
         phi->addIncoming(r, rhsEndBB);
-        exprValueStack.push(phi);
-        return;
+        return phi;
     }
 
-    // Operator overload: sema resolved this to a user `operator op(...)`. Lower it as a call
-    // to that function (reusing the struct-by-value call ABI) instead of a built-in op.
-    if (!node->opFunc.empty()) {
-        auto call = std::make_shared<CallExpr>(
-            std::make_shared<IdentExpr>(node->opFunc),
-            std::vector<ExprPtr>{node->left, node->right});
-        call->accept(this);
-        return;
-    }
-
-    llvm::Value* left = evaluateExpr(node->left);
     llvm::Value* right = evaluateExpr(node->right);
 
     if (!left || !right) {
         throw std::runtime_error("Binary expression operand evaluation failed");
+    }
+    // An interface value compares with `null` by its data pointer.
+    if ((node->op == "==" || node->op == "!=") &&
+        left->getType()->isStructTy() != right->getType()->isStructTy()) {
+        if (left->getType()->isStructTy()) left = builder->CreateExtractValue(left, 0);
+        else right = builder->CreateExtractValue(right, 0);
     }
 
     llvm::Value* result = nullptr;
@@ -109,6 +302,21 @@ void CodeGen::visit(BinaryExpr* node) {
     };
     bool lUns = isUnsignedEsk(node->left);
     bool rUns = isUnsignedEsk(node->right);
+    // C integer promotions: an integer operand narrower than `int` (bool, char, int8/16,
+    // uint8/16) is converted to `int` before arithmetic, bitwise, shift, or comparison,
+    // extending by its own signedness. After promotion it is a signed int, so e.g.
+    // (uint8)200 > (int8)-1 compares 200 with -1, and (uint8)200 + (uint8)100 is 300.
+    if (isIntPromotingOp(node->op)) {
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        auto promote = [&](llvm::Value*& v, bool& uns) {
+            if (v->getType()->isIntegerTy() && v->getType()->getIntegerBitWidth() < 32) {
+                v = uns ? builder->CreateZExt(v, i32) : builder->CreateSExt(v, i32);
+                uns = false;
+            }
+        };
+        promote(left, lUns);
+        promote(right, rUns);
+    }
     // Signedness of a signed-vs-unsigned op, by C's usual arithmetic conversions: after
     // both operands widen to a common width, the op is unsigned only when the unsigned
     // operand's rank (width) is at least the signed one's. A wider signed type represents
@@ -159,18 +367,9 @@ void CodeGen::visit(BinaryExpr* node) {
     auto widenForBitwise = widenInts;
     auto widenForArith   = widenInts;
 
-    // Resolve the element type for typed pointer arithmetic.
-    // *int → i32, *uint8 → i8, *void/*char/unknown → i8 (byte arithmetic)
+    // The element type pointer arithmetic steps by (see pointerStrideType).
     auto ptrElemType = [&]() -> llvm::Type* {
-        std::string eskTy = getExprEskiuType(node->left);
-        if (eskTy.empty()) return llvm::Type::getInt8Ty(*context);
-        // Strip leading *
-        if (!eskTy.empty() && eskTy.front() == '*') eskTy = eskTy.substr(1);
-        // Strip trailing *
-        if (!eskTy.empty() && eskTy.back()  == '*') eskTy.pop_back();
-        if (eskTy == "void" || eskTy == "char" || eskTy.empty())
-            return llvm::Type::getInt8Ty(*context);
-        return getTypeFromString(eskTy);
+        return pointerStrideType(getExprEskiuType(node->left));
     };
 
     if (node->op == "+") {
@@ -187,10 +386,8 @@ void CodeGen::visit(BinaryExpr* node) {
         }
     } else if (node->op == "-") {
         if (left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-            // ptr - ptr: byte-level difference → i64
-            llvm::Value* l64 = builder->CreatePtrToInt(left,  llvm::Type::getInt64Ty(*context));
-            llvm::Value* r64 = builder->CreatePtrToInt(right, llvm::Type::getInt64Ty(*context));
-            result = builder->CreateSub(l64, r64, "ptrdiff");
+            // ptr - ptr: the distance in elements (C), as an i64, not in bytes.
+            result = builder->CreatePtrDiff(ptrElemType(), left, right, "ptrdiff");
         } else if (left->getType()->isPointerTy()) {
             llvm::Value* neg = builder->CreateNeg(
                 builder->CreateSExtOrTrunc(right, llvm::Type::getInt64Ty(*context)), "neg");
@@ -232,7 +429,7 @@ void CodeGen::visit(BinaryExpr* node) {
         bool isFloat = left->getType()->isFloatingPointTy();
         if (!isFloat) widenInts();
         if (node->op == "!=") {
-            result = isFloat ? builder->CreateFCmpONE(left, right)
+            result = isFloat ? builder->CreateFCmpUNE(left, right)
                              : builder->CreateICmpNE(left, right);
         } else if (node->op == "<") {
             result = isFloat ? builder->CreateFCmpOLT(left, right)
@@ -262,19 +459,20 @@ void CodeGen::visit(BinaryExpr* node) {
         widenForBitwise(); result = builder->CreateOr(left, right);
     } else if (node->op == "^") {
         widenForBitwise(); result = builder->CreateXor(left, right);
-    } else if (node->op == "<<") {
-        widenForBitwise(); result = builder->CreateShl(left, right);
-    } else if (node->op == ">>") {
-        widenForBitwise();
+    } else if (node->op == "<<" || node->op == ">>") {
+        // A shift computes in the (promoted) width of the value shifted; the count is
+        // converted to that width and never widens the result (C).
+        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy())
+            right = builder->CreateZExtOrTrunc(right, left->getType());
         // The shift kind follows the value being shifted (the left operand) only; the
         // count's signedness is irrelevant, so a signed value keeps an arithmetic shift.
-        result = lUns ? builder->CreateLShr(left, right)
-                      : builder->CreateAShr(left, right);
+        if (node->op == "<<") result = builder->CreateShl(left, right);
+        else result = lUns ? builder->CreateLShr(left, right) : builder->CreateAShr(left, right);
     } else {
         throw std::runtime_error("Unknown binary operator: " + node->op);
     }
 
-    exprValueStack.push(result);
+    return result;
 }
 
 void CodeGen::visit(QuestionExpr* node) {
@@ -317,10 +515,10 @@ void CodeGen::visit(QuestionExpr* node) {
     if (currentSretParam != nullptr) {
         builder->CreateStore(whole, currentSretParam);
         runCleanupsToDepth(0, /*errorPath=*/true);      // ? error exit: defers + errdefers
-        builder->CreateRetVoid();
+        if (!blockTerminated()) builder->CreateRetVoid();
     } else {
         runCleanupsToDepth(0, /*errorPath=*/true);
-        builder->CreateRet(whole);
+        if (!blockTerminated()) builder->CreateRet(whole);
     }
 
     // Success path: unwrap and yield the value field.
@@ -334,19 +532,14 @@ void CodeGen::visit(TernaryExpr* node) {
     // `cond ? a : b` — branch on the condition and evaluate exactly one arm, then phi
     // the results. Both arms are coerced to their common type (see the type checker).
     llvm::Value* cond = evaluateExpr(node->condition);
-    if (!cond->getType()->isIntegerTy(1)) {
-        if (cond->getType()->isPointerTy())
-            cond = builder->CreateICmpNE(
-                cond, llvm::ConstantPointerNull::get(
-                          llvm::cast<llvm::PointerType>(cond->getType())));
-        else
-            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-    }
+    cond = emitTruthy(cond);
 
     std::string thenTy = getExprEskiuType(node->thenExpr);
     std::string elseTy = getExprEskiuType(node->elseExpr);
-    llvm::Type* tLL = getTypeFromString(thenTy);
-    llvm::Type* eLL = getTypeFromString(elseTy);
+    // A `null` arm is a pointer (`c ? null : &x`), whatever the other arm points to.
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Type* tLL = thenTy == "null" ? ptrTy : getTypeFromString(thenTy);
+    llvm::Type* eLL = elseTy == "null" ? ptrTy : getTypeFromString(elseTy);
     llvm::Type* resTy;
     if (tLL == eLL)
         resTy = tLL;
@@ -358,10 +551,39 @@ void CodeGen::visit(TernaryExpr* node) {
         resTy = tLL->getIntegerBitWidth() >= eLL->getIntegerBitWidth() ? tLL : eLL;
     else
         resTy = tLL;
+    // Two numeric arms: the type checker's common type is authoritative (a literal arm
+    // too wide for `int` makes the result 64-bit; equal-width mixed signedness is unsigned).
+    auto isNum = [](llvm::Type* t) { return t && (t->isIntegerTy() || t->isFloatingPointTy()); };
+    if (resolvedExprTypes && isNum(tLL) && isNum(eLL)) {
+        auto it = resolvedExprTypes->find(node);
+        if (it != resolvedExprTypes->end() && it->second != "unknown")
+            if (llvm::Type* rt = getTypeFromString(it->second); isNum(rt)) resTy = rt;
+    }
 
-    auto coerce = [&](llvm::Value* v, const std::string& srcEskiu) -> llvm::Value* {
-        return coerceValue(v, resTy, eskiuUnsigned(srcEskiu));
+    // An interface arm and a struct-pointer arm meet as the interface (the pointer is boxed).
+    std::string ifaceTy = !interfaceName(thenTy).empty() ? thenTy
+                        : !interfaceName(elseTy).empty() ? elseTy : "";
+    // Typed as an interface by its target (`I i = c ? &a : &b`): each arm is boxed with
+    // its own struct's vtable.
+    if (ifaceTy.empty() && resolvedExprTypes) {
+        auto it = resolvedExprTypes->find(node);
+        if (it != resolvedExprTypes->end() && !interfaceName(it->second).empty()) ifaceTy = it->second;
+    }
+    if (!ifaceTy.empty()) resTy = getTypeFromString(ifaceTy);
+    const bool isVoid = resTy->isVoidTy();          // `c ? f() : g()` with void arms: a statement
+    auto arm = [&](const ExprPtr& e, const std::string& srcEskiu) -> llvm::Value* {
+        if (isVoid) return evaluateExpr(e);
+        if (!ifaceTy.empty()) return evalForType(e, ifaceTy);
+        return coerceValue(evaluateExpr(e), resTy, eskiuUnsigned(srcEskiu));
     };
+
+    // A constant condition selects its arm statically (the other is never evaluated),
+    // which keeps a constant ternary a constant expression.
+    if (auto* cc = llvm::dyn_cast<llvm::ConstantInt>(cond)) {
+        bool pickThen = !cc->isZero();
+        exprValueStack.push(pickThen ? arm(node->thenExpr, thenTy) : arm(node->elseExpr, elseTy));
+        return;
+    }
 
     llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "tern.then", currentFunction);
     llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "tern.else", currentFunction);
@@ -369,16 +591,17 @@ void CodeGen::visit(TernaryExpr* node) {
     builder->CreateCondBr(cond, thenBB, elseBB);
 
     builder->SetInsertPoint(thenBB);
-    llvm::Value* tv = coerce(evaluateExpr(node->thenExpr), thenTy);
+    llvm::Value* tv = arm(node->thenExpr, thenTy);
     llvm::BasicBlock* thenEnd = builder->GetInsertBlock();   // arm may have added blocks
     builder->CreateBr(contBB);
 
     builder->SetInsertPoint(elseBB);
-    llvm::Value* ev = coerce(evaluateExpr(node->elseExpr), elseTy);
+    llvm::Value* ev = arm(node->elseExpr, elseTy);
     llvm::BasicBlock* elseEnd = builder->GetInsertBlock();
     builder->CreateBr(contBB);
 
     builder->SetInsertPoint(contBB);
+    if (isVoid) { exprValueStack.push(ev); return; }   // no value to merge
     llvm::PHINode* phi = builder->CreatePHI(resTy, 2);
     phi->addIncoming(tv, thenEnd);
     phi->addIncoming(ev, elseEnd);
@@ -388,11 +611,20 @@ void CodeGen::visit(TernaryExpr* node) {
 void CodeGen::visit(UnaryExpr* node) {
     // Unary operator overload: sema resolved this to a user `operator -/!/~(V)`. Lower it
     // as a one-arg call to that function.
-    if (!node->opFunc.empty()) {
+    std::string opFn = node->opFunc;
+    if (opFn.empty() && (node->op == "-" || node->op == "!" || node->op == "~"))
+        opFn = resolveOpInTemplate(node->op == "-" ? "u-" : node->op, {node->operand});
+    if (!opFn.empty()) {
         auto call = std::make_shared<CallExpr>(
-            std::make_shared<IdentExpr>(node->opFunc),
+            std::make_shared<IdentExpr>(opFn),
             std::vector<ExprPtr>{node->operand});
         call->accept(this);
+        return;
+    }
+
+    // Address-of: the operand's lvalue, evaluated once (not also as an rvalue).
+    if (node->op == "&") {
+        exprValueStack.push(evaluateLValue(node->operand));
         return;
     }
 
@@ -404,7 +636,18 @@ void CodeGen::visit(UnaryExpr* node) {
 
     llvm::Value* result = nullptr;
 
-    if (node->op == "-") {
+    // C integer promotion: `-`/`~` on an operand narrower than int (bool, char, int8/16,
+    // uint8/16) first widens it to int by its own signedness, so `~(uint8)255` is -256.
+    if ((node->op == "-" || node->op == "~" || node->op == "+") && val->getType()->isIntegerTy() &&
+        val->getType()->getIntegerBitWidth() < 32) {
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        bool uns = val->getType()->isIntegerTy(1) || eskiuUnsigned(getExprEskiuType(node->operand));
+        val = uns ? builder->CreateZExt(val, i32) : builder->CreateSExt(val, i32);
+    }
+
+    if (node->op == "+") {
+        result = val;   // unary plus: the (promoted) operand's value
+    } else if (node->op == "-") {
         result = val->getType()->isFloatingPointTy()
             ? builder->CreateFNeg(val)
             : builder->CreateNeg(val);
@@ -412,13 +655,7 @@ void CodeGen::visit(UnaryExpr* node) {
         result = builder->CreateNot(val); // bitwise NOT
     } else if (node->op == "!") {
         // Logical NOT: convert to bool
-        if (val->getType()->isIntegerTy(1))
-            result = builder->CreateNot(val);
-        else
-            result = builder->CreateICmpEQ(val, llvm::ConstantInt::get(val->getType(), 0));
-    } else if (node->op == "&") {
-        // Address-of: return the lvalue (alloca/GEP pointer), not the loaded value
-        result = evaluateLValue(node->operand);
+        result = builder->CreateNot(emitTruthy(val));
     } else if (node->op == "*") {
         // Dereference: use Eskiu type info to load the correct element type
         std::string ptrEskiuType = getExprEskiuType(node->operand);
@@ -432,7 +669,7 @@ void CodeGen::visit(UnaryExpr* node) {
             if (!elemStr.empty() && elemStr != "void")
                 elemType = getTypeFromString(elemStr);
         }
-        result = builder->CreateLoad(elemType, val);
+        result = volLoad(builder->CreateLoad(elemType, val), node);
     } else {
         throw std::runtime_error("Unknown unary operator: " + node->op);
     }
@@ -440,27 +677,60 @@ void CodeGen::visit(UnaryExpr* node) {
     exprValueStack.push(result);
 }
 
+// The element a pointer-typed value steps by in `p + n`, `p - q`, `p++`: the pointee of
+// `*T` / `T*`, a byte for `string` (a char pointer), `*void` and anything else.
+llvm::Type* CodeGen::pointerStrideType(const std::string& eskTy) {
+    llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
+    std::string t = expandAlias(eskTy);
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    ty::Type pt = ty::Type::parse(t);
+    if (!pt.isPointer() || !pt.pointee) return i8;
+    std::string pe = pt.pointee->str();
+    if (pe == "void" || pe == "char" || pe.empty()) return i8;
+    return getTypeFromString(pe);
+}
+
 void CodeGen::visit(IncDecExpr* node) {
+    // A bitfield has no address: step it with a masked read-modify-write of its storage
+    // word (evaluating the base once). Prefix yields the stored, width-wrapped value.
+    if (auto* mem = dynamic_cast<MemberExpr*>(node->operand.get())) {
+        auto lit = structLayout.find(structBaseTypeOf(mem->base));
+        if (lit != structLayout.end()) {
+            auto sit = lit->second.find(mem->member);
+            if (sit != lit->second.end() && sit->second.isBitfield) {
+                const BitfieldSlot* slot = nullptr;
+                llvm::Value* gep = bitfieldWordPtr(mem, slot);
+                bool vol = volatileRooted(mem);
+                llvm::Value* old = loadBitfieldFrom(gep, *slot, vol);
+                llvm::Value* one = llvm::ConstantInt::get(old->getType(), 1);
+                llvm::Value* nw = node->decrement ? builder->CreateSub(old, one)
+                                                  : builder->CreateAdd(old, one);
+                storeBitfieldInto(gep, *slot, nw, false, vol);
+                // Prefix: the stored value, read as the field reads; postfix: the old value
+                // in the declared type (C, as clang).
+                exprValueStack.push(node->prefix ? bitfieldReadValue(loadBitfieldFrom(gep, *slot, vol),
+                                                                     structBaseTypeOf(mem->base), mem->member)
+                                                 : old);
+                return;
+            }
+        }
+    }
     llvm::Value* ptr = evaluateLValue(node->operand);
     std::string ety = getExprEskiuType(node->operand);
-    bool isPtr = !ety.empty() && (ety.front() == '*' || ety.back() == '*');
-    llvm::Type* ty = isPtr ? (llvm::Type*)llvm::PointerType::get(*context, 0)
-                           : getTypeFromString(ety.empty() ? "int" : ety);
-    llvm::Value* old = builder->CreateLoad(ty, ptr);
+    llvm::Type* ty = getTypeFromString(ety.empty() ? "int" : ety);
+    bool isPtr = ty->isPointerTy();
+    llvm::Value* old = volLoad(builder->CreateLoad(ty, ptr), node->operand.get());
     llvm::Value* nw;
     if (isPtr) {
-        // pointer step by one element
-        std::string elemStr = ety.front() == '*' ? ety.substr(1) : ety.substr(0, ety.size() - 1);
-        llvm::Type* elemTy = (elemStr.empty() || elemStr == "void")
-            ? (llvm::Type*)llvm::Type::getInt8Ty(*context) : getTypeFromString(elemStr);
+        // pointer (or string) step by one element
         llvm::Value* step = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context),
                                                    node->decrement ? -1 : 1, true);
-        nw = builder->CreateGEP(elemTy, old, step);
+        nw = builder->CreateGEP(pointerStrideType(ety), old, step);
     } else {
         llvm::Value* one = llvm::ConstantInt::get(ty, 1);
         nw = node->decrement ? builder->CreateSub(old, one) : builder->CreateAdd(old, one);
     }
-    builder->CreateStore(nw, ptr);
+    builder->CreateStore(nw, ptr)->setVolatile(volatileRooted(node->operand.get()));
     exprValueStack.push(node->prefix ? nw : old);
 }
 
@@ -586,23 +856,26 @@ void CodeGen::visit(IndexExpr* node) {
     }
 
     llvm::Value* idx = evaluateExpr(node->index);
+    // A read: an array-valued rvalue base (`mk().a[1]`) is materialized, not rejected.
+    struct AllowTemp { CodeGen* c; bool p; ~AllowTemp() { c->lvalueAllowTemp = p; } } allowTemp{this, lvalueAllowTemp};
+    lvalueAllowTemp = true;
 
     // Slice element: s[i] → load from the fat pointer's data at i.
     if (bt.kind == ty::Type::Kind::Slice) {
         llvm::Type* elemType = getTypeFromString(bt.elem->str());
-        exprValueStack.push(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)), node));
         return;
     }
     // String: string[i] → char.
     if (baseType == "string") {
-        exprValueStack.push(builder->CreateLoad(
-            llvm::Type::getInt8Ty(*context), indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(
+            llvm::Type::getInt8Ty(*context), indexElemAddr(node->base, idx)), node));
         return;
     }
     // Fixed-size array: T[N] (for T[N][M], indexing peels the outer dimension → T[M]).
     if (bt.kind == ty::Type::Kind::Array) {
         llvm::Type* elemType = getTypeFromString(bt.elem->str());
-        exprValueStack.push(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(elemType, indexElemAddr(node->base, idx)), node));
         return;
     }
     // Pointer: *T or T*.
@@ -610,8 +883,8 @@ void CodeGen::visit(IndexExpr* node) {
         std::string elemStr = (!baseType.empty() && baseType.front() == '*')
             ? baseType.substr(1)
             : baseType.substr(0, baseType.size() - 1);
-        exprValueStack.push(builder->CreateLoad(
-            getTypeFromString(elemStr), indexElemAddr(node->base, idx)));
+        exprValueStack.push(volLoad(builder->CreateLoad(
+            getTypeFromString(elemStr), indexElemAddr(node->base, idx)), node));
         return;
     }
 
@@ -619,13 +892,26 @@ void CodeGen::visit(IndexExpr* node) {
 }
 
 std::string CodeGen::stripToStructKey(std::string baseType) {
+    // The pointer decoration comes first in a `*struct:T` spelling, so strip it before
+    // the `struct:` tag.
+    if (!baseType.empty() && baseType.front() == '?') baseType = baseType.substr(1);
+    while (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     if (baseType.size() > 7 && baseType.substr(0, 7) == "struct:") baseType = baseType.substr(7);
-    if (!baseType.empty() && baseType.front() == '*') baseType = baseType.substr(1);
     while (!baseType.empty() && baseType.back()  == '*') baseType.pop_back();
+    if (typeAliases.count(baseType)) return stripToStructKey(expandAlias(baseType));
     if (baseType.find('<') != std::string::npos) {
         auto [tn, args] = splitTemplateType(baseType);
         ensureTemplateInstantiated(mangleTemplate(baseType), tn, args);
         baseType = mangleTemplate(baseType);
+    } else if (!structTypes.count(baseType)) {
+        // A generic instance named only by its mangled form (the type of a call result
+        // the type checker instantiated): build it now.
+        auto ia = templateInstanceArgs.find(baseType);
+        if (ia != templateInstanceArgs.end()) {
+            auto inst = ia->second;
+            if (templateDecls.count(inst.first)) ensureTemplateInstantiated(baseType, inst.first, inst.second);
+            else if (genericEnumDecls.count(inst.first)) ensureEnumInst(inst.first, inst.second);
+        }
     }
     return baseType;
 }
@@ -647,21 +933,11 @@ void CodeGen::visit(MemberExpr* node) {
     // base via its address (see the matching logic in evaluateLValue).
     std::string rawBaseTy = getExprEskiuType(node->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
-    // A struct-valued temporary (call result, template call, struct literal) is
-    // an rvalue with no address — materialize it into an alloca so we can GEP.
-    Expr* b = node->base.get();
-    bool baseIsTemp = !baseIsPtr &&
-        (dynamic_cast<CallExpr*>(b) || dynamic_cast<TemplateCallExpr*>(b) ||
-         dynamic_cast<StructInitExpr*>(b));
+    // A struct-valued rvalue base (a call result, `a + b`, a struct literal, a field of
+    // one) has no address: evaluateAddress materializes it into a temporary to GEP.
     auto baseAddr = [&]() -> llvm::Value* {
         if (baseIsPtr) return evaluateExpr(node->base);
-        if (baseIsTemp) {
-            llvm::Value* v = evaluateExpr(node->base);
-            llvm::Value* tmp = entryAlloca(v->getType(), nullptr, "mem.tmp");
-            builder->CreateStore(v, tmp);
-            return tmp;
-        }
-        return evaluateLValue(node->base);
+        return evaluateAddress(node->base);
     };
 
     // Bitfield-layout struct: physical slot map (handles bitfields and the
@@ -673,23 +949,12 @@ void CodeGen::visit(MemberExpr* node) {
             throw std::runtime_error("Struct '" + baseType + "' has no field '" + node->member + "'");
         const BitfieldSlot& slot = sit->second;
         llvm::Value* basePtr = baseAddr();
-        llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr,
-                                                    slot.physIndex, node->member);
+        llvm::Value* gep = layoutFieldAddr(baseType, basePtr, slot, node->member);
         if (!slot.isBitfield) {
-            exprValueStack.push(builder->CreateLoad(slot.storageType, gep, node->member));
+            exprValueStack.push(volLoad(builder->CreateLoad(slot.storageType, gep, node->member), node));
             return;
         }
-        llvm::Type* sty = slot.storageType;
-        llvm::Value* word = builder->CreateLoad(sty, gep);
-        llvm::Value* shifted = slot.bitOffset
-            ? builder->CreateLShr(word, llvm::ConstantInt::get(sty, slot.bitOffset)) : word;
-        uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
-        llvm::Value* masked = builder->CreateAnd(shifted, llvm::ConstantInt::get(sty, mask));
-        if (slot.isSigned && slot.bitWidth < sty->getIntegerBitWidth()) {
-            unsigned sh = sty->getIntegerBitWidth() - slot.bitWidth;
-            masked = builder->CreateAShr(builder->CreateShl(masked, sh), sh);
-        }
-        exprValueStack.push(masked);
+        exprValueStack.push(bitfieldReadValue(loadBitfieldFrom(gep, slot, volatileRooted(node)), baseType, node->member));
         return;
     }
 
@@ -710,36 +975,74 @@ void CodeGen::visit(MemberExpr* node) {
             } else {
                 ptr = builder->CreateStructGEP(structTypes[baseType], basePtr, i, node->member);
             }
-            exprValueStack.push(builder->CreateLoad(fieldTy, ptr, node->member));
+            exprValueStack.push(volLoad(builder->CreateLoad(fieldTy, ptr, node->member), node));
             return;
         }
     }
     throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + node->member + "'");
 }
 
+// The storage word is read and written as `accessType` (the declared type unless a
+// packed struct's field spans an odd byte range); the value is in the declared type.
+// A `volatile` root (`vol`) makes the word's load (and store) volatile.
+static llvm::Value* loadWord(llvm::IRBuilder<>& b, llvm::Type* at, llvm::Value* p, unsigned align,
+                             bool vol) {
+    llvm::LoadInst* ld = align ? b.CreateAlignedLoad(at, p, llvm::MaybeAlign(align)) : b.CreateLoad(at, p);
+    ld->setVolatile(vol);
+    return ld;
+}
+
+llvm::Value* CodeGen::loadBitfieldFrom(llvm::Value* wordPtr, const BitfieldSlot& slot, bool vol) {
+    llvm::Type* sty = slot.storageType;
+    llvm::Type* aty = slot.accessType ? slot.accessType : sty;
+    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign, vol);
+    llvm::Value* shifted = slot.bitOffset
+        ? builder->CreateLShr(word, llvm::ConstantInt::get(aty, slot.bitOffset)) : word;
+    if (aty != sty) shifted = builder->CreateZExtOrTrunc(shifted, sty);
+    uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
+    llvm::Value* masked = builder->CreateAnd(shifted, llvm::ConstantInt::get(sty, mask));
+    if (slot.isSigned && slot.bitWidth < sty->getIntegerBitWidth()) {
+        unsigned sh = sty->getIntegerBitWidth() - slot.bitWidth;
+        masked = builder->CreateAShr(builder->CreateShl(masked, sh), sh);
+    }
+    return masked;
+}
+
 void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
-                                llvm::Value* val) {
+                                llvm::Value* val, bool unsignedSrc, bool vol) {
     llvm::Type* sty = slot.storageType;  // integer storage word
     if (val->getType() != sty) {
         if (val->getType()->isIntegerTy())
             val = val->getType()->getIntegerBitWidth() > sty->getIntegerBitWidth()
-                ? builder->CreateTrunc(val, sty) : builder->CreateZExt(val, sty);
+                ? builder->CreateTrunc(val, sty)
+                : unsignedSrc ? builder->CreateZExt(val, sty) : builder->CreateSExt(val, sty);
         else if (val->getType()->isFloatingPointTy())
             val = builder->CreateFPToSI(val, sty);
     }
-    llvm::Value* word = builder->CreateLoad(sty, wordPtr);
+    llvm::Type* aty = slot.accessType ? slot.accessType : sty;
+    llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign, vol);
     uint64_t mask = (slot.bitWidth >= 64) ? ~0ULL : ((1ULL << slot.bitWidth) - 1);
-    llvm::Value* fieldMask = llvm::ConstantInt::get(sty, mask << slot.bitOffset);
+    llvm::Value* fieldMask = builder->CreateShl(llvm::ConstantInt::get(aty, mask), slot.bitOffset);
     llvm::Value* cleared  = builder->CreateAnd(word, builder->CreateNot(fieldMask));
     llvm::Value* vMasked  = builder->CreateAnd(val, llvm::ConstantInt::get(sty, mask));
+    if (aty != sty) vMasked = builder->CreateZExtOrTrunc(vMasked, aty);
     llvm::Value* vShifted = slot.bitOffset
-        ? builder->CreateShl(vMasked, llvm::ConstantInt::get(sty, slot.bitOffset)) : vMasked;
-    builder->CreateStore(builder->CreateOr(cleared, vShifted), wordPtr);
+        ? builder->CreateShl(vMasked, llvm::ConstantInt::get(aty, slot.bitOffset)) : vMasked;
+    llvm::StoreInst* st = builder->CreateStore(builder->CreateOr(cleared, vShifted), wordPtr);
+    if (slot.accessAlign) st->setAlignment(llvm::Align(slot.accessAlign));
+    st->setVolatile(vol);
 }
 
 void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
+    const BitfieldSlot* slot = nullptr;
+    llvm::Value* gep = bitfieldWordPtr(m, slot);
+    storeBitfieldInto(gep, *slot, val, false, volatileRooted(m));
+}
+
+llvm::Value* CodeGen::bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slotOut) {
     std::string baseType = structBaseTypeOf(m->base);
     const BitfieldSlot& slot = structLayout[baseType][m->member];
+    slotOut = &slot;
     // A pointer-to-struct base's address is the pointer's VALUE (evaluateExpr), not the
     // lvalue slot holding the pointer — mirrors the read path's baseAddr. The old code
     // used evaluateLValue for both, so a `*Struct` bitfield write hit the pointer's own
@@ -747,22 +1050,29 @@ void CodeGen::storeBitfield(MemberExpr* m, llvm::Value* val) {
     std::string rawBaseTy = getExprEskiuType(m->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
     llvm::Value* basePtr = baseIsPtr ? evaluateExpr(m->base) : evaluateLValue(m->base);
-    llvm::Value* gep = builder->CreateStructGEP(structTypes[baseType], basePtr, slot.physIndex);
-    storeBitfieldInto(gep, slot, val);
+    return layoutFieldAddr(baseType, basePtr, slot);
 }
 
 void CodeGen::visit(CastExpr* node) {
+    // `(void)e` evaluates `e` for its side effects and discards the value (sema only allows
+    // it where no value is needed).
+    if (node->targetType == "void") {
+        evaluateExpr(node->expr);
+        exprValueStack.push(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+        return;
+    }
     llvm::Type* targetType = getTypeFromString(node->targetType);
 
     // Casting a top-level function name to a pointer type yields its RAW C
     // function pointer — the bare symbol address, not the {fn, env} closure fat
     // pointer the name would otherwise decay to. This is how an Eskiu function is
-    // handed to a C API as a callback (e.g. OpenSSL's ALPN select callback).
+    // handed to a C API as a callback (e.g. OpenSSL's ALPN select callback); one taking
+    // or returning a struct by value is reached through its C-ABI thunk.
     if (targetType->isPointerTy()) {
         if (auto* id = dynamic_cast<IdentExpr*>(node->expr.get())) {
             if (!lookupSymbol(id->name)) {               // not shadowed by a variable
                 if (llvm::Function* fn = module->getFunction(id->name)) {
-                    exprValueStack.push(fn);             // a Function* is already a ptr
+                    exprValueStack.push(cabiCallbackThunk(fn));
                     return;
                 }
             }
@@ -775,6 +1085,14 @@ void CodeGen::visit(CastExpr* node) {
 
     if (val->getType() == targetType) {
         result = val;
+    } else if (targetType->isIntegerTy(1)) {
+        // Conversion to bool is `!= 0` (C `_Bool`), never a truncation: (bool)2,
+        // (bool)256 and (bool)0.5 are all true.
+        if (val->getType()->isFloatingPointTy() || val->getType()->isPointerTy() ||
+            val->getType()->isIntegerTy())
+            result = emitTruthy(val);
+        else
+            throw std::runtime_error("Cannot cast between these types");
     } else if (val->getType()->isIntegerTy() && targetType->isIntegerTy()) {
         // Integer to integer
         unsigned srcWidth = llvm::cast<llvm::IntegerType>(val->getType())->getBitWidth();
@@ -833,11 +1151,13 @@ void CodeGen::visit(LiteralExpr* node) {
             }
             llvm::Type* ity = wide ? llvm::Type::getInt64Ty(*context)
                                    : llvm::Type::getInt32Ty(*context);
-            result = llvm::ConstantInt::get(ity, uval, false);
+            result = constIntBits(ity, uval);
             break;
         }
         case LiteralExpr::Kind::FLOAT: {
-            double val = std::stod(node->value);
+            // strtod (not stod): a denormal (1e-320) keeps its value and an overflow
+            // (1e400) is inf, as in C, instead of an out-of-range exception.
+            double val = std::strtod(node->value.c_str(), nullptr);
             result = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), val);
             break;
         }
@@ -857,7 +1177,7 @@ void CodeGen::visit(LiteralExpr* node) {
         }
         case LiteralExpr::Kind::CHAR: {
             char val = node->value.empty() ? 0 : node->value[0];
-            result = llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), val);
+            result = constIntBits(llvm::Type::getInt8Ty(*context), (uint8_t)val);
             break;
         }
     }
@@ -883,6 +1203,16 @@ void CodeGen::visit(IdentExpr* node) {
 
     // Look up variable
     llvm::Value* val = lookupSymbol(node->name);
+
+    // A numeric `const` reads as its folded value (so it stays a constant expression).
+    if (val) {
+        auto cv = constValueOf.find(val);
+        if (cv != constValueOf.end()) { exprValueStack.push(cv->second); return; }
+    } else if (constEvalDepth > 0) {
+        // Folding a top-level constant before the globals are emitted: by name.
+        auto cg = constGlobalValues.find(node->name);
+        if (cg != constGlobalValues.end()) { exprValueStack.push(cg->second); return; }
+    }
 
     if (!val) {
         // A bare function name used as a value decays to a closure fat pointer.
@@ -925,7 +1255,16 @@ llvm::Value* CodeGen::evaluateExpr(const ExprPtr& expr) {
 }
 
 void CodeGen::visit(SizeofExpr* node) {
-    llvm::Type* ty   = getTypeFromString(node->typeName);
+    // Sema rewrites `sizeof(var)` to the variable's type, except in a generic body
+    // (its nodes are shared by the instances): resolve the variable here, per instance.
+    std::string tn = node->typeName;
+    if (node->operand) tn = getExprEskiuType(node->operand);   // a generic body: never evaluated
+    else if (!typeParamOverride.count(tn) && !structTypes.count(tn) && !typeAliases.count(tn) &&
+        !enumTypes.count(tn)) {
+        std::string vt = lookupVarType(tn);
+        if (!vt.empty()) tn = vt;
+    }
+    llvm::Type* ty   = getTypeFromString(tn);
     uint64_t    size = module->getDataLayout().getTypeAllocSize(ty);
     exprValueStack.push(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size));
@@ -971,8 +1310,7 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
                     throw std::runtime_error("cannot take the address of bitfield '"
                                              + member->member + "'");
                 llvm::Value* basePtr = baseAddr();
-                return builder->CreateStructGEP(structTypes[baseType], basePtr,
-                                                sit->second.physIndex);
+                return layoutFieldAddr(baseType, basePtr, sit->second);
             }
         }
         for (size_t i = 0; i < fields.size(); ++i) {
@@ -985,11 +1323,26 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
         throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + member->member + "'");
     }
 
-    if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
+    // An overloaded `w[i]` is a call: its result is an rvalue (materialized below).
+    if (auto index = dynamic_cast<IndexExpr*>(expr.get()); index && index->opFunc.empty()) {
         // `a[i] = x` — element address for array / slice / pointer / string bases.
         llvm::Value* idx = evaluateExpr(index->index);
         return indexElemAddr(index->base, idx);
     }
 
+    if (lvalueAllowTemp) {
+        llvm::Value* v = evaluateExpr(expr);
+        llvm::Value* tmp = entryAlloca(v->getType(), nullptr, "rval.tmp");
+        builder->CreateStore(v, tmp);
+        return tmp;
+    }
     throw std::runtime_error("Left-hand side of assignment is not an lvalue");
+}
+
+llvm::Value* CodeGen::evaluateAddress(const ExprPtr& expr) {
+    bool prev = lvalueAllowTemp;
+    lvalueAllowTemp = true;
+    llvm::Value* a = evaluateLValue(expr);
+    lvalueAllowTemp = prev;
+    return a;
 }

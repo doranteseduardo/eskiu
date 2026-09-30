@@ -1,0 +1,22 @@
+// A local or parameter named like a type shadows it: `(P) - 1` is arithmetic on the
+// variable, not a cast. Once the variable's block ends, `(P)` is a cast again.
+extern int printf(string fmt, ...);
+
+struct P { int x; }
+type Num = int;
+
+int dec(int Num) { return (Num) - 1; }
+
+int main() {
+    int P = 10;
+    int r = (P) - 1;
+    printf("%d %d\n", r, dec(5));
+    {
+        int Num = 3;
+        printf("%d\n", (Num) * 2);
+    }
+    int n = (Num) -1;
+    fn(int)->int f = int(int Num) { return (Num) + 100; };
+    printf("%d %d\n", n, f(1));
+    return 0;
+}

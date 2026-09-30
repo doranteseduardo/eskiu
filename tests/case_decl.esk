@@ -1,0 +1,66 @@
+// A declaration directly after a case label (C): its scope is the rest of the
+// switch body, so a later case sees it and a shadowed outer variable comes back
+// after the switch.
+extern int printf(string fmt, ...);
+
+int fall(int x) {
+    int r = 0;
+    switch (x) {
+        case 1:
+            int y = 10;
+            r = y;
+        case 2:
+            y = 20;
+            r = r + y;
+            break;
+        default:
+            const int z = 3;
+            r = z;
+    }
+    return r;
+}
+
+int shadow(int k) {
+    int v = 7;
+    switch (k) {
+        case 0:
+            int v = 100;
+            v = v + 1;
+            printf("inner v=%d\n", v);
+            break;
+        default:
+            break;
+    }
+    return v;
+}
+
+int counter(int k) {
+    switch (k) {
+        case 1:
+            static int calls = 0;
+            calls = calls + 1;
+            return calls;
+        default:
+            return -1;
+    }
+}
+
+T pick<T>(int k, T a, T b) {
+    switch (k) {
+        case 0:
+            T t = a;
+            return t;
+        default:
+            T u = b;
+            return u;
+    }
+}
+
+int main() {
+    printf("%d %d %d\n", fall(1), fall(2), fall(5));
+    printf("outer v=%d\n", shadow(0));
+    counter(1);
+    printf("calls=%d\n", counter(1));
+    printf("%d %d\n", pick<int>(0, 4, 5), pick<int>(1, 4, 5));
+    return 0;
+}

@@ -1,0 +1,62 @@
+// Fuzz target: <http> request parsing. The raw bytes go through HttpRequest_parse +
+// HttpRequest_header (the String request), http_parse_head + HttpReq_header (the
+// binary-safe request), and, for inputs that fit a socket buffer, the full
+// http_recv path over a socketpair (Content-Length handling, body reads).
+import "harness.esk";
+import <http>;
+import <string>;
+
+extern int socketpair(int domain, int type, int proto, *int fds);
+extern int close(int fd);
+
+void http_lookups_req(HttpRequest* r) {
+    let v: String; String_init(&v, 16);
+    HttpRequest_header(r, "host", &v);
+    HttpRequest_header(r, "content-length", &v);
+    HttpRequest_header(r, "", &v);
+    HttpRequest_header(r, "x", &v);
+    String_free(&v);
+}
+
+void http_lookups(HttpReq* r) {
+    let v: String; String_init(&v, 16);
+    HttpReq_header(r, "host", &v);
+    HttpReq_header(r, "content-length", &v);
+    HttpReq_header(r, "", &v);
+    HttpReq_header(r, "content-type", &v);
+    String_free(&v);
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    let req: HttpRequest; HttpRequest_init(&req);
+    HttpRequest_parse(&req, data, len);
+    http_lookups_req(&req);
+    HttpRequest_free(&req);
+
+    int hend = http_idx_header_end(data, len);
+    if (hend > len) { fuzz_fail("header end past the input"); }
+    if (hend < 0) { hend = len; }
+    let r: HttpReq; HttpReq_init(&r);
+    http_parse_head(&r, data, hend);
+    http_lookups(&r);
+    HttpReq_free(&r);
+
+    if (len > 0 && len <= 6000) {
+        int[2] sv;
+        if (socketpair(1, 1, 0, &sv[0]) == 0) {
+            write(sv[1], (*void)data, (int64)len);
+            close(sv[1]);
+            let r2: HttpReq; HttpReq_init(&r2);
+            int st = http_recv(sv[0], &r2, (int64)4096);
+            if (st == 0) {
+                if (r2.body_len < (int64)0 || r2.body_len > (int64)4096) { fuzz_fail("body length out of bounds"); }
+                int64 i = 0;
+                int64 h = 0;
+                while (i < r2.body_len) { h = h + (int64)r2.body[i]; i = i + 1; }
+                http_lookups(&r2);
+            }
+            HttpReq_free(&r2);
+            close(sv[0]);
+        }
+    }
+}

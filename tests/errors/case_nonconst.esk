@@ -1,0 +1,2 @@
+// EXPECT-ERROR: switch case value must be a constant integer
+int main(int argc, string* argv) { switch (argc) { case argc: return 1; } return 0; }

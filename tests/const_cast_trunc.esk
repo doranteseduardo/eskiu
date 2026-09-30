@@ -1,0 +1,10 @@
+extern int printf(string f, ...);
+const int8 K = (int8)259;
+int main() {
+    int[4] a = {1, 2, 3, 4};
+    int x = 1;
+    int y = 3;
+    switch (y) { case (int8)259: printf("three\n"); break; default: printf("other\n"); }
+    printf("%d %d %d %d\n", a[(int8)257], x << (uint8)257, a[(uint8)-1 - 254], a[K]);
+    return 0;
+}

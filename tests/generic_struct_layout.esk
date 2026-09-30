@@ -1,0 +1,53 @@
+// A generic struct instance is laid out like the plain struct of its concrete field
+// types (C side: tests/generic_struct_layout.c): multidimensional array fields keep
+// C order, bitfields keep their widths, and `packed` / `#pragma pack` apply. C fills
+// each struct and reports sizeof; Eskiu reads every field back.
+extern int printf(string fmt, ...);
+extern int c_size(int i);
+extern void c_fill_m(*M<int> p);
+extern void c_fill_g(*G<double> p);
+extern void c_fill_q(*Q<uint8> p);
+extern void c_fill_p(*PG<int64> p);
+extern void c_fill_k(*K<int16> p);
+
+struct M<T> { T v; T[2][3] g; int[2][2][3] h; }
+struct G<T> { T v; uint8 f : 3; int8 s : 4; uint16 w : 9; }
+struct Q<T> { uint32 a : 4; uint32 b : 4; T c; }
+packed struct PG<T> { uint8 k; T v; }
+#pragma pack(1)
+struct K<T> { uint8 k; T v; int32 w; }
+#pragma pack()
+
+int sum<T>(T seed) {
+    T[2][3] a;
+    for (i in 0..2) { for (j in 0..3) { a[i][j] = (T)(i * 10 + j); } }
+    *T f = (*T)&a;
+    int s = 0;
+    for (k in 0..6) { s = s * 3 + (int)f[k]; }
+    return s + (int)sizeof(a);
+}
+
+int main() {
+    M<int> m; c_fill_m(&m);
+    printf("M %d/%d %d %d %d %d\n", (int)sizeof(M<int>), c_size(0), m.v, m.g[0][2], m.g[1][0], m.g[1][2]);
+    printf("  %d %d %d\n", m.h[0][1][2], m.h[1][0][1], m.h[1][1][2]);
+    M<int> w; for (i in 0..2) { for (j in 0..3) { w.g[i][j] = i * 10 + j; } }
+    *int wf = (*int)&w.g; printf("  %d %d %d\n", wf[2], wf[3], wf[5]);
+
+    G<double> g; c_fill_g(&g);
+    printf("G %d/%d %.1f %d %d %d\n", (int)sizeof(G<double>), c_size(1), g.v, g.f, g.s, g.w);
+    g.f++; g.s -= 3; g.w += 3;
+    printf("  %d %d %d\n", g.f, g.s, g.w);
+
+    Q<uint8> q; c_fill_q(&q);
+    printf("Q %d/%d %d %d %d\n", (int)sizeof(Q<uint8>), c_size(2), q.a, q.b, q.c);
+
+    PG<int64> p; c_fill_p(&p);
+    printf("PG %d/%d %d %lld %lld\n", (int)sizeof(PG<int64>), c_size(3), p.k, p.v, (int64)&p.v - (int64)&p);
+
+    K<int16> k; c_fill_k(&k);
+    printf("K %d/%d %d %d %d\n", (int)sizeof(K<int16>), c_size(4), k.k, k.v, k.w);
+
+    printf("sum %d %d\n", sum<int>(0), sum<int64>(0));
+    return 0;
+}

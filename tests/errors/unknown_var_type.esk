@@ -1,0 +1,2 @@
+// EXPECT-ERROR: unknown type 'Nope'
+int main() { let p: *Nope = null; return 0; }

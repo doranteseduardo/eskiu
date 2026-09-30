@@ -1,0 +1,50 @@
+// A lambda body, or a generic first instantiated inside a `try`, is its own function:
+// it never runs the enclosing function's defers, and never unwinds into its landingpad.
+import <list>;
+extern int printf(string fmt, ...);
+
+int apply(fn(int)->int f, int x) { return f(x); }
+
+int deferOuter() {
+    defer printf("outer-defer ");
+    let twice: fn(int)->int = int(int v) { if (v > 100) { return 0; } return v * 2; };
+    printf("r=%d ", twice(4));
+    return 1;
+}
+
+int lambdaInTry() {
+    int r = 0;
+    try {
+        let inc: fn(int)->int = int(int v) { return v + 1; };
+        r = apply(inc, 41);
+    } catch (string e) {
+        r = -1;
+    }
+    return r;
+}
+
+int genericInTry() {
+    List<int> l;
+    try {
+        l.init(1);
+        l.push(5);
+        l.push(7);
+    } catch (string e) {
+        return -1;
+    }
+    return l.get(0) + l.get(1);
+}
+
+int main() {
+    printf("%d\n", deferOuter());
+    printf("%d\n", lambdaInTry());
+    printf("%d\n", genericInTry());
+    int acc = 0;
+    for (int i = 0; i < 3; i++) {
+        defer acc = acc + 10;
+        let f: fn(int)->int = int(int v) { for (int j = 0; j < 2; j++) { if (j == 1) { break; } } return v; };
+        acc = acc + f(i);
+    }
+    printf("%d\n", acc);
+    return 0;
+}

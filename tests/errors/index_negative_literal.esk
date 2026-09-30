@@ -1,0 +1,2 @@
+// EXPECT-ERROR: array index -1 is out of bounds
+int main() { int[3] a = {1, 2, 3}; return a[-1]; }

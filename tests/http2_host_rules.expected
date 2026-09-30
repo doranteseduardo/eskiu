@@ -1,0 +1,20 @@
+:authority only:
+  handler: host=1 [good.example:8080]
+  status 200
+host only:
+  handler: host=1 [good.example]
+  status 200
+host equal to :authority but for case:
+  handler: host=1 [good.example]
+  status 200
+neither:
+  handler: host=0 []
+  status 200
+host differs from :authority:
+  rst 1
+two host fields:
+  rst 1
+a list in host:
+  status 400
+userinfo in :authority:
+  status 400

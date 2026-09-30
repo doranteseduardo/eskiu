@@ -1,0 +1,4 @@
+// EXPECT-ERROR: match subject must be an enum
+enum E { A(int), B }
+struct S { int v; }
+int main() { S s = S{v: 1}; match s { A(v) -> return v; B -> return 0; } }

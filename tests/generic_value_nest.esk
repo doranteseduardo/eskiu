@@ -1,0 +1,17 @@
+// By-value nesting of generic instances that is finite is not a cycle.
+extern int printf(string fmt, ...);
+struct W<T> { T x; }
+struct L<T> { T v; *L<T> next; L<T>[] rest; }
+struct S { W<W<int>> w; W<int>[2] arr; *W<S> p; }
+struct Pair<A, B> { A a; B b; }
+struct Q { Pair<W<int>, Pair<int, double>> pq; }
+int main() {
+    let s: S;
+    s.w.x.x = 3;
+    let l: L<int>;
+    l.v = 4;
+    let q: Q;
+    q.pq.b.b = 1.5;
+    printf("%d %d %.1f\n", s.w.x.x, l.v, q.pq.b.b);
+    return 0;
+}

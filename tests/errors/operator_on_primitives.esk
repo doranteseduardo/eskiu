@@ -1,0 +1,4 @@
+// EXPECT-ERROR: does not overload an operator for a user type
+// `3 + 1` keeps its built-in meaning; this overload was ignored by one compiler and used by the other.
+int operator +(int a, int b) { return a - b; }
+int main() { return 3 + 1; }

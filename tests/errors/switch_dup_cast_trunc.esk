@@ -1,0 +1,3 @@
+// EXPECT-ERROR: duplicate case value in switch
+const int8 K = (int8)259;
+int main() { int x = 3; switch (x) { case (uint8)-253: return 1; case K: return 2; } return 0; }

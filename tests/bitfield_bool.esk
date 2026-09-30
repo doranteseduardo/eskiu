@@ -1,0 +1,20 @@
+// A bool bitfield is stored in a byte unit like C, at any bit offset.
+extern int printf(string fmt, ...);
+struct F { uint8 a : 7; bool c : 1; }
+struct G { uint32 x : 3; bool b : 1; uint32 y : 4; bool d : 1; }
+int main() {
+  let f: F;
+  f.a = 0; f.c = true;
+  bool v = f.c;
+  if (v) { printf("set\n"); } else { printf("clear\n"); }
+  f.a = 127; f.c = false;
+  printf("%d %d %d\n", f.a, f.c, (int)sizeof(F));
+  let g: G;
+  g.x = 5; g.b = true; g.y = 9; g.d = true;
+  printf("%d %d %d %d %d\n", g.x, g.b, g.y, g.d, (int)sizeof(G));
+  g.b = false;
+  printf("%d %d %d %d\n", g.x, g.b, g.y, g.d);
+  G h = G{x: 1, b: true, y: 2, d: false};
+  printf("%d %d %d %d\n", h.x, h.b, h.y, h.d);
+  return 0;
+}

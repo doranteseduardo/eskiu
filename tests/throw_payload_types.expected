@@ -1,0 +1,14 @@
+int 42
+int64 5000000000
+float 1.250000
+double 3.500000
+string str
+pointer 1
+Err 9 bad 2.500000
+int8 -3
+sum 28
+generic double 6.250000
+generic int64 7000000000
+generic string gs
+method int 11
+method double 0.500000

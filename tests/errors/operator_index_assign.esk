@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot assign to this expression
+struct V { int x; }
+int operator [](V a, int i) { return a.x + i; }
+int main() { V a = V{x: 1}; a[5] = 3; return a.x; }

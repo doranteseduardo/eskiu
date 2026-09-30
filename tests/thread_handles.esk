@@ -1,0 +1,16 @@
+// thread_create takes a fn()->void (a lambda, a function, a closure value); thread_join its handle.
+extern int printf(string fmt, ...);
+void worker() { printf("worker\n"); }
+struct H { *void t; }
+int main() {
+  *void t = thread_create(void() { printf("lambda\n"); });
+  thread_join(t);
+  let h: H;
+  h.t = thread_create(worker);
+  thread_join(h.t);
+  fn()->void f = void() { printf("closure\n"); };
+  ?*void u = thread_create(f);
+  if (u != null) { thread_join(u); }
+  free_closure(f);
+  return 0;
+}

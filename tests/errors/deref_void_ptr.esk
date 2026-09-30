@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot dereference '*void': it points to 'void'
+// A `*void` points at no type: cast it to a typed pointer to read or write through it.
+int main() {
+    int k = 3;
+    *void x = (*void)&k;
+    *x;
+    return 0;
+}

@@ -1,0 +1,25 @@
+// The awaited type of `return await E`, `x = await E` and a bare `await E` when E is a
+// generic call (explicit or inferred) or a method call returning a future.
+import <future>;
+extern int printf(string fmt, ...);
+
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+struct Src { int64 big; string s; }
+Future<int64>* Src_get(Src* self) { return rdy<int64>(self.big); }
+Future<string>* Src_name(Src* self) { return rdy<string>(self.s); }
+
+async double a1() { return await rdy<double>(2.5); }
+async int64 a2(Src* s) { return await s.get(); }
+async string a3(Src* s) { string r = "x"; r = await s.name(); return r; }
+async int a4() { await rdy<double>(1.0); double d = 0.0; d = await rdy(4.5); return (int)d; }
+async double a5() { return await rdy(0.75); }
+
+int main() {
+    let s: Src = Src{ big: 5000000000, s: "hello" };
+    Future<double>* f1 = a1(); printf("%.2f\n", f1.value); free_future<double>(f1);
+    Future<int64>* f2 = a2(&s); printf("%lld\n", f2.value); free_future<int64>(f2);
+    Future<string>* f3 = a3(&s); printf("%s\n", f3.value); free_future<string>(f3);
+    Future<int>* f4 = a4(); printf("%d\n", f4.value); free_future<int>(f4);
+    Future<double>* f5 = a5(); printf("%.2f\n", f5.value); free_future<double>(f5);
+    return 0;
+}

@@ -1,0 +1,29 @@
+[[:alpha:]]+ on "12abc3": 2,5
+[[:^alpha:]]+ on "ab12c": 2,4
+[[:alnum:]]+ on "--a1B--": 2,5
+[[:digit:]-z]+ on "a1-z": 1,4
+[^[:alnum:]]+ on "ab#$c": 2,4
+[[:upper:][:lower:]]+ on "1aBc2": 1,4
+[[:word:][:punct:]]+ on " a_!b ": 1,5
+[[:xdigit:]]+ on "zz0fAg": 2,5
+[[:blank:]]+ on "a 	 b": 1,4
+[[:graph:]]+ on " ab c": 1,3
+[[:print:]]+ on "ab c": 1,5
+[[:cntrl:]] on "a": 1,2
+[[:ascii:]]+ on "abc": 0,3
+[[:space:]]+ on "x 	 y": 1,5
+[[:^space:]]+ on "  ab ": 2,4
+[a[:digit:]]+ on "xa1b": 1,3
+[[:foo:]]: error invalid character class range
+[[:^:]]: error invalid character class range
+[[:alpha] on ":": 0,1
+[[] on "[": 0,1
+{ on "a{b": 1,2
+a{ on "a{": 0,2
+a{,2} on "a{,2}": 0,5
+a{x} on "a{x}": 0,4
+a{1, on "a{1,": 0,4
+^{$ on "{": 0,1
+a{2}{ on "aa{": 0,3
+a{2} on "aa": 0,2
+{2}: error nothing to repeat

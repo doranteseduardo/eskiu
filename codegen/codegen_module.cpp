@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../sema/type_checker.h"
 #include "../ast/type_qual.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
@@ -68,12 +69,19 @@ static void initCodegenTargets(bool withAsm) {
 static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
         const CodeGen& cg, const llvm::Triple& triple, const std::string& tripleStr) {
     std::string err;
+#if LLVM_VERSION_MAJOR >= 22
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, err);
+#else
     const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleStr, err);
+#endif
     if (!target) return nullptr;
-    bool isCross = !cg.targetTriple.empty() &&
-        cg.targetTriple != llvm::sys::getDefaultTargetTriple();
+    // Without --mcpu the CPU is the target's baseline, native builds included, as in
+    // clang: "apple-m1" for arm64 Apple targets (every Apple arm64 CPU has its features,
+    // LSE atomics included), "generic" elsewhere. The host CPU's name alone (without its
+    // feature list) could select instructions a VM or a masked host lacks (SIGILL).
     llvm::StringRef cpu = !cg.targetCPU.empty() ? llvm::StringRef(cg.targetCPU)
-        : (isCross ? llvm::StringRef("generic") : llvm::sys::getHostCPUName());
+        : (triple.isAArch64() && triple.isOSDarwin() ? llvm::StringRef("apple-m1")
+                                                     : llvm::StringRef("generic"));
     llvm::TargetOptions opt;
     // Hard-float ABI for hard-float ARM triples (those ending in "hf", e.g. the
     // 3DS's armv6k-none-eabihf). LLVM parses "eabihf" into the OS field, not the
@@ -82,9 +90,38 @@ static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
     // hard-float libraries like libctru.
     if (tripleStr.size() >= 2 && tripleStr.compare(tripleStr.size() - 2, 2, "hf") == 0)
         opt.FloatABIType = llvm::FloatABI::Hard;
+    // The backend's optimization level follows -O, as in clang: at -O0 the machine
+    // passes that scale with loop nesting depth (loop-invariant code motion, block
+    // frequencies) do not run.
+    llvm::CodeGenOptLevel level = cg.optLevel == 0 ? llvm::CodeGenOptLevel::None
+                                : cg.optLevel == 1 ? llvm::CodeGenOptLevel::Less
+                                : cg.optLevel == 2 ? llvm::CodeGenOptLevel::Default
+                                                   : llvm::CodeGenOptLevel::Aggressive;
     return std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(triple, cpu, cg.targetFeatures, opt,
-                                    parseRelocModel(cg.relocModel)));
+                                    parseRelocModel(cg.relocModel), std::nullopt, level));
+}
+
+TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
+    initCodegenTargets(/*withAsm=*/false);
+    std::string tripleStr = tripleIn.empty() ? llvm::sys::getDefaultTargetTriple() : tripleIn;
+    llvm::Triple triple(tripleStr);
+    CodeGen probe;
+    probe.targetTriple = tripleIn;
+    llvm::DataLayout dl("");
+    if (auto tm = makeTargetMachine(probe, triple, tripleStr)) dl = tm->createDataLayout();
+    llvm::LLVMContext ctx;
+    auto al = [&](llvm::Type* t) { return (unsigned)dl.getABITypeAlign(t).value(); };
+    TargetLayoutInfo info;
+    info.ptrSize  = (unsigned)dl.getPointerSize();
+    info.ptrAlign = al(llvm::PointerType::get(ctx, 0));
+    info.i16Align = al(llvm::Type::getInt16Ty(ctx));
+    info.i32Align = al(llvm::Type::getInt32Ty(ctx));
+    info.i64Align = al(llvm::Type::getInt64Ty(ctx));
+    info.f32Align = al(llvm::Type::getFloatTy(ctx));
+    info.f64Align = al(llvm::Type::getDoubleTy(ctx));
+    info.msBitfields = triple.isOSWindows();
+    return info;
 }
 
 CodeGen::CodeGen()
@@ -103,6 +140,8 @@ llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
     module->setTargetTriple(triple);
     if (auto tm = makeTargetMachine(*this, triple, tripleStr))
         module->setDataLayout(tm->createDataLayout());
+    if (semaInstanceArgs)
+        for (const auto& kv : *semaInstanceArgs) templateInstanceArgs.emplace(kv.first, kv.second);
 
     program->accept(this);
 

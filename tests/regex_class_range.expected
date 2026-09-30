@@ -1,0 +1,12 @@
+[z-a]: error invalid character class range
+[a-\d]: error invalid character class range
+^[\d-z]+$ on "5-z": 1
+[\d-z] on "m": 0
+[a-\W]: error invalid character class range
+[a-z] on "m": 1
+[a-a] on "a": 1
+[\d-] on "-": 1
+^[\D]+$ on "abc": 1
+^[\D]+$ on "a1c": 0
+^[\W\d]+$ on " 9!": 1
+^[\S]$ on " ": 0

@@ -61,6 +61,9 @@ EOF
 cat > "$WORK/inbounds.esk" <<'EOF'
 int main() { int[5] a = {1,2,3,4,5}; int[] s = a[1..4]; int i = 2; return s[i]; }
 EOF
+cat > "$WORK/slice_order.esk" <<'EOF'
+int main() { int[5] a = {1,2,3,4,5}; int[] s = a[0..5]; int lo = 3; int hi = 1; int[] t = s[lo..hi]; return (int)t.len; }
+EOF
 cat > "$WORK/default_noop.esk" <<'EOF'
 int main() { int[5] a = {1,2,3,4,5}; int[] s = a[1..4]; int i = 9; int x = s[i]; return 0; }
 EOF
@@ -68,6 +71,7 @@ EOF
 parity "slice OOB traps (--safe)"     "$WORK/slice_oob.esk"    --safe
 parity "array OOB traps (--safe)"     "$WORK/array_oob.esk"    --safe
 parity "in-bounds ok (--safe)"        "$WORK/inbounds.esk"     --safe
+parity "slice of slice lo > hi traps"  "$WORK/slice_order.esk"  --safe
 parity "no check without --safe"      "$WORK/default_noop.esk" ""
 
 echo "----"

@@ -1,0 +1,58 @@
+// http_serve bounds the whole answer by write_ms from its first byte (shortened
+// here to 150 ms): a peer that keeps reading a large answer a little at a time
+// cannot hold the only worker, so the next client is served while it is still
+// reading. Partial sends are retried within the same deadline.
+import <http>;
+import <net>;
+import <time>;
+extern int printf(string fmt, ...);
+extern int usleep(uint32 usec);
+
+HttpLimits g_lim;
+int g_port = 18437;
+
+void handle(HttpRequest* req, HttpResponse* res) {
+    let big: String;  big.init(8 * 1024 * 1024);
+    for (int i = 0; i < 8 * 1024 * 1024; i++) { big.push('x'); }
+    HttpResponse_set_body(res, big.cstr());
+    big.free();
+}
+
+int connect_retry(int port) {
+    int c = net_tcp_connect("127.0.0.1", (uint16)port);
+    for (int tries = 0; c < 0 && tries < 200; tries++) { usleep(5000); c = net_tcp_connect("127.0.0.1", (uint16)port); }
+    return c;
+}
+
+void slow_reader() {
+    const int slow = connect_retry(g_port);
+    net_send_str(slow, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+    uint8[1024] buf;
+    const int64 t0 = time_monotonic_ms();
+    // About 1 KB every 30 ms for 3 s: steady progress, far slower than the answer.
+    while (time_monotonic_ms() - t0 < 3000) {
+        const int64 n = net_recv(slow, (*void)&buf[0], 1024);
+        if (n <= 0) { break; }
+        usleep(30000);
+    }
+    net_close(slow);
+}
+
+int main() {
+    g_lim = http_limits();
+    g_lim.write_ms = 150;
+    thread_create(void() { http_serve_with(g_port, 1, handle, g_lim); });
+    *void t = thread_create(void() { slow_reader(); });
+    usleep(200000);                               // the slow reader holds the only worker
+    const int64 t1 = time_monotonic_ms();
+    const int good = connect_retry(g_port);
+    net_send_str(good, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+    uint8[16] buf;
+    const int64 n = net_recv(good, (*void)&buf[0], 15);
+    buf[n > 0 ? (int)n : 0] = 0;
+    // Served while the slow reader is still reading (it holds on for 3 s).
+    printf("next client: %s (timely=%d)\n", (string)&buf[0], time_monotonic_ms() - t1 < 1500 ? 1 : 0);
+    net_close(good);
+    thread_join(t);
+    return 0;
+}

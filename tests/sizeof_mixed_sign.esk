@@ -1,0 +1,15 @@
+// `sizeof` is an int64, so `u - sizeof(T)` is a signed 64-bit value and compares as
+// one. Found by the C oracle in tests/fuzz/eskiu_fuzz.py (the self-hosted back end left
+// sizeof untyped, so the subtraction took the unsigned operand's signedness).
+extern int printf(string fmt, ...);
+
+uint32 g = 1;
+
+int main() {
+    int32 x = -78;
+    bool a = (g - sizeof(int32)) >= (x | g);
+    printf("%d\n", (int)a);                               // 0: -3 >= 4294967219 is false
+    printf("%lld\n", (int64)(g - sizeof(int32)));         // -3
+    printf("%lld\n", (int64)(sizeof(int32) - 10));        // -6
+    return 0;
+}

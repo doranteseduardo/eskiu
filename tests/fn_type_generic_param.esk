@@ -1,0 +1,27 @@
+// fn types whose parameters or return are generic-struct instances, as locals,
+// parameters, globals, struct fields, and inside a generic body.
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; }
+struct Holder { fn(Box<int>)->int cb; }
+
+int getv(Box<int> b) { return b.v; }
+Box<int> mk(int v) { return Box<int>{ v: v }; }
+int call(fn(Box<int>)->int f, Box<int> b) { return f(b); }
+T through<T>(fn(Box<T>)->T f, T x) { return f(Box<T>{ v: x }); }
+
+fn(int)->Box<int> g_mk;
+
+int main() {
+    fn(Box<int>)->int f = getv;
+    let b: Box<int> = Box<int>{ v: 9 };
+    printf("%d %d\n", f(b), call(getv, b));
+    fn(*Box<int>)->int h = int(*Box<int> p) { return p.v + 1; };
+    printf("%d\n", h(&b));
+    let hd: Holder = Holder{ cb: getv };
+    printf("%d\n", hd.cb(b));
+    g_mk = mk;
+    printf("%d\n", g_mk(4).v);
+    printf("%d\n", through<int>(getv, 12));
+    return 0;
+}

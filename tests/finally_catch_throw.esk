@@ -1,0 +1,30 @@
+// `finally` runs when a catch handler throws; then the new exception propagates.
+extern int printf(string fmt, ...);
+void g() { throw 3; }
+void direct() {
+  try { throw 1; }
+  catch (int e) { throw 2; }
+  finally { printf("finally direct\n"); }
+}
+void viaCall() {
+  defer printf("fn defer\n");
+  try { throw 1; }
+  catch (int e) { defer printf("catch defer\n"); g(); }
+  finally { printf("finally call\n"); }
+}
+int nested() {
+  int r = 0;
+  try {
+    try { throw 1; }
+    catch (int e) { throw e + 10; }
+    finally { printf("inner finally\n"); }
+  } catch (int e) { r = e; }
+  finally { printf("outer finally\n"); }
+  return r;
+}
+int main() {
+  try { direct(); } catch (int e) { printf("caught %d\n", e); }
+  try { viaCall(); } catch (int e) { printf("caught %d\n", e); }
+  printf("nested %d\n", nested());
+  return 0;
+}

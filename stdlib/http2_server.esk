@@ -1,12 +1,12 @@
 // http2_server.esk — HTTP/2 (h2c, cleartext) server over the async event loop.
 //
-// Drives a connection through the opening handshake, then a frame-dispatch loop:
-// SETTINGS/PING/WINDOW_UPDATE/GOAWAY housekeeping plus request handling. Streams
-// are multiplexed — interleaved request frames are routed to per-stream slots and
-// each completes when its END_STREAM arrives. A completed request (a HEADERS
-// block, optionally followed by DATA) is HPACK-decoded into <http>'s HttpRequest,
-// passed to the user handler, and the HttpResponse is encoded back as a HEADERS
-// frame plus the body in flow-controlled, MAX_FRAME_SIZE-bounded DATA frames. The
+// The protocol lives in H2Server, a transport-agnostic connection engine (see
+// "Server connection engine" below): streams are multiplexed, a completed
+// request (a HEADERS block, optionally followed by DATA) is HPACK-decoded into
+// <http>'s HttpRequest, passed to the user handler, and the HttpResponse is
+// encoded back as a HEADERS frame plus the body in flow-controlled,
+// MAX_FRAME_SIZE-bounded DATA frames. This file's async h2c server and both
+// TLS servers in <tls> are thin read/write loops around it. The
 // handler interface matches the HTTP/1.1 <http_async> server, so the same
 // handlers serve both. For h2 over TLS, see <tls>.
 //
@@ -27,100 +27,260 @@ import <http2>;
 import <hpack>;
 import <http>;
 import <string>;
+import <time>;
 
 extern int memcmp(*void a, *void b, int64 n);
 extern int64 strlen(string s);
 
 // True if a decoded header's name equals the cstring `name`.
 int h2_name_eq(HpackHeader* h, string name) {
-    int n = strlen(name);
+    const int n = strlen(name);
     if (h.nlen != n) { return 0; }
     return memcmp((*void)h.name, (*void)name, n) == 0;
 }
 
 // Set a String to the `n` bytes at `p`.
 void h2_str_set_bytes(String* s, *uint8 p, int64 n) {
-    String_clear(s);
-    int i = 0;
-    while (i < n) { String_push(s, (char)p[i]); i = i + 1; }
+    s.clear();
+    for (int64 i = 0; i < n; i++) { s.push((char)p[i]); }
+}
+
+// 1 if a decoded field is well formed (RFC 9113 §8.2.1): the name is non-empty
+// and has no uppercase letter, control byte, space, DEL, non-ASCII byte, or ':'
+// (except the leading ':' of a pseudo-header), and the value has no NUL, CR or
+// LF and does not start or end with a space or tab. A CR or LF in a value would
+// otherwise split into a forged header line in the HttpRequest header block.
+int h2_field_ok(HpackHeader* h) {
+    if (h.nlen <= 0) { return 0; }
+    for (int64 i = 0; i < h.nlen; i++) {
+        const int c = (int)h.name[i];
+        if (c <= 32 || c >= 127 || (c >= 'A' && c <= 'Z')) { return 0; }
+        if (c == ':' && i != 0) { return 0; }
+    }
+    if (h.name[0] == ':' && h.nlen == 1) { return 0; }
+    for (int64 i = 0; i < h.vlen; i++) {
+        const int c = (int)h.value[i];
+        if (c == 0 || c == '\r' || c == '\n') { return 0; }
+    }
+    if (h.vlen > 0) {
+        const int first = (int)h.value[0];
+        const int last = (int)h.value[h.vlen - 1];
+        if (first == ' ' || first == '\t' || last == ' ' || last == '\t') { return 0; }
+    }
+    return 1;
+}
+
+// 1 if a decoded value equals the cstring `v`.
+int h2_value_eq(HpackHeader* h, string v) {
+    const int n = strlen(v);
+    if (h.vlen != n) { return 0; }
+    return memcmp((*void)h.value, (*void)v, n) == 0;
+}
+
+// 1 for a connection-specific field, which HTTP/2 does not carry (RFC 9113
+// §8.2.2). `name` is lowercase (the caller compares exact bytes).
+int h2_is_conn_field(*uint8 name, int64 n) {
+    const string[5] names = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade"};
+    for (i in 0..5) {
+        const int64 k = strlen(names[i]);
+        if (n == k && memcmp((*void)name, (*void)names[i], k) == 0) { return 1; }
+    }
+    return 0;
+}
+
+// 1 if a decoded trailer section is well formed: every field passes
+// h2_field_ok (no uppercase name, no CR, LF or NUL in a value), and none is a
+// pseudo-header (§8.1), a connection-specific field or a `te` (§8.2.2), so a
+// trailer is held to the rules of a header section.
+int h2_trailers_ok(HpackHeader* hs, int64 n) {
+    for (int64 i = 0; i < n; i++) {
+        HpackHeader* h = &hs[i];
+        if (h2_field_ok(h) == 0 || h.name[0] == ':') { return 0; }
+        if (h2_is_conn_field(h.name, h.nlen) != 0 || h2_name_eq(h, "te") != 0) { return 0; }
+    }
+    return 1;
 }
 
 // Populate an HttpRequest from decoded HPACK headers: the :method / :path
 // pseudo-headers map to the request fields; ordinary headers are appended to the
 // header block as "name: value\n" (pseudo-headers — names starting with ':' —
-// are not). The version is reported as HTTP/2.0.
-void h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
-    String_from(&req.version, "HTTP/2.0");
-    int i = 0;
-    while (i < n) {
-        if (h2_name_eq(&hs[i], ":method") != 0) {
-            h2_str_set_bytes(&req.method, hs[i].value, hs[i].vlen);
-        } else if (h2_name_eq(&hs[i], ":path") != 0) {
-            h2_str_set_bytes(&req.path, hs[i].value, hs[i].vlen);
-        } else if (hs[i].nlen > 0 && hs[i].name[0] != (uint8)58) {   // 58 = ':'
-            int j = 0;
-            while (j < hs[i].nlen) { String_push(&req.headers, (char)hs[i].name[j]); j = j + 1; }
-            String_append(&req.headers, ": ");
-            j = 0;
-            while (j < hs[i].vlen) { String_push(&req.headers, (char)hs[i].value[j]); j = j + 1; }
-            String_push(&req.headers, (char)10);                    // '\n'
+// are not). The version is reported as HTTP/2.0. Returns 0; -1 when a field is
+// malformed (h2_field_ok), answered 400; or -2 when the request is malformed
+// under RFC 9113 §8.2.2 / §8.3, a stream error: a pseudo-header other than
+// :method, :scheme, :authority and :path (so also a response's :status), one
+// that repeats or follows a regular field, a connection-specific field, `te`
+// other than "trailers", or a missing :method, :scheme or :path (CONNECT
+// instead needs :authority and has neither :scheme nor :path), more than one
+// host field, or a host that differs from :authority (§8.3.1). The Host rules
+// of HTTP/1.1 apply to host and :authority (uri-host [":" port], else -1, a
+// 400), and without a host field the :authority is given to the handler as
+// its Host header. The request is then left partly filled.
+int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
+    req.version.clear();
+    req.version.append("HTTP/2.0");      // clear + append: the String is already allocated
+    int regular = 0;
+    int nmethod = 0;  int nscheme = 0;  int npath = 0;  int nauth = 0;
+    int nhost = 0;  HpackHeader* auth = null;  HpackHeader* host = null;
+    for (int64 i = 0; i < n; i++) {
+        HpackHeader* h = &hs[i];
+        if (h2_field_ok(h) == 0) { return -1; }
+        if (h.name[0] == ':') {
+            if (regular != 0) { return -2; }
+            if (h2_name_eq(h, ":method") != 0) {
+                if (nmethod++ != 0) { return -2; }
+                h2_str_set_bytes(&req.method, h.value, h.vlen);
+            } else if (h2_name_eq(h, ":path") != 0) {
+                if (npath++ != 0) { return -2; }
+                h2_str_set_bytes(&req.path, h.value, h.vlen);
+            } else if (h2_name_eq(h, ":scheme") != 0) {
+                if (nscheme++ != 0) { return -2; }
+            } else if (h2_name_eq(h, ":authority") != 0) {
+                if (nauth++ != 0) { return -2; }
+                auth = h;
+            } else {
+                return -2;
+            }
+        } else {
+            regular = 1;
+            if (h2_is_conn_field(h.name, h.nlen) != 0) { return -2; }
+            if (h2_name_eq(h, "te") != 0 && h2_value_eq(h, "trailers") == 0) { return -2; }
+            if (h2_name_eq(h, "host") != 0) { nhost++;  host = h; }
+            for (int64 j = 0; j < h.nlen; j++) { req.headers.push((char)h.name[j]); }
+            req.headers.append(": ");
+            for (int64 j = 0; j < h.vlen; j++) { req.headers.push((char)h.value[j]); }
+            req.headers.push('\n');
         }
-        i = i + 1;
     }
+    if (req.method.len == 0) { return -2; }
+    if (String_eq_cstr(&req.method, "CONNECT") != 0) {
+        if (nauth == 0 || nscheme != 0 || npath != 0) { return -2; }
+    } else if (nscheme == 0 || req.path.len == 0) {
+        return -2;
+    }
+    if (nhost > 1) { return -2; }
+    if (host != null && auth != null && h2_same_host(host, auth) == 0) { return -2; }
+    if (host == null && auth != null) {
+        req.headers.append("host: ");
+        for (int64 j = 0; j < auth.vlen; j++) { req.headers.push((char)auth.value[j]); }
+        req.headers.push('\n');
+    }
+    if ((host != null || auth != null) && _http_host_valid(&req.headers) == 0) { return -1; }
+    return 0;
+}
+
+// 1 if two decoded fields have the same value, ignoring ASCII case (a host
+// name is case-insensitive).
+int h2_same_host(HpackHeader* a, HpackHeader* b) {
+    if (a.vlen != b.vlen) { return 0; }
+    for (int64 i = 0; i < a.vlen; i++) {
+        int x = (int)a.value[i];
+        int y = (int)b.value[i];
+        if (x >= 'A' && x <= 'Z') { x += 32; }
+        if (y >= 'A' && y <= 'Z') { y += 32; }
+        if (x != y) { return 0; }
+    }
+    return 1;
 }
 
 // HPACK-encode the handler's response headers (the "Key: Value\r\n" block) into
-// `block` at *off, lowercasing each key (HTTP/2 requires lowercase names).
+// `block` at *off, lowercasing each key (HTTP/2 requires lowercase names). A
+// connection-specific field (§8.2.2) is dropped, and so is a content-length
+// (h2_build_headers sends the real one) and a line whose name is not a token
+// or whose value holds an LF or NUL (RFC 9113 §8.2.1; HttpResponse_header
+// refuses those, so only a block written by hand has them).
 void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
-    *char data = String_cstr(&res.headers);
-    int len = String_len(&res.headers);
+    *char data = res.headers.cstr();
+    const int len = res.headers.len();
     int i = 0;
     while (i < len) {
-        int ks = i;
-        while (i < len && data[i] != (char)58) { i = i + 1; }       // ':'
-        int ke = i;
-        if (i < len) { i = i + 1; }
-        while (i < len && data[i] == (char)32) { i = i + 1; }       // skip ' '
-        int vs = i;
-        while (i < len && data[i] != (char)13) { i = i + 1; }       // until CR
-        int ve = i;
-        if (i + 1 < len && data[i] == (char)13 && data[i + 1] == (char)10) { i = i + 2; }
+        const int ks = i;
+        while (i < len && data[i] != ':') { i++; }
+        const int ke = i;
+        if (i < len) { i++; }
+        while (i < len && data[i] == ' ') { i++; }
+        const int vs = i;
+        while (i < len && data[i] != '\r') { i++; }
+        const int ve = i;
+        if (i + 1 < len && data[i] == '\r' && data[i + 1] == '\n') { i += 2; }
         else { i = len; }
-        int klen = ke - ks;
+        const int klen = ke - ks;
         if (klen > 0) {
             *uint8 key = alloc<uint8>(klen);
-            int j = 0;
-            while (j < klen) {
+            for (j in 0..klen) {
                 int c = (int)data[ks + j];
-                if (c >= 65 && c <= 90) { c = c + 32; }              // to lowercase
+                if (c >= 'A' && c <= 'Z') { c += 32; }              // to lowercase
                 key[j] = (uint8)c;
-                j = j + 1;
             }
-            *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs);
+            int bad = 0;
+            for (j in 0..klen) {
+                if (_http_is_tchar(key[j]) == 0) { bad = 1; }
+            }
+            for (j in vs..ve) {
+                if (data[j] == '\n' || data[j] == 0) { bad = 1; }
+            }
+            const int skip = bad != 0 || h2_is_conn_field(key, klen) != 0 ||
+                             (klen == 14 && memcmp((*void)key, (*void)"content-length", 14) == 0);
+            if (skip == 0) { *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs); }
             free((*void)key);
         }
     }
 }
 
-// Build just the response HEADERS frame (`:status`, `content-length`, then the
-// handler's headers) into `out`; END_HEADERS set, END_STREAM not (a body follows).
-// Returns the frame length.
+// Upper bound on the HPACK block for a response: `:status`, `content-length`,
+// then each handler header, whose literal costs at most its raw bytes plus a
+// representation byte and two 5-byte length prefixes.
+int h2_header_block_bound(HttpResponse* res) {
+    const int len = res.headers.len();
+    *char data = res.headers.cstr();
+    int lines = 1;
+    for (i in 0..len) {
+        if (data[i] == '\n') { lines++; }
+    }
+    return len + 16 * lines + 64;
+}
+
+// Upper bound on the bytes h2_build_headers writes: the block split into
+// MAX_FRAME_SIZE fragments, each with a 9-byte frame header.
+int h2_headers_bufsize(HttpResponse* res) {
+    const int bound = h2_header_block_bound(res);
+    return bound + H2_FRAME_HEADER_LEN * (bound / 16384 + 1);
+}
+
+// Build the response header block (`:status`, `content-length`, then the
+// handler's headers) into `out` as a HEADERS frame, followed by CONTINUATION
+// frames when the block exceeds the default MAX_FRAME_SIZE (§6.10); the last
+// fragment carries END_HEADERS, and END_STREAM is never set (a body follows).
+// A 1xx, 204 or 304 response has no content (RFC 9110 §8.6): its body is
+// dropped and it gets no content-length.
+// `out` must hold h2_headers_bufsize(res) bytes. Returns the byte count.
 int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
-    *uint8 block = alloc<uint8>(8192);
+    const int nocontent = http_status_no_content(res.status);
+    if (nocontent != 0) { res.body.clear(); }
+    *uint8 block = alloc<uint8>(h2_header_block_bound(res));
     int off = 0;
 
-    let st: String;  String_init(&st, 8);  String_from_int(&st, res.status);
+    let st: String;  st.init(8);  st.from_int(res.status);
     off = hpack_encode_header(block, off, (*uint8)":status", 7,
-                              (*uint8)String_cstr(&st), String_len(&st));
-    String_free(&st);
+                              (*uint8)st.cstr(), st.len());
+    st.free();
 
-    let cl: String;  String_init(&cl, 16);  String_from_int(&cl, String_len(&res.body));
-    off = hpack_encode_header(block, off, (*uint8)"content-length", 14,
-                              (*uint8)String_cstr(&cl), String_len(&cl));
-    String_free(&cl);
+    if (nocontent == 0) {
+        let cl: String;  cl.init(16);  cl.from_int(res.body.len());
+        off = hpack_encode_header(block, off, (*uint8)"content-length", 14,
+                                  (*uint8)cl.cstr(), cl.len());
+        cl.free();
+    }
 
     h2_encode_resp_headers(block, &off, res);
-    int n = h2_write_headers(out, stream_id, block, off, 0, 1);
+    const int first = off > 16384 ? 16384 : off;
+    int n = h2_write_headers(out, stream_id, block, first, 0, first == off ? 1 : 0);
+    int done = first;
+    while (done < off) {
+        const int part = off - done > 16384 ? 16384 : off - done;
+        const int last = done + part == off ? 1 : 0;
+        n += h2_write_continuation(out + n, stream_id, block + done, part, last);
+        done += part;
+    }
     free((*void)block);
     return n;
 }
@@ -136,241 +296,814 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
     // Body as DATA frames, each no larger than the default SETTINGS_MAX_FRAME_SIZE
     // (16384) — a single frame may not exceed it. Only the final frame carries
     // END_STREAM; an empty body still sends one empty END_STREAM frame.
-    int blen = String_len(&res.body);
-    *uint8 body = (*uint8)String_cstr(&res.body);
+    const int blen = res.body.len();
+    *uint8 body = (*uint8)res.body.cstr();
     int sent = 0;
-    int more = 1;
-    while (more != 0) {
-        int n = blen - sent;
-        if (n > 16384) { n = 16384; }
-        int last = 0;
-        if (sent + n >= blen) { last = 1; }
-        total = total + h2_write_data(out + total, stream_id, body + sent, n, last);
-        sent = sent + n;
-        if (last != 0) { more = 0; }
-    }
+    do {
+        const int n = blen - sent > 16384 ? 16384 : blen - sent;
+        const int last = sent + n >= blen ? 1 : 0;
+        total += h2_write_data(out + total, stream_id, body + sent, n, last);
+        sent += n;
+    } while (sent < blen);
     return total;
 }
 
-// Send a response on `stream_id` over the async connection with flow control:
-// the HEADERS frame, then the body in MAX_FRAME_SIZE chunks that each spend the
-// stream and connection send windows. When a window is exhausted, read frames
-// (applying WINDOW_UPDATE) until it reopens. `rbuf`/`rbufcap` is scratch for
-// those reads. Returns 0, or -1 if the connection drops. The peer's per-stream
-// initial window comes from its SETTINGS.
-async int h2_respond_async(EventLoop* lp, H2Conn* conn, int sid, HttpResponse* res,
-                           *uint8 rbuf, int rbufcap) {
-    *uint8 hb = alloc<uint8>(8704);
-    int hn = h2_build_headers(hb, sid, res);
-    int hw = await net_write_async(lp, conn.fd, hb, (int64)hn);
-    free((*void)hb);
-    if (hw < 0) { return -1; }
-
-    let stream: H2Stream;
-    h2_stream_init(&stream, sid, (int)conn.remote.initial_window_size, 65535);
-    int blen = String_len(&res.body);
-    *uint8 body = (*uint8)String_cstr(&res.body);
-    *uint8 df = alloc<uint8>(16384 + 9);
-    int sent = 0;
-    int more = 1;
-    while (more != 0) {
-        // Flow control: wait until at least one byte of window is available on
-        // BOTH the stream and the connection, reading WINDOW_UPDATE frames that
-        // replenish them. (A zero-length body skips this and sends one empty
-        // END_STREAM frame — empty DATA does not consume the window.)
-        while (blen - sent > 0 && h2_can_send(conn, &stream, 1) == 0) {
-            let wf: H2Frame;
-            int wl = await h2_read_frame_async(lp, conn.fd, rbuf, rbufcap, &wf);
-            if (wl < 0) { free((*void)df); return -1; }
-            if (wf.type == H2_WINDOW_UPDATE) {
-                int inc = h2_read_window_update(rbuf + 9);
-                if (wf.stream_id == 0) { h2_grant_window(conn, (H2Stream*)0, inc); }
-                else { h2_grant_window(conn, &stream, inc); }
-            }
-        }
-        // Send as much as the frame size AND the available windows allow.
-        int n = blen - sent;
-        if (n > 16384) { n = 16384; }
-        if (n > stream.send_window) { n = stream.send_window; }
-        if (n > conn.send_window)   { n = conn.send_window; }
-        int last = 0;
-        if (sent + n >= blen) { last = 1; }
-        int dn = h2_write_data(df, sid, body + sent, n, last);
-        int dw = await net_write_async(lp, conn.fd, df, (int64)dn);
-        if (dw < 0) { free((*void)df); return -1; }
-        h2_account_sent(conn, &stream, n);
-        sent = sent + n;
-        if (last != 0) { more = 0; }
-    }
-    free((*void)df);
-    return 0;
-}
-
-// Upper bound on the encoded size of a response: header block + body + a 9-byte
-// frame header per DATA chunk + slack. Callers size their buffer with this.
+// Upper bound on the encoded size of a response: the header frames + body + a
+// 9-byte frame header per DATA chunk + slack. Callers size their buffer with this.
 int h2_response_bufsize(HttpResponse* res) {
-    int blen = String_len(&res.body);
-    int chunks = blen / 16384 + 2;
-    return 8192 + blen + 9 * chunks + 64;
+    const int blen = res.body.len();
+    const int chunks = blen / 16384 + 2;
+    return h2_headers_bufsize(res) + blen + 9 * chunks + 64;
 }
 
 // Encode and send a response on `stream_id` over the connection's socket.
 void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
     *uint8 out = alloc<uint8>(h2_response_bufsize(res));
-    int n = h2_build_response(out, stream_id, res);
-    net_send(conn.fd, (*void)out, (int64)n);
+    const int n = h2_build_response(out, stream_id, res);
+    net_send(conn.fd, (*void)out, n);
     free((*void)out);
 }
 
-// A request being assembled for one open stream. HTTP/2 multiplexes streams, so
-// a client may interleave several requests' frames on one connection — each is
-// accumulated in its own slot until END_STREAM completes it.
-struct H2PendingStream {
-    int id;          // stream id (valid while active)
-    int active;      // 1 while this slot holds an in-progress request
-    HttpRequest req;
+// ── Server connection engine (transport-agnostic) ───────────────────────────
+//
+// H2Server is the whole server side of one connection with no I/O of its own:
+// the transport reads a frame and hands it to H2Server_step, then writes out
+// whatever the engine queued in `out` (s.out[0..s.outlen), then set outlen = 0).
+// The h2c server below and both TLS servers in <tls> are thin loops around it,
+// so every transport gets the same protocol handling:
+//   - receive flow control: DATA spends the stream and connection receive
+//     windows, and WINDOW_UPDATE frames give the credit back as data is taken
+//     in, so a request body of any size keeps flowing (§6.9);
+//   - PADDED DATA / HEADERS are unpadded, and a header block split over
+//     CONTINUATION frames is reassembled before it is decoded (§6.10);
+//   - responses are queued and sent as the peer's windows allow; while a
+//     response waits for window, frames keep being read, so a new request is
+//     decoded (HPACK stays in order) and answered instead of dropped;
+//   - WINDOW_UPDATE credits only the stream it names, and window overflow past
+//     2^31 - 1, bad SETTINGS values, and other protocol violations get the
+//     GOAWAY or RST_STREAM that RFC 9113 prescribes;
+//   - a header list longer than H2_MAX_HEADERS fields or H2_MAX_HEADER_LIST
+//     bytes (as SETTINGS_MAX_HEADER_LIST_SIZE counts them; the limit is
+//     advertised in our SETTINGS), or past what s.max_buffered leaves, is
+//     answered with 431 without keeping its fields, and one with a malformed field (a CR, LF or NUL in a value, an uppercase
+//     name) with 400, without calling the handler;
+//   - a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3: bad or missing
+//     pseudo-headers, a connection-specific field, a content-length that the
+//     DATA frames do not add up to, a trailer that breaks the header-field
+//     rules or is a pseudo-header) is a stream error: RST_STREAM
+//     PROTOCOL_ERROR, and the handler is not called;
+//   - a HEAD response carries its content-length but no body, and a 1xx,
+//     204 or 304 response neither;
+//   - a request body is buffered up to s.max_body bytes (default
+//     HTTP_SERVE_MAX_BODY, 1 MB, as HTTP/1.1), and the bodies and decoded
+//     header lists of all the open streams of a connection up to s.max_buffered (default H2_MAX_BUFFERED,
+//     4 MB); both may be changed after H2Server_init. A request past either
+//     (or whose content-length is past max_body) is answered 413 at once,
+//     without the handler, and its stream is then reset with NO_ERROR
+//     (§8.1), so the peer stops sending it and no credit is given back.
+
+const int H2_MAX_HEADERS   = 64;          // header fields decoded per request
+const int H2_MAX_HEADER_LIST = 65536;     // decoded header list per request (SETTINGS_MAX_HEADER_LIST_SIZE)
+const int H2_MAX_STREAMS   = 128;         // concurrent streams (advertised)
+const int H2_MAX_BLOCK     = 262144;      // largest header block buffered (HEADERS + CONTINUATION)
+const int H2_RECV_WINDOW   = 65535;       // our receive window (the protocol default)
+const int H2_MAX_BUFFERED  = 4194304;     // request body bytes buffered per connection (default)
+
+// Stream slot states.
+const int H2S_FREE       = 0;
+const int H2S_RECEIVING  = 1;             // request headers in, body still arriving
+const int H2S_READY      = 2;             // request complete, handler not run yet
+const int H2S_RESPONDING = 3;             // response queued, body being sent
+
+struct H2Slot {
+    int   id;
+    int   state;
+    int   seq;              // arrival order: ready requests are answered first come, first served
+    int   bad;              // non-zero: answer with this status and skip the handler
+    int64 clen;             // the request's content-length, or -1 if it has none
+    int64 received;         // request body bytes received (padding excluded)
+    int64 recv_window;      // bytes the peer may still send on this stream
+    int64 recv_unacked;     // bytes taken in but not yet credited back
+    int64 send_window;      // bytes we may still send on this stream
+    int64 sent;             // response body bytes sent
+    int   early;            // answered before the request ended: reset it once the answer is out
+    int64 opened;           // when the transport first saw the stream open (ms, 0 = not yet)
+    int64 resp_at;          // when it first saw it RESPONDING (ms, 0 = not yet)
+    HttpRequest  req;       // live in RECEIVING / READY
+    HttpResponse res;       // live in RESPONDING
 }
 
-// Find the slot for stream `id`; if `alloc` and none exists, return a free slot.
-// Returns -1 if not found / no free slot.
-int h2_stream_slot(*H2PendingStream s, int n, int id, int alloc) {
-    int i = 0;  int free_i = -1;
-    while (i < n) {
-        if (s[i].active != 0 && s[i].id == id) { return i; }
-        if (s[i].active == 0 && free_i < 0) { free_i = i; }
-        i = i + 1;
+struct H2Server {
+    H2Conn conn;            // fd, both sides' SETTINGS, last stream id
+    HpackDecoder dec;
+    *HpackHeader harr;
+    *H2Slot slots;
+    int    seq;
+    int64  send_window;     // connection-level windows (64-bit: overflow is detected, not wrapped)
+    int64  recv_window;
+    int64  recv_unacked;
+    int64  max_body;        // largest request body buffered per stream
+    int64  max_buffered;    // largest total of the request bodies buffered
+    *uint8 hb;              // header block being assembled
+    int    hblen;
+    int    hbcap;
+    int    hb_sid;          // its stream, while CONTINUATION frames are expected (else 0)
+    int    hb_end_stream;
+    int    hb_selfdep;      // its HEADERS had a PRIORITY on itself: reset the stream once decoded
+    int    got_settings;    // the peer's first frame must be SETTINGS (§3.4)
+    int    peer_goaway;     // the peer sent GOAWAY: finish what is open, then close
+    int    closing;         // we sent GOAWAY: flush and close
+    int[16] reset_ids;      // streams we reset lately: their late frames are ignored (§5.4.2)
+    int    reset_n;
+    *uint8 out;             // queued output for the transport
+    int64  outlen;
+    int64  outcap;
+    // Timekeeping for the transport's deadlines (H2Server_tick / H2Server_deadline),
+    // monotonic ms; 0 = not set.
+    int64  start_ms;        // the connection began (the preface/SETTINGS deadline counts from it)
+    int64  idle_since;      // no stream open since then
+    int64  hb_start;        // the header block in s.hb began
+    int64  data_sent;       // response body bytes sent, all streams (counted by H2Server_pump)
+    int64  data_seen;       // data_sent when the transport last looked
+    int64  progress_ms;     // when data_sent last grew
+}
+
+// Room for `n` more output bytes; returns where they go (the caller advances outlen).
+*uint8 H2Server_reserve(H2Server* s, int64 n) {
+    if (s.outlen + n > s.outcap) {
+        int64 nc = s.outcap * 2;
+        while (nc < s.outlen + n) { nc = nc * 2; }
+        *uint8 nb = alloc<uint8>(nc);
+        if (s.outlen > 0) { memcpy((*void)nb, (*void)s.out, s.outlen); }
+        free((*void)s.out);
+        s.out = nb;
+        s.outcap = nc;
     }
-    if (alloc != 0) { return free_i; }
+    return s.out + s.outlen;
+}
+
+// Set up the engine for connection `fd` (after the client preface was read) and
+// queue our SETTINGS frame.
+void H2Server_init(H2Server* s, int fd) {
+    H2Conn_init(&s.conn, fd);
+    s.conn.local.enable_push = 0;                     // a server MUST NOT set ENABLE_PUSH=1 (§6.5.2)
+    s.conn.local.max_concurrent_streams = H2_MAX_STREAMS;
+    s.conn.local.max_header_list_size = H2_MAX_HEADER_LIST;
+    s.dec.init(4096);
+    s.harr = alloc<HpackHeader>(H2_MAX_HEADERS);
+    s.slots = alloc<H2Slot>(H2_MAX_STREAMS);          // zeroed: every slot free
+    s.seq = 0;
+    s.send_window = 65535;
+    s.recv_window = H2_RECV_WINDOW;
+    s.recv_unacked = 0;
+    s.max_body = HTTP_SERVE_MAX_BODY;
+    s.max_buffered = H2_MAX_BUFFERED;
+    s.hbcap = 16384;
+    s.hb = alloc<uint8>(s.hbcap);
+    s.hblen = 0;  s.hb_sid = 0;  s.hb_end_stream = 0;  s.hb_selfdep = 0;
+    s.got_settings = 0;  s.peer_goaway = 0;  s.closing = 0;  s.reset_n = 0;
+    s.outcap = 4096;
+    s.out = alloc<uint8>(s.outcap);
+    s.outlen = 0;
+    s.start_ms = time_monotonic_ms();
+    s.idle_since = 0;  s.hb_start = 0;
+    s.data_sent = 0;  s.data_seen = 0;  s.progress_ms = 0;
+    *uint8 b = H2Server_reserve(s, 64);
+    s.outlen += h2_write_settings(b, &s.conn.local);
+}
+
+void H2Server_slot_release(H2Slot* sl) {
+    if (sl.state == H2S_RECEIVING || sl.state == H2S_READY) { sl.req.free(); }
+    if (sl.state == H2S_RESPONDING) { sl.res.free(); }
+    sl.state = H2S_FREE;
+    sl.opened = 0;
+    sl.resp_at = 0;
+}
+
+void H2Server_free(H2Server* s) {
+    for (i in 0..H2_MAX_STREAMS) { H2Server_slot_release(&s.slots[i]); }
+    free((*void)s.slots);
+    free((*void)s.harr);
+    free((*void)s.hb);
+    free((*void)s.out);
+    s.dec.free();
+}
+
+// Queue a GOAWAY with `code` (a connection error) and stop taking frames.
+void H2Server_goaway(H2Server* s, int code) {
+    if (s.closing != 0) { return; }
+    *uint8 b = H2Server_reserve(s, 17);
+    s.outlen += h2_write_goaway(b, s.conn.last_stream_id, code, null, 0);
+    s.closing = 1;
+}
+
+void H2Server_rst(H2Server* s, int sid, int code) {
+    *uint8 b = H2Server_reserve(s, 13);
+    s.outlen += h2_write_rst_stream(b, sid, code);
+    s.reset_ids[s.reset_n % 16] = sid;
+    s.reset_n++;
+}
+
+// 1 if we reset stream `sid` lately: the peer may still send frames it had in
+// flight, which are ignored rather than answered with another error (§5.4.2).
+int H2Server_was_reset(H2Server* s, int sid) {
+    const int n = s.reset_n < 16 ? s.reset_n : 16;
+    for (i in 0..n) {
+        if (s.reset_ids[i] == sid) { return 1; }
+    }
+    return 0;
+}
+
+void H2Server_window_update(H2Server* s, int sid, int64 inc) {
+    *uint8 b = H2Server_reserve(s, 13);
+    s.outlen += h2_write_window_update(b, sid, (int)inc);
+}
+
+// The slot holding stream `sid`, or -1.
+int H2Server_find(H2Server* s, int sid) {
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state != H2S_FREE && s.slots[i].id == sid) { return i; }
+    }
     return -1;
 }
 
-// Run the handler for a fully-received request on `sid` and send the response
-// (flow-controlled). Returns h2_respond_async's status.
-async int h2_complete_request_async(EventLoop* lp, H2Conn* conn, int sid, HttpRequest* req,
-                                    escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                                    *uint8 rbuf, int rbufcap) {
-    let res: HttpResponse;  HttpResponse_init(&res, 200);
-    handler(req, &res);
-    int ow = await h2_respond_async(lp, conn, sid, &res, rbuf, rbufcap);
-    HttpResponse_free(&res);
-    return ow;
+// 1 once the transport should stop: we sent GOAWAY, or the peer did and every
+// stream it opened has been answered.
+int H2Server_done(H2Server* s) {
+    if (s.closing != 0) { return 1; }
+    if (s.peer_goaway == 0) { return 0; }
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state != H2S_FREE) { return 0; }
+    }
+    return 1;
 }
 
-// Drive one connection: handshake, then dispatch frames until GOAWAY or EOF.
-// Streams are multiplexed — interleaved request frames are routed to per-stream
-// slots and completed (handler + response) when END_STREAM arrives. Responses
-// are still serialized on the connection (one writer), which is correct and
-// avoids concurrent writes to the same socket.
-async void http2_serve_conn_async(EventLoop* lp, int fd,
-                                  escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                                  Chan<int>* done) {
-    let conn: H2Conn;  h2_conn_init(&conn, fd);
-    int hs = await h2_server_handshake_async(lp, &conn);
-    if (hs == 0) {
-        let dec: HpackDecoder;  hpack_decoder_init(&dec, (int64)4096);
-        int FBCAP = 16384 + H2_FRAME_HEADER_LEN;        // hold a full MAX_FRAME_SIZE payload + header
+// Send queued response bodies as far as the windows allow (MAX_FRAME_SIZE-bounded
+// DATA frames; the last carries END_STREAM, and an empty body is one empty
+// END_STREAM frame). A finished stream frees its slot.
+void H2Server_pump(H2Server* s) {
+    bool progress = true;
+    while (progress) {
+        progress = false;
+        for (i in 0..H2_MAX_STREAMS) {
+            H2Slot* sl = &s.slots[i];
+            if (sl.state != H2S_RESPONDING) { continue; }
+            const int64 blen = sl.res.body.len;
+            int64 n = blen - sl.sent;
+            if (n > 16384) { n = 16384; }
+            if (n > sl.send_window) { n = sl.send_window; }
+            if (n > s.send_window) { n = s.send_window; }
+            if (n <= 0 && sl.sent < blen) { continue; }            // waiting for window
+            if (n < 0) { n = 0; }
+            const int last = sl.sent + n >= blen ? 1 : 0;
+            *uint8 b = H2Server_reserve(s, n + 9);
+            s.outlen += h2_write_data(b, sl.id, (*uint8)sl.res.body.data + sl.sent, (int)n, last);
+            sl.sent += n;
+            s.data_sent += n;
+            sl.send_window -= n;
+            s.send_window -= n;
+            if (last != 0) {
+                if (sl.early != 0) { H2Server_rst(s, sl.id, H2_NO_ERROR); }   // stop the rest of the request
+                H2Server_slot_release(sl);
+            }
+            else { progress = true; }
+        }
+    }
+}
+
+// Run the handler for the ready request in slot `i` (or answer its `bad` status)
+// and queue the response.
+void H2Server_respond(H2Server* s, int i, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    H2Slot* sl = &s.slots[i];
+    if (sl.bad != 0) {
+        sl.res.init(sl.bad);
+    } else {
+        sl.res.init(200);
+        handler(&sl.req, &sl.res);
+    }
+    const bool head = sl.req.method.eq_cstr("HEAD") == 1;
+    sl.req.free();
+    sl.state = H2S_RESPONDING;
+    sl.sent = 0;
+    *uint8 b = H2Server_reserve(s, h2_headers_bufsize(&sl.res));
+    s.outlen += h2_build_headers(b, sl.id, &sl.res);
+    // A HEAD response keeps the content-length of the body but sends none
+    // (RFC 9110 §9.3.2): the stream ends with one empty END_STREAM DATA frame.
+    if (head) { sl.res.body.clear(); }
+}
+
+// Reset the stream in slot `sl` with PROTOCOL_ERROR: its request is malformed.
+void H2Server_malformed(H2Server* s, H2Slot* sl) {
+    H2Server_rst(s, sl.id, H2_PROTOCOL_ERROR);
+    H2Server_slot_release(sl);
+}
+
+// Answer the request in `sl` with 413 now, before it ended: its body is past
+// s.max_body or the connection's bodies past s.max_buffered.
+void H2Server_too_large(H2Slot* sl) {
+    sl.bad = 413;
+    sl.early = 1;
+    sl.req.body.clear();
+    sl.state = H2S_READY;
+}
+
+// Request bytes buffered by the connection's streams: the bodies and the
+// decoded header blocks of the requests still arriving.
+int64 H2Server_buffered(H2Server* s) {
+    int64 total = 0;
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state == H2S_RECEIVING) { total += s.slots[i].req.body.len + s.slots[i].req.headers.len; }
+    }
+    return total;
+}
+
+// The size of a decoded header list as SETTINGS_MAX_HEADER_LIST_SIZE counts
+// it (RFC 9113 §6.5.2): each field's name and value plus 32 bytes.
+int64 h2_header_list_size(HpackHeader* hs, int64 n) {
+    int64 total = 0;
+    for (int64 i = 0; i < n; i++) { total += (int64)hs[i].nlen + (int64)hs[i].vlen + 32; }
+    return total;
+}
+
+// The request in `sl` ended: 1 if it may be answered, or 0 after resetting it
+// because its body length differs from its content-length (§8.1.1).
+int H2Server_end_request(H2Server* s, H2Slot* sl) {
+    if (sl.bad == 0 && sl.clen >= 0 && sl.received != sl.clen) {
+        H2Server_malformed(s, sl);
+        return 0;
+    }
+    sl.state = H2S_READY;
+    return 1;
+}
+
+// A complete header block for stream `sid` is in s.hb: decode it (always, in
+// order, so the HPACK table stays in sync) and open or finish the stream.
+void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
+    s.hb_sid = 0;
+    const int nh = hpack_decode(&s.dec, s.hb, s.hblen, s.harr, H2_MAX_HEADERS);
+    if (nh == -1) { H2Server_goaway(s, H2_COMPRESSION_ERROR); return; }
+    const int at = H2Server_find(s, sid);
+    if (s.hb_selfdep != 0) {
+        // A stream cannot depend on itself (§5.3.1): a stream error, raised
+        // after the block is decoded so the HPACK table stays in sync.
+        s.hb_selfdep = 0;
+        H2Server_rst(s, sid, H2_PROTOCOL_ERROR);
+        if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
+        else if (sid > s.conn.last_stream_id) { s.conn.last_stream_id = sid; }
+        return;
+    }
+    if (at >= 0) {
+        // Trailers on an open request: they must end the stream. After the
+        // request ended (half-closed remote) it is a stream error (§5.1).
+        if (s.slots[at].state != H2S_RECEIVING) {
+            H2Server_rst(s, sid, H2_STREAM_CLOSED);
+            H2Server_slot_release(&s.slots[at]);
+            return;
+        }
+        if (end_stream == 0) {
+            H2Server_rst(s, sid, H2_PROTOCOL_ERROR);
+            H2Server_slot_release(&s.slots[at]);
+            return;
+        }
+        if (nh < 0 || h2_trailers_ok(s.harr, nh) == 0) {
+            H2Server_malformed(s, &s.slots[at]);
+            return;
+        }
+        H2Server_end_request(s, &s.slots[at]);
+        return;
+    }
+    if (sid <= s.conn.last_stream_id) {
+        if (H2Server_was_reset(s, sid) == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }   // a closed stream
+        return;
+    }
+    s.conn.last_stream_id = sid;
+    if (s.peer_goaway != 0) { H2Server_rst(s, sid, H2_REFUSED_STREAM); return; }
+    int free_i = -1;
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state == H2S_FREE) { free_i = i; break; }
+    }
+    if (free_i < 0) { H2Server_rst(s, sid, H2_REFUSED_STREAM); return; }
+    H2Slot* sl = &s.slots[free_i];
+    sl.id = sid;
+    sl.seq = s.seq++;
+    sl.bad = 0;
+    sl.clen = -1;
+    sl.received = 0;
+    sl.recv_window = H2_RECV_WINDOW;
+    sl.recv_unacked = 0;
+    sl.send_window = s.conn.remote.initial_window_size;
+    sl.sent = 0;
+    sl.early = 0;
+    sl.req.init();
+    sl.state = H2S_RECEIVING;
+    // Request Header Fields Too Large: more than H2_MAX_HEADERS fields, a list
+    // past H2_MAX_HEADER_LIST, or one the connection's buffer has no room
+    // for. The fields are not kept (a few bytes of HPACK can decode to a
+    // large list: a dynamic-table entry referenced many times).
+    const int64 hl = nh < 0 ? 0 : h2_header_list_size(s.harr, nh);
+    if (nh == -2 || hl > H2_MAX_HEADER_LIST || H2Server_buffered(s) + hl > s.max_buffered) {
+        sl.bad = 431;
+    } else {
+        int filled = h2_fill_request(&sl.req, s.harr, nh);
+        if (filled == 0) {
+            const int64 cl = http_content_length(&sl.req.headers);
+            if (cl == -1) { filled = -2; }             // an invalid content-length
+            else if (cl >= 0) { sl.clen = cl; }
+        }
+        if (filled == -2) { H2Server_malformed(s, sl); return; }   // §8.1.1, §8.2.2, §8.3
+        if (filled != 0) { sl.bad = 400; }             // a malformed field (§8.2.1)
+    }
+    if (end_stream != 0) { H2Server_end_request(s, sl); }
+    else if (sl.bad == 0 && sl.clen > s.max_body) { H2Server_too_large(sl); }
+}
+
+// Append a header-block fragment; 0 ok, -1 if the block grew past H2_MAX_BLOCK.
+int H2Server_hb_append(H2Server* s, *uint8 p, int n) {
+    if (s.hblen + n > H2_MAX_BLOCK) { return -1; }
+    if (s.hblen + n > s.hbcap) {
+        int nc = s.hbcap * 2;
+        while (nc < s.hblen + n) { nc = nc * 2; }
+        *uint8 nb = alloc<uint8>(nc);
+        memcpy((*void)nb, (*void)s.hb, s.hblen);
+        free((*void)s.hb);
+        s.hb = nb;
+        s.hbcap = nc;
+    }
+    memcpy((*void)(s.hb + s.hblen), (*void)p, n);
+    s.hblen += n;
+    return 0;
+}
+
+void H2Server_on_data(H2Server* s, H2Frame* h, *uint8 p) {
+    if (h.stream_id == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+    const int len = h.length;
+    // The whole payload, padding included, counts against flow control (§6.9.1).
+    if (len > s.recv_window) { H2Server_goaway(s, H2_FLOW_CONTROL_ERROR); return; }
+    int off = 0;  int pad = 0;
+    if ((h.flags & H2_FLAG_PADDED) != 0) {
+        if (len < 1) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        pad = (int)p[0];  off = 1;
+        if (pad >= len) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // §6.1
+    }
+    s.recv_window -= len;
+    s.recv_unacked += len;
+    if (s.recv_unacked >= H2_RECV_WINDOW / 2) {
+        H2Server_window_update(s, 0, s.recv_unacked);
+        s.recv_window += s.recv_unacked;
+        s.recv_unacked = 0;
+    }
+    const int at = H2Server_find(s, h.stream_id);
+    if (at < 0 || s.slots[at].state != H2S_RECEIVING) {
+        if (at < 0 && h.stream_id > s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // idle stream
+        if (at < 0 && H2Server_was_reset(s, h.stream_id) != 0) { return; }
+        H2Server_rst(s, h.stream_id, H2_STREAM_CLOSED);   // closed, or half-closed (remote): §5.1
+        if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
+        return;
+    }
+    H2Slot* sl = &s.slots[at];
+    if (len > sl.recv_window) {
+        H2Server_rst(s, sl.id, H2_FLOW_CONTROL_ERROR);
+        H2Server_slot_release(sl);
+        return;
+    }
+    sl.recv_window -= len;
+    sl.received += len - off - pad;
+    if (sl.bad == 0 && sl.clen >= 0 && sl.received > sl.clen) {   // more than content-length (§8.1.1)
+        H2Server_malformed(s, sl);
+        return;
+    }
+    if (sl.bad == 0) {
+        const int64 add = len - off - pad;
+        if (sl.req.body.len + add > s.max_body || H2Server_buffered(s) + add > s.max_buffered) {
+            H2Server_too_large(sl);
+            return;
+        }
+        for (k in off..len - pad) { sl.req.body.push((char)p[k]); }
+    }
+    if ((h.flags & H2_FLAG_END_STREAM) != 0) {
+        H2Server_end_request(s, sl);                   // no more credit needed on this stream
+        return;
+    }
+    sl.recv_unacked += len;
+    if (sl.recv_unacked >= H2_RECV_WINDOW / 2) {
+        H2Server_window_update(s, sl.id, sl.recv_unacked);
+        sl.recv_window += sl.recv_unacked;
+        sl.recv_unacked = 0;
+    }
+}
+
+void H2Server_on_headers(H2Server* s, H2Frame* h, *uint8 p) {
+    const int sid = h.stream_id;
+    if (sid == 0 || (sid & 1) == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // client streams are odd
+    int off = 0;  int pad = 0;
+    if ((h.flags & H2_FLAG_PADDED) != 0) {
+        if (h.length < 1) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        pad = (int)p[0];  off = 1;
+    }
+    if ((h.flags & H2_FLAG_PRIORITY) != 0) { off += 5; }
+    if (off + pad > h.length) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // §6.2
+    s.hb_selfdep = 0;
+    if ((h.flags & H2_FLAG_PRIORITY) != 0 && (int)(h2_get_u32(p, off - 5) & 2147483647) == sid) { s.hb_selfdep = 1; }
+    s.hblen = 0;
+    if (H2Server_hb_append(s, p + off, h.length - off - pad) != 0) { H2Server_goaway(s, H2_ENHANCE_YOUR_CALM); return; }
+    s.hb_end_stream = (h.flags & H2_FLAG_END_STREAM) != 0 ? 1 : 0;
+    if ((h.flags & H2_FLAG_END_HEADERS) != 0) { H2Server_headers_done(s, sid, s.hb_end_stream); }
+    else { s.hb_sid = sid; }
+}
+
+void H2Server_on_settings(H2Server* s, H2Frame* h, *uint8 p) {
+    if (h.stream_id != 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+    if ((h.flags & H2_FLAG_ACK) != 0) {
+        if (h.length != 0) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }
+        return;
+    }
+    const int err = h2_settings_error(p, h.length);
+    if (err != 0) { H2Server_goaway(s, err); return; }
+    const int64 old_iw = s.conn.remote.initial_window_size;
+    h2_apply_settings(&s.conn.remote, p, h.length);
+    // A new INITIAL_WINDOW_SIZE shifts every open stream's send window by the
+    // difference (§6.9.2); one pushed past 2^31 - 1 is a FLOW_CONTROL_ERROR.
+    const int64 delta = s.conn.remote.initial_window_size - old_iw;
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state == H2S_FREE) { continue; }
+        s.slots[i].send_window += delta;
+        if (s.slots[i].send_window > H2_MAX_WINDOW) { H2Server_goaway(s, H2_FLOW_CONTROL_ERROR); return; }
+    }
+    *uint8 b = H2Server_reserve(s, 9);
+    s.outlen += h2_write_settings_ack(b);
+    s.got_settings = 1;
+}
+
+void H2Server_on_window_update(H2Server* s, H2Frame* h, *uint8 p) {
+    if (h.length != 4) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); return; }
+    const int64 inc = (int64)h2_read_window_update(p);
+    if (h.stream_id == 0) {
+        if (inc == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        if (s.send_window + inc > H2_MAX_WINDOW) { H2Server_goaway(s, H2_FLOW_CONTROL_ERROR); return; }
+        s.send_window += inc;
+        return;
+    }
+    const int at = H2Server_find(s, h.stream_id);
+    if (at < 0) {
+        if (h.stream_id > s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }   // idle stream
+        return;                                        // a closed stream: allowed, ignored
+    }
+    H2Slot* sl = &s.slots[at];
+    if (inc == 0 || sl.send_window + inc > H2_MAX_WINDOW) {
+        H2Server_rst(s, sl.id, inc == 0 ? H2_PROTOCOL_ERROR : H2_FLOW_CONTROL_ERROR);
+        H2Server_slot_release(sl);
+        return;
+    }
+    sl.send_window += inc;
+}
+
+// Process one received frame (header `h`, payload `p` of h.length bytes).
+void H2Server_on_frame(H2Server* s, H2Frame* h, *uint8 p) {
+    if (s.closing != 0) { return; }
+    if (s.got_settings == 0 && (h.type != H2_SETTINGS || (h.flags & H2_FLAG_ACK) != 0)) {
+        H2Server_goaway(s, H2_PROTOCOL_ERROR);
+        return;
+    }
+    if (s.hb_sid != 0) {                               // mid header block: only its CONTINUATION
+        if (h.type != H2_CONTINUATION || h.stream_id != s.hb_sid) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        if (H2Server_hb_append(s, p, h.length) != 0) { H2Server_goaway(s, H2_ENHANCE_YOUR_CALM); return; }
+        if ((h.flags & H2_FLAG_END_HEADERS) != 0) { H2Server_headers_done(s, s.hb_sid, s.hb_end_stream); }
+        return;
+    }
+    if (h.type == H2_DATA) { H2Server_on_data(s, h, p); }
+    else if (h.type == H2_HEADERS) { H2Server_on_headers(s, h, p); }
+    else if (h.type == H2_PRIORITY) {
+        if (h.stream_id == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }
+        else if (h.length != 5) { H2Server_rst(s, h.stream_id, H2_FRAME_SIZE_ERROR); }
+        else if ((int)(h2_get_u32(p, 0) & 2147483647) == h.stream_id) {
+            H2Server_rst(s, h.stream_id, H2_PROTOCOL_ERROR);     // depends on itself (§5.3.1)
+            const int at = H2Server_find(s, h.stream_id);
+            if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
+        }
+    } else if (h.type == H2_RST_STREAM) {
+        if (h.stream_id == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        if (h.length != 4) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); return; }
+        const int at = H2Server_find(s, h.stream_id);
+        if (at < 0 && h.stream_id > s.conn.last_stream_id) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // idle stream (§6.4)
+        if (at >= 0) { H2Server_slot_release(&s.slots[at]); }
+    } else if (h.type == H2_SETTINGS) { H2Server_on_settings(s, h, p); }
+    else if (h.type == H2_PUSH_PROMISE || h.type == H2_CONTINUATION) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }
+    else if (h.type == H2_PING) {
+        if (h.stream_id != 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        if (h.length != 8) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); return; }
+        if ((h.flags & H2_FLAG_ACK) == 0) {
+            *uint8 b = H2Server_reserve(s, 17);
+            s.outlen += h2_write_ping(b, p, 1);
+        }
+    } else if (h.type == H2_GOAWAY) {
+        if (h.stream_id != 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }
+        if (h.length < 8) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); return; }   // last-stream-id + error code (§6.8)
+        s.peer_goaway = 1;
+    } else if (h.type == H2_WINDOW_UPDATE) { H2Server_on_window_update(s, h, p); }
+    // Unknown frame types are ignored (§4.1).
+}
+
+// Process one frame, answer every request it completed (oldest first), and
+// queue whatever response data the windows now allow. The transport then
+// writes s.out[0..s.outlen) and resets outlen.
+void H2Server_step(H2Server* s, H2Frame* h, *uint8 p, escaping fn(HttpRequest*, HttpResponse*)->void handler) {
+    H2Server_on_frame(s, h, p);
+    if (s.closing != 0) { return; }
+    while (true) {
+        int pick = -1;
+        for (i in 0..H2_MAX_STREAMS) {
+            if (s.slots[i].state == H2S_READY && (pick < 0 || s.slots[i].seq < s.slots[pick].seq)) { pick = i; }
+        }
+        if (pick < 0) { break; }
+        H2Server_respond(s, pick, handler);
+    }
+    H2Server_pump(s);
+}
+
+// ── Timeouts (see HttpLimits in <http>) ─────────────────────────────────────
+// A transport calls H2Server_tick before each frame read, reads with the
+// deadline H2Server_deadline gives, and on a timeout calls H2Server_timed_out.
+
+// The number of open streams, counting a header block still being assembled.
+int H2Server_open(H2Server* s) {
+    int open = s.hb_sid != 0 ? 1 : 0;
+    for (i in 0..H2_MAX_STREAMS) {
+        if (s.slots[i].state != H2S_FREE) { open++; }
+    }
+    return open;
+}
+
+// Note the time (`now`, monotonic ms) at which streams opened, started
+// responding, response data last moved, and the connection went idle.
+void H2Server_tick(H2Server* s, int64 now) {
+    if (s.hb_sid != 0) { if (s.hb_start == 0) { s.hb_start = now; } }
+    else { s.hb_start = 0; }
+    for (i in 0..H2_MAX_STREAMS) {
+        H2Slot* sl = &s.slots[i];
+        if (sl.state == H2S_FREE) { continue; }
+        if (sl.opened == 0) { sl.opened = now; }
+        if (sl.state == H2S_RESPONDING && sl.resp_at == 0) { sl.resp_at = now; }
+    }
+    if (s.data_sent != s.data_seen) { s.data_seen = s.data_sent;  s.progress_ms = now; }
+    if (H2Server_open(s) == 0) { if (s.idle_since == 0) { s.idle_since = now; } }
+    else { s.idle_since = 0; }
+}
+
+// The earlier of deadline `d` (0 = none) and base + ms (none when ms <= 0).
+int64 _h2_dl_min(int64 d, int64 base, int64 ms) {
+    if (ms <= 0) { return d; }
+    const int64 x = base + ms;
+    return d == 0 || x < d ? x : d;
+}
+
+// The deadline for the transport's next frame read (monotonic ms, 0 = none):
+// before the peer's SETTINGS, start + header_ms; with no stream open,
+// idle_since + idle_ms (frames such as PING do not move it); else the earliest
+// of: a header block's start + header_ms, a receiving stream's start + body_ms,
+// and for a responding stream the later of its start and the last response
+// data sent, + write_ms (a peer that stops granting window), and its start +
+// write_total_ms (a peer that grants window a byte at a time).
+int64 H2Server_deadline(H2Server* s, HttpLimits* lim) {
+    if (s.got_settings == 0) { return _h2_dl_min(0, s.start_ms, lim.header_ms); }
+    if (H2Server_open(s) == 0) { return _h2_dl_min(0, s.idle_since, lim.idle_ms); }
+    int64 d = 0;
+    if (s.hb_sid != 0) { d = _h2_dl_min(d, s.hb_start, lim.header_ms); }
+    for (i in 0..H2_MAX_STREAMS) {
+        H2Slot* sl = &s.slots[i];
+        if (sl.state == H2S_FREE) { continue; }
+        if (sl.state == H2S_RESPONDING) {
+            const int64 base = sl.resp_at > s.progress_ms ? sl.resp_at : s.progress_ms;
+            d = _h2_dl_min(d, base, lim.write_ms);
+            if (sl.resp_at != 0) { d = _h2_dl_min(d, sl.resp_at, lim.write_total_ms); }
+        } else {
+            d = _h2_dl_min(d, sl.opened, lim.body_ms);
+        }
+    }
+    return d;
+}
+
+// The read ran past H2Server_deadline. An idle connection (SETTINGS done, no
+// stream open) gets GOAWAY NO_ERROR queued: returns 1, flush it and close.
+// Otherwise returns 0: close at once.
+int H2Server_timed_out(H2Server* s) {
+    if (s.got_settings != 0 && H2Server_open(s) == 0) {
+        H2Server_goaway(s, H2_NO_ERROR);
+        return 1;
+    }
+    return 0;
+}
+
+// Reset (CANCEL) every responding stream whose response is not all sent
+// lim.write_total_ms after it was ready (`now`, monotonic ms), freeing its
+// buffered response. Returns how many it reset.
+int H2Server_expire(H2Server* s, HttpLimits* lim, int64 now) {
+    if (lim.write_total_ms <= 0) { return 0; }
+    int n = 0;
+    for (i in 0..H2_MAX_STREAMS) {
+        H2Slot* sl = &s.slots[i];
+        if (sl.state != H2S_RESPONDING || sl.resp_at == 0) { continue; }
+        if (now - sl.resp_at < lim.write_total_ms) { continue; }
+        H2Server_rst(s, sl.id, H2_CANCEL);
+        H2Server_slot_release(sl);
+        n++;
+    }
+    return n;
+}
+
+// H2Server_timed_out for a transport that has the limits: a stream past
+// write_total_ms is reset and the connection carries on (returns 1: flush the
+// RST_STREAM and read on); otherwise as H2Server_timed_out.
+int H2Server_timed_out_with(H2Server* s, HttpLimits* lim, int64 now) {
+    if (H2Server_expire(s, lim, now) > 0) { return 1; }
+    return H2Server_timed_out(s);
+}
+
+// Drive one connection: the client preface, then frames through the H2Server
+// engine until either side ends the connection (GOAWAY) or the peer closes, or
+// a deadline passes (see H2Server_deadline): a connection whose preface and
+// SETTINGS are not in by lim.header_ms is closed, an idle one gets GOAWAY
+// NO_ERROR after lim.idle_ms, and a write the peer does not take within
+// lim.write_ms closes it; a response not all sent within lim.write_total_ms has
+// its stream reset. `open` (may be null) is decremented on the way out.
+async void http2_serve_conn_async_with(EventLoop* lp, int fd,
+                                       escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                       Chan<int>* done, HttpLimits lim, *int open) {
+    net_set_nonblocking(fd);                          // never block the loop thread
+    int64 start = time_monotonic_ms();
+    *uint8 pf = alloc<uint8>(24);
+    int pn = await h2_read_full_deadline_async(lp, fd, pf, 24, _h2_dl_min(0, start, lim.header_ms));
+    bool good = pn == 24 && h2_is_preface(pf) != 0;
+    free((*void)pf);
+    if (good) {
+        H2Server* s = alloc<H2Server>(1);
+        H2Server_init(s, fd);
+        s.start_ms = start;
+        int FBCAP = 16384 + H2_FRAME_HEADER_LEN;       // a full MAX_FRAME_SIZE payload + header
         *uint8 fb = alloc<uint8>(FBCAP);
-        *HpackHeader harr = alloc<HpackHeader>(64);
-        int MAXS = 128;
-        *H2PendingStream streams = alloc<H2PendingStream>(MAXS);
-        int si = 0;  while (si < MAXS) { streams[si].active = 0; si = si + 1; }
         int running = 1;
         while (running != 0) {
-            let hdr: H2Frame;
-            int plen = await h2_read_frame_async(lp, fd, fb, FBCAP, &hdr);
-            if (plen < 0) {
-                running = 0;
-            } else if (hdr.type == H2_HEADERS) {
-                int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 1);
-                if (slot >= 0) {
-                    if (streams[slot].active == 0) {
-                        streams[slot].active = 1;  streams[slot].id = hdr.stream_id;
-                        HttpRequest_init(&streams[slot].req);
-                    }
-                    int boff = 0;  int blen = 0;
-                    h2_headers_fragment(&hdr, fb + 9, &boff, &blen);   // skip PADDED/PRIORITY
-                    int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
-                    conn.last_stream_id = hdr.stream_id;
-                    if (nh < 0) { running = 0; }            // COMPRESSION_ERROR — close
-                    else if (nh > 0) { h2_fill_request(&streams[slot].req, harr, nh); }
-                    if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
-                        int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
-                                                                 &streams[slot].req, handler, fb, FBCAP);
-                        HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
-                        if (ow < 0) { running = 0; }
-                    }
-                } else {
-                    // HPACK is stateful, so a dropped HEADERS must still be decoded
-                    // to keep the dynamic table in sync.
-                    int boff = 0;  int blen = 0;
-                    h2_headers_fragment(&hdr, fb + 9, &boff, &blen);
-                    int nh = hpack_decode(&dec, fb + 9 + boff, blen, harr, 64);
-                }
-            } else if (hdr.type == H2_DATA) {
-                int slot = h2_stream_slot(streams, MAXS, hdr.stream_id, 0);
-                if (slot >= 0) {
-                    int k = 0;
-                    while (k < hdr.length) { String_push(&streams[slot].req.body, (char)fb[9 + k]); k = k + 1; }
-                    if ((hdr.flags & H2_FLAG_END_STREAM) != 0) {
-                        int ow = await h2_complete_request_async(lp, &conn, hdr.stream_id,
-                                                                 &streams[slot].req, handler, fb, FBCAP);
-                        HttpRequest_free(&streams[slot].req);  streams[slot].active = 0;
-                        if (ow < 0) { running = 0; }
-                    }
-                }
-            } else if (hdr.type == H2_SETTINGS) {
-                if ((hdr.flags & H2_FLAG_ACK) == 0) {
-                    *uint8 a = alloc<uint8>(9);
-                    int an = h2_write_settings_ack(a);
-                    int w = await net_write_async(lp, fd, a, (int64)an);
-                    free((*void)a);
-                }
-            } else if (hdr.type == H2_PING) {
-                if ((hdr.flags & H2_FLAG_ACK) == 0) {
-                    *uint8 pb = alloc<uint8>(17);
-                    int pn2 = h2_write_ping(pb, fb + 9, 1);
-                    int w = await net_write_async(lp, fd, pb, (int64)pn2);
-                    free((*void)pb);
-                }
-            } else if (hdr.type == H2_WINDOW_UPDATE) {
-                // Connection-level credit (stream 0). Clients send a large one
-                // early; applying it lets big responses flow past the 65535
-                // default window. Stream-level updates are handled mid-response.
-                if (hdr.stream_id == 0) {
-                    h2_grant_window(&conn, (H2Stream*)0, h2_read_window_update(fb + 9));
-                }
-            } else if (hdr.type == H2_GOAWAY) {
-                running = 0;
+            if (s.outlen > 0) {
+                int64 wdl = net_deadline(lim.write_ms);
+                int w = await net_write_deadline_async(lp, fd, s.out, s.outlen, wdl);
+                s.outlen = 0;
+                if (w < 0) { running = 0; }
             }
-            // RST_STREAM and other frames need no action for this server.
+            if (running != 0 && H2Server_done(s) != 0) { running = 0; }
+            if (running != 0) {
+                H2Server_tick(s, time_monotonic_ms());
+                int64 dl = H2Server_deadline(s, &lim);
+                let hdr: H2Frame;
+                int plen = await h2_read_frame_deadline_async(lp, fd, fb, FBCAP, &hdr, dl);
+                if (plen == NET_TIMED_OUT) { running = H2Server_timed_out_with(s, &lim, time_monotonic_ms()); }
+                else if (plen == -2) { H2Server_goaway(s, H2_FRAME_SIZE_ERROR); }   // over MAX_FRAME_SIZE
+                else if (plen < 0) { running = 0; }
+                else { H2Server_step(s, &hdr, fb + H2_FRAME_HEADER_LEN, handler); }
+            }
         }
-        int sf = 0;
-        while (sf < MAXS) { if (streams[sf].active != 0) { HttpRequest_free(&streams[sf].req); } sf = sf + 1; }
-        free((*void)streams);
-        free((*void)harr);
         free((*void)fb);
-        hpack_decoder_free(&dec);
+        H2Server_free(s);
+        free((*void)s);
     }
     net_close(fd);
-    chan_send<int>(done, 1);
+    if (open != null) { *open = *open - 1; }
+    Chan_send<int>(done, 1);
+}
+
+// http2_serve_conn_async_with under the default HttpLimits.
+Future<uint8>* http2_serve_conn_async(EventLoop* lp, int fd,
+                                      escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                      Chan<int>* done) {
+    return http2_serve_conn_async_with(lp, fd, handler, done, http_limits(), null);
 }
 
 // Accept and serve `max_conns` connections concurrently (each detached), then
-// wait for all to finish — mirroring <http_async>'s http_serve_async.
-async void http2_serve_async(EventLoop* lp, int listen_fd,
-                             escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                             int max_conns) {
+// wait for all to finish, mirroring <http_async>'s http_serve_async_with: at
+// most lim.max_open are open at once, one past that is closed right away.
+async void http2_serve_async_with(EventLoop* lp, int listen_fd,
+                                  escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                  int max_conns, HttpLimits lim) {
     Chan<int>* done = chan_new<int>(max_conns);
-    int accepted = 0;
-    while (accepted < max_conns) {
-        int c = await net_accept_async(lp, listen_fd);
-        spawn(http2_serve_conn_async(lp, c, handler, done));
-        accepted = accepted + 1;
+    *int open = alloc<int>(1);
+    for (int accepted = 0; accepted < max_conns; accepted++) {
+        int c = await net_accept_retry_async(lp, listen_fd);   // a failed accept is retried, never served
+        if (lim.max_open > 0 && *open >= lim.max_open) {
+            net_close(c);                               // over the limit: refused
+            Chan_send<int>(done, 1);
+        } else {
+            *open = *open + 1;
+            spawn(http2_serve_conn_async_with(lp, c, handler, done, lim, open));
+        }
     }
-    int finished = 0;
-    while (finished < max_conns) {
-        int sig = await chan_recv(done);
-        finished = finished + 1;
+    for (int finished = 0; finished < max_conns; finished++) {
+        int sig = await Chan_recv(done);
     }
-    chan_free<int>(done);
+    free((*void)open);
+    Chan_free<int>(done);
+}
+
+// http2_serve_async_with under the default HttpLimits.
+Future<uint8>* http2_serve_async(EventLoop* lp, int listen_fd,
+                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                 int max_conns) {
+    return http2_serve_async_with(lp, listen_fd, handler, max_conns, http_limits());
 }

@@ -1,0 +1,22 @@
+// A bitfield reached through a `volatile` variable is read and written with volatile
+// loads and stores of its storage word, and a volatile variable's initializing store
+// is volatile. tests/run.sh and tests/selfhost/cg_parity.sh count the `volatile i16`
+// accesses in the IR (12): the i16 words below and the int16 `status`.
+extern int printf(string fmt, ...);
+
+struct Reg { uint16 en : 1; uint16 mode : 3; uint16 rest : 12; }
+
+Reg reg;
+
+int main() {
+    volatile let r: *Reg = &reg;
+    volatile int16 status = 7;        // 1: the initializing store
+    r.en = 1;                         // 2: load + store of the word
+    r.mode = 5;                       // 2
+    r.mode++;                         // 3: the read, then the word's read-modify-write
+    int m = r.mode;                   // 1
+    status = status + 1;              // 2
+    int s = status;                   // 1
+    printf("%d %d %d %d\n", (int)reg.en, m, (int)reg.rest, s);
+    return 0;
+}

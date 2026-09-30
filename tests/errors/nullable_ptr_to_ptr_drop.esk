@@ -1,0 +1,9 @@
+// EXPECT-ERROR: conversion drops the nullable pointee of '*?*int'
+// A `*?*T` does not convert to `**T`: the pointer it holds may be null.
+int main() {
+    int x = 1;
+    ?*int slot = &x;
+    *?*int pp = &slot;
+    **int q = pp;
+    return 0;
+}

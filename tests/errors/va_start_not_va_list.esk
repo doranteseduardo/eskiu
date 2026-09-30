@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 'va_start' needs a 'va_list', got 'int8'
+int f(int n, ...) { int8 x = 3; va_start(x); return n; }
+int main() { return f(1, 2); }

@@ -1,0 +1,5 @@
+// EXPECT-ERROR: value of enum member 'A' of 'E' is not an integer constant expression
+// A ternary enum value folds only when its condition and chosen arm are constant.
+int g = 3;
+enum E { A = g > 0 ? 1 : 2, B }
+int main() { return (int)B; }

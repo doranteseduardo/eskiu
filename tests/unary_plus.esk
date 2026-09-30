@@ -1,0 +1,12 @@
+extern int printf(string fmt, ...);
+int g = +5;
+double gd = +2.5;
+int main() {
+    int8 c = -3;
+    uint8 u = 200;
+    int x = +c;
+    double d = +1.25;
+    int64 w = +(int64)7000000000;
+    printf("%d %d %d %.2f %lld %d %.1f\n", x, +u, +(u + u), d, w, g, gd);
+    return 0;
+}

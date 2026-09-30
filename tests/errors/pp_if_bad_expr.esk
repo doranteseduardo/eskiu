@@ -1,0 +1,4 @@
+// EXPECT-ERROR: in #if expression
+#if 1 +
+#endif
+int main() { return 0; }

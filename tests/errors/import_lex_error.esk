@@ -1,0 +1,3 @@
+// EXPECT-ERROR: bad.esk:2:12: unterminated string literal
+import "import_lex/bad.esk";
+int main() { return 0; }

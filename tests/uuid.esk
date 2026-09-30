@@ -6,7 +6,7 @@ extern int printf(string fmt, ...);
 
 int main() {
     let r: Rng;
-    rng_seed(&r, 0xABCDEF);
+    Rng_seed(&r, 0xABCDEF);
     let s: String;
     String_init(&s, 40);
     uuid_v4(&r, &s);

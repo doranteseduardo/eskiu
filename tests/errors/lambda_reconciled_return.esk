@@ -1,0 +1,2 @@
+// EXPECT-ERROR: return type mismatch: expected int, got double
+int main() { fn(int)->int f = double(int x) { return 1.5; }; return f(1); }

@@ -1,0 +1,17 @@
+// A `#` line inside a multi-line string is string text: fmt keeps its bytes (the
+// leading blanks included) and does not treat it as a directive.
+extern int printf(string fmt, ...);
+int main() {
+string s = "a{
+   #undef X
+  #if 1
+b}";
+    printf("%s\n", s);
+#if 0
+x "q
+   #define Y 1
+#else
+  int z = 0;
+#endif
+return z;
+}

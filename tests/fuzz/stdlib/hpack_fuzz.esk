@@ -1,0 +1,74 @@
+// Fuzz target: <hpack> header-block decoding (two blocks through one decoder, so the
+// dynamic table carries state between them), a Huffman decode of the raw input, and
+// an encode/decode round trip of every header the first block produced.
+import "harness.esk";
+import <hpack>;
+
+int64 hp_touch(*uint8 p, int n) {
+    int64 h = (int64)n;
+    int i = 0;
+    while (i < n) { h = h * (int64)131 + (int64)p[i]; i = i + 1; }
+    return h;
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    if (len < 2) { return; }
+    int64 sizes = (int64)data[0] % (int64)5;
+    int64 tsize = 4096;
+    if (sizes == (int64)0) { tsize = 0; }
+    if (sizes == (int64)1) { tsize = 64; }
+    if (sizes == (int64)2) { tsize = 256; }
+    if (sizes == (int64)4) { tsize = 65536; }
+    int body = len - 2;
+    int split = (int)(((int64)data[1] * (int64)body) / (int64)255);
+    *uint8 b1 = data + 2;
+    *uint8 b2 = data + 2 + split;
+
+    let d: HpackDecoder; HpackDecoder_init(&d, tsize);
+    *HpackHeader hs = alloc<HpackHeader>(64);
+    int n1 = hpack_decode(&d, b1, split, hs, 64);
+    if (n1 > 64) { fuzz_fail("more headers than the output array"); }
+
+    // Round trip the first block's headers through the encoder and a fresh decoder.
+    if (n1 > 0) {
+        int cap = 16;
+        int i = 0;
+        while (i < n1) { cap = cap + 2 * (hs[i].nlen + hs[i].vlen) + 16; i = i + 1; }
+        *uint8 enc = alloc<uint8>(cap);
+        int off = 0;
+        i = 0;
+        while (i < n1) {
+            hp_touch(hs[i].name, hs[i].nlen);
+            hp_touch(hs[i].value, hs[i].vlen);
+            off = hpack_encode_header(enc, off, hs[i].name, hs[i].nlen, hs[i].value, hs[i].vlen);
+            i = i + 1;
+        }
+        if (off > cap) { fuzz_fail("encoder wrote past its buffer"); }
+        let d2: HpackDecoder; HpackDecoder_init(&d2, 4096);
+        *HpackHeader rs = alloc<HpackHeader>(64);
+        int n2 = hpack_decode(&d2, enc, off, rs, 64);
+        if (n2 != n1) { fuzz_fail("hpack round trip count"); }
+        i = 0;
+        while (i < n1) {
+            if (rs[i].nlen != hs[i].nlen || rs[i].vlen != hs[i].vlen) { fuzz_fail("hpack round trip lengths"); }
+            int j = 0;
+            while (j < hs[i].nlen) { if (rs[i].name[j] != hs[i].name[j]) { fuzz_fail("hpack round trip name"); } j = j + 1; }
+            j = 0;
+            while (j < hs[i].vlen) { if (rs[i].value[j] != hs[i].value[j]) { fuzz_fail("hpack round trip value"); } j = j + 1; }
+            i = i + 1;
+        }
+        free(rs);
+        HpackDecoder_free(&d2);
+        free(enc);
+    }
+
+    int n3 = hpack_decode(&d, b2, body - split, hs, 64);
+    int i3 = 0;
+    while (i3 < n3) { hp_touch(hs[i3].name, hs[i3].nlen); hp_touch(hs[i3].value, hs[i3].vlen); i3 = i3 + 1; }
+
+    *uint8 dst = alloc<uint8>(4 * len + 8);
+    hpack_huff_decode(&d.huff, data, len, dst, 4 * len + 8);
+    free(dst);
+    free(hs);
+    HpackDecoder_free(&d);
+}

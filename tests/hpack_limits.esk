@@ -1,0 +1,53 @@
+// HPACK decoder limits (RFC 7541):
+//  - a valid block whose Huffman strings decode past the old fixed 16384-byte
+//    scratch arena decodes (the arena is sized from the block);
+//  - a dynamic table size update after a header field is a COMPRESSION_ERROR
+//    (-1, §4.2), while one at the start of the block is fine;
+//  - more fields than the caller's array is -2, not -1, and the whole block is
+//    still decoded, so the dynamic table stays in sync for the next block.
+import <mem>;
+import <hpack>;
+extern int printf(string fmt, ...);
+extern *void memset(*void d, int c, int64 n);
+
+int main() {
+    let d: HpackDecoder;  HpackDecoder_init(&d, (int64)4096);
+    *HpackHeader out = alloc<HpackHeader>(64);
+
+    // 20000 'a' bytes Huffman-code (5 bits each) to 12500 bytes.
+    *uint8 val = alloc<uint8>(20000);
+    memset((*void)val, 97, (int64)20000);
+    *uint8 blk = alloc<uint8>(40000);
+    int off = hpack_encode_header(blk, 0, (*uint8)"x-big", 5, val, 20000);
+    int n = hpack_decode(&d, blk, off, out, 64);
+    printf("big: block=%d n=%d vlen=%d last=%c\n", off, n, out[0].vlen, (int)out[0].value[19999]);
+
+    // 0x82 (:method GET) then 0x20 (size update to 0): update after a field.
+    blk[0] = (uint8)130;  blk[1] = (uint8)32;
+    printf("update after field: %d\n", hpack_decode(&d, blk, 2, out, 64));
+    blk[0] = (uint8)32;   blk[1] = (uint8)130;
+    printf("update first: %d\n", hpack_decode(&d, blk, 2, out, 64));
+
+    // 70 literals with incremental indexing: h0..h69 = v (a fresh decoder: the
+    // update above emptied this one's table).
+    HpackDecoder_free(&d);
+    HpackDecoder_init(&d, (int64)4096);
+    off = 0;
+    for (int i = 0; i < 70; i++) {
+        uint8[4] nm;
+        nm[0] = (uint8)'h';  nm[1] = (uint8)('0' + i / 10);  nm[2] = (uint8)('0' + i % 10);
+        blk[off] = (uint8)64;  off++;
+        off = hpack_encode_str(blk, off, &nm[0], 3);
+        off = hpack_encode_str(blk, off, (*uint8)"v", 1);
+    }
+    printf("70 fields into 64: %d first=%.*s\n", hpack_decode(&d, blk, off, out, 64), out[0].nlen, (string)out[0].name);
+    blk[0] = (uint8)190;                              // indexed 62: the newest entry, h69
+    n = hpack_decode(&d, blk, 1, out, 64);
+    printf("next block: n=%d name=%.*s\n", n, out[0].nlen, (string)out[0].name);
+
+    free((*void)blk);
+    free((*void)val);
+    free((*void)out);
+    HpackDecoder_free(&d);
+    return 0;
+}

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: alloc_with: allocator type 'int' has no alloc method (int_alloc)
+int main() { int x = 5; *int p = alloc_with(&x, int, 4); return 0; }

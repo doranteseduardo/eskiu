@@ -1,0 +1,5 @@
+// EXPECT-ERROR: invalid operands for operator
+// Interface values have no built-in `==`.
+interface S { int a(); }
+struct X { int v; int a() { return self.v; } }
+int main() { X x = X{v: 1}; S s = &x; S t = &x; if (s == t) { return 1; } return 0; }

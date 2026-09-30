@@ -1,0 +1,6 @@
+// EXPECT-ERROR: struct 'RB' contains itself by value (through field 'v' of 'W<RB>')
+// An alias of a generic instance holds its arguments by value like the instance itself.
+struct W<T> { T v; }
+type RA = W<RB>;
+struct RB { RA a; }
+int main() { RB r; return 0; }

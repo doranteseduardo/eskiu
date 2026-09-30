@@ -1,0 +1,4 @@
+// EXPECT-ERROR: case value 300 is out of range for switch subject type 'uint8'
+// A label the subject cannot hold never matches; truncated to 8 bits it was 44.
+int f(uint8 c) { switch (c) { case 300: return 1; case 44: return 2; } return 0; }
+int main() { return f((uint8)44); }

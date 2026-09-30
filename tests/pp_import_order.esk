@@ -1,0 +1,24 @@
+// Macros follow C's textual #include order across `import`: the imported file sees
+// the macro table as it stands at the import line (FEATURE and VAL are defined
+// before it; K is defined only after it, so the module's local `k` is untouched),
+// and the module's own #defines reach the importer's later lines (MODULE_VAL). An
+// #undef after the import does not reach back into it.
+extern int printf(string fmt, ...);
+
+#define FEATURE
+#define VAL 77
+import "pp_import_order/feat.esk";
+#define k 100
+#undef VAL
+
+int main() {
+    printf("%d\n", feat());
+    printf("%d\n", helper(4));
+    printf("%d\n", MODULE_VAL);
+#ifdef VAL
+    printf("VAL still defined\n");
+#else
+    printf("VAL undefined\n");
+#endif
+    return 0;
+}

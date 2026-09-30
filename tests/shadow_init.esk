@@ -1,0 +1,33 @@
+// A shadowing declaration's initializer reads the OUTER variable: the new name is
+// bound only after its initializer (scalar, array and struct initializers alike).
+// Found by the C oracle in tests/fuzz/eskiu_fuzz.py.
+extern int printf(string fmt, ...);
+
+struct P { int64 a; int64 b; }
+
+int64 f(int32 x) {
+    {
+        int64 x = x + 1;
+        return x;
+    }
+}
+
+int main() {
+    int32 x = 5;
+    {
+        int64 x = x * 3;
+        printf("%lld\n", x);
+    }
+    int32 y = 7;
+    {
+        int8[2] y = {y, y + 1};
+        printf("%d %d\n", y[0], y[1]);
+    }
+    int64 z = 9;
+    {
+        P z = P { a: z, b: z * 2 };
+        printf("%lld %lld\n", z.a, z.b);
+    }
+    printf("%lld %d %d %lld\n", f(40), x, y, z);
+    return 0;
+}

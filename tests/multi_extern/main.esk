@@ -1,0 +1,8 @@
+// Compiled together with lib.esk: `extern` names the variable lib.esk defines.
+extern int shared_total;
+void add_to_shared(int v);
+
+int main() {
+    add_to_shared(2);
+    return shared_total;
+}

@@ -2,6 +2,7 @@
 #include "../lexer/lexer.h"
 #include "../ast/type_qual.h"
 #include <stdexcept>
+#include <cctype>
 #include "parser_internal.h"
 
 // Parser — declaration parsing (functions, externs, intrinsics, structs,
@@ -57,7 +58,8 @@ DeclPtr Parser::parseDeclaration() {
         }
 
         if (match(TokenType::UNION)) {
-            std::string name = consume(TokenType::IDENT, "Expected union name").value;
+            Token unameTok = consume(TokenType::IDENT, "Expected union name");
+            std::string name = unameTok.value;
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<StructDecl::Field> fields;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
@@ -69,12 +71,15 @@ DeclPtr Parser::parseDeclaration() {
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
-            return std::make_shared<UnionDecl>(name, fields);
+            auto ud = std::make_shared<UnionDecl>(name, fields);
+            ud->packAlign = currentPack;
+            return withPos(ud, unameTok);
         }
         if (match(TokenType::INTERFACE)) {
-            std::string name = consume(TokenType::IDENT, "Expected interface name").value;
+            Token inameTok = consume(TokenType::IDENT, "Expected interface name");
+            std::string name = inameTok.value;
             consume(TokenType::LBRACE, "Expected '{'");
-            auto decl = std::make_shared<InterfaceDecl>(name);
+            auto decl = withPos(std::make_shared<InterfaceDecl>(name), inameTok);
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 InterfaceDecl::MethodSig sig;
                 sig.returnType = parseType();
@@ -91,7 +96,8 @@ DeclPtr Parser::parseDeclaration() {
 
         // enum Color { Red, Green = 5, Blue }
         if (match(TokenType::ENUM)) {
-            std::string name = consume(TokenType::IDENT, "Expected enum name").value;
+            Token enameTok = consume(TokenType::IDENT, "Expected enum name");
+            std::string name = enameTok.value;
             std::vector<std::string> enumTypeParams;
             if (match(TokenType::LT)) {                 // enum Option<T, U> { ... }
                 do {
@@ -102,11 +108,14 @@ DeclPtr Parser::parseDeclaration() {
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<std::pair<std::string, long long>> members;
             std::vector<std::vector<std::string>> payloads;
+            std::vector<ExprPtr> valueExprs;
+            bool anyValueExpr = false;
             long long next = 0;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 std::string mname = consume(TokenType::IDENT,
                     "Expected enum member name").value;
                 long long val = next;
+                ExprPtr valueExpr;
                 std::vector<std::string> payload;
                 if (match(TokenType::LPAREN)) {
                     // Algebraic variant with a payload: `Circle(float)`, `Rect(float, float)`.
@@ -115,22 +124,36 @@ DeclPtr Parser::parseDeclaration() {
                     }
                     consume(TokenType::RPAREN, "Expected ')' after variant payload");
                 } else if (match(TokenType::EQ)) {
-                    // Classic integer enum with an explicit value (payload-free only).
-                    bool neg = match(TokenType::MINUS);
-                    Token num = consume(TokenType::INT_LIT,
-                        "Expected integer value for enum member");
-                    val = std::stoll(num.value, nullptr, 0);
-                    if (neg) val = -val;
+                    // Classic integer enum with an explicit value (payload-free only): a
+                    // literal, or an integer constant expression the type checker folds
+                    // (after the first expression every explicit value is one).
+                    int lit = check(TokenType::MINUS) ? 1 : 0;
+                    TokenType after = peek_ahead(lit + 1).type;
+                    if (!anyValueExpr && peek_ahead(lit).type == TokenType::INT_LIT &&
+                        (after == TokenType::COMMA || after == TokenType::RBRACE)) {
+                        bool neg = match(TokenType::MINUS);
+                        Token num = consume(TokenType::INT_LIT,
+                            "Expected integer value for enum member");
+                        val = std::stoll(num.value, nullptr, 0);
+                        if (neg) val = -val;
+                    } else {
+                        valueExpr = parseExpression();
+                        anyValueExpr = true;
+                        val = 0;
+                    }
                 }
                 members.push_back({mname, val});
                 payloads.push_back(payload);
+                valueExprs.push_back(valueExpr);
+                if (!enumTypeParams.empty()) sharedGenericNames->insert(mname);   // Some<int>(x)
                 next = val + 1;
                 if (!match(TokenType::COMMA)) break;
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
-            auto ed = std::make_shared<EnumDecl>(name, members);
+            auto ed = withPos(std::make_shared<EnumDecl>(name, members), enameTok);
             ed->payloads = std::move(payloads);
+            ed->valueExprs = std::move(valueExprs);
             ed->typeParams = std::move(enumTypeParams);
             return ed;
         }
@@ -140,12 +163,13 @@ DeclPtr Parser::parseDeclaration() {
             peek_ahead(1).type == TokenType::IDENT &&
             peek_ahead(2).type == TokenType::EQ) {
             advance();                                  // 'type'
-            std::string name = advance().value;         // alias name
+            Token anameTok = advance();                 // alias name
+            std::string name = anameTok.value;
             advance();                                  // '='
             std::string underlying = parseType();
             consume(TokenType::SEMICOLON, "Expected ';' after type alias");
             sharedTypeNames->insert(name);
-            return std::make_shared<TypeAliasDecl>(name, underlying);
+            return withPos(std::make_shared<TypeAliasDecl>(name, underlying), anameTok);
         }
 
         // Optional leading qualifiers, in any order: `volatile let`, `static int x`,
@@ -218,7 +242,7 @@ DeclPtr Parser::parseDeclaration() {
             // `V3 operator +(...)` — an operator overload: rewind and let parseFunctionDecl
             // handle the `operator` form (return type already parsed above, re-parsed there).
             if (check(TokenType::OPERATOR)) {
-                current = savePos;
+                rewindTo(savePos);
                 return parseFunctionDecl();
             }
 
@@ -228,7 +252,7 @@ DeclPtr Parser::parseDeclaration() {
 
                 if (match(TokenType::LPAREN) || check(TokenType::LT)) {
                     // Function declaration (possibly template: name<T,E>(...))
-                    current = savePos;
+                    rewindTo(savePos);
                     return parseFunctionDecl();
                 } else if (match(TokenType::SEMICOLON) || match(TokenType::EQ)) {
                     // Variable declaration — split const into stored type + flag.
@@ -253,20 +277,15 @@ DeclPtr Parser::parseDeclaration() {
                 // through so the caller can reinterpret the tokens.
                 TokenType nt = peek().type;
                 if (nt >= TokenType::LET && nt <= TokenType::UINT64) {
-                    throw std::runtime_error(
-                        "expected a name, found keyword '" + peek().value + "'");
+                    fail("expected a name, found keyword '" + peek().value + "'");
                 }
             }
         }
-    } catch (const std::exception& e) {
-        // Don't double-prefix when an inner declaration already wrapped the error
-        // (e.g. a malformed local decl inside a function body).
-        std::string m = e.what();
-        if (m.rfind("Error parsing declaration: ", 0) == 0) throw;
-        throw std::runtime_error("Error parsing declaration: " + m);
+    } catch (const std::exception&) {
+        throw;
     }
 
-    throw std::runtime_error("Expected declaration");
+    fail("Expected declaration, got " + tokenTypeToString(peek().type));
 }
 
 // Read the operator token(s) after `operator`. Returns its spelling ("+", "==", "[]", ...),
@@ -307,9 +326,18 @@ DeclPtr Parser::parseFunctionDecl() {
     bool isOperator = false;
     std::string opSpelling;
     if (check(TokenType::OPERATOR)) {
-        advance();                       // 'operator'
+        Token opKw = advance();          // 'operator'
         isOperator = true;
+        Token opTok = peek();
         opSpelling = parseOperatorToken();   // "+", "[]", "u-", ... ("" = not overloadable)
+        if (opSpelling.empty()) {
+            // `operator` followed by something that is not an overloadable operator:
+            // either an operator that can't be overloaded (`operator =(...)`) or the
+            // keyword used as a name (`int operator = 3;`).
+            if (check(TokenType::LPAREN))
+                fail("operator '" + opTok.value + "' cannot be overloaded", opTok);
+            fail("expected a name, found keyword 'operator'", opKw);
+        }
     }
 
     std::string name;
@@ -319,11 +347,13 @@ DeclPtr Parser::parseFunctionDecl() {
         name = consume(TokenType::IDENT, "Expected function name").value;
         // Optional type parameters: int max<T>(T a, T b) { ... }
         parseTypeParams(typeParams, typeConstraints);
+        if (!typeParams.empty()) sharedGenericNames->insert(name);
     }
 
     consume(TokenType::LPAREN, "Expected '('");
     std::vector<bool> esc;
-    auto params = parseParameterList(&esc);
+    std::vector<std::pair<int, int>> paramPos;
+    auto params = parseParameterList(&esc, &paramPos);
     consume(TokenType::RPAREN, "Expected ')'");
 
     if (isOperator) {
@@ -333,13 +363,19 @@ DeclPtr Parser::parseFunctionDecl() {
         if (params.size() == 1 && opSpelling == "-") opSpelling = "u-";
         name = eskiuOpName(opSpelling, ptys);
         if (name.empty())
-            throw std::runtime_error("operator '" + opSpelling + "' cannot be overloaded");
+            fail("operator '" + opSpelling + "' cannot be overloaded", nameTok);
     }
 
     // A bare ';' marks a forward declaration (prototype only, no body).
     StmtPtr body = nullptr;
     if (!match(TokenType::SEMICOLON)) {
-        body = parseBlockStatement();
+        size_t scopeMark = typeParamScope.size();
+        typeParamScope.insert(typeParamScope.end(), typeParams.begin(), typeParams.end());
+        LocalScope scope(*this);
+        declareParams(params);
+        try { body = parseBlockStatement(); }
+        catch (...) { typeParamScope.resize(scopeMark); throw; }
+        typeParamScope.resize(scopeMark);
     }
 
     auto decl = std::make_shared<FunctionDecl>(name, returnType, params, body);
@@ -347,19 +383,21 @@ DeclPtr Parser::parseFunctionDecl() {
     decl->typeParams = typeParams;
     decl->constraints = typeConstraints;
     decl->paramEscaping = esc;
+    decl->paramPositions = paramPos;
     decl->line = nameTok.line; decl->col = nameTok.column;
     return decl;
 }
 
 DeclPtr Parser::parseExternDecl() {
     std::string type = parseType();
-    std::string name = consume(TokenType::IDENT, "Expected function or variable name").value;
+    Token xnameTok = consume(TokenType::IDENT, "Expected function or variable name");
+    std::string name = xnameTok.value;
 
     // `extern <type> <name>;` (no parens) declares a variable defined in another
     // translation unit — a C global. `extern <type> <name>(...)` is a function.
     if (!check(TokenType::LPAREN)) {
         consume(TokenType::SEMICOLON, "Expected ';' after extern variable");
-        auto v = std::make_shared<VarDecl>(name, type);
+        auto v = withPos(std::make_shared<VarDecl>(name, type), xnameTok);
         v->isExtern = true;
         return v;
     }
@@ -370,7 +408,7 @@ DeclPtr Parser::parseExternDecl() {
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';'");
 
-    auto d = std::make_shared<ExternDecl>(name, type, params);
+    auto d = withPos(std::make_shared<ExternDecl>(name, type, params), xnameTok);
     d->paramEscaping = esc;
     return d;
 }
@@ -394,7 +432,11 @@ DeclPtr Parser::parseIntrinsicDecl() {
 }
 
 DeclPtr Parser::parseStructDecl() {
-    std::string name = consume(TokenType::IDENT, "Expected struct name").value;
+    Token snameTok = consume(TokenType::IDENT, "Expected struct name");
+    std::string name = snameTok.value;
+    // The packing in effect where the struct starts (C: a #pragma pack inside the
+    // body applies to later structs, not this one).
+    int packAtStart = currentPack;
 
     // Optional type parameters: struct List<T>  or  struct Result<T, E>
     std::vector<std::string> typeParams;
@@ -405,8 +447,13 @@ DeclPtr Parser::parseStructDecl() {
 
     std::vector<StructDecl::Field> fields;
     std::vector<DeclPtr> methods;
+    // The struct's type parameters are in scope for its inline methods.
+    size_t scopeMark = typeParamScope.size();
+    typeParamScope.insert(typeParamScope.end(), typeParams.begin(), typeParams.end());
+    struct ScopeRestore { std::vector<std::string>& v; size_t n; ~ScopeRestore() { v.resize(n); } } restore{typeParamScope, scopeMark};
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
+        if (check(TokenType::PRAGMA)) { Token pt = advance(); applyPragma(pt); continue; }
         size_t savePos = current;
         try {
             std::string memberType = parseType();
@@ -414,7 +461,7 @@ DeclPtr Parser::parseStructDecl() {
 
             if (check(TokenType::LPAREN)) {
                 // Method — backtrack and parse as a full function declaration
-                current = savePos;
+                rewindTo(savePos);
                 methods.push_back(parseFunctionDecl());
             } else {
                 // Optional bitfield width:  uint32 flags : 3;
@@ -423,6 +470,7 @@ DeclPtr Parser::parseStructDecl() {
                     Token w = consume(TokenType::INT_LIT,
                         "Expected bit width after ':' in bitfield");
                     bitWidth = (int)std::stoll(w.value, nullptr, 0);
+                    if (bitWidth == 0) bitWidth = -1;   // `: 0`, rejected by the type checker
                 }
                 consume(TokenType::SEMICOLON, "Expected ';' after field");
                 fields.push_back({memberType, memberName, bitWidth});
@@ -435,29 +483,63 @@ DeclPtr Parser::parseStructDecl() {
     consume(TokenType::RBRACE, "Expected '}'");
 
     sharedTypeNames->insert(name);
-    auto decl = std::make_shared<StructDecl>(name, fields);
+    auto decl = withPos(std::make_shared<StructDecl>(name, fields), snameTok);
     decl->methods  = methods;
     decl->typeParams = typeParams;
     decl->constraints = typeConstraints;
-    if (currentPack >= 1) {                       // under #pragma pack(N)
-        decl->packAlign = currentPack;
-        if (currentPack == 1) decl->isPacked = true;
+    if (packAtStart >= 1) {                       // under #pragma pack(N)
+        decl->packAlign = packAtStart;
+        if (packAtStart == 1) decl->isPacked = true;
     }
-    return decl;
+    return withPos(decl, snameTok);
 }
 
-// Interpret a `#pragma ...` directive. Only `#pragma pack` affects compilation;
-// every other pragma is ignored. Supported forms:
+void Parser::addLinkLib(const std::string& name) {
+    for (const auto& l : linkLibs) if (l == name) return;
+    linkLibs.push_back(name);
+}
+
+// Is `c` allowed in a `#pragma link` library name (what follows -l)?
+static bool isLinkNameChar(char c) {
+    return std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '+' || c == '-';
+}
+
+// Interpret a `#pragma ...` directive. `#pragma pack` and `#pragma link` affect
+// compilation; every other pragma is ignored. Supported forms:
 //   #pragma pack(N)         cap field alignment at N for subsequent structs
 //   #pragma pack()          reset to default
 //   #pragma pack(push, N)   save current, then set to N
 //   #pragma pack(pop)       restore the last saved value
-void Parser::applyPragma(const std::string& text) {
+//   #pragma link("name")    link the executable with -lname
+void Parser::applyPragma(const Token& tok) {
+    const std::string& text = tok.value;
     auto trim = [](std::string s) {
         size_t a = s.find_first_not_of(" \t");
         if (a == std::string::npos) return std::string();
         return s.substr(a, s.find_last_not_of(" \t") - a + 1);
     };
+    // `pragma link("name")`: the directive word is the first word after `pragma`.
+    size_t w = text.find("pragma");
+    if (w != std::string::npos) {
+        size_t i = text.find_first_not_of(" \t", w + 6);
+        if (i != std::string::npos && text.compare(i, 4, "link") == 0 &&
+            (i + 4 == text.size() || !isLinkNameChar(text[i + 4]))) {
+            const std::string usage = "malformed #pragma link: expected #pragma link(\"name\")";
+            size_t j = text.find_first_not_of(" \t", i + 4);
+            if (j == std::string::npos || text[j] != '(') fail(usage, tok);
+            j = text.find_first_not_of(" \t", j + 1);
+            if (j == std::string::npos || text[j] != '"') fail(usage, tok);
+            size_t k = j + 1;
+            while (k < text.size() && isLinkNameChar(text[k])) k++;
+            std::string name = text.substr(j + 1, k - j - 1);
+            if (name.empty() || name[0] == '-' || k >= text.size() || text[k] != '"') fail(usage, tok);
+            k = text.find_first_not_of(" \t", k + 1);
+            if (k == std::string::npos || text[k] != ')') fail(usage, tok);
+            if (text.find_first_not_of(" \t", k + 1) != std::string::npos) fail(usage, tok);
+            addLinkLib(name);
+            return;
+        }
+    }
     // Must be `pragma pack...`; anything else is ignored.
     if (text.find("pragma") == std::string::npos) return;
     size_t pk = text.find("pack");
@@ -475,19 +557,26 @@ void Parser::applyPragma(const std::string& text) {
         }
         std::string t = trim(cur); if (!t.empty()) args.push_back(t);
     }
-    auto toInt = [](const std::string& s, int def) {
-        try { return std::stoi(s); } catch (...) { return def; }
+    // A pack alignment must be a power of two from 1 to 16, as in C.
+    auto packValue = [&](const std::string& s) {
+        bool digits = !s.empty() && s.size() <= 2 &&
+                      s.find_first_not_of("0123456789") == std::string::npos;
+        int n = digits ? std::stoi(s) : 0;
+        if (n != 1 && n != 2 && n != 4 && n != 8 && n != 16)
+            fail("invalid #pragma pack alignment '" + s + "' (expected 1, 2, 4, 8 or 16)", tok);
+        return n;
     };
 
     if (args.empty()) { currentPack = 0; return; }          // #pragma pack() / pack
     if (args[0] == "push") {
+        int n = args.size() >= 2 ? packValue(args[1]) : currentPack;
         packStack.push_back(currentPack);
-        if (args.size() >= 2) currentPack = toInt(args[1], currentPack);
+        currentPack = n;
         return;
     }
     if (args[0] == "pop") {
         if (!packStack.empty()) { currentPack = packStack.back(); packStack.pop_back(); }
         return;
     }
-    currentPack = toInt(args[0], 0);                        // #pragma pack(N)
+    currentPack = packValue(args[0]);                       // #pragma pack(N)
 }

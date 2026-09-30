@@ -1,0 +1,3 @@
+// EXPECT-ERROR: integer literal 9223372036854775808 is out of range for 'int64'
+// 2^63 does not fit int64 (it used to wrap to INT64_MIN); the same check as for int.
+int main() { int64 x = 9223372036854775808; return (int)x; }

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: generic function 'id' expects 1 type argument(s), got 2
+T id<T>(T x) { return x; }
+int main() { return id<int, float>(1); }

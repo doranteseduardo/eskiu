@@ -1,0 +1,16 @@
+// Lambdas whose return type is a struct, a pointer or a generic instance.
+extern int printf(string fmt, ...);
+struct S { int v; }
+struct Box<T> { T v; }
+S g_s = S{v: 7};
+int apply(fn()->S g) { return g().v; }
+int main() {
+  fn()->S a = S() { return S{v: 1}; };
+  fn(int)->*S b = *S(int k) { if (k > 0) { return &g_s; } return null; };
+  fn(int)->Box<int> c = Box<int>(int k) { return Box<int>{v: k * 2}; };
+  fn()->int* d = int*() { return null; };
+  int n = apply(S() { return S{v: 5}; });
+  *S p = b(1);
+  printf("%d %d %d %d %d\n", a().v, p.v, c(21).v, n, d() == null ? 1 : 0);
+  return 0;
+}

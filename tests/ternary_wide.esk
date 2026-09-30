@@ -1,0 +1,14 @@
+// A ternary arm that is an integer literal too wide for `int` makes the result 64-bit,
+// and equal-width mixed signedness is unsigned (C usual arithmetic conversions).
+extern int printf(string fmt, ...);
+int main(int argc, string* argv) {
+    int x = argc + 5;
+    int64 b = x < 3 ? x : 10000000000;
+    bool c = argc > 0;
+    let e: int64 = c ? 5000000000 : 1;
+    uint32 u = (uint32)argc;
+    int64 f = u < 3 ? u : (uint32)4000000000;
+    int64 h = x < 3 ? x : (uint32)4000000000;
+    printf("%lld %lld %lld %lld\n", b, e, f, h);
+    return 0;
+}

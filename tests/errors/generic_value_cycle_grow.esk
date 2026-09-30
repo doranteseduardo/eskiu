@@ -1,0 +1,8 @@
+// EXPECT-ERROR: contains itself by value through ever-deeper generic instances
+struct Box<T> { T x; }
+struct G<T> { T v; G<Box<T>> next; }
+int main() {
+    let g: G<int>;
+    g.v = 1;
+    return g.v;
+}

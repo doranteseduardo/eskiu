@@ -1,0 +1,96 @@
+// The HTTP/2 response header block drops connection-specific fields (RFC 9113
+// §8.2.2: connection, keep-alive, proxy-connection, transfer-encoding,
+// upgrade) and the handler's content-length (the engine sends the real one, it
+// used to go out twice), and a 204 or 1xx response has no content-length and
+// no body (RFC 9110 §8.6). Both the H2Server engine and h2_build_response.
+import <http2_server>;
+extern int printf(string fmt, ...);
+
+int mode = 0;
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    if (mode == 0) {
+        HttpResponse_header(res, "Connection", "keep-alive");
+        HttpResponse_header(res, "Keep-Alive", "timeout=5");
+        HttpResponse_header(res, "Proxy-Connection", "close");
+        HttpResponse_header(res, "Transfer-Encoding", "chunked");
+        HttpResponse_header(res, "Upgrade", "h2c");
+        HttpResponse_header(res, "Content-Length", "99");
+        HttpResponse_header(res, "X-Kept", "yes");
+        HttpResponse_set_body(res, "hi\n");
+    } else {
+        res.status = 204;
+        HttpResponse_set_body(res, "dropped");
+    }
+}
+
+// Print every field of each HEADERS frame and the DATA lengths in out[0..len).
+void dump(*uint8 out, int64 len, HpackDecoder* d) {
+    let hs: HpackHeader[16];
+    int64 o = 0;
+    while (o + 9 <= len) {
+        let f: H2Frame; h2_read_header(out + o, &f);
+        if (f.type == H2_HEADERS) {
+            const int n = hpack_decode(d, out + o + 9, f.length, &hs[0], 16);
+            for (i in 0..n) {
+                printf("  ");
+                for (int64 k = 0; k < hs[i].nlen; k++) { printf("%c", (int)hs[i].name[k]); }
+                printf(": ");
+                for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
+                printf("\n");
+            }
+        }
+        if (f.type == H2_DATA) { printf("  DATA %d end=%d\n", f.length, f.flags & 1); }
+        o += 9 + f.length;
+    }
+}
+
+void engine(H2Server* s, HpackDecoder* d, *uint8 p, int sid) {
+    int off = 0;
+    off = hpack_encode_header(p, off, (*uint8)":method", 7, (*uint8)"GET", 3);
+    off = hpack_encode_header(p, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    off = hpack_encode_header(p, off, (*uint8)":path", 5, (*uint8)"/", 1);
+    let h: H2Frame; h.type = H2_HEADERS; h.flags = 5; h.stream_id = sid; h.length = off;
+    H2Server_step(s, &h, p, handler);
+    dump(s.out, s.outlen, d);
+    s.outlen = 0;
+}
+
+void built(HpackDecoder* d) {
+    let res: HttpResponse; res.init(200);
+    handler(null, &res);
+    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
+    const int n = h2_build_response(out, 1, &res);
+    dump(out, n, d);
+    free((*void)out);
+    res.free();
+}
+
+int main() {
+    *uint8 p = alloc<uint8>(4096);
+    H2Server* s = alloc<H2Server>(1);
+    H2Server_init(s, -1);
+    let d: HpackDecoder; d.init(4096);
+    let h: H2Frame; h.type = H2_SETTINGS; h.flags = 0; h.stream_id = 0; h.length = 0;
+    H2Server_step(s, &h, p, handler);
+    s.outlen = 0;
+    printf("engine, connection fields\n");
+    engine(s, &d, p, 1);
+    mode = 1;
+    printf("engine, 204\n");
+    engine(s, &d, p, 3);
+    d.free();
+    H2Server_free(s);
+    free((*void)s);
+
+    let d2: HpackDecoder; d2.init(4096);
+    mode = 0;
+    printf("h2_build_response, connection fields\n");
+    built(&d2);
+    mode = 1;
+    printf("h2_build_response, 204\n");
+    built(&d2);
+    d2.free();
+    free((*void)p);
+    return 0;
+}

@@ -1,0 +1,35 @@
+// Fuzz target: <regex> compile of an arbitrary pattern (the input's first line) and a
+// search of the rest of the input, reading back every capture group.
+import "harness.esk";
+import <regex>;
+import <string>;
+
+void fuzz_one(*uint8 data, int len, string s) {
+    int nl = 0;
+    while (nl < len && data[nl] != 10) { nl = nl + 1; }
+    *uint8 pat = alloc<uint8>(nl + 1);
+    int i = 0;
+    while (i < nl) { pat[i] = data[i]; i = i + 1; }
+    pat[nl] = (uint8)0;
+    string text = "";
+    if (nl < len) { text = (string)((*uint8)s + nl + 1); }
+
+    Regex re = regex_compile((string)pat);
+    if (re.ok == 1) {
+        let m: Match;
+        int hit = Regex_search(&re, text, &m);
+        if (hit == 1) {
+            if (m.start < 0 || m.end < m.start) { fuzz_fail("match bounds"); }
+            int g = 0;
+            while (g <= m.ngroup) {
+                let grp: String; String_init(&grp, 8);
+                Match_group(&m, text, g, &grp);
+                String_free(&grp);
+                g = g + 1;
+            }
+        }
+        Match_free(&m);
+    }
+    Regex_free(&re);
+    free(pat);
+}

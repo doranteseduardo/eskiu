@@ -1,0 +1,5 @@
+// EXPECT-ERROR: :4:8: redefinition of struct 'P' with different fields
+// Reported at the second declaration's name.
+struct P { int a; }
+struct P { int b; }
+int main() { return 0; }

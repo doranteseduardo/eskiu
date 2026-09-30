@@ -14,8 +14,8 @@
 
 <p align="center">
   <a href="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml"><img src="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.9.1-6448d4" alt="Version 0.9.1"></a>
-  <img src="https://img.shields.io/badge/LLVM-17%2B-orange" alt="LLVM 17+">
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.9.2-6448d4" alt="Version 0.9.2"></a>
+  <img src="https://img.shields.io/badge/LLVM-21%2B-orange" alt="LLVM 21+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
 
@@ -80,7 +80,7 @@ int main() {
 
 Installing a release needs no toolchain, but building the compiler does:
 
-- LLVM 17+ (tested with LLVM 22)
+- LLVM 21+ (tested with LLVM 22 and 23)
 - C++17 compiler
 - CMake 3.20+
 - A C toolchain (`cc`/`clang`/`gcc`): `eskiuc` invokes it to link executables (not needed for `--freestanding`). This one is a runtime requirement too, since compiling any program links through it.

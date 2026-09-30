@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -113,8 +113,14 @@ AST→state-machine transform (<code>sema/async_transform.cpp</code>). Supported
 multiple <code>await</code> (fast path + suspend over real reactor reads, values threaded
 through frame fields across N+1 states), <code>return await</code>, bare <code>await</code>, <code>async
 void</code>, cancellation, and all control flow around <code>await</code> (<code>if</code>/<code>while</code>/C-style
-<code>for</code>/<code>switch</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>), with full closure-env
-ownership, leak-free under <code>leaks</code>. Combinators (<code>spawn</code>/<code>select2</code>/<code>join2</code>,
+<code>for</code>/<code>do</code>-<code>while</code>/<code>switch</code>/<code>match</code>/<code>for-in</code>/<code>try</code>-<code>catch</code>, with <code>break</code>/<code>continue</code>),
+with full closure-env ownership, leak-free under <code>leaks</code>. An await may sit anywhere in
+an expression: a desugar hoists each one, in evaluation order, into a <code>let</code> of its own
+(§4.5). A <code>defer</code> in a block split by an await is kept by the transform and emitted at
+each exit of that block (fall-through, <code>return</code>, <code>break</code>/<code>continue</code>); an <code>await</code> inside
+a defer body or a <code>finally</code> is rejected. A lambda that
+captures a frame-hoisted local gets a block-local copy (<code>T x = __fr.x;</code>, <code>__fr</code> being the frame pointer) at its
+creation point, so the capture is still a by-value snapshot. Combinators (<code>spawn</code>/<code>select2</code>/<code>join2</code>,
 generic + cast-free) and a <code>&lt;timer&gt;</code> leaf future for deadline-based timeouts build
 on this shape.</p>
 <p><strong>Audience:</strong> compiler maintainers. Assumes familiarity with the existing closure
@@ -154,9 +160,10 @@ monomorphic templates, the <code>&lt;eventloop&gt;</code> reactor, and <code>&lt
 <ul>
 <li><code>select</code> / <code>join</code> combinators. Composable later on this shape; the v1 pieces they
   need, cancellation (to drop losers) and cross-thread completion, are present.</li>
-<li>Cooperative cancellation that runs cleanup in a <em>suspended</em> coroutine (i.e.
-  <code>finally</code>-past-<code>await</code>). v1 drop frees the frame without resuming it (§7); the
-  forward path is a cancellation token, no contract change.</li>
+<li>Cooperative cancellation (a coroutine that observes a cancel request and keeps
+  running, e.g. awaiting inside its cleanup). Drop runs the pending <code>defer</code>/<code>finally</code>
+  code synchronously and frees the frame (§7); the forward path is a cancellation
+  token, no contract change.</li>
 <li>Work-stealing / load-balancing across executors. The executor abstraction allows
   it later; v1 uses fixed thread affinity.</li>
 </ul>
@@ -231,8 +238,9 @@ else { F.on_drop(); }                        // PENDING/WAITING: release + casca
 </code></pre>
 <ul>
 <li>A <strong>leaf</strong> future's <code>on_drop</code> deregisters its fd/timer from the loop, frees itself.</li>
-<li>A <strong>coroutine</strong> future's <code>on_drop</code> cascades: <code>if (frame.awaiting) future_drop(frame.awaiting);</code>
-  then frees the frame. The coroutine is <strong>not</strong> resumed (§7).</li>
+<li>A <strong>coroutine</strong> future's <code>on_drop</code> cascades: <code>if (frame.awaiting) future_drop(frame.awaiting);</code>,
+  runs the <code>defer</code>/<code>finally</code> code pending at the await it is parked at (§7), and the
+  frame is freed. The coroutine does not continue past the await.</li>
 </ul>
 <h3 id="34-arbitration-the-one-invariant">3.4 Arbitration (the one invariant)</h3>
 <blockquote>
@@ -246,9 +254,9 @@ Memory is freed exactly once, by whichever path reached terminal.</p>
 <code>stdlib/future.esk</code>, exercised by a cross-thread test.</p>
 <hr>
 <h2 id="4-lowering-an-async-function-to-a-state-machine-ast-transform">4. Lowering an <code>async</code> function to a state machine (AST transform)</h2>
-<pre><code class="language-eskiu">async int fetch_len(EventLoop* lp, string host) {
-    int fd = await net_connect_async(lp, host);   // await #1
-    int n  = await net_read_async(lp, fd);         // await #2
+<pre><code class="language-eskiu">async int fetch_len(EventLoop* lp, int listen_fd, *uint8 buf) {
+    int fd = await net_accept_async(lp, listen_fd);        // await #1
+    int n  = await net_read_async(lp, fd, buf, (int64)64); // await #2
     return n;
 }
 </code></pre>
@@ -262,7 +270,8 @@ the <code>awaiting</code> back-pointer (cascade-drop), the home executor, params
     FutureHdr*  awaiting;  // inner future currently parked on (null otherwise)
     Executor*   home;      // where this coroutine's resumes must run (thread-affinity)
     EventLoop*  lp;        // param
-    string      host;      // param
+    int         listen_fd; // param
+    *uint8      buf;       // param
     int         fd;        // local live across await #2
 }
 </code></pre>
@@ -272,7 +281,7 @@ ever calls <code>__resume_*</code> on it, so the frame needs no locking. The onl
 object is the <code>Future</code> header, synchronized per §3.</p>
 <h3 id="42-constructor-resume">4.2 Constructor + resume</h3>
 <ul>
-<li><strong>Constructor</strong> <code>Future&lt;int&gt;* fetch_len(EventLoop* lp, string host)</code>: allocs the
+<li><strong>Constructor</strong> <code>Future&lt;int&gt;* fetch_len(EventLoop* lp, int listen_fd, *uint8 buf)</code>: allocs the
   frame, stores params, <code>st=0</code>, <code>awaiting=null</code>, <code>home = current_executor()</code>, sets
   <code>frame.ret.on_drop = &lt;cascade-drop awaiting, free frame&gt;</code>, calls
   <code>__resume_fetch_len(frame)</code> once, returns <code>&amp;frame.ret</code>.</li>
@@ -280,13 +289,13 @@ object is the <code>Future</code> header, synchronized per §3.</p>
 </ul>
 <pre><code>switch (f.st) {
 case 0:
-  Future&lt;int&gt;* g = net_connect_async(f.lp, f.host);
+  Future&lt;int&gt;* g = net_accept_async(f.lp, f.listen_fd);
   f.waker_of_g = &lt;closure capturing f, f.home: schedule &quot;f.st=1; __resume(f)&quot; on f.home&gt;;
   // park via §3.1 against g; if g already ready, fall through with g.value
   ... if parked: f.awaiting=(FutureHdr*)g; f.st=1; return;
   f.fd = g.value; f.awaiting=null; free_future(g);
 case 1:
-  Future&lt;int&gt;* h = net_read_async(f.lp, f.fd);
+  Future&lt;int&gt;* h = net_read_async(f.lp, f.fd, f.buf, 64);
   ... (same park/fast-path against h, resume label 2) ...
   int n = h.value; f.awaiting=null; free_future(h);
   // return n: complete our own future (§3.2), then the awaiter's waker frees f
@@ -300,6 +309,58 @@ machinery. (The §3.1 park sequence is emitted inline at each await; shown abbre
 <h3 id="43-fast-path">4.3 Fast path</h3>
 <p>The park's failed-CAS branch means an already-ready inner future does <strong>not</strong>
 suspend: read value, fall through. Zero extra round-trips when nothing blocks.</p>
+<h3 id="44-generic-async-functions">4.4 Generic async functions</h3>
+<p><code>async T f&lt;T&gt;(...)</code> lowers once, generically: the frame struct, the resume function,
+and the constructor are templates over <code>f</code>'s type parameters (<code>__f_frame&lt;T&gt;</code>,
+<code>__f_resume&lt;T&gt;</code>, <code>*Future&lt;T&gt; f&lt;T&gt;(...)</code>), instantiated per use like any generic. Each
+awaited type must be spelled in terms of <code>T</code>. The C++ transform recovers it from the
+type checker's per-instance records (<code>AwaitExpr::instanceTypes</code>: the instance's type
+arguments and the awaited type), choosing a spelling that reproduces every checked
+instance. The self-host pass resolves it from the source directly (<code>al_await_type</code>). A
+generic async function that is never instantiated is left as is.</p>
+<h3 id="45-awaits-inside-expressions">4.5 Awaits inside expressions</h3>
+<p>Before the state split, a desugar (<code>hoist</code> / self-host <code>al_hoist</code>) moves every await,
+in evaluation order, into a <code>let</code> of its own, so the lowering only ever sees
+<code>let x = await E;</code>:</p>
+<pre><code class="language-eskiu">x += g() + await f();      // let __sp = g(); let __aw = await f(); x += __sp + __aw;
+a[i()] = await f();        // let __sp = i(); let __aw = await f(); a[__sp] = __aw;
+ok = c() &amp;&amp; await f();     // let __sc = false; if (c()) { let __aw = await f(); if (__aw) { __sc = true; } }
+while (await more()) B     // while (true) { let __aw = await more(); if (__aw) {} else break; B }
+</code></pre>
+<p>An operand written before an await is held in a temporary only when it has a side
+effect (a call, an assignment, <code>++</code>/<code>--</code>); the temporary's type is the one the type
+checker gave the operand (the C++ transform reads the checker's expression types and
+spells them as a declaration would, <code>declType</code>; the self-host sema stamps
+<code>ExprNode.aty</code> in async functions). An assignment target keeps its place and only the
+parts that compute it (an index, a pointer) are held, so it is evaluated once. <code>?:</code>
+with an awaiting arm needs its result type the same way. A <code>do</code>/<code>while</code> or <code>for</code> whose
+condition or step awaits becomes a <code>while (true)</code> whose first pass skips the test or
+the step, so <code>continue</code> still runs them. A <code>switch</code>/<code>match</code> subject, a <code>for-in</code> iterable
+and a range bound are hoisted before their statement (evaluated once). In a generic
+async function the per-instance types of those operands are not recorded, so a
+temporary for a side-effecting operand, a <code>?:</code> arm or a match arm's payload binding
+there is a located error.</p>
+<h3 id="46-match-and-try">4.6 <code>match</code> and <code>try</code></h3>
+<p>A <code>match</code> whose arms await dispatches in the current state: each arm copies its
+payload bindings to frame fields (typed by the checker's stamp, <code>bindingTypes</code> /
+<code>arm_types</code>) and selects the arm's entry state.</p>
+<p>A <code>try</code> whose body or handlers await is split into states grouped in two regions (the
+body's and the handlers'). At the end of lowering, each state of a region is wrapped in
+a synthesized <code>try</code>:</p>
+<pre><code>try { &lt;state&gt; }
+catch (T x) { &lt;defers pending in the region&gt;; fr.e = x; fr.st = &lt;handler state&gt;; }
+finally-on-unwind { &lt;defers pending in the region&gt;; &lt;the try's finally&gt; }   // then rethrow
+</code></pre>
+<p>innermost region first, so an exception thrown before or after a suspension reaches
+the handler of the try it is thrown in whichever resume runs it. The <code>finally</code> of the
+synthesized try (<code>TryStmt::unwindOnly</code>, self-host SK_TRY <code>is_err = 1</code>) runs only when
+no catch matched. On the other exits the user's <code>finally</code> is kept like a <code>defer</code>:
+<code>emitExit</code> runs it on fall-through, <code>return</code>, <code>break</code> and <code>continue</code>, in a state
+outside the try's regions (an exception it throws is not caught by its own handlers),
+and publishes a completion outside every region. Each state of a region keeps a fixed
+set of pending defers (a <code>defer</code> registered inside one starts a new state), so the
+handler runs exactly the defers pending where the exception was thrown. An await inside
+a <code>finally</code> is rejected (§7).</p>
 <hr>
 <h2 id="5-field-walk-why-state-waker-on_drop-value-survives-everything">5. Field walk: why <code>{state, waker, on_drop, value}</code> survives everything</h2>
 <div class="tablewrap"><table>
@@ -315,7 +376,7 @@ suspend: read value, fall through. Zero extra round-trips when nothing blocks.</
 <tr>
 <td>Socket readable (leaf)</td>
 <td>loop callback reads, §3.2</td>
-<td><code>on_drop</code>=<code>el_del</code>+free</td>
+<td><code>on_drop</code>=<code>EventLoop_del</code>+free</td>
 <td>no</td>
 </tr>
 <tr>
@@ -400,12 +461,20 @@ A future created but never awaited or dropped is a <em>preventable</em> bug, not
 leak: the transform inserts <code>future_drop</code> on scope-exit paths where a <code>Future</code> local
 was created and not consumed.</p>
 <p><strong>Cascade.</strong> Dropping a suspended coroutine drops <code>frame.awaiting</code> first, recursively,
-then frees the frame: a whole await-chain torn down by dropping its head.</p>
-<p><strong>Accepted v1 semantic:</strong> dropping a <em>suspended</em> coroutine frees its frame <strong>without
-resuming it</strong>, so statements after the suspend point, including <code>finally</code> past an
-<code>await</code>, do not run (matches Rust async-drop). Guaranteed cleanup-on-cancel uses a
-cooperative <strong>cancellation token</strong> the coroutine checks (a normal threaded value, no
-contract change), a deliberate later feature.</p>
+then frees the frame: a whole await-chain torn down by dropping its head. The
+combinators take part: an unresolved <code>select2</code>/<code>join2</code> (and <code>select2v</code>/<code>join2v</code>) has an
+<code>on_drop</code> that drops both inputs (a finished <code>join2</code> input is just freed), so a
+cancelled awaiter never leaves an input whose completion would wake freed memory.</p>
+<p><strong>Cleanup on drop:</strong> dropping a <em>suspended</em> coroutine does not continue it past the
+await, but the <code>defer</code>s and <code>finally</code> blocks pending at that await run exactly once,
+innermost first, before the frame is freed (matches a scope exit by unwinding: Rust
+async-drop runs destructors the same way). The transform records, per await, the
+cleanup code pending there and emits it as a state of its own; <code>on_drop</code> cascades to
+the awaited future, then sets the resume state to that cleanup state and calls the
+resume function once. Because that runs inside <code>future_drop</code>, which cannot suspend, an
+<code>await</code> inside a <code>defer</code> or a <code>finally</code> is rejected. A coroutine that must keep running
+after a cancel request uses a cooperative <strong>cancellation token</strong> it checks (a normal
+threaded value, no contract change), a deliberate later feature.</p>
 <hr>
 <h2 id="8-surface-syntax-and-type-rules">8. Surface syntax and type rules</h2>
 <ul>
@@ -414,14 +483,18 @@ contract change), a deliberate later feature.</p>
 <li>An <code>async T f(...)</code> has <em>declared</em> return type <code>T</code>; its <em>call expression</em> has type
   <code>Future&lt;T&gt;*</code>. The type checker performs this rewrite.</li>
 <li><code>await E</code>: <code>E : Future&lt;T&gt;*</code>, <code>await E : T</code>. Legal <strong>only inside an <code>async</code> function</strong>
-  (top level uses <code>future_block</code>). New keywords: <code>async</code>, <code>await</code>.</li>
+  (the top level drives a future by hand, see below). New keywords: <code>async</code>, <code>await</code>.</li>
 <li>Calling an <code>async</code> function without <code>await</code> yields <code>Future&lt;T&gt;*</code> (start now, await later,
   or hand to a combinator). If neither awaited nor handed off, the transform drops it
   on scope exit (§7).</li>
 <li><code>future_drop(f)</code> is the explicit cancel entry; the transform also inserts it
   implicitly (§7).</li>
-<li><code>future_block(lp, f)</code> drives the loop at the top level: sets <code>f.waker</code> to stop the
-  loop, runs it, returns <code>f.value</code>, frees <code>f</code>.</li>
+<li>At the top level a future is driven by hand: <code>future_poll(f, waker)</code> installs a
+  waker that calls <code>EventLoop_stop</code>, <code>EventLoop_run(lp)</code> runs the loop until then (skip it when
+  <code>future_poll</code> returns 1, the future is already ready), and the caller reads
+  <code>f.value</code> and releases <code>f</code> with <code>free_future_polled</code>, which also frees the waker it
+  passed (<code>free_future</code> leaves the waker alone, since an <code>await</code> frees its own). There
+  is no <code>future_block</code> helper.</li>
 </ul>
 <hr>
 <h2 id="9-components">9. Components</h2>
@@ -438,8 +511,9 @@ contract change), a deliberate later feature.</p>
   completes; the resume is scheduled on a different executor).</li>
 <li><strong>Executor</strong> (<code>&lt;executor&gt;</code>): ready-queue + self-pipe/<code>eventfd</code> wakeup over
   <code>&lt;eventloop&gt;</code>; <code>current_executor()</code>, <code>spawn</code>.</li>
-<li><strong>Leaf futures</strong> (<code>&lt;net_async&gt;</code>): <code>net_connect_async</code>/<code>net_read_async</code> with a
-  real <code>on_drop</code>.</li>
+<li><strong>Leaf futures</strong> (<code>&lt;net_async&gt;</code>): <code>net_accept_async</code>/<code>net_read_async</code>/
+  <code>net_write_async</code> (plus the readiness-only <code>net_readable_async</code>/<code>net_writable_async</code>)
+  with a real <code>on_drop</code>.</li>
 <li><strong>Lexer/parser</strong>: the <code>async</code> modifier, the <code>await</code> expression, and their tokens.</li>
 <li><strong>Type checker</strong>: async return → <code>Future&lt;T&gt;*</code>; <code>await</code> typing; "await only in
   async"; tracking of unconsumed <code>Future</code> locals for the drop pass.</li>

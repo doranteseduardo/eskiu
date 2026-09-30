@@ -1,0 +1,28 @@
+// Narrow integers across the C boundary (C side: tests/c_abi_narrow.c). An extern's
+// int8/int16/uint8/uint16/bool/char params and results carry signext/zeroext like
+// clang's, and an Eskiu function returning a narrow integer (a callback, or called
+// from C by name) extends its result, since the C side relies on the extension.
+extern int printf(string fmt, ...);
+extern int64 c_s8(int8 a);
+extern int64 c_s16(int16 a);
+extern int64 c_u8(uint8 a);
+extern int64 c_u16(uint16 a);
+extern int64 c_b(bool a);
+extern int8 c_ret_s8(int k);
+extern uint16 c_ret_u16(int k);
+extern int64 c_call_s8(fn(int)->int8 f, int k);
+extern int64 c_call_u16(fn(int)->uint16 f, int k);
+extern int64 c_call_named(int k);
+
+int8 cb_s8(int k) { return (int8)(k * 1000003 + 100); }
+uint16 cb_u16(int k) { return (uint16)(k * 1000003 + 255); }
+int16 esk_s16(int k) { return (int16)(k * 1000003 + 40000); }
+
+int main(int argc, string* argv) {
+    int w = argc * 1000003 + 100;
+    printf("%lld %lld %lld %lld %lld\n", c_s8((int8)w), c_s16((int16)(w * 77)),
+           c_u8((uint8)w), c_u16((uint16)(w * 11)), c_b((w & 4) != 0));
+    printf("%d %d\n", (int)c_ret_s8(argc), (int)c_ret_u16(argc));
+    printf("%lld %lld %lld\n", c_call_s8(cb_s8, argc), c_call_u16(cb_u16, argc), c_call_named(argc));
+    return 0;
+}

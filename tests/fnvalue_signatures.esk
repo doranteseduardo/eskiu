@@ -1,0 +1,43 @@
+// Calls through fn values: a large-struct (sret) function used as a value, numeric
+// argument coercion through a closure, nested fn types and template args with commas
+// in a fn type, and an array of fn values (`fn(int)->int[2]` is an array of 2 fns).
+extern int printf(string fmt, ...);
+
+struct V { int64 a; int64 b; int64 c; }
+struct Pair<A, B> { A x; B y; }
+
+V mkv(int64 k) { let v: V; v.a = k; v.b = k * 2; v.c = k * 3; return v; }
+int inc(int a) { return a + 1; }
+double app(fn(int)->int f) { return (double)f(41) + 0.5; }
+int64 big(fn(int)->int f) { return (int64)f(1) + 5000000000; }
+int two(fn(int)->int f, int x) { return f(x) * 2; }
+int pr(Pair<int,double> p) { return p.x + (int)p.y; }
+double half(double d) { return d / 2.0; }
+float fl(float f) { return f * 2.0; }
+int one(int x) { return x + 1; }
+int dbl(int x) { return x * 2; }
+
+int main() {
+    let f: fn(int64)->V = mkv;
+    V v = f(5);
+    printf("%lld %lld %lld\n", v.a, v.b, v.c);
+
+    let h: fn(double)->double = half;
+    let g: fn(float)->float = fl;
+    printf("%f %f %f\n", h(3), h(2.5), g(1.25));
+
+    let a: fn(fn(int)->int)->double = app;
+    let b: fn(fn(int)->int)->int64 = big;
+    let c: fn(fn(int)->int, int)->int = two;
+    printf("%f %lld %d\n", a(inc), b(inc), c(inc, 4));
+
+    let q: fn(Pair<int,double>)->int = pr;
+    Pair<int,double> p = Pair<int,double>{x: 3, y: 4.5};
+    printf("%d\n", q(p));
+
+    let fs: fn(int)->int[2];
+    fs[0] = one;
+    fs[1] = dbl;
+    printf("%d %d\n", fs[0](41), fs[1](21));
+    return 0;
+}

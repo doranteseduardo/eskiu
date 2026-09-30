@@ -1,0 +1,2 @@
+// EXPECT-ERROR: duplicate parameter 'a' in lambda
+int main() { fn(int,int)->int g = int(int a, int a) { return a; }; return g(4, 5); }

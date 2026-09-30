@@ -1,0 +1,2 @@
+// EXPECT-ERROR: redefinition of 'x' in the same scope
+int main() { let x: int = 1; let x: int = 2; return x; }

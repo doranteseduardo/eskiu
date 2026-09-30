@@ -1,0 +1,11 @@
+// thread_create returns a `*void` handle: like any `*void` it converts to another pointer
+// (a `string` is a byte pointer), and thread_join takes it back.
+extern int printf(string fmt, ...);
+int main() {
+    *void h = thread_create(void() { printf("worker\n"); });
+    thread_join(h);
+    *int t = thread_create(void() {});
+    thread_join((*void)t);
+    printf("joined %d\n", t != null);
+    return 0;
+}

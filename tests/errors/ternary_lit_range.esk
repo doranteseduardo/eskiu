@@ -1,0 +1,2 @@
+// EXPECT-ERROR: integer literal 300 is out of range for 'uint8'
+int main() { let c: bool = true; let a: uint8 = c ? 300 : 1; return (int)a; }

@@ -1,0 +1,30 @@
+// multipart_part names a part only by the `name` parameter of its
+// Content-Disposition header: a `name=` in another header (Content-Type) does
+// not count, the header and parameter names are case-insensitive, and the value
+// may be a token or a quoted-string with escapes. The value must match exactly.
+import <multipart>;
+extern int printf(string f, ...);
+
+void q(string label, string body, string name) {
+    let bd: String; String_from(&bd, "XX");
+    *uint8 p; int64 n = 0;
+    const int r = multipart_part((*uint8)body, strlen(body), &bd, name, &p, &n);
+    printf("%s: %d [", label, r);
+    if (r == 1) { for (i in 0..n) { printf("%c", (int)p[i]); } }
+    printf("]\n");
+    String_free(&bd);
+}
+
+int main() {
+    q("other header", "--XX\r\nContent-Disposition: form-data; name=\"other\"\r\nContent-Type: text/plain; name=\"photo\"\r\n\r\nWRONG\r\n--XX\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\nRIGHT\r\n--XX--\r\n", "photo");
+    q("upper param", "--XX\r\nContent-Disposition: form-data; NAME=\"photo\"\r\n\r\nUPPER\r\n--XX--\r\n", "photo");
+    q("lower header", "--XX\r\ncontent-disposition: form-data; Name=\"photo\"\r\n\r\nLOWER\r\n--XX--\r\n", "photo");
+    q("no space", "--XX\r\nContent-Disposition: form-data;name=\"photo\"\r\n\r\nNOSP\r\n--XX--\r\n", "photo");
+    q("spaces around =", "--XX\r\nContent-Disposition: form-data; name = \"photo\"\r\n\r\nSP\r\n--XX--\r\n", "photo");
+    q("token value", "--XX\r\nContent-Disposition: form-data; name=photo; filename=a.png\r\n\r\nTOK\r\n--XX--\r\n", "photo");
+    q("escaped quote", "--XX\r\nContent-Disposition: form-data; name=\"a\\\"b\"\r\n\r\nESC\r\n--XX--\r\n", "a\"b");
+    q("filename only", "--XX\r\nContent-Disposition: form-data; filename=\"photo\"\r\n\r\nFILE\r\n--XX--\r\n", "photo");
+    q("longer value", "--XX\r\nContent-Disposition: form-data; name=\"photo2\"\r\n\r\nP2\r\n--XX--\r\n", "photo");
+    q("value case", "--XX\r\nContent-Disposition: form-data; name=\"Photo\"\r\n\r\nCASE\r\n--XX--\r\n", "photo");
+    return 0;
+}

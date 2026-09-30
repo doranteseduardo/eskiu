@@ -1,0 +1,19 @@
+// Implicit pointer conversions that stay legal: through *void, from null, between the
+// byte pointers (string, *char, *int8, *uint8), adding const, and with an explicit cast.
+extern int printf(string fmt, ...);
+struct Big { int64 a; int64 b; }
+int main() {
+    Big big = Big{a: 4, b: 5};
+    *Big bp = &big;
+    *void v = bp;
+    *Big back = v;
+    *Big none = null;
+    uint8[4] buf = {104, 105, 0, 0};
+    *uint8 u = &buf[0];
+    string s = u;
+    *char c = s;
+    const Big* cb = bp;
+    *int64 first = (*int64)bp;
+    printf("%d %s %d %d %d\n", (int)back.b, s, none == null ? 1 : 0, (int)cb.a, (int)*first);
+    return 0;
+}

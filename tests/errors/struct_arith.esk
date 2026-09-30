@@ -1,0 +1,4 @@
+// EXPECT-ERROR: invalid operands for operator
+// A struct value in arithmetic needs a user operator.
+struct S { int32 a; }
+int main() { S s = S { a: 1 }; int32 x = s + 1; return x; }

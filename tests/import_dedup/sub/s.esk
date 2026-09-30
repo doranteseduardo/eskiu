@@ -1,0 +1,3 @@
+// Reaches lib.esk through a parent-relative path (a diamond).
+import "../lib.esk";
+int sub_value() { return lib_value() + 1; }

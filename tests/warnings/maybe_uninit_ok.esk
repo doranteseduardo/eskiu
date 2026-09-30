@@ -1,0 +1,209 @@
+// -Wall: reads that every path initializes do not warn, and neither do aggregates
+// initialized field by field, `&x`, sizeof, unreachable code or a shadowing local.
+extern int printf(string f, ...);
+enum Opt { Some(int), None }
+struct P { int x; int y; }
+int work(int v) { return v; }
+void set(*int p) { *p = 7; }
+
+int both_arms(int c) {
+    int a;
+    if (c > 0) a = 1; else a = 2;
+    return a;
+}
+
+int chain_all(int c) {
+    int b;
+    if (c == 0) b = 1;
+    else if (c == 1) b = 2;
+    else return 0;
+    return b;
+}
+
+int loop_break(int n) {
+    int c;
+    while (true) {
+        c = work(n);
+        if (c > 0) break;
+        n++;
+    }
+    return c;
+}
+
+int for_ever(int n) {
+    int c;
+    for (;;) { c = n; break; }
+    return c;
+}
+
+int do_once(int n) {
+    int d;
+    do { d = n; n--; } while (n > 0);
+    return d;
+}
+
+int labeled(int n) {
+    int e;
+    outer: while (true) {
+        for (int i = 0; i < n; i++) {
+            if (i == 2) { e = i; break outer; }
+        }
+        e = 0;
+        break;
+    }
+    return e;
+}
+
+int switch_all(int k) {
+    int f;
+    switch (k) {
+        case 0: f = 1; break;
+        case 1:
+        case 2: f = 2; break;
+        default: f = 3;
+    }
+    return f;
+}
+
+int switch_fall(int k) {
+    int g;
+    switch (k) {
+        case 0: printf("zero\n");
+        default: g = 1;
+    }
+    return g;
+}
+
+int match_all(Opt o) {
+    int h;
+    match o {
+        Some(v) -> h = v;
+        None -> h = 0;
+    }
+    return h;
+}
+
+int try_catch(int v) {
+    int t;
+    try { t = work(v); } catch (string s) { printf("%s\n", s); t = 0; }
+    return t;
+}
+
+int try_finally(int v) {
+    int t;
+    try { printf("x\n"); } finally { t = v; }
+    return t;
+}
+
+int addr(int v) {
+    int x;
+    set(&x);
+    return x + v;
+}
+
+int fields() {
+    P p;
+    p.x = 1;
+    p.y = 2;
+    int[3] arr;
+    arr[0] = 1;
+    return p.x + p.y + arr[0];
+}
+
+int64 size_only() {
+    int z;
+    return sizeof(z);
+}
+
+int dead_code(int c) {
+    int u;
+    while (c > 0) {
+        return 1;
+        printf("%d\n", u);
+    }
+    u = 0;
+    return u;
+}
+
+int shadow() {
+    int s;
+    {
+        int s = 2;
+        printf("%d\n", s);
+    }
+    s = 1;
+    return s;
+}
+
+int defer_after(int c) {
+    int m;
+    m = c;
+    defer printf("%d\n", m);
+    return m;
+}
+
+int lambda_body(int c) {
+    let f: fn(int)->int = int(int y) {
+        int w;
+        if (y > 0) w = 1; else w = 2;
+        return w;
+    };
+    return f(c);
+}
+
+int static_zero() {
+    static int st;
+    st++;
+    return st;
+}
+
+int guard(int c) {
+    int r;
+    if (c < 0) return 0;
+    r = c;
+    return r;
+}
+
+int ternary_both(bool c) {
+    int p;
+    int r = c ? (p = 1) : (p = 2);
+    return r + p;
+}
+
+// The right operand of `&&` / `||` runs on the paths where the whole is true / false,
+// so what it assigns is assigned there.
+int and_then(bool b) {
+    int x;
+    if (b && (x = work(1)) > 0) { return x; }
+    return 0;
+}
+int or_else(bool b) {
+    int x;
+    if (!b || (x = work(1)) < 0) { return 0; }
+    return x;
+}
+int while_and(bool b) {
+    int x;
+    while (b && (x = work(1)) > 0) { return x; }
+    return 0;
+}
+int tern_and(bool b) {
+    int x;
+    return b && (x = work(2)) > 0 ? x : 0;
+}
+int not_and(bool b) {
+    int x;
+    if (!(b && (x = work(3)) > 0)) { return 0; }
+    return x;
+}
+
+int main() {
+    let o: Opt = Some(1);
+    printf("%d\n", both_arms(1) + chain_all(1) + loop_break(1) + for_ever(1) + do_once(1) +
+                   labeled(3) + switch_all(1) + switch_fall(0) + match_all(o) +
+                   try_catch(1) + try_finally(1) + addr(1) + fields() + (int)size_only() +
+                   dead_code(1) + shadow() + defer_after(1) + lambda_body(1) +
+                   static_zero() + guard(1) + ternary_both(true) + and_then(true) +
+                   or_else(true) + while_and(true) + tern_and(true) + not_and(true));
+    return 0;
+}

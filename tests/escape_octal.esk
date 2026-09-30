@@ -1,0 +1,14 @@
+// String and char literals take C's escapes: octal `\NNN` (one to three digits),
+// hex `\xNN`, and the simple escapes including `\a`, `\b` and `\?`.
+extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+
+int main() {
+    string s = "\101\102C";
+    printf("%s %lld\n", s, strlen("a\012b"));
+    printf("%d %d %d %d\n", (int)'\101', (int)'\01', (int)'\7', (int)'\377');
+    printf("%d %d %d %d\n", (int)"\1234"[0], (int)"\1234"[1], (int)"\018"[0], (int)"\018"[1]);
+    printf("%d %d %d %d %d\n", (int)'\a', (int)'\b', (int)'\?', (int)"\x41"[0], (int)'\x7f');
+    printf("%d\n", (int)'\'' + (int)'\\' + (int)'\"');
+    return 0;
+}

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: a nullable type must be a pointer
+int main() { ?int x = 0; return x; }

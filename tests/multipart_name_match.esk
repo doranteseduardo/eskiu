@@ -1,0 +1,27 @@
+// multipart_part matches the `name` parameter only (not the tail of
+// `filename="..."`), and a present-but-empty field is found with length 0.
+import <mem>;
+import <string>;
+import <multipart>;
+extern int printf(string fmt, ...);
+
+void look(string body, string name) {
+    let bd: String;  String_init(&bd, 4);  String_append(&bd, "B");
+    let part: *uint8 = null;  int64 plen = -1;
+    int ok = multipart_part((*uint8)body, (int64)strlen(body), &bd, name, &part, &plen);
+    printf("%s: found=%d len=%lld [", name, ok, plen);
+    int64 i = 0;  while (ok == 1 && i < plen) { printf("%c", (char)part[i]); i = i + 1; }
+    printf("]\n");
+    String_free(&bd);
+}
+
+int main() {
+    string b1 = "--B\r\nContent-Disposition: form-data; name=\"doc\"; filename=\"photo\"\r\n\r\nFILE\r\n--B\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\nPIC\r\n--B--\r\n";
+    look(b1, "photo");
+    look(b1, "doc");
+    string b2 = "--B\r\nContent-Disposition: form-data; filename=\"photo\"\r\n\r\nX\r\n--B--\r\n";
+    look(b2, "photo");
+    string b3 = "--B\r\nContent-Disposition: form-data; name=\"empty\"\r\n\r\n\r\n--B--\r\n";
+    look(b3, "empty");
+    return 0;
+}

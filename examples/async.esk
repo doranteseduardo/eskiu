@@ -32,13 +32,13 @@ int main() {
     Future<int>* f = read_once(lp, fds[0]);     // starts; parks on the read
 
     // Drive the future to completion on the event loop, then read its value.
-    if (future_poll<int>(f, void() { el_stop(lp); }) == 0) {
-        el_run(lp);
+    if (future_poll<int>(f, void() { EventLoop_stop(lp); }) == 0) {
+        EventLoop_run(lp);
     }
     g_buf[f.value] = (uint8)0;                   // NUL-terminate what we read
     printf("read %d bytes: %s\n", f.value, (string)&g_buf[0]);
 
     free_future<int>(f);
-    el_free(lp);
+    EventLoop_free(lp);
     return 0;
 }

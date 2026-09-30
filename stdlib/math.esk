@@ -1,5 +1,8 @@
 // math stdlib — wraps libm
-// Link with: clang file.o -lm -o file
+// Linking libm is automatic: glibc keeps it apart from libc (macOS and mingw do not).
+#ifdef __linux__
+#pragma link("m")
+#endif
 
 extern double sqrt(double x);
 extern double fabs(double x);

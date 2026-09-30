@@ -1,0 +1,4 @@
+// EXPECT-ERROR: character literal must contain a single character in #if expression
+#if 'ab' == 0
+#endif
+int main() { return 0; }

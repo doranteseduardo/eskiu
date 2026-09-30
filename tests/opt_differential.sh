@@ -35,9 +35,14 @@ fail=0; total=0; skip=0; excluded=0
 for f in tests/*.esk; do
     n="$(basename "$f" .esk)"
     case "$SKIP" in *" $n "*) echo "excl  $n  (flaky async — see project-flaky-http2)"; excluded=$((excluded + 1)); continue ;; esac
-    # Compile+link at both levels; skip files that need extra libs to link.
-    if ! "$ESKIUC"     "$f" -o "$work/$n.a" >/dev/null 2>&1 \
-    || ! "$ESKIUC" -O2 "$f" -o "$work/$n.b" >/dev/null 2>&1; then
+    # A tests/NAME.c companion (C side of a C-ABI test) is compiled and linked in.
+    extra=()
+    if [ -f "tests/$n.c" ]; then
+        ${CC:-clang} -c "tests/$n.c" -o "$work/$n.c.o" >/dev/null 2>&1 && extra=(--link-arg "$work/$n.c.o")
+    fi
+    # Compile+link at both levels (the driver adds the libraries a program implies).
+    if ! "$ESKIUC"     "$f" ${extra[@]+"${extra[@]}"} -o "$work/$n.a" >/dev/null 2>&1 \
+    || ! "$ESKIUC" -O2 "$f" ${extra[@]+"${extra[@]}"} -o "$work/$n.b" >/dev/null 2>&1; then
         skip=$((skip + 1)); continue
     fi
     total=$((total + 1))

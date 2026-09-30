@@ -17,7 +17,7 @@ async void readyTask() { int x = await produce(7); g_ready = x; }
 async void suspTask(EventLoop* lp, int fd) {
     int n = await net_read_async(lp, fd, &gb[0], (int64)64);
     g_susp = n;
-    el_stop(lp);
+    EventLoop_stop(lp);
 }
 int main() {
     spawn(readyTask());
@@ -25,8 +25,8 @@ int main() {
     write(fds[1], (*void)"abcd", (int64)4);
     g_lp = el_new(64);
     spawn(suspTask(g_lp, fds[0]));
-    el_run(g_lp);
+    EventLoop_run(g_lp);
     printf("%d %d\n", g_ready, g_susp);   // 7 4
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     return 0;
 }

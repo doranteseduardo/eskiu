@@ -1,0 +1,5 @@
+// EXPECT-ERROR: non-exhaustive
+// A match on an alias of a classic enum is checked against that enum's variants.
+enum E { X, Y }
+type EE = E;
+int main() { EE e = X; match e { X -> return 1; } return 0; }

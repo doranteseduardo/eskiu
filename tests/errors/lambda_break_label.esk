@@ -1,0 +1,9 @@
+// A labeled break in a lambda cannot name a loop of the enclosing function.
+// EXPECT-ERROR: has no enclosing loop labeled 'outer'
+int main() {
+    outer: for (int i = 0; i < 3; i++) {
+        let f: fn()->void = void() { for (int j = 0; j < 2; j++) { break outer; } };
+        f();
+    }
+    return 0;
+}

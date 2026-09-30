@@ -1,0 +1,19 @@
+// Method-call syntax on free-function methods (`Type_method(self, ...)`), including
+// stdlib ones: `c.get()`, `s.trim()`, `n.push('!')`.
+import <string>;
+extern int printf(string f, ...);
+struct C { int v; }
+int C_get(*C self) { return self.v; }
+struct Rect { int w; int h; }
+int Rect_area(*Rect self) { return self.w * self.h; }
+int main() {
+    let c: C = C{v: 3};
+    let p: *Rect = alloc<Rect>(1);
+    p.w = 2; p.h = 5;
+    let s: String; String_init(&s, 8); String_from(&s, "  hi  ");
+    s.trim();
+    let n: String; String_init(&n, 8); String_from(&n, "ok");
+    n.push('!');
+    printf("%d %d %d %s %s\n", c.get(), p.area(), (int)s.len(), (string)s.cstr(), (string)n.cstr());
+    return 0;
+}

@@ -1,0 +1,8 @@
+// EXPECT-ERROR: crlf_line.esk:6:
+// A CRLF file with a line continuation still reports the right line.
+#define ADD(a, b) \
+    ((a) + (b))
+int main() {
+    int y = "oops";
+    return ADD(0, 0);
+}

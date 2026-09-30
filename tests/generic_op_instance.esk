@@ -1,0 +1,17 @@
+// An operator overload on a generic-struct instance, applied inside a generic body.
+extern int printf(string fmt, ...);
+struct Vec<T> { T x; T y; }
+Vec<int> operator +(Vec<int> a, Vec<int> b) { return Vec<int>{ x: a.x + b.x, y: a.y + b.y }; }
+bool operator ==(Vec<int> a, Vec<int> b) { return a.x == b.x && a.y == b.y; }
+T add2<T>(T a, T b) { return a + b; }
+bool same<T>(T a, T b) { return a == b; }
+int main() {
+    let a: Vec<int> = Vec<int>{ x: 1, y: 2 };
+    let b: Vec<int> = Vec<int>{ x: 10, y: 20 };
+    let c: Vec<int> = add2<Vec<int>>(a, b);
+    printf("%d %d\n", c.x, c.y);
+    let d: Vec<int> = a + b;
+    printf("%d %d %d\n", d.x, (int)same<Vec<int>>(c, d), (int)same(a, b));
+    printf("%d\n", add2<int>(3, 4));
+    return 0;
+}

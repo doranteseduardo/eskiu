@@ -1,0 +1,30 @@
+// A parked Chan_recv dropped by select2 (the timeout pattern) must unpark:
+// the next Chan_send buffers its value instead of completing the freed future.
+import <future>;
+import <timer>;
+import <eventloop>;
+import <channel>;
+import <mem>;
+extern int printf(string fmt, ...);
+EventLoop* g;
+
+async int recv_or_timeout(EventLoop* lp, Chan<int>* ch) {
+    Future<int>* rv = Chan_recv<int>(ch);
+    Future<int>* tm = timer_after(lp, 10);
+    int w = await select2(rv, tm);
+    if (w == 0) { int v = rv.value; free_future<int>(rv); return v; }
+    free_future<int>(tm); return -1;
+}
+
+int main() {
+    g = el_new(64);
+    Chan<int>* ch = chan_new<int>(4);
+    Future<int>* b = recv_or_timeout(g, ch);
+    if (future_poll<int>(b, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    printf("first=%d\n", b.value);          // -1: timed out; the recv future was dropped
+    free_future<int>(b);
+    bool ok = Chan_send<int>(ch, 99);       // should buffer 99 for the next receiver
+    printf("send ok=%d buffered=%d\n", ok, ch.count);
+    EventLoop_free(g);
+    return 0;
+}

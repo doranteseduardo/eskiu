@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -150,7 +150,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <tr>
 <td>Preprocessor</td>
 <td><code>lexer/preprocessor.cpp</code> (<code>preprocess</code>, declared in <code>preprocessor.h</code>)</td>
-<td>Text pass run inside the <code>Lexer</code> constructor: object-/function-like <code>#define</code>, <code>#ifdef</code>/<code>#ifndef</code>/<code>#else</code>/<code>#endif</code>; shared macro table propagates across <code>import</code>/multi-file; blanks directive/skipped lines to preserve line numbers</td>
+<td>Text pass run inside the <code>Lexer</code> constructor: object-/function-like <code>#define</code>, <code>#ifdef</code>/<code>#ifndef</code>/<code>#if</code>/<code>#elif</code>/<code>#else</code>/<code>#endif</code> (the <code>#if</code> expression is a C integer constant expression with <code>defined</code>); unknown directives and <code>#include</code> are errors; shared macro table propagates across <code>import</code>/multi-file in textual order (the preprocessor reports each import line to a <code>PPImportHook</code>, and the driver's <code>ImportCache</code> in <code>parser.h</code> preprocesses the imported file right there; the self-host does the same with <code>g_pp_import_hook</code> / <code>pre_import</code>); blanks directive/skipped lines to preserve line numbers</td>
 <td>Complete</td>
 </tr>
 <tr>
@@ -351,21 +351,43 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 <p>From lowest to highest:</p>
 <pre><code>parseAssignment        =  +=  -=  *=  /=  %=     (right-associative; compound ops desugar)
   parseTernary         ?:                        (right-associative; `:`-scan disambiguates from postfix `?`)
-    parseLogicalOr     ||
-      parseLogicalAnd  &amp;&amp;
-        parseBitwiseOr     |
-          parseBitwiseXor  ^
-            parseBitwiseAnd    &amp;
-              parseEquality    ==  !=
-                parseComparison    &lt;  &gt;  &lt;=  &gt;=
-                  parseShift       &lt;&lt;  &gt;&gt;
-                    parseAddition  +  -
-                      parseMultiplication  *  /  %
-                        parseUnary         -  ~  !  &amp;  *  ++  --  (TYPE)
-                          parsePostfix     ()  []  .  ?  ++  --  &lt;T&gt;(args)
-                            parsePrimary
+    parseBinary(1)     binary operators by precedence climbing, loosest first:
+                         1 ||   2 &amp;&amp;   3 |   4 ^   5 &amp;   6 == !=   7 &lt; &gt; &lt;= &gt;=
+                         8 &lt;&lt; &gt;&gt;   9 + -   10 * / %
+      parseUnary         -  ~  !  &amp;  *  ++  --  (TYPE)
+        parsePostfix     ()  []  .  ?  ++  --  &lt;T&gt;(args)
+          parsePrimary
 </code></pre>
+<p><code>parseBinary(minPrec)</code> parses a unary operand, then folds every operator that binds at
+least <code>minPrec</code> in a loop, parsing each right operand with <code>parseBinary(prec + 1)</code>.
+Operators of equal precedence stay left-associative and cost no recursion, so a long
+<code>a + b + c ...</code> chain is parsed by the loop; a tighter operator on the right recurses at
+most once per precedence level. The self-hosted parser (<code>parse_binary</code> in
+<code>selfhost/parser.esk</code>) is the same algorithm.</p>
 <p>Compound assignment operators (<code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code>, <code>%=</code>) are desugared in <code>parseAssignment()</code> into <code>BinaryExpr(lhs, "=", BinaryExpr(lhs, op, rhs))</code>.</p>
+<h3 id="deep-and-long-input">Deep and long input</h3>
+<p>A left-leaning operator chain is as deep in the AST as it is long, so the passes that
+visit every expression walk a <code>BinaryExpr</code>'s left spine with a loop instead of one
+recursive call per operator: <code>ASTPrinter</code>, <code>TypeChecker::visit(BinaryExpr)</code> (including
+the <code>&amp;&amp;</code>/<code>||</code> narrowing), <code>CodeGen::visit(BinaryExpr)</code>, the constant folders, the
+<code>BinaryExpr</code> destructor, and the walkers built on <code>astwalk::forEachChildExprFlat</code>
+(capture analysis, the async transform's rewrites). An <code>else if</code> chain is likewise a
+loop in the parser, the printer, the type checker and codegen. The self-hosted compiler
+mirrors these (plus prefix-operator and ternary chains in its codegen, where each level
+used to re-derive the type of the whole chain below it).</p>
+<p>Genuinely nested input (parentheses, blocks, nested ifs and lambdas) still recurses once
+per level, so the compiler runs its pipeline on a thread with a 1 GB stack (<code>main()</code> in
+<code>main.cpp</code>; <code>selfhost/bigstack.esk</code> for the self-hosted drivers). The parser counts
+nesting (<code>Parser::kMaxNesting</code>, <code>P_MAX_NESTING</code> in the self-host) and rejects more than
+100000 levels with a located <code>nesting too deep</code> error, a safety net far above realistic
+code. Types have their own, lower limit (<code>Parser::kMaxTypeNesting</code>, <code>P_MAX_TYPE_NESTING</code>):
+1000 levels, counting each pointer level, array dimension, template argument list and
+fn type. A generic instance is spelled by its whole argument list in every later pass,
+so a type's cost grows faster than its depth, and the limit keeps every type cheap. Both
+nesting errors escape speculative parses (a C++ <code>NestingError</code> is rethrown by every
+speculative catch; the self-host reports it directly), so the diagnostic is the real one. The generated tests in <code>tests/deep/gen.sh</code> (run by <code>tests/run.sh</code> and
+<code>tests/selfhost/driver_parity.sh</code>) cover 100000-operand chains, 10000-deep nesting and
+the limit.</p>
 <h3 id="import-handling-inline-parsing-in-parseprogram"><code>import</code> handling: inline parsing in <code>parseProgram()</code></h3>
 <p>When <code>parseProgram()</code> encounters <code>IMPORT STRING_LIT SEMICOLON</code>, it:
 1. Resolves the path relative to <code>basedir</code> (the directory of the importing file).
@@ -468,9 +490,9 @@ std::vector&lt;std::map&lt;std::string, Symbol&gt;&gt; scopes;
 <li>If <code>type</code> is a known concrete struct name: return <code>"struct:" + type</code>.</li>
 <li>Otherwise return as-is (primitive).</li>
 </ol>
-<p>Template function instantiation happens in <code>visit(TemplateCallExpr*)</code>: type args are bound to type params via <code>substType()</code>, and the return type is computed. Bodies are not re-type-checked; only argument types are validated.</p>
+<p>Template function instantiation happens in <code>visit(TemplateCallExpr*)</code> (explicit type args) and in the inferred path of <code>visit(CallExpr*)</code>: type args are bound to type params via <code>substType()</code>, the argument types are validated, and the return type is computed. Each distinct instance (<code>pick&lt;Box&gt;</code>) is then queued (<code>queueInstance</code>) and its body is type-checked once, after the main pass, by <code>checkPendingInstances</code>: the template body is visited through a synthesized <code>FunctionDecl</code> whose parameter and return types are substituted, while <code>normalizeType</code> and <code>getExpressionType</code> map the type parameters to the instance's arguments (<code>instSubs</code>). A type error that only exists for some type arguments (a value passed where the method takes a pointer, an operator the concrete type lacks) is reported at the offending expression with <code>(in instantiation of pick&lt;Box&gt;)</code> appended. Checking an instance can queue more (nested generic calls), so the queue drains to a fixpoint, capped at 64 levels of nesting. The body's AST is shared by every instance, so while one is checked the expression-type table is swapped out and no node is stamped (<code>opFunc</code>, lambda captures, for-in element types keep their instance-independent values); warnings and escape soundness stay per template, not per instance. An inline method of a generic struct (<code>struct Box&lt;T&gt; { T get() {...} }</code>) is registered as <code>Box_int_get(*Box_int self)</code> when <code>Box&lt;int&gt;</code> is instantiated and checked the same way on its first call; codegen emits it on first call too (<code>instantiateGenericMethod</code>). The self-hosted checker mirrors this (<code>sema_queue_inst</code> / <code>sema_check_insts</code>), printing a <code>note: ... (in instantiation of pick&lt;Box&gt;)</code> line after the instance's errors.</p>
 <h3 id="interface-structural-satisfaction-check">Interface structural satisfaction check</h3>
-<p><code>isValidAssignment(lhs, rhs)</code> includes an interface check: if <code>lhs</code> is a registered interface name, it calls <code>structSatisfiesInterface(functionSignatures, structName, iface)</code> which verifies that for every method in the interface, a function named <code>structName_methodName</code> exists in <code>functionSignatures</code>. No <code>implements</code> keyword is required. This is purely structural.</p>
+<p><code>isValidAssignment(lhs, rhs)</code> includes an interface check: if <code>lhs</code> is a registered interface name and <code>rhs</code> is a pointer to a struct, it calls <code>interfaceMismatch(structName, iface)</code> (<code>typecheck_type.cpp</code>), which requires, for every method in the interface, a function named <code>structName_methodName</code> in <code>functionSignatures</code> whose return type, parameter count and parameter types (after the receiver) match the interface's declaration; a type spelled with the interface's own name stands for the implementing type. It returns an empty string on success or the first mismatch, which becomes part of the diagnostic. A struct passed by value (not a pointer) is rejected with "cannot convert struct 'S' to interface 'I' by value; pass a pointer (&amp;x)". No <code>implements</code> keyword is required. This is purely structural. The same check backs bounded generics (<code>checkConstraints</code>).</p>
 <h3 id="error-format-sourcefilelinecol-message">Error format: <code>sourceFile:line:col: message</code></h3>
 <pre><code class="language-cpp">void TypeChecker::error(int line, int col, const std::string&amp; message) {
     hasErrors = true;
@@ -479,7 +501,7 @@ std::vector&lt;std::map&lt;std::string, Symbol&gt;&gt; scopes;
     errors.push_back(ss.str());
 }
 </code></pre>
-<p><code>sourceFile</code> is set by the caller (<code>main.cpp</code>) to the actual input filename before calling <code>check()</code>. Errors are accumulated and printed after the full second pass completes. When an error is reported via <code>errorAt(node, msg)</code>, it uses <code>node-&gt;line</code> and <code>node-&gt;col</code>, populated by the parser's <code>withPos()</code> stamp. Nodes without position stamps report <code>0:0</code>.</p>
+<p><code>sourceFile</code> is set by the caller (<code>main.cpp</code>) to the actual input filename before calling <code>check()</code>. Errors are accumulated and printed after the full second pass completes, each with an <code>error:</code> prefix. When an error is reported via <code>errorAt(node, msg)</code>, it uses <code>node-&gt;line</code> and <code>node-&gt;col</code>, populated by the parser's <code>withPos()</code> stamp. Nodes without position stamps report <code>0:0</code>.</p>
 <h3 id="pointer-type-conventions-in-the-type-checker">Pointer type conventions in the type checker</h3>
 <p>Two pointer notations coexist in <code>expressionTypes</code>:
 - <strong>Leading <code>*T</code></strong>: used by inference results from unary <code>&amp;</code> (<code>"*" + operandType</code>) and <code>isPointerType()</code> (<code>type[0] == '*'</code>).
@@ -502,7 +524,7 @@ std::vector&lt;std::map&lt;std::string, Symbol&gt;&gt; scopes;
 std::unique_ptr&lt;llvm::Module&gt;      module;   // named &quot;eskiu&quot;
 std::unique_ptr&lt;llvm::IRBuilder&lt;&gt;&gt; builder;
 </code></pre>
-<p><code>generateCode()</code> sets the target triple and data layout early (needed for <code>sizeof</code> in <code>AllocExpr</code>), then visits the program. <code>visit(FunctionDecl*)</code> creates an <code>"entry"</code> <code>BasicBlock</code> and calls <code>builder-&gt;SetInsertPoint(entryBlock)</code>. Control-flow visitors create named basic blocks (<code>"then"</code>, <code>"merge"</code>, <code>"while"</code>, <code>"for_body"</code>, <code>"for_step"</code>, <code>"for_exit"</code>, <code>"switch.end"</code>, etc.) and move the insert point with <code>SetInsertPoint</code>. After all declarations are visited, <code>generateCode()</code> calls <code>llvm::verifyModule</code>; on failure it returns <code>nullptr</code>.</p>
+<p><code>generateCode()</code> sets the target triple and data layout early (needed for <code>sizeof</code> and <code>alloc_with</code> sizing), then visits the program. <code>visit(FunctionDecl*)</code> creates an <code>"entry"</code> <code>BasicBlock</code> and calls <code>builder-&gt;SetInsertPoint(entryBlock)</code>. Control-flow visitors create named basic blocks (<code>"then"</code>, <code>"merge"</code>, <code>"while"</code>, <code>"for_body"</code>, <code>"for_step"</code>, <code>"for_exit"</code>, <code>"switch.end"</code>, etc.) and move the insert point with <code>SetInsertPoint</code>. After all declarations are visited, <code>generateCode()</code> calls <code>llvm::verifyModule</code>; on failure it returns <code>nullptr</code>.</p>
 <h3 id="three-phase-program-lowering-forward-references">Three-phase program lowering (forward references)</h3>
 <p><code>visit(Program*)</code> walks <code>declarations</code> <strong>three times</strong> so a body may reference any declaration regardless of source order, matching the type checker's two-pass guarantee end to end:</p>
 <ol>
@@ -538,13 +560,13 @@ std::unique_ptr&lt;llvm::IRBuilder&lt;&gt;&gt; builder;
 - <code>ifaceVtableTypes[name]</code>, <code>llvm::StructType</code> with one <code>ptr</code> per method: <code>%I_vtable = type { ptr, ptr, ... }</code>
 - <code>ifaceMethodOrder[name]</code>: <code>vector&lt;string&gt;</code> of method names in declaration order (for index lookup)
 - <code>ifaceFatPtrTypes[name]</code>: <code>%I_fat = type { ptr, ptr }</code> (data pointer + vtable pointer)</p>
-<p><code>boxAsInterface(ifaceName, structName, structPtr)</code> creates a fat pointer on the stack:
+<p><code>boxAsInterface(ifaceName, structName, structPtr)</code> builds the fat value:
 1. Looks up or creates a <code>private</code> global constant <code>%I_vtable_S</code> holding <code>{ &amp;S_method1, &amp;S_method2, ... }</code>.
-2. Allocates <code>%I_fat</code> on the stack.
-3. Stores <code>structPtr</code> in field 0 (data) and the vtable global in field 1.
-4. Returns the alloca pointer (pointer to the fat struct).</p>
+2. Inserts <code>structPtr</code> into field 0 (data) and the vtable global into field 1 of an <code>%I_fat</code> value.
+3. Returns that first-class <code>{ ptr, ptr }</code> value.</p>
+<p>An interface value is held <strong>by value</strong> as <code>%I_fat</code> wherever it lives: a local's alloca, a struct field, a parameter, a return value. <code>evalForType(expr, targetType)</code> is the single conversion point used by initializers, assignments, call arguments, struct-literal fields and <code>return</code>: an interface value of the same interface passes through, <code>null</code> becomes the zero <code>{null, null}</code>, and a pointer to a conforming struct is boxed with <code>boxAsInterface</code>.</p>
 <p>Interface vtable dispatch in <code>visit(CallExpr*)</code>: loads <code>data_ptr</code> and <code>vtable_ptr</code> from the fat struct, computes the method index from <code>ifaceMethodOrder</code>, <code>CreateStructGEP</code> into the vtable, loads the function pointer, and calls it with a <code>FunctionType</code> of all-<code>ptr</code> parameters returning <code>void</code>. This correctly dispatches <code>void</code> methods. Methods with non-void return types share the same dispatch mechanism: the return value is pushed to <code>exprValueStack</code>.</p>
-<p><code>funcEskiuParamTypes</code> stores the Eskiu parameter type strings per function name. At a call site, if a parameter's type matches an interface registered in <code>ifaceFatPtrTypes</code>, the argument is automatically boxed via <code>boxAsInterface()</code>.</p>
+<p><code>funcEskiuParamTypes</code> stores the Eskiu parameter type strings per function name. At a call site, an argument whose parameter type is an interface registered in <code>ifaceFatPtrTypes</code> goes through <code>evalForType()</code>, so it is boxed when it is a struct pointer.</p>
 <h3 id="pointer-arithmetic">Pointer arithmetic</h3>
 <p><code>ptr + n</code> and <code>ptr - n</code> in <code>visit(BinaryExpr*)</code>:</p>
 <pre><code class="language-cpp">// ptr + n
@@ -555,9 +577,9 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 </code></pre>
 <p>The GEP uses the <em>pointee</em> type (<code>ptrElemType()</code>), so <code>±n</code> advances by <code>n</code> elements, i.e. <code>n * sizeof(*p)</code> bytes, matching typed C pointer arithmetic (<code>p + 1</code> points at the next element, not the next byte).</p>
 <h3 id="exception-lowering">Exception lowering</h3>
-<p><code>try</code>/<code>catch</code>/<code>throw</code> lower to the Itanium C++ ABI. Every call inside a <code>try</code> body is emitted as <code>invoke</code> (not <code>call</code>) so it can branch to a <code>landingpad</code>; <code>throw</code> calls <code>__cxa_throw</code> (via <code>invoke</code> when inside a try) and the catch dispatch uses <code>__cxa_begin_catch</code>/<code>__cxa_end_catch</code>. The module gets a <code>__gxx_personality_v0</code> declaration. Unhandled exceptions are re-thrown with <code>resume</code>. Because this uses the C++ runtime, the final binary must link <code>-lc++</code> (macOS) / <code>-lstdc++</code> (Linux), surfaced to users in the language spec, with the mechanics kept here.</p>
+<p><code>try</code>/<code>catch</code>/<code>throw</code> lower to the Itanium C++ ABI. Every call inside a <code>try</code> body is emitted as <code>invoke</code> (not <code>call</code>) so it can branch to a <code>landingpad</code>; <code>throw</code> calls <code>__cxa_throw</code> (via <code>invoke</code> when inside a try) and the catch dispatch uses <code>__cxa_begin_catch</code>/<code>__cxa_end_catch</code>. The module gets a <code>__gxx_personality_v0</code> declaration. Unhandled exceptions are re-thrown with <code>resume</code>. Because this uses the C++ runtime, the driver links <code>-lc++</code> (macOS) / <code>-lstdc++</code> (Linux, mingw) whenever the program contains <code>throw</code> or <code>try</code> (<code>--no-default-libs</code> turns it off); the user-facing rule is in the language spec's Linking paragraph.</p>
 <h3 id="cleanup-stack-defer-errdefer-lowering">Cleanup stack: <code>defer</code> / <code>errdefer</code> lowering</h3>
-<p><code>defer</code> and <code>errdefer</code> (both <code>DeferStmt</code>, with <code>isErr</code> distinguishing them) are lowered by a <strong>codegen cleanup stack</strong>, not desugared into the AST. Codegen keeps a stack of scopes, each a list of <code>{body, isErr}</code> cleanup entries: entering a block pushes a frame, <code>visit(DeferStmt*)</code> registers the statement's body on the current frame, and leaving the block pops it. Every exit path emits the pending cleanups in <strong>LIFO</strong> order <em>before</em> the branch or return: fall-through, <code>return</code> (<code>runCleanupsToDepth(0, ...)</code>), <code>break</code>/<code>continue</code> (down to the loop's captured depth), and the <code>?</code>-propagation error path. <code>runCleanupsToDepth(depth, errorPath)</code> skips <code>errdefer</code> entries unless <code>errorPath</code> is set, so a bare <code>defer</code> runs on every exit while <code>errdefer</code> runs only on the <code>?</code>-error exit. <code>try</code>/<code>finally</code> registers its <code>finally</code> as a cleanup frame around the body, which is what makes <code>finally</code> run on an early <code>return</code>/<code>break</code> out of the <code>try</code> (a bug the mechanism fixed). Cleanup-stack state is saved and reset at each function-body boundary (<code>visit(FunctionDecl*)</code>), so a nested function emitted mid-expression (e.g. a template instantiated inside a <code>return</code>) does not run the outer function's defers.</p>
+<p><code>defer</code> and <code>errdefer</code> (both <code>DeferStmt</code>, with <code>isErr</code> distinguishing them) are lowered by a <strong>codegen cleanup stack</strong>, not desugared into the AST. Codegen keeps a stack of scopes, each a list of <code>{body, isErr}</code> cleanup entries: entering a block pushes a frame, <code>visit(DeferStmt*)</code> registers the statement's body on the current frame, and leaving the block pops it. Every exit path emits the pending cleanups in <strong>LIFO</strong> order <em>before</em> the branch or return: fall-through, <code>return</code> (<code>runCleanupsToDepth(0, ...)</code>), <code>break</code>/<code>continue</code> (down to the loop's captured depth), and the <code>?</code>-propagation error path. <code>runCleanupsToDepth(depth, errorPath)</code> skips <code>errdefer</code> entries unless <code>errorPath</code> is set, so a bare <code>defer</code> runs on every exit while <code>errdefer</code> runs only on the <code>?</code>-error exit. <code>try</code>/<code>finally</code> registers its <code>finally</code> as a cleanup frame around the body, which is what makes <code>finally</code> run on an early <code>return</code>/<code>break</code> out of the <code>try</code> (a bug the mechanism fixed). Cleanup-stack state is saved and reset at each function-body boundary (<code>visit(FunctionDecl*)</code>), so a nested function emitted mid-expression (e.g. a template instantiated inside a <code>return</code>) does not run the outer function's defers. On the exceptional path, a program that contains a <code>throw</code> or <code>try</code> anywhere (a pre-scan, <code>astwalk::containsEH</code>) gives each <code>defer</code> a landingpad for the calls after it (<code>emitDeferPad</code>): inside a <code>try</code> body it catches everything, runs the pending cleanups down to that try's depth and branches to the try's catch dispatch (a phi over the exception pointer); outside a try it is a <code>cleanup</code> pad that runs the function's pending cleanups and <code>resume</code>s. Each cleanup remembers the landingpad active when it was registered (<code>prevUnwind</code>), which its body runs under and which popping its frame restores. The self-host mirrors this (<code>cg_defer_pad</code>, <code>cl_unw</code>, <code>try_cld</code>/<code>try_disp</code>/<code>try_phi</code>).</p>
 <h3 id="bitfield-layout">Bitfield layout</h3>
 <p>A struct with any <code>: N</code> field gets a packed layout in <code>structLayout[name]</code>: consecutive bitfields are placed into storage words of their declared type, and each field records <code>{physIndex, bitOffset, bitWidth, storageType, isSigned}</code>. Reads <code>lshr</code>+mask (and sign-extend signed fields); writes are read-modify-write (<code>storeBitfieldInto</code>). Structs without bitfields keep the trivial 1:1 field layout, so nothing else changes.</p>
 <h3 id="enums-and-type-aliases">Enums and type aliases</h3>
@@ -756,8 +778,8 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 </tr>
 <tr>
 <td>Interface name (e.g. <code>Greeter</code>)</td>
-<td><code>ptr</code> (opaque)</td>
-<td>Interface values are <code>ptr</code> to <code>%Greeter_fat</code></td>
+<td><code>%Greeter_fat</code> (<code>{ ptr, ptr }</code>)</td>
+<td>An interface value is the fat struct itself (data pointer + vtable pointer), held by value</td>
 </tr>
 <tr>
 <td><code>T[N]</code> (fixed-size array)</td>
@@ -766,7 +788,7 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 </tr>
 </tbody>
 </table></div>
-<p>Integer literals are emitted as <code>i32</code> (64-bit literals widen to <code>i64</code> without truncation). Float literals are emitted as <code>double</code> (<code>f64</code>). A float literal assigned to a <code>float</code> (<code>f32</code>) variable is coerced down via <code>CreateFPCast</code>. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (<code>CreateUDiv</code>, <code>CreateURem</code>, <code>CreateLShr</code>, <code>CreateICmpULT</code>, etc.) while signed types use the signed forms, and integer widening picks <code>CreateZExt</code> vs <code>CreateSExt</code> from the source operand's signedness at every coercion site.</p>
+<p>Integer literals are emitted as <code>i32</code>; a literal that does not fit <code>int</code> is typed <code>int64</code> (C's <code>long</code>) and widens the operation it appears in. Float literals are emitted as <code>double</code> (<code>f64</code>). A float literal assigned to a <code>float</code> (<code>f32</code>) variable is coerced down via <code>CreateFPCast</code>. Signedness is tracked through codegen from the Eskiu type: unsigned types use the unsigned LLVM instructions (<code>CreateUDiv</code>, <code>CreateURem</code>, <code>CreateLShr</code>, <code>CreateICmpULT</code>, etc.) while signed types use the signed forms, and integer widening picks <code>CreateZExt</code> vs <code>CreateSExt</code> from the source operand's signedness at every coercion site.</p>
 <hr>
 <h2 id="hardening-apparatus">Hardening Apparatus</h2>
 <p>Beyond the <code>--test-*</code> modes, the compiler is guarded by an automated harness (run in CI; see <code>debugging.md</code> for how to use each as a diagnosis tool):</p>
@@ -774,6 +796,9 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <li><strong>Golden-IR oracle</strong>, <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code>: emits IR for the type-zoo corpus and diffs it against the checked-in baseline. A behavior-preserving change must produce byte-identical IR; this is the codegen-regression guard.</li>
 <li><strong>Generative + mutation fuzzer</strong>, <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: synthesized programs are run at both optimization levels and any divergence is a miscompile. This catches accidentally-<code>-O0</code>-correct IR (undef, wrong width, missing extension).</li>
 <li><strong><code>-O0</code>-vs-<code>-O2</code> corpus differential</strong> (<code>tests/opt_differential.sh</code>, v0.3.1): compiles every <code>tests/*.esk</code> with <code>eskiuc -O0</code> and <code>eskiuc -O2</code> (the LLVM middle-end the <code>-O</code> flag runs) and fails on any exit/stdout divergence. Where the fuzzer exercises synthesized programs, this exercises the real corpus. It caught the v0.3.1 float-closure return-type miscompile.</li>
+<li><strong>C oracle</strong>, <code>tests/fuzz/c_oracle.py</code> (<code>eskiu_fuzz.py --oracle</code>): generates programs in a C-translatable subset, emits each as C too, and requires the C++ <code>eskiuc</code> (at <code>-O0</code> and <code>-O2</code>) and the self-hosted <code>eskiuc-esk</code> to print what <code>clang -O0 -fwrapv</code> prints. It is the only check outside the two Eskiu compilers, so it catches a bug they share (the 0.9.2 C conversion and constant-folding fixes came from it).</li>
+<li><strong>Negative corpus</strong>, <code>tests/fuzz/neg_fuzz.py</code>: injects one error into a generated program and requires both compilers to reject it with a diagnostic located on that line, without crashing.</li>
+<li><strong>Stdlib parser fuzzer</strong>, <code>tests/fuzz/stdlib_fuzz.py</code>: mutates inputs for the stdlib parsers (JSON, base64, URL, regex, HPACK, HTTP, multipart, UUID/time), built with <code>--asan</code>, and fails on a crash, an ASan report or a broken round trip.</li>
 <li><strong><code>--asan</code> / <code>--ubsan</code> gates</strong>: AddressSanitizer and trapping UB checks run over the test corpus for runtime memory errors and undefined behavior.</li>
 <li><strong>Formatter idempotency</strong>: <code>eskiuc fmt --check</code> over every test.</li>
 </ul>

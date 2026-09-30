@@ -1,0 +1,65 @@
+// va_arg<T> across the register save areas and the stack: more integer and pointer
+// arguments than fit in the general registers, more doubles than fit in the FP ones,
+// mixed, and a va_list handed on to C after some reads. On AArch64 Linux the reads are
+// expanded by the compiler (the AAPCS64 va_list); C calls these functions too.
+extern int printf(string fmt, ...);
+extern int vsnprintf(*char buf, int64 n, string fmt, va_list ap);
+extern int c_drive();
+
+int64 isum(int n, ...) {
+    va_list ap; va_start(ap);
+    int64 s = 0;
+    for (i in 0..n) { s = s * 3 + (int64)va_arg<int>(ap); }
+    va_end(ap);
+    return s;
+}
+
+double dsum(int n, ...) {
+    va_list ap; va_start(ap);
+    double s = 0.0;
+    for (i in 0..n) { s = s * 2.0 + va_arg<double>(ap); }
+    va_end(ap);
+    return s;
+}
+
+// Pattern "i" int, "l" int64, "d" double, "s" string, "p" pointer to int.
+int64 mixed(string pat, ...) {
+    va_list ap; va_start(ap);
+    int64 h = 7;
+    int i = 0;
+    while (pat[i] != (char)0) {
+        char c = pat[i];
+        if (c == 'i') { h = h * 31 + (int64)va_arg<int>(ap); }
+        else if (c == 'l') { h = h * 31 + va_arg<int64>(ap); }
+        else if (c == 'd') { h = h * 31 + (int64)(va_arg<double>(ap) * 4.0); }
+        else if (c == 's') { string s = va_arg<string>(ap); h = h * 31 + (int64)s[0]; }
+        else if (c == 'p') { *int p = va_arg<*int>(ap); h = h * 31 + (int64)*p; }
+        i++;
+    }
+    va_end(ap);
+    return h;
+}
+
+int after(*char buf, int skip, string f, ...) {
+    va_list ap; va_start(ap);
+    int got = 0;
+    for (i in 0..skip) { got = got + va_arg<int>(ap); }
+    double d = va_arg<double>(ap);
+    int n = vsnprintf(buf, 64, f, ap);
+    va_end(ap);
+    return n + got + (int)d;
+}
+
+int main() {
+    printf("%lld\n", isum(12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12));
+    printf("%.2f\n", dsum(11, 1.0, 0.5, 0.25, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0));
+    int k = 9;
+    printf("%lld\n", mixed("idldspidlsdidddddddddl", 1, 2.5, (int64)3, 4.75, "a", &k, 5, 6.5,
+                           (int64)-7, "b", 8.25, 9, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
+                           (int64)10));
+    char[64] buf;
+    int n = after(&buf[0], 9, "%d/%s/%.1f", 1, 2, 3, 4, 5, 6, 7, 8, 9, 3.5, 42, "x", 0.5);
+    printf("%d %s\n", n, (string)&buf[0]);
+    printf("%d\n", c_drive());
+    return 0;
+}

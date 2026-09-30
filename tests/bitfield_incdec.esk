@@ -1,0 +1,30 @@
+// `++`/`--` on a bitfield is a masked read-modify-write of its storage word: it
+// wraps within the field's width and never spills into the neighbouring fields.
+extern int printf(string fmt, ...);
+
+struct F { uint32 a : 3; int32 b : 5; uint32 c : 24; }
+struct G { uint8 lo : 4; uint8 hi : 4; }
+
+int main() {
+    let f: F; f.a = 0; f.b = 0; f.c = 0xABCDEF;
+    f.a++; f.a++; f.a++;
+    printf("a=%d b=%d c=%x\n", (int)f.a, (int)f.b, f.c);
+    f.b--;
+    printf("a=%d b=%d c=%x\n", (int)f.a, (int)f.b, f.c);
+    f.a = 7;
+    int post = (int)f.a++;
+    printf("post=%d a=%d b=%d c=%x\n", post, (int)f.a, (int)f.b, f.c);
+    int pre = (int)++f.a;
+    printf("pre=%d a=%d\n", pre, (int)f.a);
+    f.b = -16;
+    int pd = (int)--f.b;
+    printf("pd=%d b=%d a=%d c=%x\n", pd, (int)f.b, (int)f.a, f.c);
+    let gs: G[2];
+    gs[0].lo = 15; gs[0].hi = 3; gs[1].lo = 0; gs[1].hi = 0;
+    *G p = &gs[0];
+    p.lo++;
+    p.hi--;
+    gs[1].hi--;
+    printf("g0 lo=%d hi=%d g1 lo=%d hi=%d\n", (int)gs[0].lo, (int)gs[0].hi, (int)gs[1].lo, (int)gs[1].hi);
+    return 0;
+}

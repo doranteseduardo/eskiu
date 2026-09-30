@@ -1,0 +1,7 @@
+// EXPECT-ERROR: cannot assign to captured variable 'n'
+int main() {
+    int n = 0;
+    let f: fn()->void = void() { n++; };
+    f();
+    return n;
+}

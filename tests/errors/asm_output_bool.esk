@@ -1,0 +1,6 @@
+// EXPECT-ERROR: asm output operand must have an integer, floating-point or pointer type
+int main() {
+    bool b = false;
+    asm("nop" : "=r"(b));
+    return 0;
+}

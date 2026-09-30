@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 'C' is not a variant of E
+enum E { A, B }
+enum F { C, D }
+int f(E e) { match e { A -> return 1; C -> return 2; B -> return 3; } return 0; }
+int main() { return f(A); }

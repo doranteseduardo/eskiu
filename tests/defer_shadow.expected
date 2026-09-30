@@ -1,0 +1,9 @@
+inner 2
+v=7
+7
+x=10 i=0
+shadow 99
+x=10 i=1
+x=10 i=2
+ret x=10
+3

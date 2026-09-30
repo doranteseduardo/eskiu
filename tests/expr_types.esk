@@ -1,0 +1,40 @@
+// Static types of compound expressions: pointer arithmetic keeps the pointee type,
+// numeric binaries promote, and a ternary takes its arms' common type.
+import <io>;
+
+struct S { int a; int b; }
+struct P { int x; int y; }
+
+int main() {
+    int64[2] a0 = {1, 5000000000};
+    printf("%lld\n", *(&a0[0] + 1));
+
+    let d: double[2] = {1.5, 2.25};
+    *double dp = &d[0];
+    printf("%.2f\n", *(dp + 1));
+
+    S[2] ss = {S{1, 2}, S{3, 4}};
+    *S sp = &ss[0];
+    printf("%d %d\n", (sp + 1).a, (sp + 1).b);
+
+    int c = 1;
+    double dd = 2.25;
+    double r = c > 0 ? dd * 2.0 : 1;
+    printf("%.2f\n", r);
+    int64 big = c > 0 ? (int64)1 << 40 : 0;
+    printf("%lld\n", big);
+    printf("%.2f\n", c > 0 ? dd * 2.0 : 1);
+    P q = c < 2 ? P{7, 8} : P{9, 10};
+    printf("%d\n", q.y);
+
+    // uint + int64 promotes to int64, so the shift is arithmetic.
+    uint u = 4000000000;
+    int64 w = -5000000000;
+    printf("%lld\n", (u + w) >> 1);
+    // int + int64 is int64 wide.
+    int small = 7;
+    printf("%lld\n", c > 0 ? small + w : 0);
+    // A comparison is a bool; comparing two of them works.
+    printf("%d\n", (c < 2) == (small > 3) ? 1 : 0);
+    return 0;
+}

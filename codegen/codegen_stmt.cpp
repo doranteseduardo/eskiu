@@ -1,28 +1,88 @@
 #include "codegen.h"
 #include "../ast/type_qual.h"
+#include "../ast/ast_walk.h"
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
 #include "../template_utils.h"
 
 bool CodeGen::blockTerminated() {
-    return builder->GetInsertBlock() && builder->GetInsertBlock()->getTerminator();
+    return builder->GetInsertBlock() && hasTerminator(builder->GetInsertBlock());
 }
 
 void CodeGen::runCleanupsToDepth(size_t depth, bool errorPath) {
     // Emit each pending cleanup body, innermost frame first and LIFO within a frame.
-    // errdefer bodies run only on the error path (`?`-propagation).
+    // errdefer bodies run only on the error path (`?`-propagation). A body may itself
+    // end the block (a `throw` in a defer): the caller then emits no exit of its own
+    // (see blockTerminated at each exit).
     for (size_t i = cleanupScopes.size(); i-- > depth; ) {
-        auto& frame = cleanupScopes[i];
+        // A copy: emitting a braced body pushes its own frame, which can reallocate
+        // cleanupScopes and would leave a reference dangling.
+        auto frame = cleanupScopes[i];
         for (size_t j = frame.size(); j-- > 0; ) {
             if (blockTerminated()) return;
             if (frame[j].isErr && !errorPath) continue;
+            // Resolve the body against the names visible where it was registered.
+            auto names = symbolTable;
+            auto types = varTypeStack;
+            if (frame[j].names) symbolTable = *frame[j].names;
+            if (frame[j].types) varTypeStack = *frame[j].types;
+            llvm::BasicBlock* unwind = unwindTarget;
+            unwindTarget = frame[j].prevUnwind;
             frame[j].body->accept(this);
+            unwindTarget = unwind;
+            symbolTable = std::move(names);
+            varTypeStack = std::move(types);
         }
     }
 }
 
+CodeGen::Cleanup CodeGen::makeCleanup(Stmt* body, bool isErr) {
+    return Cleanup{body, isErr,
+                   std::make_shared<const std::map<std::string, llvm::Value*>>(symbolTable),
+                   std::make_shared<const std::vector<std::map<std::string, std::string>>>(varTypeStack),
+                   unwindTarget};
+}
+
+void CodeGen::popCleanupFrame() {
+    // The calls after a scope's defers unwound to their pads; past the scope they go
+    // back to the landingpad that was active before its first defer.
+    if (!cleanupScopes.back().empty()) unwindTarget = cleanupScopes.back().front().prevUnwind;
+    cleanupScopes.pop_back();
+}
+
+void CodeGen::emitDeferPad() {
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    ensureEHRuntime();
+    if (!fn->hasPersonalityFn()) fn->setPersonalityFn(module->getFunction(ehPersonalityName()));
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::BasicBlock* saved = builder->GetInsertBlock();
+    llvm::BasicBlock* pad = llvm::BasicBlock::Create(*context, "defer.lpad", fn);
+    builder->SetInsertPoint(pad);
+    auto* lp = builder->CreateLandingPad(
+        llvm::StructType::get(*context, {ptrTy, llvm::Type::getInt32Ty(*context)}), 1, "defer.lp");
+    bool inTry = !tryStack.empty();
+    if (inTry) lp->addClause(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)));
+    else lp->setCleanup(true);
+    llvm::Value* ex = inTry ? builder->CreateExtractValue(lp, {0}, "defer.ex") : nullptr;
+    size_t depth = inTry ? tryStack.back().depth : 0;
+    runCleanupsToDepth(depth, /*errorPath=*/false);
+    if (!blockTerminated()) {
+        if (inTry) {
+            tryStack.back().incoming.push_back({ex, builder->GetInsertBlock()});
+            builder->CreateBr(tryStack.back().dispatch);
+        } else {
+            builder->CreateResume(lp);
+        }
+    }
+    builder->SetInsertPoint(saved);
+    unwindTarget = pad;
+}
+
 void CodeGen::visit(BlockStmt* node) {
+    // A block is a lexical scope: a `let` inside it shadows (not overwrites) an
+    // outer variable of the same name, and the outer binding is back on exit.
+    pushScope();
     cleanupScopes.emplace_back();                    // this block's cleanup frame
     for (auto& item : node->items) {
         // Once this block has a terminator (a return/break/continue/throw was
@@ -43,58 +103,100 @@ void CodeGen::visit(BlockStmt* node) {
     // Normal fall-through: run this block's deferred cleanups (LIFO, defers only).
     if (!blockTerminated())
         runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
-    cleanupScopes.pop_back();
+    popCleanupFrame();
+    popScope();
+}
+
+void CodeGen::emitScopedBody(const StmtPtr& body) {
+    // A statement body that is not a block (`if (c) defer f();`, `while (c) stmt;`,
+    // an unbraced match arm) is still its own scope: a `defer` in it runs when that
+    // body ends, not at the end of the enclosing function or block.
+    if (!body) return;
+    if (dynamic_cast<BlockStmt*>(body.get())) { body->accept(this); return; }
+    pushScope();
+    cleanupScopes.emplace_back();
+    body->accept(this);
+    if (!blockTerminated())
+        runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
+    popCleanupFrame();
+    popScope();
 }
 
 void CodeGen::visit(DeferStmt* node) {
     // Register the body to run at scope exit; emitted by runCleanupsToDepth.
-    if (node->body && !cleanupScopes.empty())
-        cleanupScopes.back().push_back({node->body.get(), node->isErr});
+    if (node->body && !cleanupScopes.empty()) {
+        cleanupScopes.back().push_back(makeCleanup(node->body.get(), node->isErr));
+        if (programUsesEH && !node->isErr) emitDeferPad();
+    }
 }
 
 void CodeGen::visit(IfStmt* node) {
-    // Evaluate condition
-    llvm::Value* cond = evaluateExpr(node->condition);
+    // An `else if` chain is emitted with a loop. Each link's else body is a scope of its
+    // own (as emitScopedBody would make it); those scopes and the branches to each
+    // link's merge block are closed innermost first once the chain ends.
+    std::vector<llvm::BasicBlock*> outerMerges;
+    for (IfStmt* n = node; n;) {
+        // Evaluate condition
+        llvm::Value* cond = evaluateExpr(n->condition);
 
-    if (!cond) {
-        throw std::runtime_error("If condition evaluation failed");
-    }
+        if (!cond) {
+            throw std::runtime_error("If condition evaluation failed");
+        }
 
-    // Convert to i1
-    if (!cond->getType()->isIntegerTy(1)) {
-        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-    }
+        // Convert to i1
+        cond = emitTruthy(cond);
 
-    // Create blocks
-    llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(*context, "then", currentFunction);
-    llvm::BasicBlock* elseBlock = nullptr;
-    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "merge", currentFunction);
+        // Create blocks
+        llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(*context, "then", currentFunction);
+        llvm::BasicBlock* elseBlock = nullptr;
+        llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "merge", currentFunction);
 
-    if (node->elseBranch) {
-        elseBlock = llvm::BasicBlock::Create(*context, "else", currentFunction);
-        builder->CreateCondBr(cond, thenBlock, elseBlock);
-    } else {
-        builder->CreateCondBr(cond, thenBlock, mergeBlock);
-    }
+        if (n->elseBranch) {
+            elseBlock = llvm::BasicBlock::Create(*context, "else", currentFunction);
+            builder->CreateCondBr(cond, thenBlock, elseBlock);
+        } else {
+            builder->CreateCondBr(cond, thenBlock, mergeBlock);
+        }
 
-    // Then block
-    builder->SetInsertPoint(thenBlock);
-    node->thenBranch->accept(this);
-    if (!builder->GetInsertBlock()->getTerminator()) {
-        builder->CreateBr(mergeBlock);
-    }
-
-    // Else block
-    if (node->elseBranch) {
-        builder->SetInsertPoint(elseBlock);
-        node->elseBranch->accept(this);
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        // Then block
+        builder->SetInsertPoint(thenBlock);
+        emitScopedBody(n->thenBranch);
+        if (!hasTerminator(builder->GetInsertBlock())) {
             builder->CreateBr(mergeBlock);
         }
-    }
 
-    // Merge block
-    builder->SetInsertPoint(mergeBlock);
+        // Else block
+        IfStmt* next = nullptr;
+        if (n->elseBranch) {
+            builder->SetInsertPoint(elseBlock);
+            next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (next) {
+                pushScope();
+                cleanupScopes.emplace_back();
+                outerMerges.push_back(mergeBlock);
+                n = next;
+                continue;
+            }
+            emitScopedBody(n->elseBranch);
+            if (!hasTerminator(builder->GetInsertBlock())) {
+                builder->CreateBr(mergeBlock);
+            }
+        }
+
+        // Merge block
+        builder->SetInsertPoint(mergeBlock);
+        n = nullptr;
+    }
+    for (size_t i = outerMerges.size(); i-- > 0;) {
+        if (!blockTerminated())
+            runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
+        popCleanupFrame();
+        popScope();
+        if (!hasTerminator(builder->GetInsertBlock())) {
+            builder->CreateBr(outerMerges[i]);
+        }
+        builder->SetInsertPoint(outerMerges[i]);
+    }
 }
 
 void CodeGen::visit(WhileStmt* node) {
@@ -106,14 +208,12 @@ void CodeGen::visit(WhileStmt* node) {
 
     builder->SetInsertPoint(loopBlock);
     llvm::Value* cond = evaluateExpr(node->condition);
-    if (!cond->getType()->isIntegerTy(1)) {
-        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-    }
+    cond = emitTruthy(cond);
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(bodyBlock);
-    { LoopContext lc(this, exitBlock, loopBlock, node->label); node->body->accept(this); }
-    if (!builder->GetInsertBlock()->getTerminator())
+    { LoopContext lc(this, exitBlock, loopBlock, node->label); emitScopedBody(node->body); }
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(loopBlock);
 
     builder->SetInsertPoint(exitBlock);
@@ -128,14 +228,13 @@ void CodeGen::visit(DoWhileStmt* node) {
     builder->SetInsertPoint(bodyBlock);
 
     // `continue` re-tests the condition (jumps to condBlock)
-    { LoopContext lc(this, exitBlock, condBlock, node->label); node->body->accept(this); }
-    if (!builder->GetInsertBlock()->getTerminator())
+    { LoopContext lc(this, exitBlock, condBlock, node->label); emitScopedBody(node->body); }
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(condBlock);
 
     builder->SetInsertPoint(condBlock);
     llvm::Value* cond = evaluateExpr(node->condition);
-    if (!cond->getType()->isIntegerTy(1))
-        cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
+    cond = emitTruthy(cond);
     builder->CreateCondBr(cond, bodyBlock, exitBlock);
 
     builder->SetInsertPoint(exitBlock);
@@ -147,8 +246,29 @@ void CodeGen::visit(ForStmt* node) {
     llvm::BasicBlock* stepBlock = llvm::BasicBlock::Create(*context, "for_step", currentFunction);
     llvm::BasicBlock* exitBlock = llvm::BasicBlock::Create(*context, "for_exit", currentFunction);
 
-    // Init
-    if (node->init) {
+    // The init declaration is scoped to the loop (C semantics). The parser wraps it
+    // in a BlockStmt; emit its items in the loop scope itself so the loop variable
+    // stays visible to the condition, step, and body.
+    pushScope();
+    if (auto* ib = dynamic_cast<BlockStmt*>(node->init.get())) {
+        // `for (i in A..B)` inside a generic instance: the shared AST carries the type the
+        // checker stamped for SOME instance, so re-derive the bounds' common integer type
+        // for this one (outside a generic the checker's stamp is exact).
+        if (!typeParamOverride.empty() && ib->items.size() == 2 &&
+            std::holds_alternative<DeclPtr>(ib->items[0]) && std::holds_alternative<DeclPtr>(ib->items[1])) {
+            auto* lo = dynamic_cast<VarDecl*>(std::get<DeclPtr>(ib->items[0]).get());
+            auto* hi = dynamic_cast<VarDecl*>(std::get<DeclPtr>(ib->items[1]).get());
+            if (lo && hi && lo->rangeBound && hi->rangeBound && lo->initializer && hi->initializer) {
+                std::string ct = ty::rangeVarType(expandAlias(getExprEskiuType(lo->initializer)),
+                                                  expandAlias(getExprEskiuType(hi->initializer)));
+                if (!ct.empty()) lo->type = hi->type = ct;
+            }
+        }
+        for (auto& item : ib->items) {
+            if (std::holds_alternative<DeclPtr>(item)) std::get<DeclPtr>(item)->accept(this);
+            else std::get<StmtPtr>(item)->accept(this);
+        }
+    } else if (node->init) {
         node->init->accept(this);
     }
     builder->CreateBr(loopBlock);
@@ -157,9 +277,7 @@ void CodeGen::visit(ForStmt* node) {
     builder->SetInsertPoint(loopBlock);
     if (node->condition) {
         llvm::Value* cond = evaluateExpr(node->condition);
-        if (!cond->getType()->isIntegerTy(1)) {
-            cond = builder->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0));
-        }
+        cond = emitTruthy(cond);
         builder->CreateCondBr(cond, bodyBlock, exitBlock);
     } else {
         builder->CreateBr(bodyBlock);
@@ -168,8 +286,8 @@ void CodeGen::visit(ForStmt* node) {
     // Body
     builder->SetInsertPoint(bodyBlock);
     // continue jumps to the step block
-    { LoopContext lc(this, exitBlock, stepBlock, node->label); node->body->accept(this); }
-    if (!builder->GetInsertBlock()->getTerminator())
+    { LoopContext lc(this, exitBlock, stepBlock, node->label); emitScopedBody(node->body); }
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(stepBlock);
 
     // Step
@@ -178,6 +296,7 @@ void CodeGen::visit(ForStmt* node) {
         evaluateExpr(node->step);
     }
     builder->CreateBr(loopBlock);
+    popScope();
 
     // Exit
     builder->SetInsertPoint(exitBlock);
@@ -196,6 +315,27 @@ void CodeGen::visit(ForInStmt* node) {
     std::string itType = getExprEskiuType(node->iterable);
     std::string elemType;
     ExprPtr lengthExpr, elemExpr;
+    ExprPtr iterable = node->iterable;
+    std::shared_ptr<VarDecl> listPtrDecl;
+    // The iterable is evaluated once. Anything but a stable place (a call, a variable
+    // index) is held in a local: a list-like value that has an address by a pointer to
+    // it, anything else (an array, a slice, a pointer, a returned value) by value.
+    if (!astwalk::isStablePlace(node->iterable.get())) {
+        std::function<bool(Expr*)> addressable = [&](Expr* e) -> bool {
+            if (dynamic_cast<IdentExpr*>(e)) return true;
+            if (auto* u = dynamic_cast<UnaryExpr*>(e)) return u->op == "*" && u->opFunc.empty();
+            if (auto* ix = dynamic_cast<IndexExpr*>(e)) return ix->opFunc.empty() && !ix->highIndex;
+            if (auto* m = dynamic_cast<MemberExpr*>(e))
+                return ty::Type::parse(getExprEskiuType(m->base)).isPointer() || addressable(m->base.get());
+            return false;
+        };
+        ty::Type k = ty::Type::parse(itType);
+        bool byRef = k.kind != ty::Type::Kind::Array && k.kind != ty::Type::Kind::Slice && !k.isPointer()
+                     && addressable(node->iterable.get());
+        ExprPtr init = byRef ? ExprPtr(std::make_shared<UnaryExpr>("&", node->iterable)) : node->iterable;
+        listPtrDecl = std::make_shared<VarDecl>(idxName + "_v", byRef ? "*" + itType : itType, init);
+        iterable = std::make_shared<IdentExpr>(idxName + "_v");
+    }
 
     ty::Type itT = ty::Type::parse(itType);
     if (itT.kind == ty::Type::Kind::Array) {
@@ -204,20 +344,25 @@ void CodeGen::visit(ForInStmt* node) {
         uint64_t len = 0;
         resolveArrayDim(itT.dim, len);
         lengthExpr = intLit(std::to_string(len));
-        elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
+        elemExpr   = std::make_shared<IndexExpr>(iterable, idx());
     } else if (itT.kind == ty::Type::Kind::Slice) {
         // Slice T[] — length is the fat pointer's `.len` field.
         elemType   = itT.elem->str();
-        lengthExpr = std::make_shared<MemberExpr>(node->iterable, "len");
-        elemExpr   = std::make_shared<IndexExpr>(node->iterable, idx());
+        lengthExpr = std::make_shared<MemberExpr>(iterable, "len");
+        elemExpr   = std::make_shared<IndexExpr>(iterable, idx());
     } else {
         // List-like struct: needs `data` (pointer) and `size` (int) fields.
-        // Strip the struct:/pointer decoration to the bare registry key (the
-        // resolved type arrives normalized as e.g. "struct:List_int").
-        std::string s = itType;
-        if (s.rfind("struct:", 0) == 0) s = s.substr(7);
-        while (!s.empty() && s.front() == '*') s = s.substr(1);
-        while (!s.empty() && s.back()  == '*') s.pop_back();
+        // Strip the pointer/struct: decoration to the bare registry key (the resolved
+        // type arrives normalized as e.g. "struct:List_int", or "*struct:List_int" for
+        // an iterable like `&li`).
+        ty::Type base = ty::Type::parse(expandAlias(itType));
+        while (base.isPointer() && base.pointee) { ty::Type p = *base.pointee; base = p; }
+        std::string s = base.isTemplate() ? mangleTemplate(base.str()) : base.nominalName();
+        // A pointer iterable (`&li`) is evaluated once into a local the loop reads.
+        if (itT.isPointer() && !listPtrDecl) {
+            listPtrDecl = std::make_shared<VarDecl>(idxName + "_p", itType, node->iterable);
+            iterable = std::make_shared<IdentExpr>(idxName + "_p");
+        }
         auto it = structFields.find(s);
         std::string dataType;
         bool hasSize = false;
@@ -231,13 +376,16 @@ void CodeGen::visit(ForInStmt* node) {
         while (!dataType.empty() && dataType.front() == '*') dataType = dataType.substr(1);
         while (!dataType.empty() && dataType.back()  == '*') dataType.pop_back();
         elemType   = dataType;
-        lengthExpr = std::make_shared<MemberExpr>(node->iterable, "size");
+        lengthExpr = std::make_shared<MemberExpr>(iterable, "size");
         elemExpr   = std::make_shared<IndexExpr>(
-            std::make_shared<MemberExpr>(node->iterable, "data"), idx());
+            std::make_shared<MemberExpr>(iterable, "data"), idx());
     }
 
     auto idxDecl = std::make_shared<VarDecl>(idxName, "int", intLit("0"));
-    StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{DeclPtr(idxDecl)});
+    std::vector<BlockItem> initItems;
+    if (listPtrDecl) initItems.push_back(DeclPtr(listPtrDecl));
+    initItems.push_back(DeclPtr(idxDecl));
+    StmtPtr init = std::make_shared<BlockStmt>(initItems);
     ExprPtr cond = std::make_shared<BinaryExpr>(idx(), "<", lengthExpr);
     ExprPtr step = std::make_shared<BinaryExpr>(idx(), "=",
                        std::make_shared<BinaryExpr>(idx(), "+", intLit("1")));
@@ -263,22 +411,35 @@ void CodeGen::visit(ReturnStmt* node) {
         return coerceValue(v, ft, uns);
     };
 
+    std::string retEsk;
+    if (currentFunction) {
+        auto rit = funcEskiuReturnType.find(currentFunction->getName().str());
+        if (rit != funcEskiuReturnType.end()) retEsk = rit->second;
+        // In a generic instance the declared return type names its type parameters
+        // (`T` with T = an interface: `return null;` is the empty interface value).
+        if (!retEsk.empty() && !typeParamOverride.empty()) retEsk = substType(retEsk, typeParamOverride);
+    }
     if (currentSretParam != nullptr) {
         // sret function: store result to hidden pointer, return void
         if (node->value) {
-            llvm::Value* retValue = evaluateExpr(node->value);
+            llvm::Value* retValue = evalForType(node->value, retEsk);
             builder->CreateStore(retValue, currentSretParam);
         }
         runCleanupsToDepth(0, /*errorPath=*/false);          // run pending defers/finally before leaving
-        builder->CreateRetVoid();
+        if (!blockTerminated()) builder->CreateRetVoid();
+    } else if (node->value && currentFunction && currentFunction->getReturnType()->isVoidTy()) {
+        // `return f();` with f void, in a void function: evaluate the call, return nothing.
+        evaluateExpr(node->value);
+        runCleanupsToDepth(0, /*errorPath=*/false);
+        if (!blockTerminated()) builder->CreateRetVoid();
     } else if (node->value) {
         // Evaluate the return value first, THEN run cleanups (C defer order), then ret.
-        llvm::Value* retValue = coerceRetVal(evaluateExpr(node->value));
+        llvm::Value* retValue = coerceRetVal(evalForType(node->value, retEsk));
         runCleanupsToDepth(0, /*errorPath=*/false);
-        builder->CreateRet(retValue);
+        if (!blockTerminated()) builder->CreateRet(retValue);
     } else {
         runCleanupsToDepth(0, /*errorPath=*/false);
-        builder->CreateRetVoid();
+        if (!blockTerminated()) builder->CreateRetVoid();
     }
 }
 
@@ -289,7 +450,7 @@ void CodeGen::visit(BreakStmt* node) {
         for (size_t i = loopStack.size(); i-- > 0; ) {
             if (loopStack[i].label == node->label) {
                 runCleanupsToDepth(loopStack[i].cleanupDepth, false);
-                builder->CreateBr(loopStack[i].breakBlock);
+                if (!blockTerminated()) builder->CreateBr(loopStack[i].breakBlock);
                 return;
             }
         }
@@ -298,7 +459,7 @@ void CodeGen::visit(BreakStmt* node) {
     if (!breakTarget)
         throw std::runtime_error("break used outside of a loop");
     runCleanupsToDepth(breakCleanupDepth, false);   // defers inside the loop body run
-    builder->CreateBr(breakTarget);
+    if (!blockTerminated()) builder->CreateBr(breakTarget);
 }
 
 void CodeGen::visit(ExprStmt* node) {
@@ -310,7 +471,7 @@ void CodeGen::visit(ContinueStmt* node) {
         for (size_t i = loopStack.size(); i-- > 0; ) {
             if (loopStack[i].label == node->label) {
                 runCleanupsToDepth(loopStack[i].cleanupDepth, false);
-                builder->CreateBr(loopStack[i].continueBlock);
+                if (!blockTerminated()) builder->CreateBr(loopStack[i].continueBlock);
                 return;
             }
         }
@@ -319,7 +480,7 @@ void CodeGen::visit(ContinueStmt* node) {
     if (!continueTarget)
         throw std::runtime_error("continue used outside of a loop");
     runCleanupsToDepth(continueCleanupDepth, false);
-    builder->CreateBr(continueTarget);
+    if (!blockTerminated()) builder->CreateBr(continueTarget);
 }
 
 void CodeGen::visit(MatchStmt* node) {
@@ -343,7 +504,7 @@ void CodeGen::visit(MatchStmt* node) {
             auto [b, a] = splitTemplateType(st);
             enumName = genericEnumDecls.count(b) ? ensureEnumInst(b, a) : mangleTemplate(st);
         } else if (!st.empty()) {
-            enumName = st;
+            enumName = stripToStructKey(st);
         }
     }
     // Classic int enum: the subject IS the enum's int value (no tag / no payload). Lower to
@@ -366,11 +527,11 @@ void CodeGen::visit(MatchStmt* node) {
         llvm::SwitchInst* sw = builder->CreateSwitch(subj, defaultBlock);
         for (size_t i = 0; i < node->arms.size(); ++i)
             if (!node->arms[i].variant.empty())
-                sw->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(i32, valueOf(node->arms[i].variant))), armBlocks[i]);
+                sw->addCase(llvm::cast<llvm::ConstantInt>(constIntBits(i32, (uint64_t)(int64_t)valueOf(node->arms[i].variant))), armBlocks[i]);
         for (size_t i = 0; i < node->arms.size(); ++i) {
             builder->SetInsertPoint(armBlocks[i]);
-            if (node->arms[i].body) node->arms[i].body->accept(this);
-            if (!builder->GetInsertBlock()->getTerminator())
+            emitScopedBody(node->arms[i].body);
+            if (!hasTerminator(builder->GetInsertBlock()))
                 builder->CreateBr(endBlock);
         }
         builder->SetInsertPoint(endBlock);
@@ -442,9 +603,9 @@ void CodeGen::visit(MatchStmt* node) {
                 defineVarType(arm.bindings[b], substType(ed->payloads[vi][b], subs));
             }
         }
-        if (arm.body) arm.body->accept(this);
+        emitScopedBody(arm.body);
         popScope();
-        if (!builder->GetInsertBlock()->getTerminator())
+        if (!hasTerminator(builder->GetInsertBlock()))
             builder->CreateBr(endBlock);
     }
     builder->SetInsertPoint(endBlock);
@@ -455,7 +616,10 @@ void CodeGen::visit(SwitchStmt* node) {
     std::vector<llvm::ConstantInt*> caseVals;
     for (auto& c : node->cases) {
         if (!c.value) { caseVals.push_back(nullptr); continue; }
-        llvm::Value* v = evaluateExpr(c.value);
+        // Fold first: a `const int K` (or `K + 1`) is a compile-time case label even
+        // though evaluating it as an expression would load the global.
+        llvm::Value* v = evaluateConstantExpr(c.value);
+        if (!v) v = evaluateExpr(c.value);
         auto* ci = llvm::dyn_cast<llvm::ConstantInt>(v);
         if (!ci) throw std::runtime_error("switch case value must be a constant integer");
         caseVals.push_back(ci);
@@ -504,18 +668,30 @@ void CodeGen::visit(SwitchStmt* node) {
     size_t prevBreakCleanupDepth = breakCleanupDepth;
     breakCleanupDepth = cleanupScopes.size();
 
+    // The switch body is one variable scope (C): a declaration in a case is visible in
+    // the cases after it (its storage is an entry-block alloca, so a jump past the
+    // initialization still names valid storage).
+    pushScope();
     for (size_t i = 0; i < node->cases.size(); ++i) {
         builder->SetInsertPoint(caseBlocks[i]);
-        for (auto& stmt : node->cases[i].stmts) {
-            stmt->accept(this);
-            if (builder->GetInsertBlock()->getTerminator()) break;
+        // Each case's statements are a cleanup scope: a `defer` there runs when the case
+        // body is left (by `break`, or by falling through into the next case).
+        cleanupScopes.emplace_back();
+        for (auto& item : node->cases[i].stmts) {
+            if (auto* st = std::get_if<StmtPtr>(&item)) (*st)->accept(this);
+            else std::get<DeclPtr>(item)->accept(this);
+            if (hasTerminator(builder->GetInsertBlock())) break;
         }
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        if (!blockTerminated())
+            runCleanupsToDepth(cleanupScopes.size() - 1, /*errorPath=*/false);
+        popCleanupFrame();
+        if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::BasicBlock* next = (i + 1 < caseBlocks.size()) ? caseBlocks[i+1] : endBlock;
             builder->CreateBr(next);
         }
     }
 
+    popScope();
     breakTarget = prevBreak;
     breakCleanupDepth = prevBreakCleanupDepth;
     builder->SetInsertPoint(endBlock);

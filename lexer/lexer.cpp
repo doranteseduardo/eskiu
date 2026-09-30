@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cctype>
 #include <map>
+#include <cstdio>
 #include "preprocessor.h"
 
 std::unordered_map<std::string, TokenType> Lexer::keywords = {
@@ -70,10 +71,18 @@ std::unordered_map<std::string, TokenType> Lexer::keywords = {
 };
 
 Lexer::Lexer(const std::string& source, std::map<std::string, Macro>* macros,
-             const std::string& filename)
-    : current(0), line(1), column(1) {
+             const std::string& filename, const PPImportHook* importHook)
+    : filename(filename), current(0), line(1), column(1) {
     std::map<std::string, Macro> local;
-    preprocess(source, macros ? *macros : local, this->source, filename, this->hadError);
+    preprocess(source, macros ? *macros : local, this->source, filename, this->hadError, importHook);
+}
+
+Lexer Lexer::fromPreprocessed(const std::string& text, const std::string& filename, bool ppErr) {
+    std::map<std::string, Macro> none;
+    Lexer lx("", &none, filename);
+    lx.source = text;
+    lx.hadError = ppErr;
+    return lx;
 }
 
 char Lexer::peek() const {
@@ -158,6 +167,9 @@ Token Lexer::read_number() {
         while (!is_at_end() && std::isxdigit(peek())) {
             num += advance();
         }
+        if (num.size() == 2) lexError(start_line, start_col, "hexadecimal literal '" + num + "' has no digits");
+        else checkIntegerRange(num, start_line, start_col);
+        checkNumberSuffix(num, start_line, start_col);
         return Token(TokenType::INT_LIT, num, start_line, start_col);
     }
 
@@ -173,13 +185,56 @@ Token Lexer::read_number() {
         isFloat = true;
         num += advance();                                    // e / E
         if (!is_at_end() && (peek() == '+' || peek() == '-')) num += advance();
+        size_t digitsAt = num.size();
         while (!is_at_end() && std::isdigit(peek())) num += advance();
+        if (num.size() == digitsAt)
+            lexError(start_line, start_col, "exponent has no digits in floating-point literal '" + num + "'");
     }
+    // A leading 0 makes an integer octal (C rule): every digit must be 0-7.
+    bool badOctal = false;
+    if (!isFloat && num.size() > 1 && num[0] == '0') {
+        size_t bad = num.find_first_of("89");
+        if (bad != std::string::npos) {
+            badOctal = true;
+            lexError(start_line, start_col, std::string("invalid digit '") + num[bad] +
+                     "' in octal literal '" + num + "'");
+        }
+    }
+    if (!isFloat && !badOctal) checkIntegerRange(num, start_line, start_col);
+    checkNumberSuffix(num, start_line, start_col);
     return Token(isFloat ? TokenType::FLOAT_LIT : TokenType::INT_LIT, num, start_line, start_col);
 }
 
+// An integer literal (decimal, 0x hex or 0 octal, digits already checked) must fit
+// in 64 bits; the type checker then checks it against its destination type.
+void Lexer::checkIntegerRange(const std::string& num, int errLine, int errCol) {
+    bool hex = num.size() > 2 && num[0] == '0' && (num[1] == 'x' || num[1] == 'X');
+    unsigned base = hex ? 16 : (num.size() > 1 && num[0] == '0') ? 8 : 10;
+    unsigned long long v = 0;
+    for (size_t i = hex ? 2 : 0; i < num.size(); ++i) {
+        unsigned d = std::isdigit((unsigned char)num[i]) ? num[i] - '0'
+                   : (unsigned)(std::tolower((unsigned char)num[i]) - 'a' + 10);
+        if (v > (~0ULL - d) / base) {
+            lexError(errLine, errCol, "integer literal '" + num + "' does not fit in 64 bits");
+            return;
+        }
+        v = v * base + d;
+    }
+}
+
+// A number must not run straight into an identifier character: `0b101`, `1_000`,
+// `3.5f` and `12abc` are not literals Eskiu accepts, so report them here rather
+// than as a confusing parse error on the leftover identifier.
+void Lexer::checkNumberSuffix(const std::string& num, int errLine, int errCol) {
+    if (is_at_end() || !(std::isalnum((unsigned char)peek()) || peek() == '_')) return;
+    std::string tail;
+    while (!is_at_end() && (std::isalnum((unsigned char)peek()) || peek() == '_')) tail += advance();
+    lexError(errLine, errCol, "invalid suffix '" + tail + "' on numeric literal '" + num + "'");
+}
+
 void Lexer::lexError(int errLine, int errCol, const std::string& msg) {
-    std::cerr << "error: " << errLine << ":" << errCol << ": " << msg << std::endl;
+    std::cerr << "error: " << (filename.empty() ? "<input>" : filename) << ":"
+              << errLine << ":" << errCol << ": " << msg << std::endl;
     hadError = true;
 }
 
@@ -191,10 +246,17 @@ static int hexDigit(char c) {
     return -1;
 }
 
-// Decode a backslash escape to the byte it denotes. Shared by string and char
-// literals so both accept the same set. An unrecognized escape yields the char
-// itself (so `\q` is `q`), matching C's lenient handling. `\xNN` (one or two hex
-// digits) is handled separately by the readers, since it consumes extra chars.
+// Decode a single-char backslash escape to the byte it denotes. Shared by string and
+// char literals so both accept the same set (C's simple escapes). `\xNN` (one or two
+// hex digits) and octal `\NNN` (one to three digits) are handled by the readers,
+// since they consume extra chars; any other escape is an error (isSimpleEscape).
+static bool isSimpleEscape(char e) {
+    switch (e) {
+        case 'n': case 't': case 'r': case 'f': case 'v': case 'a': case 'b':
+        case '\\': case '"': case '\'': case '?': return true;
+        default: return false;
+    }
+}
 static char decodeEscape(char e) {
     switch (e) {
         case 'n':  return '\n';
@@ -202,24 +264,78 @@ static char decodeEscape(char e) {
         case 'r':  return '\r';
         case 'f':  return '\f';
         case 'v':  return '\v';
-        case '0':  return '\0';
-        case '\\': return '\\';
-        case '"':  return '"';
-        case '\'': return '\'';
-        default:   return e;
+        case 'a':  return '\a';
+        case 'b':  return '\b';
+        default:   return e;   // \\ \" \' \?
     }
+}
+static bool isOctalDigit(char c) { return c >= '0' && c <= '7'; }
+
+// Decode a whole character literal `lit` (quotes included) exactly as read_char
+// does: one character or one escape (`\xNN` or a single-char escape) between the
+// quotes. Used by the preprocessor's #if evaluator. Returns false with `err` set on a
+// malformed literal.
+bool decodeCharLiteral(const std::string& lit, int& value, std::string& err) {
+    size_t n = lit.size();
+    if (n < 2 || lit[0] != '\'') { err = "invalid character constant"; return false; }
+    size_t i = 1;
+    if (i >= n || lit[i] == '\'') {
+        err = i >= n ? "unterminated character literal" : "empty character literal";
+        return false;
+    }
+    unsigned char v;
+    if (lit[i] == '\\' && i + 1 < n) {
+        char e = lit[i + 1];
+        i += 2;
+        if (e == 'x' && i < n && hexDigit(lit[i]) >= 0) {
+            int b = hexDigit(lit[i++]);
+            if (i < n && hexDigit(lit[i]) >= 0) b = b * 16 + hexDigit(lit[i++]);
+            v = (unsigned char)b;
+        } else if (e == 'x') {
+            err = "\\x used with no following hex digits";
+            return false;
+        } else if (isOctalDigit(e)) {
+            int b = e - '0';
+            for (int k = 0; k < 2 && i < n && isOctalDigit(lit[i]); ++k) b = b * 8 + (lit[i++] - '0');
+            if (b > 255) { err = "octal escape sequence out of range"; return false; }
+            v = (unsigned char)b;
+        } else if (isSimpleEscape(e)) {
+            v = (unsigned char)decodeEscape(e);
+        } else {
+            err = std::string("unknown escape sequence '\\") + e + "'";
+            return false;
+        }
+    } else {
+        v = (unsigned char)lit[i++];
+    }
+    if (i + 1 != n || lit[i] != '\'') {
+        err = i >= n ? "unterminated character literal" : "character literal must contain a single character";
+        return false;
+    }
+    value = v;
+    return true;
 }
 
 // Decode one escape sequence, assuming the leading '\' has already been consumed:
-// \xNN (one or two hex digits) yields that byte; a single-char escape resolves via
-// decodeEscape (an unknown escape is the character itself).
+// \xNN (one or two hex digits) and octal \NNN (one to three digits) yield that byte;
+// a simple escape resolves via decodeEscape; anything else is a located error.
 char Lexer::readEscape() {
+    int el = line, ec = column - 1;          // the backslash
     char e = advance();
-    if (e == 'x' && hexDigit(peek()) >= 0) {
+    if (e == 'x') {
+        if (hexDigit(peek()) < 0) { lexError(el, ec, "\\x used with no following hex digits"); return 'x'; }
         int b = hexDigit(advance());
         if (hexDigit(peek()) >= 0) b = b * 16 + hexDigit(advance());
         return (char)b;
     }
+    if (isOctalDigit(e)) {
+        int b = e - '0';
+        for (int k = 0; k < 2 && isOctalDigit(peek()); ++k) b = b * 8 + (advance() - '0');
+        if (b > 255) lexError(el, ec, "octal escape sequence out of range");
+        return (char)b;
+    }
+    if (!isSimpleEscape(e))
+        lexError(el, ec, std::string("unknown escape sequence '\\") + e + "'");
     return decodeEscape(e);
 }
 
@@ -461,8 +577,14 @@ Token Lexer::next_token() {
                 return Token(TokenType::RANGE, "..", start_line, start_col);
             }
             return Token(TokenType::DOT, ".", start_line, start_col);
-        default:
+        default: {
+            char hex[8];
+            std::snprintf(hex, sizeof hex, "0x%02X", (unsigned char)c);
+            lexError(start_line, start_col, std::isprint((unsigned char)c)
+                         ? std::string("unexpected character '") + c + "'"
+                         : std::string("unexpected byte ") + hex);
             return Token(TokenType::UNKNOWN, std::string(1, c), start_line, start_col);
+        }
     }
 }
 

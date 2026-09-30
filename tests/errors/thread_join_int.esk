@@ -1,0 +1,2 @@
+// EXPECT-ERROR: thread_join expects a thread handle
+int main() { thread_join(5); return 0; }

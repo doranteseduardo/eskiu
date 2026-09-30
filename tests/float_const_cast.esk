@@ -1,0 +1,12 @@
+// A floating constant cast to an integer type truncates toward zero and must fit the
+// type (an out-of-range one is an error; see errors/float_const_cast_range).
+extern int printf(string fmt, ...);
+
+int main() {
+    printf("%d %d\n", (int)2147483647.9, (int)-2147483648.9);
+    printf("%d %d\n", (int)(uint8)255.5, (int)(int8)-128.5);
+    printf("%lld\n", (int64)-9223372036854775808.0);
+    printf("%llu\n", (uint64)18446744073709549568.0);
+    printf("%d\n", (int)-0.9);
+    return 0;
+}

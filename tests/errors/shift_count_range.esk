@@ -1,0 +1,3 @@
+// EXPECT-ERROR: shift count 40 is out of range for a 32-bit operand
+// Shifting an int by its width or more is undefined in C; a constant count is checked.
+int main() { int x = 1 << 40; return x; }

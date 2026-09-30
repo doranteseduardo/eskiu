@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot dereference a possibly-null pointer of type '?*int'
+// `p + 1` of a `?*int` is still a `?*int`: stepping it does not prove it non-null.
+int main() { ?*int p = null; return *(p + 1); }

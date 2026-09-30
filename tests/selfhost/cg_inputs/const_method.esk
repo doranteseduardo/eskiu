@@ -1,0 +1,13 @@
+// A method declaring `const T* self` may be called on a const value.
+extern int printf(string f, ...);
+struct P { int x; }
+int P_get(const P* self) { return self.x; }
+void P_set(*P self, int v) { self.x = v; }
+int peek(const P* p) { return p.get(); }
+int main() {
+    const P c = P{x: 4};
+    let m: P = P{x: 1};
+    m.set(7);
+    printf("%d %d %d\n", c.get(), m.get(), peek(&c));
+    return 0;
+}

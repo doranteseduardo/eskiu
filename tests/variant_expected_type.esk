@@ -1,0 +1,54 @@
+// A generic variant takes its type arguments from the expected type when the payload
+// alone does not fix them (`Opt<int64> a = Some(5)`: the literal would say `int`), in a
+// declaration, an assignment, a return and an argument, and a bare nullary variant
+// (`None`) is accepted where the expected type is a known instance.
+extern int printf(string fmt, ...);
+
+enum Opt<T> { Some(T), None }
+enum Pair<A, B> { Both(A, B), Left(A), Neither }
+
+int64 get(Opt<int64> o, int64 d) {
+    match (o) {
+        Some(v) -> { return v; }
+        None -> { return d; }
+    }
+}
+
+Opt<int64> half(int64 x) {
+    if (x % 2 != 0) { return None; }
+    return Some(x / 2);
+}
+
+int count(Pair<int, double> p) {
+    match (p) {
+        Both(a, b) -> { return a + (int)b; }
+        Left(a) -> { return a; }
+        Neither -> { return -1; }
+    }
+}
+
+int main() {
+    Opt<int64> a = Some(5);
+    Opt<int> n = None;
+    Opt<int64> m = None;
+    printf("%lld %lld\n", get(a, -1), get(m, -2));
+    a = Some(7);
+    printf("%lld\n", get(a, 0));
+    a = None;
+    printf("%lld\n", get(a, 9));
+    printf("%lld %lld\n", get(half(10), -1), get(half(3), -1));
+    printf("%lld %lld\n", get(Some(40), 0), get(None, 3));
+    Pair<int, double> p = Both(1, 2.5);
+    Pair<int, double> q = Left(4);
+    Pair<int, double> r = Neither;
+    printf("%d %d %d\n", count(p), count(q), count(r));
+    printf("%d\n", count(Both(3, 1)));
+    match (n) {
+        Some(v) -> { printf("some %d\n", v); }
+        None -> { printf("none\n"); }
+    }
+    Opt<int64> e = Some<int64>(11);
+    Opt<int> f = Some(12);
+    printf("%lld\n", get(e, 0));
+    return 0;
+}

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: duplicate type parameter 'T' in 'f'
+// Each type parameter needs its own name.
+T f<T, T>(T x) { return x; }
+int main() { return f<int, int>(1); }

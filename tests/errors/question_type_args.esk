@@ -1,0 +1,8 @@
+// EXPECT-ERROR: `?` can only be used in a function returning the same Result type
+import <result>;
+Result<int, string> a() { return Ok<int, string>(3); }
+Result<int64, string> b() {
+    int v = a()?;
+    return Ok<int64, string>((int64)v);
+}
+int main() { return 0; }

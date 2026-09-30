@@ -1,0 +1,96 @@
+// http_serve and http_serve_async read a request until it is complete: one
+// split over several TCP segments (head cut mid-line, body sent later) reaches
+// the handler whole, instead of being parsed from the first read only (it was
+// answered 400, or passed on with a short body). A peer that closes before the
+// request is complete gets 400. A HEAD request gets the Content-Length of the
+// body but no body, and a 304 neither (RFC 9110 §9.3.2, §15.4.5).
+import <http>;
+import <http_async>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int usleep(uint32 usec);
+extern int64 recv(int fd, *void buf, int64 n, int flags);
+extern int shutdown(int fd, int how);
+
+EventLoop* g_lp;
+
+void handle(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "text/plain");
+    let b: String;  b.init(64);
+    b.append(req.method.cstr());
+    b.append(" ");
+    b.append(req.path.cstr());
+    b.append(" body=");
+    b.append(req.body.cstr());
+    HttpResponse_set_body(res, b.cstr());
+    b.free();
+    if (req.path.eq_cstr("/304") == 1) { res.status = 304; }
+}
+
+// Send the pieces of `parts` ('|'-separated) with a pause between them, then
+// read the whole response (the server closes the connection) and print it.
+void exchange(int port, string label, string parts, bool half_close) {
+    int c = net_tcp_connect("127.0.0.1", (uint16)port);
+    for (int tries = 0; c < 0 && tries < 200; tries++) {   // the server thread may not listen yet
+        usleep(10000);
+        c = net_tcp_connect("127.0.0.1", (uint16)port);
+    }
+    let piece: String;  piece.init(64);
+    for (int i = 0; ; i++) {
+        if (parts[i] == '|' || parts[i] == 0) {
+            net_send(c, (*void)piece.cstr(), piece.len);
+            piece.clear();
+            usleep(30000);
+            if (parts[i] == 0) { break; }
+        } else {
+            piece.push(parts[i]);
+        }
+    }
+    piece.free();
+    if (half_close) { shutdown(c, 1); }
+    let out: String;  out.init(256);
+    uint8[512] buf;
+    while (true) {
+        const int64 n = recv(c, (*void)&buf[0], 511, 0);
+        if (n <= 0) { break; }
+        for (i in 0..n) {
+            if (buf[i] != '\r') { out.push((char)buf[i]); }
+        }
+    }
+    net_close(c);
+    printf("%s:\n%s\n--\n", label, out.cstr());
+    out.free();
+}
+
+void clients(int port) {
+    exchange(port, "split head and body", "POST /up HTTP/1.1\r\nHo|st: a\r\nContent-Len|gth: 5\r\n\r\nhe|llo", false);
+    exchange(port, "split chunked", "POST /c HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi|\r\n0\r\n|\r\n", false);
+    exchange(port, "closed early", "POST /x HTTP/1.1\r\nHost: a\r\nContent-Length: 9\r\n\r\nabc", true);
+    exchange(port, "HEAD", "HEAD /h HTTP/1.1\r\nHost: a\r\n\r\n", false);
+    exchange(port, "304", "GET /304 HTTP/1.1\r\nHost: a\r\n\r\n", false);
+}
+
+void async_clients() {
+    clients(18233);
+}
+
+int main() {
+    printf("== http_serve\n");
+    thread_create(void() { http_serve(18232, 1, handle); });
+    clients(18232);
+
+    printf("== http_serve_async\n");
+    const int fd = net_tcp_listen((uint16)18233);
+    g_lp = el_new(256);
+    Future<uint8>* f = http_serve_async(g_lp, fd, handle, 5);
+    let t: *void = thread_create(async_clients);
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    thread_join(t);
+    free_future<uint8>(f);
+    EventLoop_free(g_lp);
+    net_close(fd);
+    return 0;
+}

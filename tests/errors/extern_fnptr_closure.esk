@@ -1,0 +1,11 @@
+// EXPECT-ERROR: is a C function pointer
+// A C function's fn-typed parameter is a bare C function pointer: a closure value
+// (here a local holding a lambda) has an environment C cannot pass, so only a
+// top-level function named directly (or null) is accepted.
+extern int c_count(fn(int)->int pred, int n);
+
+int main() {
+    int k = 3;
+    let above: fn(int)->int = int(int v) { return v > k ? 1 : 0; };
+    return c_count(above, 10);
+}

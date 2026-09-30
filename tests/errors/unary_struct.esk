@@ -1,0 +1,4 @@
+// EXPECT-ERROR: invalid operand for unary operator
+// `-` on a struct value needs a user operator.
+struct S { int32 a; }
+int main() { S s = S { a: 1 }; S t = -s; return t.a; }

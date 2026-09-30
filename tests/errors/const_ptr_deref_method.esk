@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot call method 'set' on a read-only value
+struct P { int x; }
+void P_set(*P self, int v) { self.x = v; }
+int main() { P p = P{x: 1}; const P* r = &p; (*r).set(4); return p.x; }

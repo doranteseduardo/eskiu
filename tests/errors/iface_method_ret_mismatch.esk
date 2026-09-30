@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot convert 'int' to 'string'
+interface S { int a(); }
+struct X { int v; int a() { return self.v; } }
+int main() { X x = X{v: 1}; S s = &x; string r = s.a(); return 0; }

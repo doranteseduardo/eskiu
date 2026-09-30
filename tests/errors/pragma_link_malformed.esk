@@ -1,0 +1,3 @@
+// EXPECT-ERROR: malformed #pragma link: expected #pragma link("name")
+#pragma link(m)
+int main() { return 0; }

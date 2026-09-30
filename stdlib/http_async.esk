@@ -13,7 +13,10 @@
 //   int fd = net_tcp_listen(8080);
 //   EventLoop* lp = el_new(256);
 //   Future<uint8>* f = http_serve_async(lp, fd, hello, 1000);
-//   future_poll<uint8>(f, void(){ });   // drive: el_run(lp) until it completes
+//   future_poll<uint8>(f, void(){ });   // drive: EventLoop_run(lp) until it completes
+//
+// Timeouts and the open-connection bound come from <http>'s HttpLimits: the
+// defaults, or pass your own to http_serve_async_with.
 
 import <mem>;
 import <future>;
@@ -24,47 +27,90 @@ import <net>;
 import <http>;
 import <string>;
 
-// One connection, handled to completion, then a completion signal on `done`.
-// Detached via `spawn`, so many run concurrently over the one event loop.
-async void http_conn_async(EventLoop* lp, int c,
-                           escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                           Chan<int>* done) {
-    *uint8 buf = alloc<uint8>(8192);
-    int n = await net_read_async(lp, c, buf, (int64)8192);
-    if (n > 0) {
-        let req: HttpRequest;  HttpRequest_init(&req);
-        HttpRequest_parse(&req, buf, n);
-        let res: HttpResponse;  HttpResponse_init(&res, 200);
-        handler(&req, &res);
-        let out: String;  String_init(&out, 256);
-        HttpResponse_render(&res, &out);
-        net_send(c, (*void)String_cstr(&out), out.len);
-        String_free(&out);
-        HttpResponse_free(&res);
-        HttpRequest_free(&req);
+// One connection, read until its request is complete (a request split over
+// several segments is waited for; a bad one is answered 400 / 413 / 501 / 505
+// without calling the handler), answered, then a completion signal on `done`.
+// The socket is non-blocking and the answer goes out through net_write_async.
+// Detached via `spawn`, so many run concurrently over the one event loop. The
+// reads and the write race a timer (see HttpLimits in <http>): a head not in by
+// lim.header_ms or a body not in by lim.body_ms is answered 408 (or the
+// connection just closed if nothing arrived), and a client that does not take
+// the answer within lim.write_ms is disconnected. `open` (may be null) is the
+// server's count of open connections, decremented on the way out.
+async void http_conn_async_with(EventLoop* lp, int c,
+                                escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                Chan<int>* done, HttpLimits lim, *int open) {
+    net_set_nonblocking(c);                     // never block the loop thread
+    let b: HttpConnBuf;  b.init();
+    let req: HttpRequest;  req.init();
+    int64 head_dl = net_deadline(lim.header_ms);
+    int64 body_dl = 0;
+    bool body_armed = false;
+    int st = -1;
+    while (st == -1) {
+        if (b.hend > 0 && !body_armed) { body_dl = net_deadline(lim.body_ms);  body_armed = true; }
+        int64 dl = b.hend > 0 ? body_dl : head_dl;
+        int n = await net_read_deadline_async(lp, c, b.data + b.len, b.cap - b.len, dl);
+        if (n == NET_TIMED_OUT) { st = b.len == 0 ? -2 : 408; }
+        else if (n <= 0) { st = b.len == 0 ? -2 : 400; }   // closed: nothing sent, or a cut request
+        else {
+            b.len += n;
+            st = b.feed(&req);
+        }
     }
+    if (st != -2) {
+        // Written as the socket drains: a client that does not read a large
+        // answer parks only this connection, not the loop.
+        let out: String;  out.init(256);
+        _http_conn_render(&req, st, handler, &out);
+        int64 wdl = net_deadline(lim.write_ms);
+        int w = await net_write_deadline_async(lp, c, (*uint8)out.data, out.len, wdl);
+        out.free();
+    }
+    req.free();
     net_close(c);
-    free((*void)buf);
-    chan_send<int>(done, 1);            // wait-group: this connection is done
+    b.free();
+    if (open != null) { *open = *open - 1; }
+    Chan_send<int>(done, 1);            // wait-group: this connection is done
+}
+
+// http_conn_async_with under the default HttpLimits.
+Future<uint8>* http_conn_async(EventLoop* lp, int c,
+                               escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                               Chan<int>* done) {
+    return http_conn_async_with(lp, c, handler, done, http_limits(), null);
 }
 
 // Accept and serve `max_conns` connections concurrently, then wait for every
 // spawned handler to finish (so the returned future completes only when all the
-// work is truly done). Pass a large count for a long-running server.
-async void http_serve_async(EventLoop* lp, int listen_fd,
-                            escaping fn(HttpRequest*, HttpResponse*)->void handler,
-                            int max_conns) {
+// work is truly done). Pass a large count for a long-running server. At most
+// lim.max_open connections are open at once: one accepted past that is closed
+// right away (it still counts toward max_conns).
+async void http_serve_async_with(EventLoop* lp, int listen_fd,
+                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                 int max_conns, HttpLimits lim) {
     Chan<int>* done = chan_new<int>(max_conns);
-    int accepted = 0;
-    while (accepted < max_conns) {
-        int c = await net_accept_async(lp, listen_fd);
-        spawn(http_conn_async(lp, c, handler, done));   // detached; runs concurrently
-        accepted = accepted + 1;
+    *int open = alloc<int>(1);
+    for (int accepted = 0; accepted < max_conns; accepted++) {
+        int c = await net_accept_retry_async(lp, listen_fd);   // a failed accept is retried, never served
+        if (lim.max_open > 0 && *open >= lim.max_open) {
+            net_close(c);                               // over the limit: refused
+            Chan_send<int>(done, 1);
+        } else {
+            *open = *open + 1;
+            spawn(http_conn_async_with(lp, c, handler, done, lim, open));   // detached; runs concurrently
+        }
     }
-    int finished = 0;
-    while (finished < max_conns) {
-        int sig = await chan_recv(done);                // wait-group join
-        finished = finished + 1;
+    for (int finished = 0; finished < max_conns; finished++) {
+        int sig = await Chan_recv(done);                // wait-group join
     }
-    chan_free<int>(done);
+    free((*void)open);
+    Chan_free<int>(done);
+}
+
+// http_serve_async_with under the default HttpLimits.
+Future<uint8>* http_serve_async(EventLoop* lp, int listen_fd,
+                                escaping fn(HttpRequest*, HttpResponse*)->void handler,
+                                int max_conns) {
+    return http_serve_async_with(lp, listen_fd, handler, max_conns, http_limits());
 }

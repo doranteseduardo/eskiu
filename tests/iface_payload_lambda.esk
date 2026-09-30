@@ -1,0 +1,29 @@
+extern int printf(string fmt, ...);
+// A struct pointer boxes into an interface wherever an interface value is expected:
+// a variant payload (generic or not) and a lambda's return value.
+interface Shape { int area(); }
+struct Sq { int s; int area() { return self.s * self.s; } }
+struct Rect { int w; int h; int area() { return self.w * self.h; } }
+enum Opt<T> { Non, Som(T) }
+enum Wr { W(Shape), Two(Shape, int), Nw }
+Sq gsq = Sq{6};
+
+int areaOf(Wr w) {
+    match w { W(s) -> return s.area(); Two(s, k) -> return s.area() * k; Nw -> return -1; }
+}
+Wr wrap(*Rect r) { return W(r); }
+
+int main() {
+    let a: Sq = Sq{2};
+    let o: Opt<Shape> = Som<Shape>(&a);
+    match o { Som(s) -> printf("%d\n", s.area()); Non -> printf("none\n"); }
+    let b: Sq = Sq{3};
+    let r: Rect = Rect{2, 5};
+    printf("%d %d %d %d\n", areaOf(W(&b)), areaOf(Two(&r, 3)), areaOf(wrap(&r)), areaOf(Nw));
+    fn()->Shape mk = Shape() { return &gsq; };
+    printf("%d\n", mk().area());
+    *Rect rp = &r;
+    fn()->Shape mk2 = Shape() { return rp; };
+    printf("%d\n", mk2().area());
+    return 0;
+}

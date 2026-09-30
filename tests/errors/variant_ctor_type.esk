@@ -1,0 +1,3 @@
+// EXPECT-ERROR: variant 'A' argument 1 type mismatch
+enum E { A(int), B }
+int main() { E e = A("s"); return 0; }

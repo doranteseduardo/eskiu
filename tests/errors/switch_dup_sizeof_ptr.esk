@@ -1,0 +1,11 @@
+// EXPECT-ERROR: duplicate case value in switch
+// `sizeof` of a pointer (and of a struct of pointers) folds, so equal labels are seen.
+struct Two { *int a; *int b; }
+int f(int64 n) {
+    switch (n) {
+        case sizeof(*int) * 2: return 1;
+        case sizeof(Two): return 2;
+    }
+    return 0;
+}
+int main() { return f(16); }

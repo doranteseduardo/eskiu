@@ -30,10 +30,10 @@ int main() {
 
     // Server: run the opening handshake over the event loop.
     g_lp = el_new(16);
-    h2_conn_init(&g_conn, srv);
+    H2Conn_init(&g_conn, srv);
     Future<int>* f = h2_server_handshake_async(g_lp, &g_conn);
-    future_poll<int>(f, void() { el_stop(g_lp); });
-    el_run(g_lp);
+    future_poll<int>(f, void() { EventLoop_stop(g_lp); });
+    EventLoop_run(g_lp);
 
     printf("rc=%d max_streams=%lld\n", f.value, g_conn.remote.max_concurrent_streams);
 

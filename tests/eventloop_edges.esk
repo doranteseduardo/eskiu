@@ -1,0 +1,36 @@
+// Event loop edges: el_new(0) followed by EventLoop_add_read used to loop forever
+// growing the slot table from 0 (0 * 2); replacing an fd's registration from
+// outside a callback now frees the old callback's env (it leaked), and
+// EventLoop_free frees the envs of fds still registered. The asan gate checks
+// that none of these frees is doubled with EventLoop_run's own.
+import <mem>;
+import <eventloop>;
+import <time>;
+extern int printf(string fmt, ...);
+extern int pipe(*int fds);
+extern int64 write(int fd, *void b, int64 n);
+extern int close(int fd);
+
+int main() {
+    EventLoop* lp = el_new(0);
+    int[2] fds;  pipe(&fds[0]);
+    int hits = 0;  *int hp = &hits;
+    EventLoop_add_read(lp, fds[0], void(EventLoop* l, int fd) { hp[0] = hp[0] + 1; });
+    EventLoop_add_read(lp, fds[0], void(EventLoop* l, int fd) { hp[0] = hp[0] + 10; });
+    EventLoop_add_read(lp, fds[0], void(EventLoop* l, int fd) {
+        hp[0] = hp[0] + 100;
+        // re-arm from inside the running callback: EventLoop_run frees this one
+        EventLoop_add_read(l, fd, void(EventLoop* l2, int fd2) { hp[0] = hp[0] + 1000; EventLoop_del(l2, fd2); });
+    });
+    printf("cap>fd=%d\n", lp.cap > fds[0] ? 1 : 0);
+    write(fds[1], (*void)"x", 1);
+    EventLoop_add_timer(lp, time_monotonic_ms() + 50, void() { EventLoop_stop(lp); });
+    EventLoop_run(lp);
+    printf("hits=%d\n", hits);
+    // Free the loop with an fd still registered.
+    EventLoop_add_write(lp, fds[1], void(EventLoop* l, int fd) { hp[0] = hp[0] + 3; });
+    EventLoop_free(lp);
+    close(fds[0]);  close(fds[1]);
+    printf("done hits=%d\n", hits);
+    return 0;
+}

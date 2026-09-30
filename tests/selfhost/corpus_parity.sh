@@ -2,7 +2,8 @@
 # Whole-corpus behavioral equivalence gate (promotion P3).
 #
 # Runs the ENTIRE positive test corpus (tests/*.esk) through the Eskiu-built compiler
-# end to end: emit `.ll` (full pipeline, incl. sema) -> clang -> run, then require the
+# end to end: its driver (full pipeline, incl. sema) links via clang with no -l flags, so
+# the libraries a program implies are the self-host's own; then run, and require the
 # same observable result the C++ `eskiuc` produces. A run test (has a `.expected`) must
 # exit 0 and print exactly `.expected`; a smoke test (no `.expected`, non-deterministic
 # output) must exit 0. The negative corpus (tests/errors/) is covered by tc_parity.sh
@@ -24,8 +25,7 @@ if [ -z "$BIN" ]; then
 fi
 CLANG="${CLANG:-clang}"   # clang assembles the emitted .ll; CI installs it as clang-22
 command -v "$CLANG" >/dev/null 2>&1 || { echo "corpus_parity: $CLANG not found (set CLANG)"; exit 2; }
-# libc++abi for exception programs; pthread/m for threads/math; libc++ for the C++ runtime.
-LDFLAGS="-lc++ -lc++abi -lpthread -lm"
+export CLANG
 
 ESKMAIN="$(mktemp -t esk_main.XXXXXX)"
 WORK="$(mktemp -d)"
@@ -39,11 +39,13 @@ for esk in tests/*.esk; do
     [ -f "$esk" ] || continue
     name="$(basename "$esk" .esk)"
     total=$((total + 1))
-    if ! ESKIU_ROOT="$ROOT" "$ESKMAIN" "$esk" > "$WORK/$name.ll" 2>"$WORK/$name.emit"; then
-        echo "FAIL  $name  (self-host compile errored)"; sed 's/^/      /' "$WORK/$name.emit" | grep -vi 'overriding the module' | head -3; fail=1; continue
+    companion=()                                  # tests/NAME.c: C side of a C-ABI test
+    if [ -f "tests/$name.c" ]; then
+        "$CLANG" -c "tests/$name.c" -o "$WORK/$name.c.o" 2>"$WORK/$name.clang" || { echo "FAIL  $name  (C companion failed to compile)"; fail=1; continue; }
+        companion=(--link-arg "$WORK/$name.c.o")
     fi
-    if ! "$CLANG" "$WORK/$name.ll" $LDFLAGS -o "$WORK/$name.bin" 2>"$WORK/$name.clang"; then
-        echo "FAIL  $name  (clang rejected the emitted IR)"; sed 's/^/      /' "$WORK/$name.clang" | head -3; fail=1; continue
+    if ! ESKIU_ROOT="$ROOT" "$ESKMAIN" "$esk" ${companion[@]+"${companion[@]}"} -o "$WORK/$name.bin" 2>"$WORK/$name.emit"; then
+        echo "FAIL  $name  (self-host compile/link errored)"; sed 's/^/      /' "$WORK/$name.emit" | grep -vi 'overriding the module' | grep -v 'built for newer' | head -3; fail=1; continue
     fi
     ESKIU_ROOT="$ROOT" "$WORK/$name.bin" > "$WORK/$name.out" 2>&1; code=$?
     exp="tests/$name.expected"

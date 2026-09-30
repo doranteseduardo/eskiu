@@ -1,0 +1,5 @@
+// EXPECT-ERROR: does not satisfy constraint 'Ord'
+interface Ord { int cmp(int o); }
+struct X { int v; }
+T pick<T: Ord>(T a) { return a; }
+int main() { X x = X{v: 1}; X y = pick(x); return y.v; }

@@ -1,0 +1,9 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// After an early-exit guard, the branch that falls through may reassign the pointer.
+struct N { int v; }
+int main(int argc, string* argv) {
+    N n; n.v = 4;
+    ?*N p = &n;
+    if (p == null) { return 0; } else if (argc > 0) { p = null; }
+    return p.v;
+}

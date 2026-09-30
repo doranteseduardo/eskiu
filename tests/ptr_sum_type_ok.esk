@@ -1,0 +1,11 @@
+extern int printf(string f, ...);
+enum Opt { Some(int), None }
+int get(*Opt p) { match *p { Some(v) -> return v; None -> return 0; } }
+int main() {
+    Opt v = Some(7);
+    *Opt p = &v;
+    *void raw = &v;
+    *Opt back = (*Opt)raw;
+    printf("%d %d\n", get(p), get(back));
+    return 0;
+}

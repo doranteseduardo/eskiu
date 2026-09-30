@@ -1,0 +1,2 @@
+// EXPECT-ERROR: undefined variable 'zz'
+int main() { try { throw 1; } catch (int e) { return zz; } return 0; }

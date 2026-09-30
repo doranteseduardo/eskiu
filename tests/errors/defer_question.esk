@@ -1,0 +1,18 @@
+// EXPECT-ERROR: '?' is not allowed inside a defer body
+import <result>;
+extern int printf(string fmt, ...);
+
+Result<int, string> step(int x) {
+    if (x > 2) { return Err<int, string>("big"); }
+    return Ok<int, string>(x);
+}
+
+Result<int, string> run(int x) {
+    defer { int y = step(x)?; printf("%d\n", y); }
+    return Ok<int, string>(x);
+}
+
+int main() {
+    let r: Result<int, string> = run(5);
+    return 0;
+}

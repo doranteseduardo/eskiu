@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -100,10 +100,11 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
     <div class="content">
 <h1 id="eskiu-language-reference">Eskiu Language Reference</h1>
 <p>Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and <code>eskiuc run file.esk</code> runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the <a href="getting-started.html">tutorial</a>.</p>
-<p><strong>Current version: v0.9.1.</strong> A correctness release: a multi-front bug hunt closed a set of
-latent miscompiles (constant-initializer folding, C signed/unsigned rules, <code>switch</code> cleanup,
-pointer bitfield writes, async await typing) and lexer/<code>--safe</code> gaps. Full history is in the
-<a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
+<p><strong>Current version: v0.9.2.</strong> A correctness and hardening release: a full-project audit,
+three fuzzers and eight blind audit rounds fixed about 500 latent bugs across both
+compilers, the standard library and the docs (C semantics, the C ABI, generics, <code>volatile</code>,
+strict parsers, HTTP hardening). The remaining known issues and the full history are in
+the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>.</p>
 <hr>
 <h2 id="documentation-map">Documentation Map</h2>
 <div class="tablewrap"><table>
@@ -158,7 +159,7 @@ pointer bitfield writes, async await typing) and lexer/<code>--safe</code> gaps.
 </tr>
 <tr>
 <td><strong>Literals</strong></td>
-<td>Decimal, hex <code>0xFF</code>, float, string (with adjacent concat), char, bool, null</td>
+<td>Decimal, hex <code>0xFF</code>, octal <code>0755</code>, float (<code>1.5</code>, <code>2.5e-3</code>), string (with adjacent concat), char, bool, null; no suffixes (<code>3.5f</code>, <code>1_000</code> are errors)</td>
 </tr>
 <tr>
 <td><strong>Operators</strong></td>
@@ -182,7 +183,7 @@ pointer bitfield writes, async await typing) and lexer/<code>--safe</code> gaps.
 </tr>
 <tr>
 <td><strong>Exceptions</strong></td>
-<td><code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code>: LLVM <code>invoke</code>/<code>landingpad</code>, Itanium ABI; multiple <code>catch</code> clauses; link <code>-lc++</code> (macOS) or <code>-lstdc++</code> (Linux)</td>
+<td><code>try</code>/<code>catch</code>/<code>finally</code>/<code>throw</code>: LLVM <code>invoke</code>/<code>landingpad</code>, Itanium ABI; multiple <code>catch</code> clauses; the driver links the C++ runtime</td>
 </tr>
 <tr>
 <td><strong>Async / await</strong></td>
@@ -206,7 +207,7 @@ pointer bitfield writes, async await typing) and lexer/<code>--safe</code> gaps.
 </tr>
 <tr>
 <td><strong>Interfaces</strong></td>
-<td><code>interface Drawable { void draw(); }</code>: structural typing, vtable dispatch</td>
+<td><code>interface Drawable { void draw(); }</code>: structural typing (method signatures must match), vtable dispatch; an interface value (<code>let d: Drawable = &amp;c;</code>) can be a local, field, parameter or return value</td>
 </tr>
 <tr>
 <td><strong>Memory</strong></td>
@@ -233,8 +234,12 @@ pointer bitfield writes, async await typing) and lexer/<code>--safe</code> gaps.
 <td><code>import &lt;result&gt;</code> stdlib modules · <code>import "file.esk"</code> relative local files</td>
 </tr>
 <tr>
+<td><strong>Preprocessor</strong></td>
+<td><code>#define</code> (object- and function-like), <code>#undef</code>, <code>#ifdef</code>/<code>#ifndef</code>, <code>#if</code>/<code>#elif</code> with <code>defined(X)</code>, <code>#else</code>/<code>#endif</code>, <code>#error</code>, <code>#pragma pack</code>, <code>#pragma link</code>; predefined OS and architecture macros</td>
+</tr>
+<tr>
 <td><strong>Errors</strong></td>
-<td><code>file.esk:8:22: message</code>: real line/col from parser</td>
+<td><code>error: file.esk:8:22: message</code> for lexer, preprocessor, parser and type errors, naming the file the error is in</td>
 </tr>
 <tr>
 <td><strong>HTTP/2</strong></td>

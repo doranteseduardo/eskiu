@@ -1,0 +1,7 @@
+// EXPECT-ERROR: method 'cmp' parameter 1 is 'string', the interface requires 'Ord*'
+// The interface-typed (Self) parameter must be the implementing type.
+extern int printf(string fmt, ...);
+interface Ord { int cmp(Ord* o); }
+int cmp(int a, string b) { return 0; }
+T mx<T: Ord>(T a, T b) { if (a.cmp(b) > 0) { return a; } return b; }
+int main() { printf("%d\n", mx<int>(1, 2)); return 0; }

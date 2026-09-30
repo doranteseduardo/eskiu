@@ -1,0 +1,4 @@
+// EXPECT-ERROR: contains itself by value
+struct A { B b; }
+struct B { A a; }
+int main() { let a: A; return 0; }

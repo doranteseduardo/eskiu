@@ -1,0 +1,2 @@
+// EXPECT-ERROR: array index must be integer, got string
+int main() { int[2] a = {1, 2}; return a["x"]; }

@@ -1,0 +1,131 @@
+// The blocking TLS server's deadlines hold against a peer that trickles one
+// byte at a time inside a TLS record. OpenSSL loops recv() inside one SSL_read
+// until a record is complete, so a socket timeout (SO_RCVTIMEO) restarted with
+// every byte and a 1-byte-per-25-ms peer kept the handshake or the preface
+// open for as long as it liked. The socket is now non-blocking and the waits
+// poll on what is left of the deadline: both end after header_ms (150 ms). A
+// normal request still gets its 60000-byte answer, which fills the socket
+// buffer (the writes wait for WANT_WRITE). OpenSSL is replaced by the C
+// companion (tls_trickle_deadline.c), whose records are a length byte and the
+// bytes, read the way OpenSSL reads them.
+import <mem>;
+import <net>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <tls>;
+import <time>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int protocol, *int sv);
+
+HttpLimits g_lim;
+*uint8 g_buf;
+int g_len = 0;
+
+void big(HttpRequest* req, HttpResponse* res) {
+    *uint8 body = alloc<uint8>(60001);
+    for (i in 0..60000) { body[i] = (uint8)'a'; }
+    HttpResponse_set_body(res, (string)body);
+    free((*void)body);
+}
+
+// Append one record (a length byte, then `n` bytes) to g_buf.
+void record(*uint8 p, int n) {
+    g_buf[g_len++] = (uint8)n;
+    for (i in 0..n) { g_buf[g_len++] = p[i]; }
+}
+
+// A record holding the client preface and SETTINGS, plus a GET when `get`.
+void preface_record(bool get) {
+    uint8[160] r;
+    int n = 0;
+    string p = h2_preface();
+    for (i in 0..24) { r[n++] = (uint8)p[i]; }
+    n += h2_frame_finish(&r[n], H2_SETTINGS, 0, 0, 0);
+    if (get) {
+        uint8[64] blk;
+        int off = hpack_encode_header(&blk[0], 0, (*uint8)":method", 7, (*uint8)"GET", 3);
+        off = hpack_encode_header(&blk[0], off, (*uint8)":path", 5, (*uint8)"/", 1);
+        off = hpack_encode_header(&blk[0], off, (*uint8)":scheme", 7, (*uint8)"https", 5);
+        for (i in 0..off) { r[n + 9 + i] = blk[i]; }
+        n += h2_frame_finish(&r[n], H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, 1, off);
+    }
+    record(&r[0], n);
+}
+
+// The client side: send g_buf[0..sent_at_once) in one go, the rest one byte
+// every 25 ms (until the server hangs up), then read until end of stream.
+int g_client = -1;
+int g_at_once = 0;
+int g_got = 0;
+*uint8 g_rb;
+void client() {
+    const int64 w = net_send(g_client, (*void)g_buf, (int64)g_at_once);
+    for (int i = g_at_once; i < g_len; i++) {
+        sleep_ms(25);
+        if (net_send(g_client, (*void)(g_buf + i), (int64)1) != 1) { break; }
+    }
+    int64 k = net_recv(g_client, (*void)g_rb, (int64)131072);
+    while (k > 0) { g_got += (int)k;  k = net_recv(g_client, (*void)(g_rb + g_got), (int64)(131072 - g_got)); }
+}
+
+// Serve the client with the blocking TLS server; `serve` also runs the h2
+// connection after the handshake. Reports the outcome and how long it took.
+void run(string label, int at_once, bool serve, int64 lo, int64 hi) {
+    *int sv = alloc<int>(2);
+    socketpair(1, 1, 0, sv);
+    net_nosigpipe(sv[1]);
+    g_client = sv[1];
+    g_at_once = at_once;
+    g_got = 0;
+    let t: *void = thread_create(client);
+    *void ctx = tls_server_ctx("cert", "key");
+    const int64 t0 = time_monotonic_ms();
+    *void ssl = tls_accept_with(ctx, sv[0], &g_lim);
+    const int64 t1 = time_monotonic_ms();
+    int ok = ssl != null ? 1 : 0;
+    if (ssl != null && serve) { http2_tls_serve_conn_with(ssl, big, g_lim); }
+    else if (ssl != null) { tls_close(ssl); }
+    const int64 dt = time_monotonic_ms() - t0;
+    net_close(sv[0]);
+    thread_join(t);
+    SSL_CTX_free(ctx);
+    int data = 0;
+    bool goaway = false;
+    int pos = 0;
+    while (pos + 9 <= g_got) {
+        let fr: H2Frame;  h2_read_header(g_rb + pos, &fr);
+        if (fr.type == H2_DATA) { data += fr.length; }
+        if (fr.type == H2_GOAWAY) { goaway = true; }
+        pos += 9 + fr.length;
+    }
+    printf("%s: handshake=%d data=%d goaway=%d (timely=%d)\n", label, ok, data, goaway ? 1 : 0,
+           dt >= lo && dt < hi ? 1 : 0);
+    if (serve && ok == 1 && t1 - t0 > 100) { printf("  handshake took %lld ms\n", t1 - t0); }
+    free((*void)sv);
+}
+
+int main() {
+    g_buf = alloc<uint8>(4096);
+    g_rb = alloc<uint8>(131072);
+    g_lim.init();
+    g_lim.header_ms = 150;
+    g_lim.idle_ms = 150;
+
+    uint8[60] hello;
+    for (i in 0..60) { hello[i] = (uint8)i; }
+
+    g_len = 0;  record(&hello[0], 60);
+    run("hello trickled", 0, false, 140, 600);
+
+    g_len = 0;  record(&hello[0], 1);  preface_record(false);
+    run("preface trickled", 2, true, 140, 600);
+
+    g_len = 0;  record(&hello[0], 1);  preface_record(true);
+    run("request at once", g_len, true, 140, 2000);
+
+    free((*void)g_rb);
+    free((*void)g_buf);
+    return 0;
+}

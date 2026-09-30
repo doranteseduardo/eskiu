@@ -1,0 +1,4 @@
+// EXPECT-ERROR: result of 'f' must be used
+// A for-loop step's value is discarded, like an expression statement's.
+must_use int f() { return 1; }
+int main() { for (int i = 0; i < 2; f()) { i++; } return 0; }

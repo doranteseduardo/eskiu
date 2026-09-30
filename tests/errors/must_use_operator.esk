@@ -1,0 +1,5 @@
+// EXPECT-ERROR: result of 'operator +(V, V)' must be used
+// A `must_use` operator's result is discarded by `a + a;`.
+struct V { int x; }
+must_use V operator +(V a, V b) { return V{x: a.x + b.x}; }
+int main() { V a = V{x: 1}; a + a; return 0; }

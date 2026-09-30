@@ -1,0 +1,21 @@
+// Comments are whitespace to the preprocessor (C translation phase 3): a `//` or
+// `/* */` comment in a #define is not part of the body, one inside a macro's
+// argument list does not end it, and a `/*` opened on a directive line and closed
+// on a later line stays a comment.
+extern int printf(string fmt, ...);
+
+#define FIVE 5 // five
+#define SIX /* c */ 6 /* d */
+#define ONE 1 /* a comment that
+continues here */
+#define TWICE(a) ((a) * 2) // doubles
+#define ADD(a, /* first */ b) ((a) + (b))
+
+int main() {
+    printf("%d\n", FIVE + 1);
+    printf("%d\n", SIX + ONE);
+    printf("%d\n", TWICE( /* ) */ 3));
+    printf("%d\n", ADD(1, /* , */ 2));
+    printf("%d\n", TWICE /* gap */ (4));
+    return 0;
+}

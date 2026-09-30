@@ -1,0 +1,13 @@
+// `*void` arithmetic steps by bytes (the C++ build's GNU-C behavior).
+extern int printf(string f, ...);
+int main() {
+    int[4] a = {1, 2, 3, 4};
+    *void p = (*void)&a[0];
+    *void q = p + 4;
+    q = q + 4;
+    q = q - 2;
+    int64 d = q - p;
+    *int r = (*int)(p + 8);
+    printf("%d %d\n", (int)d, *r);
+    return (int)d;
+}

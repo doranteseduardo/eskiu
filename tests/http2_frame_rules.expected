@@ -1,0 +1,11 @@
+padded: ACK HEADERS(200) DATA[POST /pad body=abc] calls=1
+continuation: ACK HEADERS(200) DATA[GET /continued body=] calls=1
+interrupted continuation: ACK GOAWAY(1) calls=0
+ping: ACK PING(ack=1,pingpong) calls=0
+connection window overflow: ACK GOAWAY(3) calls=0
+initial window too big: ACK GOAWAY(3) calls=0
+enable_push 2: ACK GOAWAY(1) calls=0
+max_frame_size 100: ACK GOAWAY(1) calls=0
+padding fills frame: ACK GOAWAY(1) calls=0
+data after end_stream: ACK ACK HEADERS(200) RST(1,5) calls=1
+70 headers: ACK HEADERS(431) DATA[] HEADERS(200) DATA[GET /after body=] calls=1

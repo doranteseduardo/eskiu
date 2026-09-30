@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid operands for operator
+int main() { int[2] a = {1, 2}; int[2] b = {1, 2}; int[2] c = a + b; return 0; }

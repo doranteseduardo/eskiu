@@ -1,0 +1,18 @@
+small limits (max_body 1000, max_buffered 3000):
+  stream 1 status 413
+  stream 1 rst 0
+  stream 3 status 413
+  stream 3 rst 0
+  handler /fits body 1000
+  stream 5 status 200
+  stream 13 status 413
+  stream 13 rst 0
+  handler /a body 900
+  handler /b body 900
+  handler /c body 900
+  stream 7 status 200
+  stream 9 status 200
+  stream 11 status 200
+calls 4 closing 0
+defaults, 128 streams sending 16 KB DATA frames:
+peak buffered <= max_buffered: yes, streams answered 413: 122, calls 0, closing 0

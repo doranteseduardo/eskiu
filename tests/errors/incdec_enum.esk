@@ -1,0 +1,3 @@
+// EXPECT-ERROR: '++'/'--' requires an integer or pointer, got 'E'
+enum E { A, B }
+int main() { E e = A; e++; return 0; }

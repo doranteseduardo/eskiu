@@ -1,0 +1,50 @@
+// A thrown value keeps its type: int, int64, float, double, string, pointer and a
+// struct by value all round-trip through throw/catch, and a throw inside a generic
+// function or a generic-struct method is matched by its instance type.
+extern int printf(string fmt, ...);
+
+struct Err { int code; string msg; double w; }
+struct Box<T> { T v; }
+
+T boom<T>(T x) { throw x; return x; }
+
+void Box_fail<T>(Box<T>* self) { throw self.v; }
+
+void th(int k) {
+    int n = 7;
+    if (k == 0) { throw 42; }
+    if (k == 1) { throw (int64)5000000000; }
+    if (k == 2) { float f = 1.25; throw f; }
+    if (k == 3) { throw 3.5; }
+    if (k == 4) { throw "str"; }
+    if (k == 5) { throw &n; }
+    if (k == 6) { throw Err{code: 9, msg: "bad", w: 2.5}; }
+    if (k == 7) { throw (int8)-3; }
+}
+
+int probe(int k) {
+    try { th(k); }
+    catch (int i) { printf("int %d\n", i); return 0; }
+    catch (int64 l) { printf("int64 %lld\n", l); return 1; }
+    catch (float f) { printf("float %f\n", (double)f); return 2; }
+    catch (double d) { printf("double %f\n", d); return 3; }
+    catch (string s) { printf("string %s\n", s); return 4; }
+    catch (*int p) { printf("pointer %d\n", p != null); return 5; }
+    catch (Err e) { printf("Err %d %s %f\n", e.code, e.msg, e.w); return 6; }
+    catch (int8 c) { printf("int8 %d\n", (int)c); return 7; }
+    return -1;
+}
+
+int main() {
+    int sum = 0;
+    for (int k = 0; k < 8; k++) { sum += probe(k); }
+    printf("sum %d\n", sum);
+    try { boom<double>(6.25); } catch (double d) { printf("generic double %f\n", d); }
+    try { boom<int64>(7000000000); } catch (int64 l) { printf("generic int64 %lld\n", l); }
+    try { boom<string>("gs"); } catch (string s) { printf("generic string %s\n", s); }
+    Box<int> b = Box<int>{v: 11};
+    try { b.fail(); } catch (int i) { printf("method int %d\n", i); }
+    Box<double> bd = Box<double>{v: 0.5};
+    try { bd.fail(); } catch (double d) { printf("method double %f\n", d); }
+    return 0;
+}

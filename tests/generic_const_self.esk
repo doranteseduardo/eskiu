@@ -1,0 +1,20 @@
+// A generic `Type_method` taking `const Box<T>* self` binds T through a read-only
+// receiver (`const Box<int>*`), a const value, and a plain one: const does not change
+// the shape the type arguments are inferred from.
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; }
+
+T Box_get<T>(const Box<T>* self) { return self.v; }
+T Box_twice<T>(const Box<T>* self, T k) { return self.v * k; }
+
+int main() {
+    let b: Box<int>;
+    b.v = 21;
+    const Box<int>* cb = &b;
+    printf("%d\n", cb.get());
+    printf("%d\n", b.get());
+    printf("%d\n", cb.twice(2));
+    printf("%d\n", Box_get(cb));
+    return 0;
+}

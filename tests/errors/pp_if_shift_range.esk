@@ -1,0 +1,4 @@
+// EXPECT-ERROR: shift count 64 is out of range in #if expression
+#if 1 << 64
+#endif
+int main() { return 0; }

@@ -1,0 +1,5 @@
+/* a comment that
+   spans lines */ int g() {
+return 1;
+}
+int main() { return g(); }

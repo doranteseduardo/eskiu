@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot take the address of captured variable 'n'
+// A closure captures by value: a write through the address of its copy is lost.
+int main() {
+    int n = 1;
+    fn()->void f = void() { *(&n) = 5; };
+    f();
+    return n;
+}

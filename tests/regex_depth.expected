@@ -1,0 +1,4 @@
+50000 open: err=regex nesting too deep
+50000 deep: err=regex nesting too deep
+512 deep: ok groups=512 match=1 at=1
+513 deep: err=regex nesting too deep

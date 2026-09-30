@@ -1,0 +1,33 @@
+// alloc_with(&a, T, n): a count whose n * sizeof(T) overflows (or is negative)
+// yields null instead of a wrapped, too-small allocation.
+import <mem>;
+extern int printf(string fmt, ...);
+
+struct Bump { *uint8 buf; int64 cap; int64 off; }
+*void Bump_alloc(Bump* self, int64 n) {
+    if (self.off + n > self.cap) { return (*void)0; }
+    *void p = (*void)(self.buf + self.off);
+    self.off = self.off + n;
+    return p;
+}
+int g_calls = 0;
+struct Small { *uint8 buf; }
+*void Small_alloc(Small* self, int n) { g_calls = g_calls + 1; return (*void)self.buf; }
+
+int main() {
+    *uint8 backing = alloc<uint8>(256);
+    let b: Bump = Bump{ buf: backing, cap: 256, off: 0 };
+    int64 huge = (int64)1 << 61;
+    *int p1 = alloc_with(&b, int, huge);
+    *int64 p2 = alloc_with(&b, int64, (uint64)1 << 62);
+    int neg = 0 - 3;
+    *int p3 = alloc_with(&b, int, neg);
+    *int p4 = alloc_with(&b, int, 4);
+    printf("%d %d %d %d off=%lld\n", (int)(p1 == null), (int)(p2 == null), (int)(p3 == null), (int)(p4 == null), b.off);
+    let s: Small = Small{ buf: backing };
+    *int64 q1 = alloc_with(&s, int64, 1 << 29);
+    *int64 q2 = alloc_with(&s, int64, 8);
+    printf("%d %d calls=%d\n", (int)(q1 == null), (int)(q2 == null), g_calls);
+    free(backing);
+    return 0;
+}

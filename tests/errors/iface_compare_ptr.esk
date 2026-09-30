@@ -1,0 +1,11 @@
+// EXPECT-ERROR: invalid operands for operator
+// An interface value compares only with `null`, not with a pointer.
+interface S { int a(); }
+struct P { int x; }
+int P_a(P* self) { return self.x; }
+int main() {
+    P p = P{ x: 1 };
+    S s = &p;
+    if (s == &p) { return 1; }
+    return 0;
+}

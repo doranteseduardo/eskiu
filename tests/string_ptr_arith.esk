@@ -1,0 +1,28 @@
+// A string is a char pointer: `s + n` / `s - n` / `s += n` step bytes, `a - b` is the
+// byte distance, and `s++` / `--s` step one char.
+extern int printf(string fmt, ...);
+
+int main() {
+    string t = "abcdefgh";
+    string a = t + 3;
+    printf("%s %c\n", a, a[0]);
+    string b = a - 2;
+    printf("%s\n", b);
+    printf("%lld %lld\n", a - t, t - a);
+    string c = t;
+    c += 5;
+    printf("%s\n", c);
+    string d = t;
+    d++;
+    ++d;
+    printf("%s\n", d);
+    d--;
+    printf("%s %c\n", d, *d);
+    int n = 0;
+    for (string p = t; *p != '\0'; p++) { n++; }
+    printf("%d\n", n);
+    *int8 q = (*int8)t;
+    q = q + 1;
+    printf("%c\n", (char)*q);
+    return 0;
+}

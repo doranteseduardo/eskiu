@@ -1,0 +1,26 @@
+// Definite-return analysis: forms that always return are accepted.
+extern int printf(string f, ...);
+// A case falling through into a returning default.
+int fall(int x) { switch (x) { case 1: x = 3; default: return x; } }
+// An infinite loop whose inner labeled break targets only the inner loop.
+int spin(int x) {
+    outer: while (true) {
+        inner: while (true) { if (x > 2) { break inner; } x = x + 1; }
+        if (x > 5) { return x; }
+        x = x + 1;
+        continue outer;
+    }
+}
+// A do-while whose body always returns.
+int once(int x) { do { if (x > 0) { return 1; } return 2; } while (true); }
+// A for(;;) whose break sits in a nested switch (captured by the switch).
+int loop(int x) {
+    for (;;) {
+        switch (x) { case 0: break; default: return x; }
+        x = x + 1;
+    }
+}
+int main() {
+    printf("%d %d %d %d\n", fall(1), spin(0), once(0), loop(0));
+    return 0;
+}

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: variant 'A' needs 1 argument(s)
+enum E { A(int), B }
+int main() { E e = A; match e { A(v) -> return v; B -> return 50; } }

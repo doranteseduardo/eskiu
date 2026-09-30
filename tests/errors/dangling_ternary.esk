@@ -1,0 +1,4 @@
+// EXPECT-ERROR: returning the address of local 'y'
+// Either arm of a ternary may be the returned address.
+*int f(bool c, *int p) { int y = 2; return c ? p : &y; }
+int main() { return 0; }

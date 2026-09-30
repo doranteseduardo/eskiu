@@ -1,0 +1,20 @@
+// Float literals follow C: a denormal keeps its (tiny, nonzero) value, and a literal
+// too large for double is infinity (a local or a global initializer).
+extern int printf(string fmt, ...);
+
+double tiny = 1e-320;
+double gbig = 1e400;
+double gneg = -1e400;
+float gf = 1e40;
+
+int main() {
+    double d = 1e-320;
+    double big = 1e400;
+    float f = 1e40;
+    printf("%d %d\n", (int)(d > 0.0), (int)(d < 1e-300));
+    printf("%d %d\n", (int)(tiny > 0.0), (int)(tiny == d));
+    printf("%d %d\n", (int)(big > 1e308), (int)(big == big * 2.0));
+    printf("%d\n", (int)((double)f > 1e39));
+    printf("%d %d %d\n", (int)(gbig == big), (int)(gneg < -1e308), (int)((double)gf == (double)f));
+    return 0;
+}

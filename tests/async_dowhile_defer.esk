@@ -1,0 +1,66 @@
+// do/while, defer and capturing lambdas inside async functions, around awaits.
+import <future>;
+extern int printf(string fmt, ...);
+
+Future<int>* produce(int v) {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, v);
+    return f;
+}
+
+int apply(fn(int)->int f, int v) { return f(v); }
+
+// do/while after an await (plain loop) and with an await in its body.
+async int dw(int n) {
+    int x = await produce(n);
+    int s = 0;
+    do { s += x; x--; } while (x > 0);
+    int i = 0;
+    do {
+        i++;
+        if (i == 2) { continue; }
+        int v = await produce(i);
+        if (v > 4) { break; }
+        s += v * 10;
+    } while (i < 8);
+    return s;
+}
+
+// defer registered after an await, with a later await before the exit.
+async int df(int n) {
+    int x = await produce(n);
+    defer printf("deferred outer %d\n", x);
+    for (int i = 0; i < 3; i++) {
+        defer printf("iteration end %d\n", i);
+        int v = await produce(i);
+        if (v == 1) { continue; }
+        printf("body %d\n", v);
+    }
+    int y = await produce(x + 1);
+    printf("before return %d\n", y);
+    return y;
+}
+
+// A lambda capturing hoisted locals snapshots them where it is created.
+async int lam(int n) {
+    int x = await produce(n);
+    int k = 10;
+    int r = apply(int(int y) { return y + x + k; }, 1);
+    let f: fn(int)->int = int(int y) { return y * x; };
+    x = 100;
+    int z = await produce(2);
+    return r + f(z);
+}
+
+int main() {
+    Future<int>* a = dw(4);
+    printf("dw %d\n", a.value);
+    free_future<int>(a);
+    Future<int>* b = df(4);
+    printf("df %d\n", b.value);
+    free_future<int>(b);
+    Future<int>* c = lam(4);
+    printf("lam %d\n", c.value);
+    free_future<int>(c);
+    return 0;
+}

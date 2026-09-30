@@ -1,0 +1,20 @@
+// Go-to-definition resolves by scope: each `n` use maps to the `n` visible there.
+// DEF 13:12 11:9
+// DEF 17:13 16:9
+// DEF 18:12 16:9
+// DEF 18:16 20:5
+// DEF 18:39 8:5
+extern int printf(string fmt, ...);
+int total = 0;
+
+int f() {
+    int n = 1;
+    int unrelated = 2;
+    return n;
+}
+int main() {
+    int n = 5;
+    total = n;
+    return n + unrelated_fn() + f() + total;
+}
+int unrelated_fn() { return 0; }

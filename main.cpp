@@ -11,6 +11,11 @@
 #endif
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
+#ifdef _WIN32
+  #include "llvm/Support/thread.h"
+#else
+  #include <pthread.h>
+#endif
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/FileSystem.h"
@@ -22,104 +27,153 @@
 #include "codegen/codegen.h"
 #include "main_support.h"
 
-// Command line options
+// Command line options. All of them live in one category so `--help` lists only
+// Eskiu's options (not the ~200 LLVM internals linked in with the backend).
+static llvm::cl::OptionCategory EskiuCat("Eskiu options");
+
+static const char* OVERVIEW =
+    "Eskiu Language Compiler\n\n"
+    "  eskiuc file.esk [more.esk ...] -o prog   compile and link an executable\n"
+    "  eskiuc file.esk -c -o file.o             compile to an object file\n"
+    "  eskiuc run [flags] file.esk [--] [args]  compile to a temp executable and run it\n"
+    "  eskiuc fmt [--check] file.esk ...        reindent files in place\n";
 static llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional,
-                                                 llvm::cl::desc("<input .esk file>"));
+                                                 llvm::cl::desc("<input .esk file>"),
+    llvm::cl::cat(EskiuCat));
 
 // Additional .esk files: `eskiuc a.esk b.esk -o prog` compiles them together.
 static llvm::cl::list<std::string> ExtraInputs(llvm::cl::Positional,
-                                               llvm::cl::desc("[additional .esk files]"));
+                                               llvm::cl::desc("[additional .esk files]"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> OutputFilename("o",
                                                   llvm::cl::desc("Output filename"),
-                                                  llvm::cl::value_desc("filename"));
+                                                  llvm::cl::value_desc("filename"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestLexer("test-lexer",
-                                     llvm::cl::desc("Tokenize input and print token stream"));
+                                     llvm::cl::desc("Tokenize input and print token stream"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestParser("test-parser",
-                                      llvm::cl::desc("Parse input and print AST"));
+                                      llvm::cl::desc("Parse input and print AST"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestCodegen("test-codegen",
-                                       llvm::cl::desc("Generate LLVM IR and print it"));
+                                       llvm::cl::desc("Generate LLVM IR and print it"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> TestTypeChecker("test-typechecker",
-                                           llvm::cl::desc("Type check input and report errors"));
+                                           llvm::cl::desc("Type check input and report errors"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> TargetTriple("target",
     llvm::cl::desc("Override target triple (e.g. x86_64-pc-none, aarch64-unknown-none)"),
-    llvm::cl::value_desc("triple"));
+    llvm::cl::value_desc("triple"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> TargetCPU("mcpu",
     llvm::cl::desc("Override target CPU (e.g. mpcore for the 3DS ARM11)"),
-    llvm::cl::value_desc("cpu"));
+    llvm::cl::value_desc("cpu"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> TargetFeatures("mattr",
     llvm::cl::desc("Target feature string, LLVM -mattr syntax (e.g. +vfp2)"),
-    llvm::cl::value_desc("features"));
+    llvm::cl::value_desc("features"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> RelocModel("reloc",
     llvm::cl::desc("Relocation model: pic (default), static, dynamic-no-pic. "
                    "3DS .3dsx targets need 'static'."),
-    llvm::cl::value_desc("model"));
+    llvm::cl::value_desc("model"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Freestanding("freestanding",
-    llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"));
+    llvm::cl::desc("Compile without libc — alloc/free use esk_alloc/esk_free"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Safe("safe",
-    llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"));
+    llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
-                   "and functions, and assignment used as a condition"));
+                   "and functions, and assignment used as a condition"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Wextra("Wextra",
-    llvm::cl::desc("Extra warnings: signed/unsigned comparison mismatches"));
+    llvm::cl::desc("Extra warnings: signed/unsigned comparison mismatches"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> HoverAt("hover-at",
     llvm::cl::desc("Print the Eskiu type at LINE:COL (e.g. --hover-at 8:12)"),
-    llvm::cl::value_desc("LINE:COL"));
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::desc("Print the definition location of the symbol at LINE:COL"),
-    llvm::cl::value_desc("LINE:COL"));
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> CompileOnly("c",
-    llvm::cl::desc("Compile to an object file only; do not link"));
+    llvm::cl::desc("Compile to an object file only; do not link"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::list<std::string> LinkLibs("l", llvm::cl::Prefix,
-    llvm::cl::desc("Link against a library, e.g. -lpthread (passed to the linker)"));
+    llvm::cl::desc("Link against a library, e.g. -lpthread (passed to the linker)"),
+    llvm::cl::cat(EskiuCat));
+
+static llvm::cl::opt<bool> NoDefaultLibs("no-default-libs",
+    llvm::cl::desc("Do not add the libraries the program implies (#pragma link, the C++ "
+                   "exception runtime, pthread); link only what -l names"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::list<std::string> LinkPaths("L", llvm::cl::Prefix,
-    llvm::cl::desc("Add a library search path (passed to the linker)"));
+    llvm::cl::desc("Add a library search path (passed to the linker)"),
+    llvm::cl::cat(EskiuCat));
 
 static llvm::cl::list<std::string> LinkArgs("link-arg",
     llvm::cl::desc("Pass an extra argument to the linker (repeatable)"),
-    llvm::cl::value_desc("arg"));
+    llvm::cl::value_desc("arg"),
+    llvm::cl::cat(EskiuCat));
 
 // Sanitizers: instrument the module (real LLVM passes) and link the runtime.
 static llvm::cl::opt<bool> Asan("asan",
-    llvm::cl::desc("Instrument with AddressSanitizer (detects memory errors)"));
+    llvm::cl::desc("Instrument with AddressSanitizer (detects memory errors)"),
+    llvm::cl::cat(EskiuCat));
 static llvm::cl::opt<bool> Ubsan("ubsan",
-    llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"));
+    llvm::cl::desc("Instrument with bounds checking (traps on out-of-bounds access)"),
+    llvm::cl::cat(EskiuCat));
 
 // Optimization level: -O0 (default, naive IR straight to the backend), -O1/-O2/-O3
 // run the LLVM middle-end (mem2reg/SROA/instcombine/inlining/GVN/...) before codegen.
 static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::desc("Optimization level: -O0 (default), -O1, -O2, -O3"),
-    llvm::cl::init(0));
+    llvm::cl::init(0),
+    llvm::cl::cat(EskiuCat));
 
-const char* VERSION = "0.9.1";
+const char* VERSION = "0.9.2";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
 static bool g_runMode = false;
 static std::vector<std::string> g_runArgs;
+static bool sawSeparator = false;   // a `--` after the script separates program args
+
+// Every input file: the first positional plus the extra ones (`eskiuc a.esk b.esk`).
+// The build and the --test-parser/typechecker/codegen modes all merge them.
+static std::vector<std::string> allInputs() {
+    std::vector<std::string> ins = { std::string(InputFilename) };
+    for (const auto& f : ExtraInputs) ins.push_back(f);
+    return ins;
+}
 
 // Test lexer: tokenize and print all tokens
-static void testLexer(const std::string& filename) {
+static int testLexer(const std::string& filename) {
     std::string source = readFile(filename);
-    Lexer lexer(source);
+    std::map<std::string, Macro> macros;
+    seedPredefinedMacros(macros, std::string(TargetTriple), Freestanding);
+    Lexer lexer(source, &macros, filename);
 
     std::cout << "Tokenizing: " << filename << std::endl;
     std::cout << "========================================================" << std::endl;
@@ -129,9 +183,12 @@ static void testLexer(const std::string& filename) {
 
     while (tok.type != TokenType::EOF_TOKEN) {
         std::string typeStr = tokenTypeToString(tok.type);
-        std::cout << "  Line " << std::string(3 - std::to_string(tok.line).length(), ' ') << tok.line
-                  << ", Col " << std::string(3 - std::to_string(tok.column).length(), ' ') << tok.column
-                  << "  " << std::string(15 - typeStr.length(), ' ') << typeStr
+        // Right-align like printf("%3d") / "%15s": pad short fields, never truncate
+        // (a column past 999 must not underflow the pad count).
+        auto pad = [](const std::string& v, size_t w) { return std::string(v.size() < w ? w - v.size() : 0, ' ') + v; };
+        std::cout << "  Line " << pad(std::to_string(tok.line), 3)
+                  << ", Col " << pad(std::to_string(tok.column), 3)
+                  << "  " << pad(typeStr, 15)
                   << "  '" << tok.value << "'" << std::endl;
         tok = lexer.next_token();
         tokenCount++;
@@ -139,11 +196,12 @@ static void testLexer(const std::string& filename) {
 
     std::cout << "========================================================" << std::endl;
     std::cout << "Total tokens: " << tokenCount << std::endl;
+    return lexer.hadError ? 1 : 0;
 }
 
 // Test type checker: tokenize, parse, type check, and report errors
 static int testTypeChecker(const std::string& filename) {
-    auto program = loadProgram(filename);
+    auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
         return 1;
@@ -154,7 +212,7 @@ static int testTypeChecker(const std::string& filename) {
 
     try {
         // Type check
-        TypeChecker typeChecker;
+        TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = filename;
         typeChecker.warnAll = Wall;
         typeChecker.warnExtra = Wextra;
@@ -175,11 +233,11 @@ static int testTypeChecker(const std::string& filename) {
 }
 
 // Test codegen: tokenize, parse, generate LLVM IR, and print it
-static void testCodegen(const std::string& filename) {
-    auto program = loadProgram(filename);
+static int testCodegen(const std::string& filename) {
+    auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
-        return;
+        return 1;
     }
 
     std::cout << "Generating LLVM IR: " << filename << std::endl;
@@ -188,19 +246,23 @@ static void testCodegen(const std::string& filename) {
     try {
         // Type-check first: the async transform relies on resolved await types,
         // and codegen on the type checker's struct/enum registration.
-        TypeChecker tc;
+        TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
         tc.sourceFile = filename;
         if (!tc.check(program.get())) {
             std::cerr << "Type checking failed!" << std::endl;
-            return;
+            return 1;
         }
-        AsyncTransform().run(program.get());
+        AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.sourceFile = filename;
-        postTc.check(program.get());
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = filename;
+        if (!postTc.check(program.get())) {
+            std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
+            return 1;
+        }
         // Codegen
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
+        codegen.semaInstanceArgs = &postTc.instanceArgsMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
@@ -212,7 +274,7 @@ static void testCodegen(const std::string& filename) {
 
         if (!module) {
             std::cerr << "Code generation failed!" << std::endl;
-            return;
+            return 1;
         }
 
         if (OptLevel) codegen.optimizeModule();
@@ -225,16 +287,17 @@ static void testCodegen(const std::string& filename) {
         std::cout << "Code generation succeeded!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
-        return;
+        return 1;
     }
+    return 0;
 }
 
 // Test parser: tokenize, parse, and print AST
-static void testParser(const std::string& filename) {
-    auto program = loadProgram(filename);
+static int testParser(const std::string& filename) {
+    auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
     if (!program) {
         std::cerr << "Parse failed!" << std::endl;
-        return;
+        return 1;
     }
 
     std::cout << "Parsing: " << filename << std::endl;
@@ -245,9 +308,10 @@ static void testParser(const std::string& filename) {
 
     std::cout << "========================================================" << std::endl;
     std::cout << "Parse succeeded!" << std::endl;
+    return 0;
 }
 
-int main(int argc, char** argv) {
+static int compilerMain(int argc, char** argv) {
     llvm::InitLLVM X(argc, argv);
 
     // Set version string for LLVM's built-in --version
@@ -276,20 +340,37 @@ int main(int argc, char** argv) {
     // parser; everything after the script becomes the program's argv.
     if (argc >= 2 && std::string(argv[1]) == "run") {
         g_runMode = true;
+        // Options that take their value as the next argument (`-o out`, `--target T`):
+        // that argument is the option's value, not the script.
+        static const std::set<std::string> valueOpts = {
+            "-o", "-target", "--target", "-mcpu", "--mcpu", "-mattr", "--mattr",
+            "-reloc", "--reloc", "-link-arg", "--link-arg", "-hover-at", "--hover-at",
+            "-definition-at", "--definition-at", "-l", "-L",
+        };
         std::vector<char*> clArgv = { argv[0] };
         bool gotScript = false;
         for (int i = 2; i < argc; ++i) {
+            std::string a = argv[i];
             if (!gotScript) {
+                if (a == "--") {                              // end of compiler flags
+                    if (i + 1 < argc) { clArgv.push_back(argv[++i]); gotScript = true; }
+                    continue;
+                }
                 clArgv.push_back(argv[i]);
-                if (argv[i][0] != '-') gotScript = true;   // first non-flag = the script
+                if (valueOpts.count(a) && i + 1 < argc) { clArgv.push_back(argv[++i]); continue; }
+                if (a[0] != '-') gotScript = true;           // first non-flag = the script
+            } else if (g_runArgs.empty() && a == "--" && !sawSeparator) {
+                sawSeparator = true;                          // `run f.esk -- args`: drop the `--`
             } else {
                 g_runArgs.push_back(argv[i]);
             }
         }
         int newArgc = (int)clArgv.size();
-        llvm::cl::ParseCommandLineOptions(newArgc, clArgv.data(), "Eskiu Language Compiler\n");
+        llvm::cl::HideUnrelatedOptions(EskiuCat);
+        llvm::cl::ParseCommandLineOptions(newArgc, clArgv.data(), OVERVIEW);
     } else {
-        llvm::cl::ParseCommandLineOptions(argc, argv, "Eskiu Language Compiler\n");
+        llvm::cl::HideUnrelatedOptions(EskiuCat);
+        llvm::cl::ParseCommandLineOptions(argc, argv, OVERVIEW);
     }
 
     // Resolve stdlib root once — used by all parsers for import <name>
@@ -300,17 +381,34 @@ int main(int argc, char** argv) {
         std::cerr << "error: no input file specified" << std::endl;
         return 1;
     }
+    if (OptLevel > 3) {
+        std::cerr << "error: invalid optimization level '-O" << OptLevel
+                  << "' (use -O0, -O1, -O2 or -O3)" << std::endl;
+        return 1;
+    }
+    // Refuse an output path that names one of the inputs: `-o prog.esk` would
+    // silently replace the source with an object file or executable.
+    if (!OutputFilename.empty()) {
+        std::string outCanon = Parser::canonicalPath(std::string(OutputFilename));
+        std::vector<std::string> ins = { std::string(InputFilename) };
+        for (const auto& f : ExtraInputs) ins.push_back(f);
+        for (const auto& f : ins) {
+            if (Parser::canonicalPath(f) == outCanon) {
+                std::cerr << "error: output file '" << std::string(OutputFilename)
+                          << "' would overwrite the input '" << f << "'" << std::endl;
+                return 1;
+            }
+        }
+    }
 
     // Handle --test-lexer
     if (TestLexer) {
-        testLexer(InputFilename);
-        return 0;
+        return testLexer(InputFilename);
     }
 
     // Handle --test-parser
     if (TestParser) {
-        testParser(InputFilename);
-        return 0;
+        return testParser(InputFilename);
     }
 
     // Handle --test-typechecker
@@ -324,10 +422,10 @@ int main(int argc, char** argv) {
         if (sscanf(HoverAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --hover-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram(std::string(InputFilename));
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
             std::string type = tc.getTypeAtPosition(line, col);
@@ -343,10 +441,10 @@ int main(int argc, char** argv) {
         if (sscanf(DefinitionAt.c_str(), "%d:%d", &line, &col) != 2) {
             std::cerr << "error: --definition-at expects LINE:COL format\n"; return 1;
         }
-        auto program = loadProgram(std::string(InputFilename));
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
             std::string loc = tc.getDefinitionAt(line, col);
@@ -358,99 +456,23 @@ int main(int argc, char** argv) {
 
     // Handle --test-codegen
     if (TestCodegen) {
-        testCodegen(InputFilename);
-        return 0;
+        return testCodegen(InputFilename);
     }
 
     // Full compilation pipeline — parse every input file and merge their
     // top-level declarations into a single program (`eskiuc a.esk b.esk ...`).
-    std::vector<std::string> inputs = { std::string(InputFilename) };
-    for (const auto& f : ExtraInputs) inputs.push_back(f);
-
     try {
-        std::vector<DeclPtr> mergedDecls;
-        std::set<std::string> importedFiles;     // shared: a common import is parsed once
-        std::map<std::string, Macro> macros;     // shared: #defines propagate across files
-
-        // Predefine a platform macro so stdlib can #ifdef per OS (the event-loop
-        // backend and sockaddr_in layout differ between macOS and Linux). It follows
-        // the --target triple when cross-compiling, else the build host — otherwise a
-        // `--target x86_64-linux-gnu` build on macOS would still select the kqueue
-        // path and emit unresolved BSD symbols.
-        {
-            Macro os; os.body = "1";
-            std::string tt = std::string(TargetTriple);
-            bool tgtLinux = tt.find("linux") != std::string::npos;
-            bool tgtApple = tt.find("apple") != std::string::npos ||
-                            tt.find("darwin") != std::string::npos ||
-                            tt.find("macos") != std::string::npos;
-            bool tgtWindows = tt.find("windows") != std::string::npos ||
-                              tt.find("win32") != std::string::npos ||
-                              tt.find("mingw") != std::string::npos;
-            // _WIN64 accompanies _WIN32 on 64-bit Windows (MSVC keeps _WIN32 defined
-            // for both widths and adds _WIN64 only when 64-bit).
-            bool tgt64 = tt.find("x86_64") != std::string::npos ||
-                         tt.find("amd64") != std::string::npos ||
-                         tt.find("aarch64") != std::string::npos;
-            if (tgtLinux)        { macros["__linux__"] = os; }
-            else if (tgtApple)   { macros["__APPLE__"] = os; }
-            else if (tgtWindows) {
-                macros["_WIN32"] = os;
-                if (tgt64) macros["_WIN64"] = os;
-            }
-            else if (tt.empty()) {
-                // Native build: follow the build host.
-#if defined(_WIN32)
-                macros["_WIN32"] = os;
-#if defined(_WIN64)
-                macros["_WIN64"] = os;
-#endif
-#elif defined(__APPLE__)
-                macros["__APPLE__"] = os;
-#elif defined(__linux__)
-                macros["__linux__"] = os;
-#endif
-            }
-            // else: an explicit bare-metal or otherwise non-hosted triple (e.g. the
-            // 3DS's armv6k-none-eabihf) defines no OS macro. Bare metal has no host OS,
-            // so portable code guards that path explicitly rather than falling through
-            // to the build host's.
+        std::map<std::string, Macro> macros;
+        bool lexFailed = false;
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding,
+                                   &macros, &lexFailed);
+        if (!program) {
+            if (!lexFailed) std::cerr << "error: parse failed" << std::endl;
+            return 1;
         }
-        // Predefine __ESKIU_FREESTANDING__ under --freestanding so stdlib (e.g.
-        // <mem>'s alloc/free) can target esk_alloc/esk_free instead of libc.
-        if (Freestanding) {
-            Macro fs; fs.body = "1";
-            macros["__ESKIU_FREESTANDING__"] = fs;
-        }
+        const std::vector<std::string>& pragmaLibs = program->linkLibs;
 
-        for (const auto& fname : inputs) {
-            std::string source = readFile(fname);
-            Lexer lexer(source, &macros, fname);
-            std::vector<Token> tokens;
-            Token tok = lexer.next_token();
-            while (tok.type != TokenType::EOF_TOKEN) {
-                tokens.push_back(tok);
-                tok = lexer.next_token();
-            }
-            tokens.push_back(tok);
-            if (lexer.hadError) return 1;
-
-            Parser parser(tokens);
-            parser.stdlibPath = stdlibRoot;
-            parser.basedir = dirOf(fname);
-            parser.importedFiles = &importedFiles;
-            parser.macros = &macros;
-            auto prog = parser.parse();
-            if (!prog) {
-                std::cerr << "error: parse failed" << std::endl;
-                return 1;
-            }
-            mergedDecls.insert(mergedDecls.end(),
-                               prog->declarations.begin(), prog->declarations.end());
-        }
-        auto program = std::make_shared<Program>(mergedDecls);
-
-        TypeChecker typeChecker;
+        TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = std::string(InputFilename);
         typeChecker.warnAll = Wall;
         typeChecker.warnExtra = Wextra;
@@ -458,12 +480,16 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        AsyncTransform().run(program.get());
+        AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.sourceFile = std::string(InputFilename);
-        postTc.check(program.get());
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = std::string(InputFilename);
+        if (!postTc.check(program.get())) {
+            std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
+            return 1;
+        }
         CodeGen codegen;
         codegen.resolvedExprTypes = &postTc.expressionTypeMap();
+        codegen.semaInstanceArgs = &postTc.instanceArgsMap();
         if (!TargetTriple.empty()) codegen.targetTriple = std::string(TargetTriple);
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
@@ -516,6 +542,20 @@ int main(int argc, char** argv) {
             std::vector<std::string> extra(LinkArgs.begin(), LinkArgs.end());
             // ASan needs its runtime linked; --ubsan traps directly (no runtime).
             if (Asan) extra.push_back("-fsanitize=address");
+            // The libraries the program implies go after every object (a --link-arg
+            // object may need them too), skipping any -l already given.
+            if (!NoDefaultLibs) {
+                llvm::Module* mod = codegen.getModule();
+                bool usesEH = mod->getFunction("__cxa_throw") || mod->getFunction("__cxa_rethrow") ||
+                              mod->getFunction("__gxx_personality_v0") ||
+                              mod->getFunction("__gxx_personality_seh0");
+                bool usesThreads = mod->getFunction("pthread_create") != nullptr;
+                std::vector<std::string> implied = pragmaLibs;
+                for (const auto& l : implicitLinkLibs(macros, usesEH, usesThreads)) implied.push_back(l);
+                std::set<std::string> seen(libs.begin(), libs.end());
+                for (const auto& l : implied)
+                    if (seen.insert(l).second) extra.push_back("-l" + l);
+            }
             bool ok = linkExecutable(tmpObjPath, outFile, libs, paths, extra, /*sanitized=*/Asan);
             llvm::sys::fs::remove(tmpObjPath);
             if (!ok) { if (g_runMode) llvm::sys::fs::remove(runExePath); return 1; }
@@ -525,18 +565,58 @@ int main(int argc, char** argv) {
                 llvm::sys::fs::remove(runExePath);
                 return rc;
             }
-            std::cout << outFile << std::endl;
             return 0;
         }
 
         if (!codegen.emitObjectFile(outFile)) {
             return 1;
         }
-
-        std::cout << outFile << std::endl;
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << std::endl;
         return 1;
     }
+}
+
+// The parser, the type checker, the async transform and codegen recurse once per nesting
+// level of the source (parentheses, blocks, nested ifs and lambdas), so the pipeline runs
+// on a thread with a large stack: deep input then reaches the parser's nesting limit
+// (Parser::kMaxNesting) instead of overflowing a default 8 MB main-thread stack. The
+// stack is reserved address space; pages are only touched as deep input needs them. If
+// the thread cannot be created, the compiler runs on the current thread.
+static constexpr unsigned kPipelineStackBytes = 1u << 30;   // 1 GB
+
+#ifndef _WIN32
+namespace {
+struct MainArgs { int argc; char** argv; int rc; };
+void* runCompilerMain(void* p) {
+    auto* a = static_cast<MainArgs*>(p);
+    a->rc = compilerMain(a->argc, a->argv);
+    return nullptr;
+}
+}  // namespace
+#endif
+
+int main(int argc, char** argv) {
+#ifdef _WIN32
+    int rc = 1;
+    llvm::thread worker(std::optional<unsigned>(kPipelineStackBytes),
+                        [&] { rc = compilerMain(argc, argv); });
+    worker.join();
+    return rc;
+#else
+    MainArgs args{argc, argv, 1};
+    pthread_attr_t attr;
+    pthread_t tid;
+    if (pthread_attr_init(&attr) == 0) {
+        bool started = pthread_attr_setstacksize(&attr, kPipelineStackBytes) == 0 &&
+                       pthread_create(&tid, &attr, runCompilerMain, &args) == 0;
+        pthread_attr_destroy(&attr);
+        if (started) {
+            pthread_join(tid, nullptr);
+            return args.rc;
+        }
+    }
+    return compilerMain(argc, argv);
+#endif
 }

@@ -40,10 +40,10 @@ int main() {
     let t0: *void = thread_create(client);
     let t1: *void = thread_create(client);
     let t2: *void = thread_create(client);
-    if (future_poll<uint8>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t0);  thread_join(t1);  thread_join(t2);
     free_future<uint8>(f);
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     net_close(fd);
     printf("ok=%d\n", g_ok);
     if (g_ok != 3) { return 1; }       // all three round-trips must have succeeded

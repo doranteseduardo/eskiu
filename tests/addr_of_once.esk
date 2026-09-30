@@ -1,0 +1,31 @@
+// `&e` evaluates its operand once: side effects in an index, a call base or a for-in
+// iterable run a single time.
+import <list>;
+extern int printf(string fmt, ...);
+int n = 0;
+int f() { n++; return 1; }
+int f0() { n++; return 0; }
+struct P { int x; int[3] v; }
+P gp;
+int gc = 0;
+*P getp() { gc++; return &gp; }
+int[8] A;
+*int ga() { n++; return &A[0]; }
+int main() {
+  *int q1 = &A[f()]; printf("a %d\n", n);
+  *int q2 = &getp().x; printf("b %d\n", gc);
+  *int q3 = &getp().v[0]; printf("c %d\n", gc);
+  n = 0; *int q4 = &gp.v[f()]; printf("d %d\n", n);
+  int[8] buf = {10, 11, 12, 13, 14, 15, 16, 17};
+  int i = 0;
+  *int a = &buf[i++];
+  printf("%d i=%d\n", *a, i);
+  n = 0; *int pp = &*ga(); printf("e n=%d\n", n);
+  n = 0; *int p2 = &ga()[f()]; printf("f n=%d\n", n);
+  List<int>[2] ls; ls[0].init(2); ls[0].push(5); ls[0].push(6);
+  int s = 0;
+  n = 0;
+  for (x in ls[f0()]) { s += x; }
+  printf("s=%d n=%d\n", s, n);
+  return 0;
+}

@@ -1,0 +1,6 @@
+// Imported by tests/pragma_link.esk: a module's #pragma link reaches the final link.
+#pragma link("m")
+
+extern double pow(double base, double exp);
+
+double pmod_pow(double b, double e) { return pow(b, e); }

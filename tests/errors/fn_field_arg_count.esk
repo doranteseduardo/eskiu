@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 'cb' expects 1 argument(s), got 0
+struct H { fn(int)->int cb; }
+int main() { let h: H; h.cb = int(int x) { return x; }; return h.cb(); }

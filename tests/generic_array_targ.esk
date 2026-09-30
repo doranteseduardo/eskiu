@@ -1,0 +1,17 @@
+// An array or slice type argument (`Box<int[3]>`, `Box<int[]>`) instantiates a generic
+// struct distinct from `Box<int>`.
+extern int printf(string fmt, ...);
+struct Box<T> { T v; int tag; }
+
+int main() {
+    Box<int[3]> b; b.v[2] = 7; b.tag = 1;
+    Box<int[2][3]> m; m.v[1][2] = 9; m.tag = 2;
+    Box<int> p; p.v = 5; p.tag = 3;
+    int[4] arr = {1, 2, 3, 4};
+    Box<int[]> s; s.v = arr[1..4]; s.tag = 4;
+    printf("%d %d %d %d\n", b.v[2], m.v[1][2], p.v, s.v[2]);
+    printf("%d %d %d %d\n", (int)sizeof(Box<int[3]>), (int)sizeof(Box<int[2][3]>),
+           (int)sizeof(Box<int>), (int)sizeof(Box<int[]>));
+    printf("%d %d %d %lld\n", b.tag, m.tag, p.tag, s.v.len);
+    return 0;
+}

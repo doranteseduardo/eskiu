@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid digit '9' in octal literal '019'
+int main() { int x = 019; return x; }

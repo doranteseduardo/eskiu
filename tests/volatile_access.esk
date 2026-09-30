@@ -1,0 +1,27 @@
+// Every access through a `volatile` variable is volatile: the variable itself and the
+// places reached from it (`*p`, `p[i]`, `p.f`), for loads, stores, `++` and compound
+// assignment, for locals and globals. tests/run.sh and tests/selfhost/cg_parity.sh
+// check the emitted IR: the marked lines must be `load volatile` / `store volatile`.
+extern int printf(string fmt, ...);
+
+struct Dev { int ctrl; int data; }
+
+int cell = 5;
+int[4] regs;
+Dev dev;
+volatile let gp: *int = &cell;
+
+int main() {
+    volatile let p: *int = &regs[0];
+    volatile let d: *Dev = &dev;
+    *gp = 7;
+    p[2] = 9;
+    d.ctrl = 3;
+    *p += 4;
+    p[1]++;
+    int a = *gp;
+    int b = p[2];
+    int c = d.ctrl;
+    printf("%d %d %d %d %d\n", a, b, c, regs[0], regs[1]);
+    return 0;
+}

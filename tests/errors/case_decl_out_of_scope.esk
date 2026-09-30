@@ -1,0 +1,11 @@
+// EXPECT-ERROR: undefined variable 'w'
+// A declaration after a case label ends with the switch body.
+int g(int x) {
+    switch (x) {
+        case 1:
+            int w = 2;
+            break;
+    }
+    return w;
+}
+int main() { return g(1); }

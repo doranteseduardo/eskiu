@@ -1,0 +1,4 @@
+// EXPECT-ERROR: invalid operands for operator
+// Closures have no built-in `==`.
+int one() { return 1; }
+int main() { fn()->int a = one; fn()->int b = one; if (a == b) { return 1; } return 0; }

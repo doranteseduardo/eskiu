@@ -1,0 +1,5 @@
+// EXPECT-ERROR: unknown type 't'
+struct S { int64 a; }
+S s = S{a: sizeof(t)};
+int64 t = 0;
+int main() { return (int)s.a; }

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: undefined template function 'nope'
+int main() { return nope<int>(1); }

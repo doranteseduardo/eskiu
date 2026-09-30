@@ -55,10 +55,10 @@ int main() {
     close(fds[1]);
     g = el_new(64);
     Future<int>* b = sum_list(g, &lst, fds[0]);
-    if (future_poll<int>(b, void() { el_stop(g); }) == 0) { el_run(g); }
+    if (future_poll<int>(b, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     printf("%d\n", b.value);            // 12
     free_future<int>(b);
-    el_free(g);
+    EventLoop_free(g);
     free((*void)lst.data);
     return 0;
 }

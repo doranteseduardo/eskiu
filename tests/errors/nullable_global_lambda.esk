@@ -1,0 +1,13 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// A lambda body runs later: a global proven non-null where the lambda is written is not
+// proven when it is called.
+struct S { int v; }
+?*S gp = null;
+int main() {
+    S s = S{v: 7};
+    gp = &s;
+    fn()->int f;
+    if (gp != null) { f = int() { return gp.v; }; }
+    gp = null;
+    return f();
+}

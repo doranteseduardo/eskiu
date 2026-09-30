@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot convert
+struct P { int a; }
+struct Q { int a; }
+int main() { P p = Q{a: 1}; return p.a; }

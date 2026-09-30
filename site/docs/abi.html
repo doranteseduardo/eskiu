@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -194,8 +194,9 @@ pointer <code>?*T</code> has the identical representation to <code>*T</code> (a 
 non-null requirement is enforced by the type checker at compile time and adds no
 runtime cost or storage.</p>
 <p>A leading <code>*</code> and a trailing <code>[N]</code> follow the source rule that the array binds
-outermost: <code>*T[N]</code> is an array of N <code>ptr</code> elements, while a pointer to an array is
-spelled <code>T[N]*</code> (a single <code>ptr</code>). For C interop, libc <code>size_t</code> parameters and returns
+outermost: <code>*T[N]</code> is an array of N <code>ptr</code> elements. There is no pointer-to-array
+spelling (<code>T[N]*</code> does not parse); a <code>*T</code> to the first element is the single <code>ptr</code> C
+code expects for a <code>T (*)[N]</code>. For C interop, libc <code>size_t</code> parameters and returns
 (<code>strlen</code>, the size argument of <code>memcpy</code>/<code>memset</code>/<code>memmove</code>/<code>memcmp</code>/<code>memchr</code>) are
 declared <code>int64</code> so the extern signatures match the C ABI on 64-bit targets.</p>
 <p><code>const</code> has <strong>no ABI effect</strong>. Every <code>const</code> qualifier (base/pointee <code>const T</code>,
@@ -218,16 +219,53 @@ and the total size rounded up to the struct's alignment (<code>min(max-field-ali
 N)</code>). The result is emitted as a packed LLVM struct (padding is explicit) and
 matches the C <code>#pragma pack(N)</code> ABI. Field access goes through a
 logical→physical index map (padding shifts indices).</p>
+<p>LLVM sees such a struct as 1-aligned, so its C alignment (<code>min(max-field-align,
+N)</code>) is recorded beside the type (<code>cAlignOverride</code> / <code>cg_set_calign</code>) and read
+through <code>cAlignOf</code> / <code>cg_c_align</code> wherever C alignment matters: a struct with a
+field (or array element) whose C alignment is above LLVM's is laid out the same
+way by hand (no cap) and records its own alignment, and so do a bitfield struct
+and a union holding one; the C ABI lowering classifies the aggregate with that
+alignment and takes the leaves of a hand-laid struct from its fields, not its
+padding runs. The type checker's <code>constLayout</code> / <code>sema_const_layout</code> fold
+<code>sizeof</code> with the same alignment.</p>
 <h3 id="bitfields">Bitfields</h3>
-<p>Consecutive bitfields are packed into a storage word of the field's declared
-integer type; a non-bitfield field closes the current word. Each field records
-its physical slot, bit offset and width. Reads load the word, shift by the bit
-offset and mask (sign-extending for signed fields); writes are read-modify-write
-of the word.</p>
+<p>A struct with bitfields is laid out the way the target's C compiler does it.</p>
+<ul>
+<li><strong>SysV / AAPCS targets</strong> (Linux, macOS, bare-metal ARM; clang's Itanium
+  layout): a bitfield takes the next free bit unless that would make it cross a
+  boundary of a storage unit of its declared type (a <code>uint32</code> field must fit in
+  an aligned 4-byte unit), in which case it starts at that boundary. So adjacent
+  bitfields of different declared types share bytes (<code>uint8 a:4; uint32 w:12;</code>
+  is 4 bytes, <code>w</code> at bits 4..15), and a normal field starts at the next free
+  byte, aligned, possibly inside a bitfield's unit (<code>uint32 a:4; char c;</code> puts
+  <code>c</code> at offset 1). The struct is aligned to its most aligned field, bitfields
+  included. In a <code>packed struct</code> or under <code>#pragma pack(N)</code>, bitfields are
+  packed back to back with no unit rule.</li>
+<li><strong>Windows targets</strong> (MS layout): consecutive bitfields share a storage word
+  of their declared type while the type size stays the same and the next one
+  fits; a new word opens when the declared type size changes or the field does
+  not fit, and a normal field closes the current word. Under <code>#pragma pack(N)</code>
+  each word and field is aligned to at most N.</li>
+</ul>
+<p>Under the SysV/AAPCS layout every field of such a struct is addressed by byte
+offset. The LLVM type only reproduces the C size and alignment: each storage
+unit as an integer of its declared type, the normal fields outside those units
+as themselves, and <code>[n x i8]</code> for the remaining bytes (a packed struct is a
+packed LLVM struct of normal fields and byte runs). Reads load the bitfield's
+storage unit (in a packed struct, the exact byte span, e.g. <code>i24</code>), shift by the
+bit offset and mask (sign-extending for signed fields); writes, compound
+assignments and <code>++</code>/<code>--</code> are read-modify-write of that unit.</p>
 <h3 id="unions">Unions</h3>
-<p>A <code>union</code> lowers to a single byte array <code>[N x i8]</code> (wrapped in a one-field
-struct), where <code>N</code> is the size of the largest member. All members share offset
-0; a member access reinterprets the storage at that type.</p>
+<p>A <code>union</code> lowers to <code>{ M, [P x i8] }</code>, where <code>M</code> is its most-aligned member
+(ties go to the larger one) and the byte padding brings the size up to the
+largest member rounded to that alignment. So the union has C's size and
+alignment, and lands at the C offset inside a struct (<code>struct { int tag; union {
+int64 l; int i; } u; }</code> puts <code>u</code> at 8). All members share offset 0; a member
+access reinterprets the storage at that type. Under <code>#pragma pack(N)</code> each member's
+alignment is capped at <code>N</code> (as C); when that lowers the union's alignment the storage
+is the packed <code>&lt;{ M, [P x i8] }&gt;</code> with its C alignment recorded (<code>cAlignOverride</code> /
+<code>cg_set_calign</code>), so it lands at the C offset in a struct and the C ABI lowering sees
+the C size and alignment.</p>
 <hr>
 <h2 id="enums">Enums</h2>
 <h3 id="classic-enums">Classic enums</h3>
@@ -256,12 +294,91 @@ lowered types. Scalars and pointers pass in registers per the target ABI.</p>
 (<code>getTypeAllocSize &gt; 16</code>) returns <code>void</code> and takes a hidden pointer as its first
 parameter; the caller allocates the result buffer and passes its address.
 Structs ≤ 16 bytes are returned by value (the target ABI splits them into
-registers as usual). This is the System V / AArch64 rule and is C-compatible.</p>
+registers as usual). This is the convention between Eskiu functions; calls to
+<code>extern</code> C functions follow the C ABI lowering below.</p>
+<p><strong>Aggregates across <code>extern</code> (C ABI).</strong> Between Eskiu functions a struct or
+union argument/result is a first-class LLVM value. An <code>extern</code> function that
+takes or returns one by value is instead declared with the lowered C signature
+(<code>codegen/codegen_cabi.cpp</code>, mirrored by the self-hosted codegen), and each call
+converts to and from it, so it links against C compiled by clang/gcc:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Aggregate argument</th>
+<th>Aggregate result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AArch64 (AAPCS64, Darwin + Linux)</td>
+<td>HFA of 1-4 <code>float</code>/<code>double</code> → <code>[N x fp]</code> in FP registers (with <code>alignstack(8)</code> off Darwin); ≤ 8 bytes → <code>i64</code>; ≤ 16 → <code>[2 x i64]</code>; larger → pointer to a caller-made copy</td>
+<td>HFA → <code>{ fp, ... }</code>; ≤ 8 bytes → <code>iN</code>; ≤ 16 → <code>[2 x i64]</code>; larger → <code>sret</code> (x8)</td>
+</tr>
+<tr>
+<td>x86-64 System V (Linux, macOS)</td>
+<td>each eightbyte classified INTEGER/SSE → one or two register values (<code>i64</code>, <code>i32</code>, <code>double</code>, <code>&lt;2 x float&gt;</code>, <code>ptr</code>, ...), as wide as the data in it (a union's widest member decides: <code>union { int; double; }</code> is <code>i64</code>, <code>union { float; double; }</code> is <code>double</code>); &gt; 16 bytes, a misaligned field, or no free registers left → <code>byval</code></td>
+<td>the same classes as a <code>{ lo, hi }</code> pair or one value; &gt; 16 bytes → <code>sret</code></td>
+</tr>
+<tr>
+<td>Windows x64</td>
+<td>size 1/2/4/8 → <code>iN</code>; otherwise pointer to a caller-made copy</td>
+<td>size 1/2/4/8 → <code>iN</code>; otherwise <code>sret</code></td>
+</tr>
+<tr>
+<td>32-bit ARM (AAPCS)</td>
+<td>hard-float HFA → <code>{ fp, ... }</code>; ≤ 64 bytes → <code>[N x i32]</code> (<code>[N x i64]</code> if 8-aligned); larger → <code>byval</code></td>
+<td>hard-float HFA → <code>{ fp, ... }</code>; ≤ 4 bytes → <code>i32</code>; otherwise <code>sret</code></td>
+</tr>
+<tr>
+<td>32-bit x86 (cdecl: i386 SysV, Darwin, Windows)</td>
+<td>≤ 16 bytes made only of 32/64-bit scalars (<code>int</code>, <code>int64</code>, <code>float</code>, <code>double</code>, pointers) with no padding → those scalars as separate arguments (<code>{ int, double }</code> → <code>i32, double</code>; not on Windows, where <code>double</code> is 8-aligned and leaves padding); anything else → <code>byval</code> in a 4-byte-aligned stack slot</td>
+<td>Linux (and other SysV i386 systems): always <code>sret</code>. Darwin, Windows and the BSDs: 1, 2, 4 or 8 bytes whose fields are each register-sized → <code>iN</code> in EAX:EDX, except a single-element struct of a <code>float</code>/<code>double</code> (in ST0; not under MSVC's rules, mingw keeps it) or a pointer, returned as that scalar; otherwise <code>sret</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>The coerced types match what clang emits for the same C signature
+(<code>tests/selfhost/cabi_parity.sh</code> checks the 32-bit x86 ones against clang's IR
+for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
+<code>va_list</code> are not C aggregates and keep their own layout.</p>
+<p><strong>Narrow integers.</strong> Like clang, an <code>extern</code>'s <code>int8</code>/<code>int16</code>/<code>uint8</code>/<code>uint16</code>/
+<code>bool</code>/<code>char</code> parameters and results are declared <code>signext</code> or <code>zeroext</code> (by the
+type's signedness; <code>char</code> follows the target's C <code>char</code>, unsigned on AArch64 and
+32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
+32 bits. Every Eskiu function returning one extends its result (<code>define signext
+i8 @f</code>), since a C caller (a callback, or C calling it by name) relies on that on
+AArch64 Darwin and x86-64.</p>
+<p><strong>Callbacks from C.</strong> An Eskiu function handed to C as a raw function pointer
+(<code>(*void)f</code>, the cast of a top-level function name to a pointer type) is called
+with the C convention. When it takes or returns an aggregate by value, the cast
+yields the address of a thunk <code>__cabi_&lt;name&gt;</code> instead of <code>@name</code>: the thunk has
+the lowered C signature from the table above (with the same <code>sret</code>/<code>byval</code>
+attributes), rebuilds the Eskiu-level values, calls <code>f</code>, and returns the result
+the C way. A function without by-value aggregates is passed as itself. Eskiu
+code calling <code>f</code> directly is unaffected.</p>
+<p><strong>C function pointer parameters.</strong> A parameter of fn type in an <code>extern</code> (one the
+program does not also define) is a C function pointer: it is declared <code>ptr</code>, not
+the <code>{ fn, env }</code> closure, and each call passes the named top-level function's C
+address (its <code>__cabi_</code> thunk when needed) or <code>null</code>. The type checker rejects any
+other argument there, since a closure's environment cannot cross into C.</p>
 <p><strong>Variadics.</strong> A <code>...</code> parameter makes the LLVM function <code>isVarArg</code>. The built-in
 <code>va_list</code> is the struct <code>{ ptr, ptr, ptr, i32, i32 }</code> (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
-both; <code>va_start</code>/<code>va_arg&lt;T&gt;</code>/<code>va_end</code> lower to the corresponding LLVM
-intrinsics/instruction. Variadic arguments follow C default promotions:
+both; <code>va_start</code>/<code>va_end</code> lower to the LLVM intrinsics. <code>va_arg&lt;T&gt;</code> is the
+LLVM <code>va_arg</code> instruction, except on AArch64 outside Darwin and Windows, whose
+backend does not expand it for the AAPCS64 <code>va_list</code> <code>{__stack, __gr_top,
+__vr_top, __gr_offs, __vr_offs}</code>: there the compiler emits the read as clang does
+(an integer or pointer from the general-register save area while <code>__gr_offs</code> is
+negative, a <code>float</code>/<code>double</code> from the FP/SIMD save area in 16-byte steps while
+<code>__vr_offs</code> is, then <code>__stack</code> in 8-byte slots; <code>emitVaArg</code> / <code>cg_va_arg</code>). On
+x86-64 System V LLVM expands the instruction itself for the scalars <code>va_arg</code>
+reads. An <code>extern</code> parameter of type <code>va_list</code> (<code>vprintf</code>,
+<code>vsnprintf</code>) is declared <code>ptr</code> and gets what C passes for its <code>va_list</code>: the
+address of the storage on x86-64 System V and AArch64 outside Darwin and Windows
+(an array/struct type there), and the <code>char*</code> that <code>llvm.va_start</code> stored at
+offset 0 on Darwin AArch64, Windows x64 and 32-bit ARM (<code>evalCVaList</code> /
+<code>cg_c_va_list</code>). Between Eskiu functions a <code>va_list</code> stays a first-class value.
+Variadic arguments follow C default promotions:
 integers narrower than 32 bits widen to <code>i32</code> (sign- or zero-extended), <code>bool</code>
 zero-extends, and <code>float</code> widens to <code>double</code>.</p>
 <hr>

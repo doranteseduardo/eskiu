@@ -1,0 +1,75 @@
+// A declaration after a case label inside an async function, with and without an
+// await in the switch: the local is visible in the later case it falls into.
+import <future>;
+extern int printf(string fmt, ...);
+
+Future<int>* one() {
+    Future<int>* f = future_new<int>();
+    future_complete<int>(f, 1);
+    return f;
+}
+
+async int split(int mode) {
+    int r = 0;
+    switch (mode) {
+        case 1:
+            int y = await one();
+            r = y * 10;
+        case 2:
+            y = y + 2;
+            r = r + y;
+            break;
+        default:
+            int z = 5;
+            r = z;
+    }
+    return r;
+}
+
+async int plain(int mode) {
+    int r = 0;
+    int w = await one();
+    switch (mode) {
+        case 1:
+            int y = 4 + w;
+            r = y;
+        case 2:
+            y = y + 1;
+            r = r + y;
+            break;
+        default:
+            r = -1;
+    }
+    return r;
+}
+
+// A case declaration shadowing an outer local, and a static one.
+async int shadowed(int mode) {
+    int y = 100;
+    int r = await one();
+    switch (mode) {
+        case 1:
+            int y = 5;
+            r = r + y;
+        case 2:
+            static int n = 0;
+            n = n + 1;
+            r = r + n * 1000;
+            break;
+    }
+    return r + y;
+}
+
+int run(Future<int>* f) {
+    future_poll<int>(f, void() { });
+    int v = f.value;
+    free_future<int>(f);
+    return v;
+}
+
+int main() {
+    printf("%d %d\n", run(split(1)), run(split(7)));
+    printf("%d %d\n", run(plain(1)), run(plain(7)));
+    printf("%d %d %d\n", run(shadowed(1)), run(shadowed(2)), run(shadowed(3)));
+    return 0;
+}

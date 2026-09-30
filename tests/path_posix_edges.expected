@@ -1,0 +1,8 @@
+[/] dir=[/] base=[/]
+[///] dir=[/] base=[/]
+[] dir=[.] base=[.]
+[a//b] dir=[a] base=[b]
+[//a] dir=[/] base=[a]
+[/usr//lib///] dir=[/usr] base=[lib]
+[a/] dir=[.] base=[a]
+[a] dir=[.] base=[a]

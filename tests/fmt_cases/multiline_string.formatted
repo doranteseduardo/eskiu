@@ -1,0 +1,10 @@
+extern int printf(string fmt, ...);
+int main() {
+    printf("line1   
+    { line2 }  
+
+  \"q\" 
+  ");
+    int x = 1;
+    return 0;
+}

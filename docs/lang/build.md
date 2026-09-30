@@ -4,7 +4,7 @@
 
 | Dependency   | Minimum                                | Tested      |
 | ------------ | -------------------------------------- | ----------- |
-| LLVM         | 17                                     | 22.x        |
+| LLVM         | 21                                     | 22.x        |
 | CMake        | 3.20                                   | 3.x         |
 | C++ compiler | C++17 (clang++ recommended, g++ works) | clang++ 17+ |
 | git          | any                                    | n/a         |
@@ -29,6 +29,8 @@ export LLVM_DIR="$(brew --prefix llvm)/lib/cmake/llvm"
 ```
 
 Add these to your shell profile (`~/.zshrc` or `~/.bash_profile`) to make them permanent.
+
+Homebrew's `llvm` formula tracks the newest release (LLVM 23 at the time of writing). Eskiu builds against it, but CI and the release binaries use LLVM 22. To match them exactly, install `llvm@22` and use `$(brew --prefix llvm@22)` in the two lines above.
 
 ### Build
 
@@ -57,16 +59,16 @@ The compiler binary is at `build/eskiuc`.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y llvm-17-dev clang-17 cmake git
+sudo apt-get install -y llvm-22-dev clang-22 cmake git
 ```
 
-For Ubuntu 22.04 or older, the LLVM 17 packages are in the LLVM apt repository:
+For Ubuntu 22.04 or older, the LLVM 22 packages are in the LLVM apt repository:
 
 ```bash
 wget https://apt.llvm.org/llvm.sh
 chmod +x llvm.sh
-sudo ./llvm.sh 17
-sudo apt-get install -y llvm-17-dev
+sudo ./llvm.sh 22
+sudo apt-get install -y llvm-22-dev
 ```
 
 ### Build
@@ -76,8 +78,8 @@ git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_DIR=/usr/lib/llvm-17/lib/cmake/llvm \
-  -DCMAKE_CXX_COMPILER=clang++-17
+  -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm \
+  -DCMAKE_CXX_COMPILER=clang++-22
 cmake --build build -- -j$(nproc)
 ```
 
@@ -88,7 +90,7 @@ cmake --build build -- -j$(nproc)
 ### Install dependencies
 
 ```bash
-apk add llvm17-dev cmake clang17 git make
+apk add llvm22-dev cmake clang22 git make
 ```
 
 ### Build
@@ -98,7 +100,7 @@ git clone https://github.com/doranteseduardo/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_DIR=/usr/lib/llvm17/lib/cmake/llvm \
+  -DLLVM_DIR=/usr/lib/llvm22/lib/cmake/llvm \
   -DCMAKE_CXX_COMPILER=clang++
 cmake --build build -- -j$(nproc)
 ```
@@ -148,7 +150,7 @@ cmake --build build -- -j$(nproc)
 Expected output:
 
 ```
-Eskiu 0.9.1 (LLVM 22.x.x)
+Eskiu 0.9.2 (LLVM 22.x.x)
 ```
 
 The LLVM version will reflect whichever version is installed on the host.
@@ -205,13 +207,13 @@ Common paths:
 | ---------------------- | --------------------------------------- |
 | macOS (Homebrew arm64) | `/opt/homebrew/opt/llvm/lib/cmake/llvm` |
 | macOS (Homebrew x86)   | `/usr/local/opt/llvm/lib/cmake/llvm`    |
-| Ubuntu apt llvm-17     | `/usr/lib/llvm-17/lib/cmake/llvm`       |
-| Alpine apk llvm17      | `/usr/lib/llvm17/lib/cmake/llvm`        |
+| Ubuntu apt llvm-22     | `/usr/lib/llvm-22/lib/cmake/llvm`       |
+| Alpine apk llvm22      | `/usr/lib/llvm22/lib/cmake/llvm`        |
 
 You can also run `llvm-config --cmakedir` (substituting the versioned binary name if needed) to get the correct path:
 
 ```bash
-llvm-config-17 --cmakedir
+llvm-config-22 --cmakedir
 ```
 
 ### C++17 errors
@@ -220,8 +222,8 @@ If the system default compiler does not support C++17, specify the compiler expl
 
 ```bash
 cmake -S . -B build \
-  -DCMAKE_CXX_COMPILER=clang++-17 \
-  -DCMAKE_C_COMPILER=clang-17
+  -DCMAKE_CXX_COMPILER=clang++-22 \
+  -DCMAKE_C_COMPILER=clang-22
 ```
 
 ### Linker errors: undefined LLVM symbols
@@ -229,8 +231,8 @@ cmake -S . -B build \
 The build links `support`, `core`, and `irreader`. If you see undefined symbols from LLVM:
 
 1. Confirm the installed LLVM version matches the headers used at configure time (`llvm-config --version`).
-2. On Ubuntu, ensure you installed `llvm-17-dev` (not just `llvm-17`); the `-dev` package contains the static libraries.
-3. On Alpine, `llvm17-dev` is the correct package name; `llvm17` alone does not ship the `.a` archives.
+2. On Ubuntu, ensure you installed `llvm-22-dev` (not just `llvm-22`); the `-dev` package contains the static libraries.
+3. On Alpine, `llvm22-dev` is the correct package name; `llvm22` alone does not ship the `.a` archives.
 
 ---
 
@@ -238,7 +240,9 @@ The build links `support`, `core`, and `irreader`. If you see undefined symbols 
 
 The automated suite is driven by `tests/run.sh`, which compiles, links, and runs every
 `tests/*.esk` case (matching stdout against `*.expected`, smoke-running the rest, and
-checking that `tests/errors/*.esk` are rejected):
+checking that `tests/errors/*.esk` are rejected). `eskiuc` links each test itself with
+no `-l` flags, so the libraries programs imply (`#pragma link`, the C++ exception
+runtime, pthread) are exercised too:
 
 ```bash
 tests/run.sh                       # full suite against build/eskiuc

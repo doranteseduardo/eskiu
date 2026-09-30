@@ -6,7 +6,7 @@
   <title>Changelog · Eskiu</title>
   <meta name="description" content="All notable changes to Eskiu are documented in this file." />
   <link rel="canonical" href="https://eskiu-lang.org/changelog.html" />
-  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="icon" type="image/png" href="../assets/logo.png" />
   <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="index.html"><img src="assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="docs/index.html">docs</a>
         <a href="the-book-of-eskiu.html">book</a>
@@ -103,8 +103,1050 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
-<h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
+<h2 id="092-2026-09-29">[0.9.2] - 2026-09-29</h2>
+<p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
+and docs) found about a hundred latent bugs that the existing corpus did not reach. All
+are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
+regression test. A second pass added three fuzzers (a C oracle, a negative corpus and an
+ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved the two
+known limitations left from 0.9.1 (R and S). Seven more blind audit rounds followed, each
+on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
+rounds concentrated on the C ABI, generics, <code>volatile</code> and the HTTP servers under hostile
+input. What is still open is listed under Known issues.</p>
+<h3 id="added">Added</h3>
+<ul>
+<li><strong><code>#pragma link("name")</code></strong> links the executable with <code>-lname</code>. The driver also adds
+  the libraries a program implies: the stdlib's own pragmas (<code>libm</code> on Linux, <code>pthread</code>,
+  <code>ws2_32</code>), the C++ exception runtime when the program throws or catches, and
+  <code>pthread</code> when it calls <code>thread_create</code>. <code>-lm</code>, <code>-lc++</code>/<code>-lstdc++</code> and <code>-lpthread</code>
+  are no longer needed. <code>--no-default-libs</code> turns all of this off.</li>
+<li><strong>Inline methods on generic structs</strong> (<code>struct Box&lt;T&gt; { T get() {...} }</code>), instantiated
+  per struct instance on first call.</li>
+<li><strong>Dot-calls on generic instances</strong>: <code>l.push(8)</code> on a <code>List&lt;int&gt;</code> is
+  <code>List_push&lt;int&gt;(&amp;l, 8)</code>, and <code>ch.send(v)</code>, <code>m.get(k, &amp;out)</code> work the same way. The
+  type arguments come from the receiver, then the call's arguments. The call is lowered
+  as an ordinary call, so arguments convert, struct results use <code>sret</code> and a call
+  inside <code>try</code> unwinds.</li>
+<li><strong>C callbacks with structs by value</strong>: a top-level function passed to C as <code>(*void)f</code>
+  that takes or returns a struct by value is reached through a thunk with the C
+  convention.</li>
+<li><strong>Fuzzers</strong>: <code>tests/fuzz/c_oracle.py</code> (programs compiled by both Eskiu compilers and
+  by clang as C, outputs compared), <code>tests/fuzz/neg_fuzz.py</code> (one injected error per
+  program, both compilers must give a located diagnostic) and <code>tests/fuzz/stdlib_fuzz.py</code>
+  (the stdlib parsers under ASan). Each has a CI gate, and
+  <code>tests/selfhost/cabi_parity.sh</code> compares the self-host's lowered C signatures with the
+  C++ ones per target.</li>
+<li><strong><code>#if</code> / <code>#elif</code></strong> with C integer constant expressions (<code>defined(X)</code>, <code>defined X</code>,
+  arithmetic, shifts, comparisons, <code>&amp;&amp;</code>, <code>||</code>, <code>?:</code>). An identifier left after macro
+  expansion counts as <code>0</code>, as in C.</li>
+<li><strong>Interface values.</strong> An interface is now a real <code>{data, vtable}</code> value, so an
+  interface-typed local, struct field, return value or assignment works (these compiled
+  and then crashed before). The value refers to a struct through <code>&amp;x</code>.</li>
+<li><strong><code>const</code> receivers.</strong> A method declared with <code>const T* self</code> can be called on a
+  <code>const</code> value.</li>
+<li><strong>C ABI for structs passed or returned by value across <code>extern</code></strong>: AArch64, x86-64
+  SysV, Windows x64 and 32-bit ARM, in both compilers (the self-host picks the
+  convention from <code>--target</code>). New predefined macros <code>__aarch64__</code>, <code>__x86_64__</code> and <code>__arm__</code> follow the
+  target.</li>
+<li><strong>Test runner:</strong> a <code>run</code> or smoke test may have a C companion <code>tests/NAME.c</code> that is
+  compiled and linked in; <code>tests/warnings/NAME.esk</code> is a new lint kind that asserts the
+  exact <code>-Wall</code> warnings (<code>// EXPECT-WARNING:</code> lines).</li>
+<li>The compiler builds against LLVM 23 as well as LLVM 22. The minimum is now LLVM 21.</li>
+<li><strong>Generic async functions</strong> (<code>async T f&lt;T&gt;(...)</code>), in both compilers.</li>
+<li><strong><code>(void)expr</code></strong> evaluates an expression and discards its value, which also silences
+  <code>must_use</code>.</li>
+<li><code>&lt;http2_server&gt;</code>: the <code>H2Server</code> engine (flow control, SETTINGS validation, stream
+  states) serves both h2c and TLS connections. <code>&lt;future&gt;</code> gains <code>free_future_polled</code> for
+  a future whose waker was installed by hand, and <code>&lt;http&gt;</code> gains <code>http_content_length</code>.</li>
+<li><code>&lt;json&gt;</code> and <code>&lt;regex&gt;</code> limit nesting to 512 levels (<code>JSON_MAX_DEPTH</code>, <code>RE_MAX_DEPTH</code>),
+  so deep input fails cleanly instead of exhausting the stack.</li>
+</ul>
+<h3 id="changed-may-reject-or-change-the-behavior-of-existing-programs">Changed (may reject or change the behavior of existing programs)</h3>
+<ul>
+<li><strong>A non-constant global initializer is a compile error.</strong> <code>int g = f();</code>, or a read of
+  a non-<code>const</code> global, used to compile to a silent <code>0</code>. Constant expressions
+  (arithmetic, casts, ternaries, <code>sizeof</code>, enum members, <code>const</code> values, <code>&amp;global</code>) fold
+  correctly.</li>
+<li><strong>Narrow integer operands promote to <code>int</code> before arithmetic and comparison</strong> (the C
+  integer promotions). <code>(uint8)200 + (uint8)100</code> is <code>300</code>, and <code>uint8 200 &gt; int8 -1</code> is
+  true.</li>
+<li><strong>Conversion to <code>bool</code> is <code>!= 0</code></strong> for integer, float and pointer sources. It used to
+  keep only the low bit, so <code>(bool)2</code> was false.</li>
+<li><strong><code>ptr - ptr</code> counts elements</strong>, not bytes (C++; the self-host already did).</li>
+<li><strong>Passing a struct by value where an interface is expected is an error</strong>; pass <code>&amp;x</code>.</li>
+<li><strong>Interface conformance checks method signatures</strong> (return type, arity, parameter
+  types), not only method names.</li>
+<li><strong>Duplicate and conflicting declarations are errors</strong>: same-scope locals, globals,
+  parameters, fields, enum members, structs with different fields, a second <code>default:</code>,
+  one name used for a function and a global (or a struct, or a method), and a prototype
+  whose signature differs from its definition.</li>
+<li><strong>Struct literals are type-checked</strong>: field types, literal ranges, too many
+  initializers, a field given twice. Omitted fields are zero-filled.</li>
+<li><strong><code>sizeof(variable)</code></strong> gives the size of the variable's type; an unknown name is an
+  error.</li>
+<li><strong>Methods called on a <code>const</code> value</strong> must declare <code>const T* self</code>, and <code>&amp;</code> of a
+  <code>const</code> value no longer converts to a non-<code>const</code> pointer.</li>
+<li><strong><code>match</code> on a classic enum</strong> whose members share a value rejects a second arm for the
+  same value.</li>
+<li><strong>Preprocessor:</strong> unknown directives, <code>#include</code> (use <code>import</code>), a stray or duplicate
+  <code>#else</code>/<code>#elif</code>/<code>#endif</code>, a conditional left open, and <code>#</code> or <code>##</code> in a macro body are
+  located errors instead of being silently dropped.</li>
+<li><strong>Numeric literals:</strong> an invalid digit in an octal literal (<code>08</code>, <code>019</code>) is an error
+  (it was read as decimal), as are <code>0x</code> with no digits and any suffix (<code>0b101</code>, <code>1_000</code>,
+  <code>3.5f</code>).</li>
+<li><strong>Strict stdlib parsers:</strong> <code>json_parse</code> follows RFC 8259 (exact literals, no trailing
+  garbage, <code>\uXXXX</code> decoding); <code>base64_decode</code> rejects bad padding and truncated input; a
+  malformed or overflowing <code>Content-Length</code> gets a 400; <code>String_to_int</code> saturates and
+  accepts a leading <code>+</code>; <code>http_reason</code> returns the class name (or an empty string) for
+  an unknown code instead of "OK".</li>
+<li><strong>C's usual arithmetic conversions</strong> apply to mixed-sign operands: a signed and an
+  unsigned operand of the same width give an unsigned result, a shift has the type of
+  its promoted left operand, unary <code>-</code> and <code>~</code> promote a narrow operand to <code>int</code>, and
+  two different narrow ternary arms meet as <code>int</code>. An integer literal too wide for
+  <code>int</code> is an <code>int64</code>. Constant initializers fold with exactly these rules.</li>
+<li><strong>An <code>extern</code> parameter of fn type is a C function pointer.</strong> The call passes a
+  top-level function by name or <code>null</code>; a lambda or a fn-typed variable there is an
+  error (its environment cannot cross into C). It used to pass the <code>{fn, env}</code> closure.</li>
+<li><strong>Bitfields follow the target's C layout</strong> (ABI change for structs mixing bitfield
+  types). On SysV/AAPCS targets a bitfield shares bytes with its neighbours while it
+  fits in an aligned unit of its declared type, so <code>uint8 a:4; uint32 w:12;</code> is now 4
+  bytes. Windows targets use the MS layout, including under <code>#pragma pack(N)</code>.</li>
+<li><strong>Each generic instantiation is type-checked</strong> with its concrete type arguments
+  (known limitation S), so an error that exists only for some arguments is reported as
+  <code>... (in instantiation of f&lt;Box&gt;)</code>. The self-host now checks method-call argument
+  types (known limitation R).</li>
+<li><strong>A local in a function's outermost block may not reuse a parameter name</strong> (the
+  parameters and that block share one scope, as in C).</li>
+<li><strong>Range loops</strong>: <code>for (i in A..B)</code> takes the bounds' common integer type (it was always
+  <code>int</code>, so an <code>int64</code> bound wrapped), a non-integer bound is an error, and a bound that
+  names the loop variable reads the outer variable of that name.</li>
+<li><strong>Duplicate <code>case</code> labels are found by value</strong>, so <code>case 7:</code> and <code>case (4 * 2) - 1:</code>, or
+  a <code>const</code> name and its value, collide.</li>
+<li>The self-host rejects bad operands, calls, returns and global types the way the C++
+  compiler does.</li>
+<li><strong>A lambda may not assign a captured variable</strong> (<code>n = 1</code>, <code>n += 1</code>, <code>n++</code>): the
+  closure holds a copy, so the write was silently lost. Write through a pointer, or use
+  a global or a <code>static</code> local, which are not captured.</li>
+<li><strong>Conditions</strong> take a <code>bool</code>, a number or a pointer (<code>string</code> and <code>?*T</code> included). A
+  float condition is <code>!= 0.0</code>, so NaN is true, and <code>!=</code> on floats is unordered, as in C.</li>
+<li><strong>Aggregates</strong> (structs, arrays, slices, closures, interface values) have no built-in
+  <code>==</code>, <code>&lt;</code> or truth value; define an operator overload. An overload needs at least one
+  user-type operand.</li>
+<li><strong>Interface boxing</strong> takes a pointer to a struct with exactly one <code>*</code>; a <code>?*T</code> must be
+  null-checked first, and a pointer to <code>const</code> only boxes into an interface whose
+  methods all take <code>const T* self</code>.</li>
+<li><strong>More constant checks</strong>: array sizes must be positive, a constant shift count must be
+  inside the operand width, a <code>case</code> value must fit the subject type, enum member values
+  must fit <code>int</code>, and constant array indices and slice bounds are folded and checked
+  (<code>lo &lt;= hi</code> on any base).</li>
+<li><strong>Read-only rules</strong>: <code>const</code> parameters can't be assigned, a <code>const</code> array can't be
+  sliced, and <code>s.len</code> of a slice is read-only.</li>
+<li>A struct literal can't mix positional and named fields; a second <code>_</code> arm in a <code>match</code>
+  is an error; returning the address of a local's field, element or slice is an error
+  (a <code>static</code> is fine); <code>#pragma pack</code> takes 1, 2, 4, 8 or 16.</li>
+<li>A top-level function called with dot syntax needs a pointer <code>self</code>; <code>async main</code> and
+  a lambda that can fall off its end without returning a value are errors.</li>
+<li>A lambda written directly in <code>thread_create</code> is owned by the thread, which frees its
+  environment when it finishes.</li>
+<li>Globals get C linkage, so an <code>extern</code> next to its definition refers to the same
+  symbol. An assignment evaluates its target before its value, as the other compound
+  forms already did.</li>
+<li>Self-host diagnostics go to stderr, as the C++ compiler's do.</li>
+<li><strong>Pointer conversions between unrelated pointee types need a cast</strong> (<code>*int</code> to <code>*Big</code>).
+  <code>*void</code>, <code>null</code> and the byte pointers (<code>string</code>, <code>*char</code>, <code>*int8</code>, <code>*uint8</code>) stay
+  implicit, and <code>int</code>/<code>int32</code> and <code>uint</code>/<code>uint32</code> spellings of the same type match.</li>
+<li><strong>A global initializer or a function body may not name a global defined later in the
+  file</strong>, as in C (it compiled to a zero address before).</li>
+<li>A by-value recursive enum (<code>enum L { Cons(int, L), Nil }</code>) is an error, like a struct
+  that contains itself. <code>Box&lt;void&gt;</code>, <code>void[]</code> and a non-constant array size are errors.</li>
+<li>A lambda may not write a field or element of a captured struct or array (<code>p.a = 5</code>,
+  <code>arr[0] = 9</code>); writes through a pointer, a slice or a string are allowed.</li>
+<li>A bare nullary variant of a generic enum needs its type arguments (<code>None&lt;int&gt;()</code>), and
+  a variant constructor's payload is checked against the declared instance.</li>
+<li><code>?*T</code> narrowing ends at any call or <code>await</code> for a global, and an address-taken
+  variable is never narrowed. A call in a condition (also in a <code>&amp;&amp;</code> right operand, a
+  ternary condition or an early-exit guard) or in the branch that falls through ends a
+  global's narrowing from that point on.</li>
+<li>A lambda that captures a non-<code>escaping</code> closure parameter and outlives the call
+  (returned, stored, passed to an <code>escaping</code> parameter or to <code>thread_create</code>) needs the
+  parameter marked <code>escaping</code>.</li>
+<li>A pointer to a sum type converts only to and from a pointer to the same sum type (or
+  <code>*void</code>), and a pointer to an array or slice (<code>&amp;arr</code>) is not a pointer to a struct.</li>
+<li>A <code>\</code>-newline inside a string or char literal on a directive line splices the next
+  line, as in C, so a <code>#define</code> body's literal may span lines.</li>
+<li><code>?</code> needs an integer or <code>bool</code> <code>ok</code> field; a union literal names one member; an inline
+  method can't declare a parameter named <code>self</code>, and an operator overload must have the
+  operator's arity.</li>
+<li><code>va_start</code> needs a variadic function (<code>...</code>), and <code>va_start</code>, <code>va_arg</code> and <code>va_end</code>
+  take one <code>va_list</code>; <code>va_arg</code> of a struct, union, sum type or array is an error.
+  <code>thread_create</code> takes a <code>fn()-&gt;void</code>, <code>thread_join</code> its <code>*void</code> handle, and
+  <code>free_closure</code> a closure. <code>alloc_with</code> needs an integer count and an allocator type
+  with an <code>alloc</code> method (it was a codegen error without a location).</li>
+<li>A sum type is not a bitfield type, and a named bitfield may not have zero width
+  (<code>int x : 0</code>), as in C. <code>p - q</code> needs pointers to the same type.</li>
+<li>An enum bitfield whose enum has no negative member reads back unsigned, as in clang
+  and GCC (MS layout keeps it signed): <code>Col col : 2</code> holding <code>B = 2</code> read back as -2.</li>
+<li>A bitfield whose values all fit an <code>int</code> reads as <code>int</code>, as in C: <code>u - 1</code> of a
+  <code>uint32 u : 3</code> holding 0 is -1 (it was 4294967295), and <code>uint64 a : 20</code> promotes too.
+  A postfix <code>b.f++</code> keeps the declared type, as in clang.</li>
+<li>A <code>void</code> call is not an operand of <code>&amp;&amp;</code>, <code>||</code> or a comparison, nor an argument passed
+  through <code>...</code> (<code>printf("%d", f())</code>); these were codegen crashes or invalid IR. <code>return
+  f();</code> of a <code>void</code> <code>f</code> in a <code>void</code> function, and <code>c ? f() : g()</code> with <code>void</code> arms as a
+  statement, compile and run.</li>
+<li>A user operator (<code>s + s</code>, <code>s[i]</code>, <code>-s</code>, <code>s += s</code>, an overloaded <code>==</code> in a condition)
+  is a call, so it ends a global's <code>?*T</code> narrowing like a plain call. A lambda body does
+  not see a global's narrowing from where the lambda is written (it runs later), and a
+  <code>static</code> local follows the global rule (a call or a lambda may null it).</li>
+<li><code>alloc_with</code> needs a pointer to the allocator (<code>alloc_with(b, T, n)</code> with a by-value
+  <code>b</code> allocated from a copy), an alloc method of the shape <code>*void T_alloc(*T self, int64
+  size)</code> (another return type or parameter list emitted invalid IR), and a known, sized
+  element type (an unknown type or <code>void</code> crashed the C++ compiler).</li>
+<li><code>*T[N]</code> is an array of N pointers in the type checker too, as codegen always lowered
+  it: <code>*int[3] p = &amp;arr</code> and <code>*p</code> of such an array are type errors (they compiled to
+  invalid IR). The address of an array is typed <code>T[N]*</code>.</li>
+<li>The handle <code>thread_create</code> returns is a <code>*void</code> in the self-host too, so <code>int t =
+  thread_create(...)</code> is an error in both compilers. Like any <code>*void</code> it converts to
+  another pointer, <code>string</code> included (a <code>string</code> is a byte pointer).</li>
+<li>The arms of a <code>?:</code> of two unrelated pointers have no common type in the self-host
+  either (<code>*A p = c ? &amp;a : &amp;b</code>); it accepted any two pointers.</li>
+<li><code>va_arg&lt;T&gt;</code> of a type the default argument promotions widen is an error that names
+  the type to read: <code>float</code> arrives as <code>double</code>, and <code>bool</code>, <code>char</code>, <code>int8</code>, <code>int16</code>,
+  <code>uint8</code> and <code>uint16</code> as <code>int</code> (it read the wrong bytes).</li>
+<li>Without <code>-o</code>, <code>eskiuc-esk</code> writes the object <code>FILE.o</code> like <code>eskiuc</code> (it printed the
+  IR); <code>--test-codegen</code> prints the IR.</li>
+<li>
+<p>A <code>return</code> or a <code>?</code> inside a <code>finally</code> block is an error, in both compilers: it would
+  discard the pending exit, including an exception being unwound (C++ hung compiling it,
+  the self-host crashed). <code>break</code> and <code>continue</code> inside a <code>finally</code> keep working, and a
+  lambda written there is its own function.</p>
+</li>
+<li>
+<p><code>!</code> of a void value (<code>!v()</code>, also through a method or interface call), <code>throw v()</code> of a
+  void call and dereferencing a <code>*void</code> (<code>*p</code>, <code>*p = v()</code>) are type errors in both
+  compilers; they compiled (the self-host emitted invalid IR for <code>*p;</code>).</p>
+</li>
+<li>Inside a lambda, taking the address of a captured variable's storage (<code>&amp;n</code>, <code>&amp;p.a</code>,
+  <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error, like assigning to
+  it: the address is the closure's copy, so a write through it was silently lost.</li>
+<li><code>alloc_with</code> (a call to the alloc method), <code>thread_create</code> and <code>thread_join</code> end a
+  global's <code>?*T</code> narrowing like a call, and the rest of a block after an early-exit guard
+  is not narrowed when the branch that falls through assigns the variable
+  (<code>if (p == null) { return 0; } else { p = null; } return p.v;</code> was accepted).</li>
+<li><strong>Inferred type arguments no longer come from the first argument alone.</strong> A binding
+  from a composite parameter (<code>*T</code>, <code>List&lt;T&gt;*</code>) wins; by-value <code>T a, T b</code> arguments that
+  deduce different integer types meet at their common type (<code>maxof(1, big)</code> with <code>int64
+  big</code> is <code>maxof&lt;int64&gt;</code>; it was <code>maxof&lt;int&gt;</code> and truncated <code>big</code>), and any other
+  disagreement (<code>maxof(1.5, (float)2.5)</code>) is a located error in both compilers.</li>
+<li>
+<p><strong>Constant operands are checked through their folded value.</strong> Integer division or
+  remainder by zero, the most negative value divided by <code>-1</code>, a shift count out of range,
+  a floating constant cast to an integer type that cannot hold it and a constant index
+  out of bounds are errors when the operand folds through a <code>const</code> name, a fixed-size
+  <code>sizeof</code>, a cast or arithmetic (<code>5 / Z</code> with <code>const int Z = 0</code>, <code>x / (int)0.5</code>,
+  <code>1 &lt;&lt; sizeof(int64) * 8</code>, <code>(int)D</code> with <code>const double D = 1e10</code>, <code>M / -1</code> with <code>M</code> the
+  most negative <code>int</code>, <code>a[sizeof(int)]</code> on an <code>int[4]</code>). Only the literal forms were
+  checked; the others emitted poison. Both compilers; tests <code>errors/const_*</code>,
+  <code>errors/float_cast_*</code>, <code>errors/index_oob_sizeof</code>, <code>const_fold_checked</code>.</p>
+</li>
+<li>
+<p><strong>String and char escapes follow C.</strong> An octal escape <code>\NNN</code> (one to three digits)
+  is the byte it denotes (<code>"\101"</code> is <code>A</code>, <code>"\012"</code> a newline; <code>"\012"</code> was NUL then
+  <code>12</code>), <code>\a</code>, <code>\b</code> and <code>\?</code> are recognized, and any other escape (<code>\q</code>), an octal
+  escape above <code>\377</code> and a <code>\x</code> with no hex digit are lexer errors located at the
+  backslash (an unknown escape used to be the character itself). Both compilers and
+  the <code>#if</code> evaluator; tests <code>escape_octal</code>, <code>errors/escape_unknown</code>,
+  <code>errors/escape_octal_range</code>, <code>errors/escape_hex_empty</code>.</p>
+</li>
+<li>
+<p><strong>A type nests at most 1000 levels</strong> (each pointer level, array dimension, template
+  argument list and fn type counts one): deeper is a located <code>type nesting too deep</code>
+  error in both compilers, alongside the 100000-level statement and expression limit.
+  Test <code>errors/type_nesting_too_deep</code>, <code>tests/deep/gen.sh</code> (<code>types_deep_999</code>,
+  <code>generic_too_deep</code>).</p>
+</li>
+</ul>
+<h3 id="deprecated">Deprecated</h3>
+<ul>
+<li>Stdlib modules built around a struct now use <code>Type_method</code> names, as the naming
+  convention says: <code>Rng_*</code> (<code>&lt;random&gt;</code>), <code>Regex_search</code>/<code>Regex_free</code>/<code>Match_*</code>
+  (<code>&lt;regex&gt;</code>), <code>Heap_*</code> (<code>&lt;sysheap&gt;</code>), <code>EventLoop_*</code> (<code>&lt;eventloop&gt;</code>), <code>Executor_*</code>
+  (<code>&lt;executor&gt;</code>), <code>Chan_*</code> (<code>&lt;channel&gt;</code>), <code>HpackDecoder_*</code> and
+  <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (<code>&lt;hpack&gt;</code>; <code>hpack_huff_code</code>, <code>hpack_huff_len</code>,
+  <code>hpack_huff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code> keep their
+  names), <code>H2Conn_*</code>/<code>H2Stream_*</code> (<code>&lt;http2&gt;</code>), <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>
+  (<code>&lt;time&gt;</code>). Factories keep their names (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>,
+  <code>regex_compile</code>). The old names remain as wrappers and will be removed in a later
+  release. <code>String_is_space</code> is deprecated in favor of <code>is_space</code> from <code>&lt;ctype&gt;</code>.</li>
+</ul>
 <h3 id="fixed">Fixed</h3>
+<h4 id="miscompiles-of-valid-code">Miscompiles of valid code</h4>
+<ul>
+<li>A <code>let</code> in a nested block overwrote the outer variable of the same name for the rest of
+  the function (including inside <code>for</code> bodies and across <code>await</code>).</li>
+<li>Compound assignment (<code>a[f()] += 1</code>, <code>a[i++] += 5</code>, <code>getf().lo += 2</code> on a bitfield)
+  evaluated its left side twice.</li>
+<li>An unbraced <code>defer</code> (<code>if (c) defer ...;</code>, a <code>case</code> body, a loop body) ran even when it
+  was never reached; an unbraced body is now its own scope.</li>
+<li>A ternary with a literal wider than 32 bits or an unsigned arm was truncated, and a
+  <code>null</code> arm crashed LLVM (the <code>null</code> arm in C++ only).</li>
+<li>A lambda body inherited the enclosing function's defers, loop targets and unwind
+  block, and a generic first instantiated inside <code>try</code> produced invalid IR (C++).</li>
+<li><code>finally</code> now runs when a <code>catch</code> handler leaves by <code>return</code>, <code>break</code> or <code>continue</code>.</li>
+<li>A <code>static</code> local captured by a closure is shared (not copied), and an uninitialized
+  <code>static</code> starts at zero.</li>
+<li>A range loop's upper bound (<code>for (i in 0..n())</code>) is evaluated once.</li>
+<li>Operator overloads inside generic bodies, <code>for (row in m)</code> over a 2D array, and
+  denormal or overflowing float literals (C++).</li>
+<li>Member, index and method access on rvalues (<code>mk().a[1]</code>, <code>a.add(b).add(c)</code>); <code>!</code> on
+  pointers and floats and a unary <code>operator !</code> overload; <code>case K:</code> with a <code>const</code> or a
+  constant expression.</li>
+<li>Unions have C alignment; bitfield <code>++</code>/<code>--</code> works, bitfields use C storage words, and
+  their signedness follows the dealiased type.</li>
+<li>Async: <code>do</code>/<code>while</code>, <code>defer</code> and lambdas capturing locals work inside an <code>async fn</code>;
+  a local named <code>fr</code> no longer collides with the frame pointer, and shadowed names inside
+  lambda bodies are renamed correctly.</li>
+<li>Self-host: expression temporaries no longer allocate stack on every loop iteration
+  (long loops overflowed the stack); pointer arithmetic, promotions and ternaries get the
+  right type; ADT payloads with arrays or nested enums, and bitfield structs, have the
+  same size as in the C++ compiler; negative and non-<code>i32</code> global constants keep their
+  value; calling a returned closure directly works; an <code>extern</code> followed by its
+  definition no longer emits two definitions; chained assignment yields the converted
+  value.</li>
+<li>Found by the C oracle: a shadowing initializer (<code>int64 x = x + 1;</code>) reads the outer
+  variable; a deferred statement uses the names visible where it was written, even at
+  an exit where a later declaration shadows one; a braced <code>defer</code> body run on an early
+  exit no longer crashes codegen (C++); <code>continue</code> inside a <code>switch</code> case runs only the
+  loop's defers (self-host); a <code>const</code> initializer using <code>sizeof(struct)</code> folds to the
+  real size (self-host folded 0); literals and <code>sizeof</code> keep their type in mixed-sign
+  operations (self-host).</li>
+<li>Built-in operators inside generic bodies get their instance types, so unsigned
+  division and comparison in a generic function are unsigned (C++).</li>
+<li>Names synthesized by the async transform and by range loops (<code>__fr</code>, <code>st</code>, <code>__end_i</code>
+  and the rest) no longer collide with user identifiers.</li>
+<li>An <code>extern</code> prototype next to the program's own definition keeps the Eskiu
+  convention, so by-value structs and fn parameters agree between the call and the
+  definition (C++).</li>
+</ul>
+<h4 id="type-checker">Type checker</h4>
+<ul>
+<li>Missing-return analysis is sound for labeled <code>break</code>, <code>break</code> before a <code>return</code>, and
+  <code>switch</code> fall-through, and no longer flags a case that falls into a returning
+  <code>default</code>.</li>
+<li><code>?*T</code> narrowing is flow-sensitive (a reassignment or a shadowing declaration ends it)
+  and covers <code>&amp;&amp;</code>, <code>||</code>, <code>!</code>, early-exit guards (<code>if (p == null) return ...;</code>), loop
+  conditions and ternaries. A narrowed pointer can be passed or assigned as <code>*T</code>.</li>
+<li>Calls through <code>fn</code> values, fields and interface methods, and generic calls, check the
+  argument count and types; a generic call also checks its type-argument count and
+  reports a type argument it cannot infer. <code>break</code>/<code>continue</code> escaping a lambda is
+  rejected.</li>
+<li>Located errors instead of compiler crashes for cyclic type aliases, <code>void</code> variables,
+  parameters and fields, float, pointer or over-wide bitfields, a struct containing
+  itself by value, unknown types and wrong template argument counts. An unknown type no
+  longer triggers a cascade of conversion errors.</li>
+<li>Errors that only codegen used to report (assigning to an rvalue, <code>&amp;</code> of an rvalue or a
+  bitfield, invalid indexing and casts, a non-constant <code>case</code>, <code>break</code> outside a loop,
+  constant slice bounds out of range) now come from the type checker with a location.
+  Integer literals in compound assignments and ternary arms are range-checked.</li>
+<li><code>must_use</code> applies to method-call syntax. An assignment target is no longer reported
+  as an uninitialized read. A leading-star pointer to a generic instance (<code>*List&lt;int&gt;</code>)
+  is accepted as a declared type.</li>
+<li><code>-Wall</code> no longer flags methods used through dot calls, interfaces or operators, or
+  the parameters of prototypes (an unused lambda parameter is still reported, like any
+  other parameter); the unused-parameter warning points at the parameter. Diagnostics spell operator functions as <code>operator +(V, V)</code>.</li>
+<li>Self-host: dot calls to free-function methods (<code>s.trim()</code>) are accepted; many invalid
+  programs it used to accept (C-style array declarators, <code>++</code> on a float, a mismatched
+  <code>?</code>, misplaced array literals) are rejected like the C++ compiler; its diagnostics
+  carry <code>line:col</code>.</li>
+<li><code>int32 main()</code> is accepted as an entry point. Generic arguments are inferred through a
+  <code>const Box&lt;T&gt;* self</code> receiver, and the self-host infers every type parameter of a
+  nested generic argument (<code>HashMap_get(&amp;m, k, &amp;out)</code> with no <code>&lt;K, V&gt;</code>).</li>
+</ul>
+<h4 id="front-end-driver-and-tooling">Front end, driver and tooling</h4>
+<ul>
+<li>A C-style local of function type (<code>fn(int32)-&gt;int32 h = f;</code>) parses (C++).</li>
+<li><code>x &lt; y &gt;&gt; 1</code> parses (a backtracked generic parse left <code>&gt;&gt;</code> split), and <code>(*p)</code> parses
+  as a dereference rather than a cast.</li>
+<li>Macro arguments keep string and character literals whole, nested macro calls in
+  arguments expand, and an apostrophe in a comment no longer stops expansion. CRLF
+  sources and <code>\</code> continuations work.</li>
+<li>Imports are deduplicated by canonical path, so diamond and circular imports work.</li>
+<li>Every diagnostic is <code>file:line:col</code>, including parse and lexer errors; an error inside
+  an imported file names that file; parse errors recover at the next declaration.</li>
+<li>The <code>--test-*</code> modes predefine the same macros as a real build and exit non-zero on
+  errors; <code>--definition-at</code> resolves by scope.</li>
+<li><code>run</code> exits with <code>128+signal</code> when the program is killed, drops a <code>--</code> separator and
+  accepts flags with values before the script. <code>-o</code> naming an input file, a directory
+  input and <code>-O4</code> are refused. <code>--help</code> lists the Eskiu options and subcommands without
+  LLVM's internal ones. <code>$CC</code> may carry arguments.</li>
+<li>Deeply nested or very long input no longer overflows the compiler's stack. Binary
+  operators parse by precedence climbing, operator and <code>else if</code> chains are walked by
+  loops in every pass (no chain limit), the compiler runs on a 1 GB stack, and more than
+  100000 nesting levels is a located <code>nesting too deep</code> error.</li>
+<li>Faster builds: <code>-O0</code> no longer runs the optimizing backend passes, and symbol lookup
+  takes constant time at any scope depth.</li>
+<li><code>fmt</code> indents code after a closing <code>*/</code> and preserves CRLF line endings.</li>
+<li>Self-host driver: spawns clang without a shell (safe with any argument), accepts the
+  full flag set (<code>-Wall</code>/<code>-Wextra</code> are accepted and ignored: lint warnings come only from
+  the C++ compiler), finds the stdlib through <code>$ESKIU_ROOT</code>, and reports a missing import as
+  an error.</li>
+<li>VS Code server: full-document sync, unsaved buffers resolve relative imports, and the
+  version comes from <code>package.json</code> (extension 0.0.27, which also highlights octal and <code>\a</code> <code>\b</code> <code>\?</code> escapes).</li>
+</ul>
+<h4 id="standard-library-memory-safety">Standard library: memory safety</h4>
+<ul>
+<li><code>tls_read_frame</code> / <code>tls_read_frame_async</code> check the peer's frame length (heap
+  overflow).</li>
+<li>HPACK: a table-size update above the SETTINGS limit is rejected (heap overflow), a
+  literal naming an evicted entry no longer reads freed memory, and integer and string
+  decoding stay inside the header block.</li>
+<li>A dropped <code>Chan_recv</code> future no longer leaves a dangling waiter.</li>
+<li><code>fs_read_all</code> works on pipes and stdin; <code>String_concat(&amp;s, &amp;s)</code> and
+  <code>Bytes_append(&amp;b, &amp;b)</code> no longer read freed memory; the <code>Map</code> hash can't go negative.</li>
+<li>HTTP/2 response headers are sized to fit and split into CONTINUATION frames.</li>
+</ul>
+<h4 id="standard-library-logic">Standard library: logic</h4>
+<ul>
+<li>Regex: repeated groups (<code>(a){8}</code>) match, capture memory is bounded, <code>a{3,1}</code> is an
+  error, and a leading <code>]</code> in a class is literal.</li>
+<li><code>Json_int</code> writes the full <code>int64</code>, the builder escapes control characters, and a
+  failed parse frees its partial tree.</li>
+<li>HTTP: header values are trimmed of optional whitespace and error bodies are valid
+  JSON.</li>
+<li>Multipart no longer matches <code>name=</code> inside <code>filename=</code> and handles empty fields;
+  <code>net_write_async</code> no longer leaks; <code>EventLoop</code>/<code>Executor</code> close their descriptors and
+  the timer table grows.</li>
+<li><code>FirstFit</code> (and so <code>&lt;sysheap&gt;</code>) coalesces adjacent free blocks; freeing <code>null</code> is a
+  no-op.</li>
+<li><code>String_from_int(INT_MIN)</code>, <code>String_init(&amp;s, 0)</code>, POSIX <code>dirname</code>/<code>basename</code> edge
+  cases, negative ISO years and <code>env_get_int</code> fallbacks on non-numeric values.</li>
+<li>HTTP: a body above 2 GiB is copied and its <code>Content-Length</code> written in full (<code>int64</code>
+  throughout).</li>
+<li>The internals of 34 stdlib modules use the current language (dot-calls, <code>defer</code>,
+  <code>const</code>, range loops) with no API change; <code>tools/gen_hpack_huffman.py</code> emits <code>switch</code>
+  tables for the Huffman code.</li>
+</ul>
+<h4 id="second-audit-round">Second audit round</h4>
+<ul>
+<li>Exceptions: a <code>defer</code> runs when an exception unwinds through its block; a thrown value
+  keeps its type and a generic <code>throw</code> matches its <code>catch</code>; calls through a closure, a
+  vtable or a generic instance unwind inside <code>try</code>; a <code>throw</code> inside a <code>defer</code> body ends
+  that exit path cleanly; <code>?</code> inside a <code>defer</code> body is an error.</li>
+<li>Closures and fn values: calls through a fn value parse nested fn types, convert their
+  arguments and use <code>sret</code> for struct results; arrays of fn values work; lambda
+  parameters can be reassigned; a non-escaping closure parameter can be passed on to
+  another non-escaping parameter; a named function used as a ternary arm decays to a
+  closure (self-host).</li>
+<li>Generics: a prototype before its definition, interface arguments boxed at generic
+  call sites, generic instance methods in interface vtables, arrays and slices of
+  generic instances, a method call on a source-form instance, an operator overload on a
+  generic instance inside a template body, a generic struct containing itself by value
+  (now an error), and a type alias cyclic through a type argument (now an error).</li>
+<li>Pointers: <code>string</code> arithmetic and <code>*void</code> arithmetic step by bytes; <code>for-in</code> and member
+  access work through a <code>*struct</code> pointer.</li>
+<li><code>?*T</code> narrowing ends at an assignment inside a condition and follows pointer
+  arithmetic on the narrowed pointer. A nullable non-pointer type is an error.</li>
+<li>Front end: imports see the macro table as of their import line, <code>__FILE__</code> is escaped
+  as a string, macro comments and arity errors are handled, rescanning reaches a call
+  that spans the expansion, <code>#if</code> arithmetic wraps and short-circuits like C, an
+  out-of-range float constant cast is an error, and 64-bit integer literals and
+  exponent digits are checked. Every top-level and use-site diagnostic carries a
+  location.</li>
+<li>Driver: nothing is printed on a successful compile; test modes take every input the
+  way a build does; importing a directory is an error; <code>_WIN64</code> is defined for arm64
+  Windows triples; <code>fmt</code> keeps line numbers and literal bytes.</li>
+<li>Self-host: temp <code>.ll</code> files are created with <code>mkstemps</code>, <code>run</code> accepts <code>--</code> before
+  the script, <code>--test-codegen</code> type-checks first, parse errors are located, and sema
+  matches the C++ checks on lambda bodies, conditions, operands, assignability, match
+  arms, variant constructors, array literals, indexes, members, <code>for-in</code>, constraints,
+  alias targets, <code>await</code> operands and writes through a pointer to <code>const</code>.</li>
+<li><code>alloc_with</code> returns <code>null</code> when <code>n * sizeof(T)</code> overflows.</li>
+<li>Stdlib: HTTP/2 frames on a half-closed stream are stream errors and SETTINGS values
+  are validated; async servers retry a failed accept; <code>Chan_free</code> detaches a parked
+  receiver; the executor's self-pipe wakes coalesce; the event loop handles a zero
+  capacity and frees callback environments; multipart reads the boundary parameter and
+  CRLF delimiters; HTTP/1.1 rejects a truncated body, conflicting lengths, bare LF and a
+  NUL in the body; the ALPN list is bounds-checked; HPACK sizes its scratch buffer,
+  rejects a late table-size update and a field that overflows; <code>json</code> frees its tree
+  iteratively; <code>String</code> and <code>Map</code> use-after-free, substring clamping and <code>int64</code> epochs
+  are fixed; allocator sizes can't overflow and a tiny <code>FirstFit</code> buffer is handled.</li>
+</ul>
+<h4 id="third-audit-round">Third audit round</h4>
+<ul>
+<li>Bitfields: a narrower signed value stored into a wide bitfield keeps its sign, and a
+  global or <code>static</code> initializer of a bitfield struct, a union or a packed struct keeps
+  its values (it was zero-filled). Union literals, including a global union set through
+  a pointer member, produce valid IR.</li>
+<li>Async functions: a <code>static</code> local keeps its value across calls, and <code>for-in</code> over a
+  slice, <code>try</code>/<code>catch</code>, array literals and <code>match</code> on an enum local work.</li>
+<li>Generics: an instance reached only through a call result (<code>flip(n).a</code>,
+  <code>unbox(bx(7))</code>, <code>bx(2.5).get()</code>) is instantiated.</li>
+<li>Interfaces: arrays of interface values, method calls through <code>*I</code>, a global interface
+  value and a closure taking an interface argument work; returning a large array uses
+  <code>sret</code>.</li>
+<li>A struct field whose type is declared later in the file gets the right layout (it was
+  laid out as <code>i32</code>). Member access through <code>const *T</code> works.</li>
+<li>Lambdas can return a struct, a pointer or a generic instance; <code>(*pf)(x)</code> calls through
+  a pointer to a closure; arrays of closures and pointers to closures work in the
+  self-host; unary <code>+</code> compiles.</li>
+<li>A function-like macro call can span lines, <code>#pragma</code> is accepted inside a function or
+  struct body, and <code>fmt</code> leaves the bytes of a multi-line string literal alone.</li>
+<li>Self-host: rejects casts from an interface, a brace initializer for a non-array, a
+  mistyped global initializer, a struct literal with wrong type arguments and a free
+  function with the wrong signature for a constraint, as the C++ compiler does.</li>
+<li>Stdlib: regex loops whose body can match empty follow RE2 (<code>(a?|b)*</code> on "b" is 0,0), a
+  repeat count above 1000 is an error, HTTP/2 rejects CR, LF and NUL in header fields,
+  RST_STREAM on an idle stream, a short GOAWAY and a stream that depends on itself, and
+  <code>http_reply</code> accepts a <code>null</code> body.</li>
+</ul>
+<h4 id="fourth-audit-round">Fourth audit round</h4>
+<ul>
+<li>A <code>finally</code> runs when a <code>catch</code> handler throws (directly or from a call); the new
+  exception then propagates.</li>
+<li>A <code>bool</code> bitfield at a nonzero bit offset reads back what was stored (it used an <code>i1</code>
+  storage unit, so it read false or trapped at <code>-O2</code>).</li>
+<li><code>for (x in E)</code> evaluates <code>E</code> once: a call, or an index by a variable, was evaluated
+  again for every iteration (synchronous and async loops). The C++ checker accepts a
+  pointer to a generic list returned by a call as the iterable.</li>
+<li>The C++ checker accepts arithmetic, comparisons, <code>++</code>/<code>--</code> and unary operators on a
+  value typed by an alias through a field, element, return value or pointee
+  (<code>type u8 = uint8; s.a + 1</code>).</li>
+<li>Awaiting a future of a struct or a generic instance no longer prints a spurious
+  <code>0:0: cannot convert</code> error, and an error in the lowered async code now fails the
+  build instead of being ignored.</li>
+<li>Self-host: rejects <code>free_closure</code> of a non-closure, a sum type as a bitfield type,
+  reading or assigning an inline method as if it were a field (<code>p.sum</code>), a string slice
+  into a non-<code>char</code> slice, and <code>alloc_with</code> with a non-integer count or an allocator
+  without <code>alloc</code> (each emitted invalid IR or garbage before).</li>
+<li>Async: dropping a <code>select2</code>, <code>join2</code>, <code>select2v</code> or <code>join2v</code> future before it resolves
+  drops its inputs (their producers are cancelled and their wakers unhooked). A later
+  completion of an input used to write into the freed combinator, for example when an
+  outer timeout cancelled a task that was awaiting a <code>select2</code>.</li>
+<li>Sockets: a send to a peer that has closed returns an error (<code>EPIPE</code>) instead of raising
+  <code>SIGPIPE</code> and killing the process. <code>net_send</code> passes <code>MSG_NOSIGNAL</code> (Linux, macOS),
+  macOS sockets from <code>net_accept</code>/<code>net_tcp_connect</code>/<code>net_tcp_listen</code> get <code>SO_NOSIGPIPE</code>,
+  the async write path sends through <code>net_send</code>, and a TLS connection on Linux sets
+  <code>SIGPIPE</code> to ignored (OpenSSL writes with <code>write()</code>).</li>
+<li>HTTP/1.1 (<code>http_recv</code>, <code>HttpRequest_parse</code>) follows RFC 9112 framing: a chunked body is
+  decoded (it was left unread), <code>Transfer-Encoding</code> with <code>Content-Length</code> is 400, a coding
+  other than <code>chunked</code> is 501, and whitespace before a header colon, an obsolete line
+  fold, a missing or repeated <code>Host</code> in HTTP/1.1 and a request line without a valid
+  <code>HTTP/x.y</code> version are 400 (HTTP/2.0 on the HTTP/1 path is 505). A method must be a
+  token.</li>
+<li><code>multipart_part</code> finds the part by the <code>name</code> parameter of its <code>Content-Disposition</code>
+  header only (a <code>name=</code> in <code>Content-Type</code> matched before), and parameter and header names
+  are case-insensitive.</li>
+<li><code>url_query_get</code> decodes each key before comparing it, so <code>a%20b=1</code> and <code>a+b=1</code> match the
+  key <code>a b</code>.</li>
+<li>Regex: an invalid bracket range (<code>[z-a]</code>, <code>[a-\d]</code>) is a compile error as in RE2, and
+  <code>\D</code> <code>\W</code> <code>\S</code> inside a bracket class are the complemented shorthands (they were read
+  as the letters).</li>
+<li>A cast in a constant expression truncates and sign-extends as in C, so <code>case (int8)259:</code>
+  and <code>case 3:</code> are duplicate labels and <code>a[(int8)257]</code> is <code>a[1]</code>.</li>
+<li><code>fmt</code> keeps a line after a <code>\</code> continuation byte for byte (it re-indented it, changing a
+  spliced macro body).</li>
+<li>A variant constructor's integer literal argument must fit its payload type
+  (<code>A(300)</code> for <code>A(int8)</code>), and <code>null[0]</code> is a type error (it was a codegen error or
+  segfault).</li>
+<li>An interface arm and a struct-pointer arm of <code>?:</code> meet as the interface in both
+  compilers (C++ codegen crashed, the self-host rejected it).</li>
+<li>Self-host: rejects <code>match</code> on a pointer or a struct, casts to and from a sum type, a
+  struct literal of an enum, calling an enum member, an array or a non-closure field, a
+  method used as a value, a variadic function assigned to a number, a payload variant
+  without arguments, <code>sizeof</code> of a function, variant or later global, <code>++</code> on an enum, a
+  by-value cycle through a type alias, an array size naming a later <code>const</code>, and an
+  uninitialized read in a generic instance, as the C++ compiler does.</li>
+</ul>
+<h4 id="fifth-audit-round">Fifth audit round</h4>
+<ul>
+<li><code>List_free</code> sets <code>data</code> to null, so a push after it regrows the list and a second free
+  (also through <code>String_split_free</code>) is a no-op; it was a use after free and a double free.</li>
+<li>HTTP/2: a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3) is reset with
+  RST_STREAM PROTOCOL_ERROR and the handler is not called; it was answered 200. That
+  covers an unknown or response pseudo-header, a repeated one or one after a regular
+  field, a missing <code>:method</code>, <code>:scheme</code> or <code>:path</code> (CONNECT: <code>:authority</code> and no
+  <code>:scheme</code>/<code>:path</code>), <code>connection</code>, <code>keep-alive</code>, <code>proxy-connection</code>,
+  <code>transfer-encoding</code> and <code>upgrade</code>, <code>te</code> other than <code>trailers</code>, a content-length the
+  DATA frames do not add up to, and a pseudo-header in trailers. Frames the peer had in
+  flight on a stream the server reset are ignored instead of drawing a second
+  RST_STREAM or a GOAWAY.</li>
+<li>HTTP/2 responses drop the handler's connection-specific fields and its
+  <code>content-length</code> (it was sent next to the real one).</li>
+<li>A 1xx or 204 response has no Content-Length (RFC 9110 §8.6) in <code>HttpResponse_render</code>,
+  <code>http_reply</code> and HTTP/2, and no body.</li>
+<li>HTTP/1: a NUL in a header value or the request target makes <code>HttpRequest_parse</code> and
+  <code>http_parse_head</code> fail (RFC 9110 §5.5); a header lookup stopped at it.</li>
+<li>Regex: escapes follow RE2. <code>\b</code> <code>\B</code> (ASCII word boundaries), <code>\A</code> <code>\z</code>, <code>\xHH</code>,
+  <code>\x{HH}</code>, octal (<code>\0</code>, <code>\012</code>, <code>\101</code>) and <code>\a</code> are supported, and any other escaped
+  letter or digit (<code>\q</code>, <code>\1</code>, <code>\Z</code>, <code>[\b]</code>) is a compile error; they all matched the
+  literal letter. In a class, a <code>-</code> after a shorthand is a literal (<code>[\d-z]</code> is digits,
+  <code>-</code> and <code>z</code>, as in RE2); the fourth round made it an error, wrongly citing RE2.</li>
+<li><code>sizeof(var)</code> in a generic body measured the variable as an <code>int</code> (4 bytes) whatever
+  its type (<code>T[4] loc</code>, <code>B&lt;T&gt; b</code>, a lambda's local); <code>catch (T e)</code> and <code>catch (Err&lt;T&gt; e)</code>
+  in a generic body never matched, so the exception terminated the program.</li>
+<li>A slice or array of a struct with an <code>operator []</code> indexed through that operator in the
+  self-host (<code>s[i]</code> on a <code>V[]</code>, and <code>for (v in s)</code>): the operator's mangled name dropped
+  the brackets, so <code>V[]</code> named like <code>V</code>. Brackets are now part of the name in both
+  compilers.</li>
+<li>Self-host: a lambda whose type names a type parameter was rejected in a generic instance
+  (<code>return T() {...}</code>, <code>fn(T)-&gt;T d = T(T x) {...}</code>); a call to a generic variadic function
+  was emitted non-variadic (garbage arguments); an array of closures as a global or
+  <code>static</code> gave its lambdas the array as their return type (invalid IR); a union constant
+  whose member is a struct or an array was rejected without a location.</li>
+<li>A struct field, a pointee or an array of structs typed through an alias of an array
+  (<code>type AI = int[3]</code>) compiles in C++ (<code>q.b[2]</code> and <code>(*p)[2]</code> with <code>*AI p</code> were codegen
+  errors, a field alias of a struct array crashed), and <code>*AI</code> is a pointer to the array in
+  the self-host (it lowered as an array of pointers). A struct holding itself through
+  such an alias (<code>type AR = R[2]; struct R { AR a; }</code>) is rejected by C++ as by the
+  self-host (it compiled with a 4-byte field).</li>
+<li>When the target is an interface, each arm of a <code>?:</code> is boxed with its own struct's
+  vtable, so <code>I i = c ? &amp;a : &amp;b</code> with different conforming structs works in declarations,
+  assignments, returns and arguments (C++ rejected it, and the self-host called the first
+  struct's method on the second).</li>
+<li>An array dimension is an integer constant expression folded like a <code>const</code>: casts
+  truncate as in C (<code>int[(uint8)258]</code> has 2 elements), and arithmetic over numbers,
+  <code>const</code> ints and enum members works (<code>int[N + 1]</code>). Both compilers rejected anything but
+  a number or a single name. The self-host resolves an enum member as a struct field's
+  dimension (<code>int[B] a</code>, it was invalid IR).</li>
+</ul>
+<h4 id="sixth-audit-round">Sixth audit round</h4>
+<ul>
+<li>HTTP/2: <code>h2_fill_request</code> leaked 16 bytes per request (<code>String_from</code> on the already
+  allocated version String).</li>
+<li>HTTP/1: <code>HttpRequest_parse</code>, behind <code>http_serve</code> and <code>http_serve_async</code>, now frames a
+  request by RFC 9112 with the code <code>http_recv</code> uses: the body is exactly Content-Length
+  bytes (it was every byte after the head), an invalid, listed or repeated differing
+  Content-Length is rejected, and a request with no blank line after its head or a body
+  shorter than its Content-Length is incomplete instead of accepted. The new
+  <code>HttpRequest_parse_status</code> returns 0, -1 (more bytes needed) or the status (400, 413,
+  501, 505). Both servers read until the request is complete (<code>HttpConnBuf_feed</code>), so a
+  request split across TCP segments reaches the handler whole; a peer that closes early
+  gets 400, a head over 64 KiB 400 and a body over 1 MiB 413.</li>
+<li>A Host value must be uri-host [":" port] (RFC 9110 §7.2): <code>Host: a b</code>, <code>Host: a, b</code>, a
+  bad port or <code>%</code> escape is 400 in <code>http_recv</code> and <code>HttpRequest_parse</code>.</li>
+<li>A 304 response has no body and no Content-Length, and a HEAD response keeps the
+  Content-Length of its body but sends no body, in HTTP/1 (<code>HttpResponse_render_head</code>,
+  used by both servers) and HTTP/2; both sent the body.</li>
+<li>HTTP/2 trailers follow the header-field rules: an uppercase name, a CR, LF or NUL in a
+  value, a connection-specific field or <code>te</code> resets the stream with PROTOCOL_ERROR, as a
+  pseudo-header already did.</li>
+<li>Regex: <code>\s</code> is <code>[\t\n\f\r ]</code> as in RE2 (it also matched <code>\v</code>, and <code>\S</code> and <code>[^\s]</code>
+  missed it). POSIX classes in brackets (<code>[[:alpha:]]</code>, <code>[[:^digit:]]</code>, the 14 RE2
+  names) are supported; they were read as a set of letters and a stray <code>]</code>. A <code>{</code> that
+  does not start a <code>{n}</code>, <code>{n,}</code> or <code>{n,m}</code> repeat is a literal (<code>{</code>, <code>a{</code>, <code>a{,2}</code>), as
+  in RE2; it was an error.</li>
+<li><code>sizeof(T)</code> in an array dimension is an integer constant, as in C
+  (<code>uint8[sizeof(Header)]</code>, <code>int[sizeof(S) / 4]</code>): a fixed-size scalar folds in the type
+  checker, any other type's size comes from the target layout in codegen. Both compilers
+  rejected it.</li>
+<li>The self-host accepts <code>&lt;</code>, <code>&lt;&lt;</code>, <code>&lt;=</code>, <code>&gt;</code> and <code>?:</code> in an array dimension
+  (<code>int[K &lt;&lt; 1]</code>, <code>int[K &lt; 4 ? 2 : 1]</code>); its type-spelling scanners read the <code>&lt;</code> as a
+  generic argument list ("unknown type").</li>
+<li>An array of an array alias (<code>type Arr = int[3]; type Mat = Arr[2];</code>) is 2 arrays of 3
+  in the self-host (it laid out 3 arrays of 2), and C++ indexes three levels of such
+  aliases (<code>Cube c; c[3][1][2]</code> was a codegen error).</li>
+<li>A nested brace initializer whose rows are an array alias (<code>type A = int[2];
+  A[2] m = {{1, 2}, {3, 4}};</code>, also a global) compiles in C++; it was rejected.</li>
+<li><code>alloc_with</code> over an instance of a generic allocator works in both compilers, through
+  its inline <code>alloc</code> method or a top-level <code>G_int_alloc(*G&lt;int&gt; self, int64 n)</code>: C++
+  failed in codegen without a location, and the self-host rejected both.</li>
+<li>The self-host lays out 32-bit x86 targets (<code>--target i686-...</code>): 4-byte pointers, and
+  4-byte alignment of <code>int64</code> and <code>double</code> on SysV (8 on Windows). It used the 64-bit
+  layout, so <code>sizeof</code> and struct sizes differed from C++. <code>cabi_parity.sh</code> compares the
+  sizes of <code>tests/target_sizes.esk</code> per target.</li>
+<li>C++ iterates <code>for (x in *p)</code> with <code>p: *A4</code> (<code>type A4 = int[4]</code>); it was rejected.</li>
+<li>The self-host rejects a cast of a void value (<code>(int)v()</code>), of a <code>{...}</code> literal
+  (<code>((S){1}).a</code>) and, in a generic instance, of an int to a struct type argument
+  (<code>(T)0</code> with T = S), and a type argument that makes a parameter <code>void</code>
+  (<code>id&lt;void&gt;(v())</code>), as C++ does.</li>
+<li>x86-64 SysV C ABI: an eightbyte holding a union is as wide as its widest member, as in
+  clang. <code>union { int; double; }</code> passed or returned by value is an <code>i64</code> (it was an
+  <code>i32</code>, losing the high half), <code>union { char; int; }</code> an <code>i32</code>, <code>union { float; double; }</code>
+  a <code>double</code>, and <code>struct { float; union { int; float; double; } }</code> is <code>{ float, i64 }</code>.
+  Both compilers; test <code>c_abi_union</code> (+ <code>.c</code>), also in <code>cabi_parity.sh</code>.</li>
+<li>A type alias is its target for every shape check, in both compilers: the expression
+  types the type checkers and codegens reason about never name an alias (C++
+  <code>getExpressionType</code> and <code>getExprEskiuType</code>, self-host <code>sema_infer_type</code> and <code>cg_etype</code>).
+  An alias of an interface boxes (<code>type Sh = Shape; Sh s = &amp;q;</code> was a bus error in C++, an
+  <code>Sh</code> parameter a codegen error) and dispatches (<code>s.area()</code>, <code>mk().area()</code>); an alias of
+  a pointer derefs (<code>PSq[2] ps; ps[0].s</code>) and dot-calls (<code>pq.area()</code>, also on generic
+  instances <code>BI</code>/<code>PB</code>); a field or return typed by an alias of a fn type calls
+  (<code>s.f(1)</code>, <code>getf(5)(1)</code>; invalid IR or a crash in the self-host); a <code>match</code> on an alias
+  of a classic enum is accepted and checked for exhaustiveness (C++ rejected it, the
+  self-host accepted a missing arm); an operator over alias operands (<code>operator +(VV,
+  VV)</code>) and a <code>*VV self</code> receiver resolve in the self-host; <code>.len</code> of an element of <code>IS[2]</code>
+  (<code>type IS = int[]</code>) works, and <code>IS[2]</code> / <code>*IS</code> keep the slice as their element in the
+  self-host (they collapsed to <code>int[2]</code> / <code>int*</code>). Test <code>alias_shapes</code>.</li>
+<li>A struct pointer boxes into an interface as a variant payload (<code>Som&lt;Shape&gt;(&amp;a)</code>,
+  <code>W(&amp;b)</code> for <code>enum Wr { W(Shape) }</code>; C++ segfaulted, the self-host emitted invalid IR)
+  and as a lambda's return value (<code>Shape() { return &amp;g; }</code>, a C++ verifier error). Test
+  <code>iface_payload_lambda</code>.</li>
+<li>A member of an overloaded <code>[]</code> result (<code>w[2].v</code>) is read from the call's value (a C++
+  codegen error, invalid IR in the self-host). Test <code>index_result_member</code>.</li>
+<li>A global (or <code>static</code>) initialized with a function name (<code>Op g = add;</code>, also in an
+  array or struct literal) is a constant closure, as in C; both compilers rejected it as
+  not a compile-time constant. Test <code>global_fn_value</code>.</li>
+</ul>
+<h4 id="seventh-audit-round">Seventh audit round</h4>
+<ul>
+<li>HTTP/2: request bodies were buffered without limit (every DATA frame appended while
+  WINDOW_UPDATE gave the credit back, 400 MB over 128 streams). The <code>H2Server</code> engine
+  now buffers at most <code>s.max_body</code> bytes per request (default 1 MiB, as HTTP/1.1) and
+  <code>s.max_buffered</code> across a connection (default <code>H2_MAX_BUFFERED</code>, 4 MiB); a request past
+  either, or with a content-length past <code>max_body</code>, is answered 413 without the handler
+  and its stream reset with NO_ERROR. Test <code>http2_body_limit</code>.</li>
+<li><code>http_serve_async</code> sent each answer with a blocking <code>net_send</code>, so a client that asked
+  for a large body and did not read it stalled the event loop and every other client.
+  The connection socket is now non-blocking and the answer goes out through
+  <code>net_write_async</code>. <code>net_set_nonblocking</code> (and the executor's self-pipe setup) did
+  nothing on arm64 macOS: <code>fcntl</code> is variadic and was declared with a fixed third
+  parameter. Test <code>http_async_slow_reader</code>.</li>
+<li><code>HttpConnBuf_feed</code> reparsed the request from its first byte on every read, so a
+  chunked request fed in small pieces cost time quadratic in its size. It now parses the
+  head once and decodes the chunked body as it arrives; a chunk-size or trailer line over
+  <code>HTTP_CHUNK_LINE_MAX</code> (8192 bytes) is 400. Test <code>http_conn_feed_incremental</code>.</li>
+<li>Response header injection: <code>HttpResponse_header</code> accepted a CR or LF in a value (and
+  any bytes in a name), so a handler echoing input could add a header line. It now
+  returns 0 and adds nothing for such a pair (1 otherwise), and the HTTP/2 encoder drops
+  a hand-written line with a non-token name or an LF or NUL. A Content-Length the
+  handler sets is no longer sent next to the automatic one in HTTP/1 (a 1xx, 204 or 304
+  keeps it). Test <code>http_response_header_inject</code>.</li>
+<li><code>http_chunked_step</code> spun forever on a chunk size near <code>INT64_MAX</code> when the limit
+  allowed it (<code>size + 2</code> overflowed in the room check). Test <code>http_chunk_size_max</code>.</li>
+<li><code>&amp;e</code> evaluates its operand once in C++: <code>&amp;buf[i++]</code>, <code>&amp;A[f()]</code>, <code>&amp;getp().x</code>, <code>&amp;*gp()</code>
+  and a <code>for-in</code> over a List element <code>ls[f()]</code> ran the side effect twice. Test
+  <code>addr_of_once</code>.</li>
+<li>A cast to an alias of an unsigned type (<code>(u8)-1</code>) or a call returning one zero-extends
+  in the self-host (it sign-extended, so <code>(u8)-1</code> was -1 and <code>f() + 10</code> with <code>f</code> returning
+  <code>u8</code> 250 was 4). Test <code>alias_unsigned</code>.</li>
+<li>The self-host checks every argument of an inferred generic call against the
+  instantiated parameter types, as C++ does: only a bare <code>T</code> parameter was checked, so
+  <code>swp(&amp;i64, &amp;s.a)</code> against <code>*T</code> corrupted memory and <code>List_push(&amp;l, 1.5)</code> on a
+  <code>List&lt;int&gt;</code> compiled. Tests <code>errors/generic_ptr_arg_mismatch</code>,
+  <code>errors/generic_struct_param_arg</code>, <code>generic_infer_common</code>,
+  <code>errors/generic_deduce_conflict</code>.</li>
+<li><code>fmt</code> follows the preprocessor's view of strings and comments, in both drivers: a
+  stray <code>"</code> in a skipped <code>#if 0</code> branch or inside a <code>/* */</code> opened on a <code>#define</code> line
+  made it think a string was open and reindent a later multi-line string, changing the
+  program. Each branch of a conditional starts from the string state at its <code>#if</code>, a <code>#</code>
+  line is a directive even inside a multi-line string, and a directive that leaves a
+  comment open opens it for the following lines. Test <code>fmt_cases/pp_string_state</code>.</li>
+<li>A field or element of a temporary (<code>mk().x</code>, <code>arr()[0]</code>, <code>mp().v</code>) is not storage:
+  taking its address or assigning to it is a located type error, and slicing a
+  temporary array (<code>mp().v[0..2]</code>) is "cannot slice a temporary array" in both
+  compilers (C++ failed in codegen without a location, the self-host accepted
+  <code>&amp;mp().x</code>). Tests <code>errors/slice_temporary_array</code>, <code>errors/addr_of_rvalue_member</code>,
+  <code>errors/assign_rvalue_element</code>.</li>
+<li>The self-host rejects a binary operator on a struct operand when no overload accepts
+  the operand types (a pointer argument converts only through <code>*void</code>), as C++ does:
+  <code>v + &amp;g.a</code> for <code>operator +(V, *int64)</code> compiled to invalid IR. Test
+  <code>errors/operator_ptr_arg_mismatch</code>.</li>
+<li>Narrow integers cross the C boundary extended, as clang does: an <code>extern</code>'s <code>int8</code>,
+  <code>int16</code>, <code>uint8</code>, <code>uint16</code>, <code>bool</code> and <code>char</code> params and results carry <code>signext</code> /
+  <code>zeroext</code>, and an Eskiu function returning one (a callback, or a function C calls by
+  name) extends its result. AArch64 Darwin and x86-64 C code relies on it; a C callee
+  read garbage high bits. <code>char</code> follows the target's C <code>char</code>. Both compilers; test
+  <code>c_abi_narrow</code> (+ <code>.c</code>), also in <code>cabi_parity.sh</code>.</li>
+<li>A <code>va_list</code> passed to a C function (<code>vprintf</code>, <code>vsnprintf</code>) goes the way the target's
+  C <code>va_list</code> does: by address on x86-64 System V and AArch64 Linux, as its <code>char*</code> on
+  Darwin AArch64, Windows x64 and 32-bit ARM. It was passed as a 32-byte aggregate (a
+  crash on x86-64). Both compilers; test <code>va_list_c</code>.</li>
+<li>Every load and store through a <code>volatile</code> variable is volatile: <code>*p</code>, <code>p[i]</code>, <code>p.f</code>,
+  <code>++</code>/<code>--</code> and compound assignment, for locals and globals. C++ marked only the
+  variable's own loads (a volatile global not even those), the self-host ignored
+  <code>volatile</code>. Test <code>volatile_access</code> (IR checked in <code>run.sh</code> and <code>cg_parity.sh</code>).</li>
+<li>The self-host emits inline assembly (it dropped <code>asm(...)</code> statements), with inputs
+  and clobbers like C++. Test <code>inline_asm_ext</code>.</li>
+<li>An async function whose <code>match</code> arms or <code>try</code>/<code>catch</code>/<code>finally</code> bodies declare locals
+  compiles: the lowering hoists them to frame fields (C++ failed with "has no member",
+  the self-host emitted invalid IR). Test <code>async_arm_locals</code>.</li>
+<li>The self-host instantiates a generic enum with an alias type argument (<code>Opt&lt;F&gt;</code>,
+  <code>type F = int</code>) as the target's instance (invalid IR). Test <code>generic_enum_alias_arg</code>.</li>
+<li>The self-host dot-calls through a pointer to an alias (<code>IL* l; l.len()</code> with
+  <code>type IL = List&lt;int&gt;</code>), as C++ does. Test <code>alias_ptr_dotcall</code>.</li>
+<li>A closure param of an async function is retained by the coroutine frame, so the
+  call's lambda gets a heap environment even when the body only calls it. C++ rejected
+  the program with an internal error. Test <code>async_closure_param</code>.</li>
+</ul>
+<h4 id="eighth-audit-round">Eighth audit round</h4>
+<ul>
+<li>Returning the address of a local through a pointer cast or a <code>?:</code> arm
+  (<code>return (*void)&amp;x;</code>, <code>return c ? &amp;x : &amp;y;</code>) is the dangling-pointer error, like
+  <code>return &amp;x;</code>. Both compilers; tests <code>errors/dangling_cast</code>, <code>errors/dangling_ternary</code>.</li>
+<li>A struct that holds itself by value through an alias of a generic instance
+  (<code>type RA = W&lt;RB&gt;; struct RB { RA a; }</code>) is rejected; C++ gave it a wrong layout. Both
+  compilers; test <code>errors/struct_cycle_generic_alias</code>.</li>
+<li>The self-host declares a prototype that the program never defines, so its object links
+  with the one that does (separate compilation failed). <code>driver_parity.sh</code>
+  <code>separate/prototype</code>.</li>
+<li>The self-host rejects assigning an array literal (<code>a = {4, 5, 6};</code>) and casting a
+  function name to a non-pointer (<code>(int64)f</code>), as C++ does. Tests
+  <code>errors/assign_array_literal</code>, <code>errors/cast_fn_name_to_int</code>.</li>
+<li>The self-host driver accepts <code>-O 2</code> (a separate value), like <code>eskiuc</code>.</li>
+<li>A leading UTF-8 byte order mark is skipped instead of rejected, in both compilers.
+  Test <code>utf8_bom</code>.</li>
+<li>The HTTP/2 engine bounds a request's decoded header list: over
+  <code>H2_MAX_HEADER_LIST</code> (64 KiB, as <code>SETTINGS_MAX_HEADER_LIST_SIZE</code> counts it, now
+  advertised) or past what <code>s.max_buffered</code> leaves is 431, without keeping the
+  fields, and open streams' header lists count toward <code>max_buffered</code>. Only the field
+  count was limited, so a large dynamic-table entry referenced many times turned
+  13 KB of HPACK into 34 MB. Test <code>http2_header_list_limit</code>.</li>
+<li>HTTP/2 requests follow the HTTP/1.1 Host rules: an invalid host or <code>:authority</code> is
+  400, two host fields or a host that differs from <code>:authority</code> is a stream error,
+  and without a host field the handler sees <code>:authority</code> as Host (it was dropped,
+  and any host fields with any value were accepted). Test <code>http2_host_rules</code>.</li>
+<li><code>http_recv</code> reads a chunked trailer section incrementally: it rescanned it from the
+  last chunk on every read and kept it all (quadratic CPU). A trailer section over
+  <code>HTTP_CHUNK_TRAILER_MAX</code> (64 KiB) is 400 there and in the servers. Test
+  <code>http_recv_trailers</code>.</li>
+<li><code>HTTP_CHUNK_LINE_MAX</code> also holds for a complete chunk-size or trailer line, so the
+  verdict no longer depends on how the request was split into reads (a 9000-byte
+  chunk extension was accepted in one read). Test <code>http_chunk_line_split</code>.</li>
+<li><code>HttpConnBuf_feed</code> drops chunked input it has decoded, so a body in tiny chunks
+  (6 raw bytes per body byte) is no longer 413 below <code>HTTP_SERVE_MAX_BODY</code> and the
+  buffer stays small. Test <code>http_chunk_tiny_chunks</code>.</li>
+<li>The spec's <code>#define</code> continuation example declares <code>printf</code>.</li>
+<li>A multidimensional array type in generic code keeps C order: <code>T[2][3]</code> in a generic
+  function or struct was re-spelled <code>int[3][2]</code> on substitution, so a non-square local
+  crashed C++ codegen, a field was laid out with swapped dimensions (writes out of
+  bounds) and an in-range constant index was rejected. Test <code>generic_multidim</code>.</li>
+<li>A generic struct instance keeps its bitfields and packing: <code>struct G&lt;T&gt; { T v;
+  uint8 f : 3; }</code> had full-width fields in both compilers, and the self-host ignored
+  <code>packed</code> / <code>#pragma pack</code> on a generic struct. The instance is laid out like the plain
+  struct of its concrete field types. Test <code>generic_struct_layout</code> (+ <code>.c</code>).</li>
+<li>The self-host's <code>sizeof(x)</code> of an async function's local or parameter, and of an
+  enclosing local used only by <code>sizeof</code> inside a lambda, is the variable's size (it was
+  4). Test <code>sizeof_var_frame</code>.</li>
+<li>A dot-call through a leading-star pointer to an alias (<code>*Counter pc; pc.bump(1)</code>,
+  <code>type Counter = Cnt</code>) resolves the aliased struct's methods in C++, as the
+  trailing-star form did. Test <code>alias_ptr_dotcall</code>.</li>
+<li>An array or slice type argument (<code>Box&lt;int[3]&gt;</code>, <code>Box&lt;int[]&gt;</code>) instantiates a generic
+  struct in C++ ("unknown type 'Box_int'"). Test <code>generic_array_targ</code>.</li>
+<li>The self-host accepts returning a slice of a slice parameter (<code>return s[1..s.len];</code>)
+  and the address of an element of a slice parameter or slice field (<code>&amp;s[1]</code>,
+  <code>&amp;p.sl[2]</code>); they were rejected as dangling. Test <code>slice_return_nonlocal</code>.</li>
+<li>A struct literal accepts a trailing comma (<code>P{ x: 5, y: 6, }</code>), like an array
+  literal. Test <code>struct_lit_trailing_comma</code>.</li>
+</ul>
+<h4 id="final-additions">Final additions</h4>
+<ul>
+<li>A generic struct's <code>*T</code> field with an array or slice type argument (<code>Box&lt;int[3]&gt;</code>,
+  <code>Box&lt;int[]&gt;</code>, or an alias such as <code>type IS = int[]</code>) is a pointer to that array or
+  slice: the C++ type checker rejected <code>Box&lt;int[3]&gt;{ p: &amp;a }</code> and the self-hosted
+  compiler emitted invalid IR for <code>Box&lt;IS&gt;{ p: &amp;s }</code> (it read the field as a slice of
+  pointers). A <code>T[2]</code> field with <code>T = int[3]</code> is two arrays of three in both. Test
+  <code>generic_alias_slice_ptr</code>.</li>
+<li>A struct declared under <code>#pragma pack(N)</code> with N of 2 or more is aligned to the smaller
+  of N and its largest field alignment, as C does, also as a field or array element of
+  another struct, a union member, next to bitfields and as a generic type argument (it was
+  aligned to 1 there, so the outer struct could be smaller than clang's; a layout change
+  for such structs). The type checker folds <code>sizeof</code> the same way, and the C ABI lowering
+  uses that alignment and skips the padding of a struct laid out by hand. Tests
+  <code>pack_nested_c</code> (+ <code>.c</code>, also in <code>cabi_parity.sh</code>), <code>sizeof_pack_n_fold</code>.</li>
+<li>On AArch64 Linux (and other non-Darwin, non-Windows AArch64 targets) a variadic
+  function written in Eskiu reads its arguments right: <code>va_arg&lt;T&gt;</code> walks the AAPCS64
+  <code>va_list</code> (general-register and FP/SIMD save areas, then the stack) as clang does,
+  where LLVM's <code>va_arg</code> instruction read it as a Darwin <code>char*</code> list. Tests
+  <code>variadic_regs</code> (+ <code>.c</code>), and <code>variadic</code>, <code>generic_variadic</code> under <code>linux_docker.sh</code>.</li>
+<li><code>-Wall</code> warns about a scalar local that may be used uninitialized: a read that some
+  path through <code>if</code>/<code>else</code>, loops, <code>switch</code> fall-through, <code>match</code>, <code>try</code>/<code>catch</code>/<code>finally</code>,
+  <code>defer</code>, early exits or a lambda capture reaches without an assignment (<code>&amp;x</code> assigns;
+  aggregates set field by field are not tracked). A read no path assigns stays an error.
+  C++ compiler only. Tests <code>warnings/maybe_uninit</code>, <code>warnings/maybe_uninit_ok</code>.</li>
+<li>The stdlib HTTP servers (<code>http_serve</code>, <code>http_serve_async</code>, <code>http2_serve_async</code>, the
+  TLS servers) disconnect a client that sends nothing, trickles its bytes or stops
+  reading: a request head (or the HTTP/2 preface and SETTINGS) must arrive within
+  <code>HTTP_HEADER_TIMEOUT_MS</code> (10 s), a body within <code>HTTP_BODY_TIMEOUT_MS</code> (60 s), an idle
+  HTTP/2 connection gets GOAWAY after <code>HTTP_IDLE_TIMEOUT_MS</code> (60 s), an answer must be
+  taken within <code>HTTP_WRITE_TIMEOUT_MS</code> (30 s), and the async servers hold at most
+  <code>HTTP_MAX_OPEN_CONNS</code> (1024) connections. A cut HTTP/1.1 request is answered 408.
+  <code>HttpLimits</code> and the <code>*_with</code> server variants change them; <code>&lt;net&gt;</code> gains
+  <code>net_set_timeouts</code> and <code>&lt;net_async&gt;</code> deadline reads and writes. Tests <code>http_timeouts</code>,
+  <code>http2_timeouts</code>, <code>http2_tls_timeouts</code>.</li>
+<li>A declaration may follow <code>case N:</code> or <code>default:</code> directly, without braces. The switch
+  body is one scope, as in C: the variable is visible in the later cases, and two cases
+  may not declare one name. Tests <code>case_decl</code>, <code>async_case_decl</code>,
+  <code>errors/case_decl_redefined</code>, <code>errors/case_decl_out_of_scope</code>.</li>
+<li>A <code>T[]</code> parameter infers <code>T</code> from a slice argument (<code>sum(a[0..4])</code>). Test
+  <code>generic_slice_infer</code>.</li>
+<li><code>sizeof(expr)</code> is the size of the expression's type, not evaluated (<code>sizeof(*p)</code>,
+  <code>sizeof(a[0])</code>, <code>sizeof(s.f)</code>); <code>sizeof(*p)</code> used to measure a pointer. The type
+  checker folds <code>sizeof</code> of a pointer, array, struct or union with the target's layout,
+  so the constant checks (zero divisor, index out of bounds, duplicate <code>case</code>) see it.
+  Tests <code>sizeof_expr</code>, <code>errors/index_oob_sizeof_struct</code>, <code>errors/switch_dup_sizeof_ptr</code>,
+  <code>errors/const_div_zero_sizeof_expr</code>.</li>
+<li>An enum member value may be an integer constant expression over literals, earlier
+  members, <code>const</code> ints and <code>sizeof</code> (<code>B = A &lt;&lt; 2</code>), folded like any constant. Tests
+  <code>enum_value_expr</code>, <code>errors/enum_value_not_const</code>, <code>errors/enum_value_expr_range</code>.</li>
+<li>A bitfield read or written through a <code>volatile</code> variable (<code>r.mode = 5</code>, <code>r.mode++</code>)
+  uses volatile loads and stores of its storage word, and a volatile variable's
+  initializing store is volatile. Test <code>volatile_bitfield</code> (IR count checked in <code>run.sh</code>
+  and <code>cg_parity.sh</code>).</li>
+<li>A nullary variant written with parentheses (<code>B()</code>) is an error located at the call,
+  "variant 'B' takes no arguments" (write <code>B</code>). Test <code>errors/variant_nullary_parens</code>.</li>
+<li>A function-like macro whose name is followed by a newline (and blanks or comments)
+  before its <code>(</code> is expanded, as in C. Test <code>macro_call_newline</code>.</li>
+<li>Deep types, member chains and nested ternaries compile in linear time: type spellings
+  are parsed and rendered in one pass (C++ <code>ty::Type</code>, parser), a member chain is typed
+  once (self-host sema and codegen; C++ codegen's volatile-root walk is memoized), and a
+  ternary finds its <code>:</code> from a table built once (both parsers). <code>tests/deep/gen.sh</code>
+  gains <code>member_chain_50k</code> and <code>ternary_then_5k</code>.</li>
+<li>The blocking TLS server's deadlines (<code>tls_accept_with</code>, <code>tls_read_full_deadline</code>,
+  <code>http2_tls_serve_conn_with</code>) hold against a peer that trickles bytes inside one TLS
+  record. They used <code>SO_RCVTIMEO</code>, which restarted with every byte OpenSSL's record loop
+  read, so one byte every 200 ms kept a handshake or preface open forever. The socket now
+  runs non-blocking and the calls wait with <code>poll</code> (<code>WSAPoll</code> on Windows) on what is left
+  of the deadline; writes take <code>tls_write_all_deadline</code>. <code>&lt;net&gt;</code> gains <code>net_wait_ready</code>.
+  Test <code>tls_trickle_deadline</code> (+ <code>.c</code>, an OpenSSL stand-in with a record layer).</li>
+<li>An HTTP/2 response must be all sent within the new <code>HttpLimits.write_total_ms</code>
+  (<code>HTTP_WRITE_TOTAL_MS</code>, 5 min) of when it was ready. <code>write_ms</code> counts from the last
+  data sent, so a peer granting one byte of window every 150 ms kept a 2 MB response and
+  its buffer alive forever. Past the cap the stream is reset with CANCEL and its response
+  freed; the connection stays open (<code>H2Server_expire</code>, <code>H2Server_timed_out_with</code>, used by
+  the h2c and both TLS servers). Test <code>http2_write_total</code>.</li>
+<li><code>&lt;net&gt;</code>'s socket timeouts pass a <code>struct timeval</code> of two C <code>long</code>s with its own size, so
+  32-bit ARM Linux gets the 8-byte layout it expects (it was always 16 bytes). Test
+  <code>run_cmd/net_timeval</code> (IR checked by <code>run.sh</code> for armv7 and x86-64).</li>
+<li>An object-like macro that expands to the name of a function-like macro is invoked when
+  the <code>(</code> is on a following line (<code>#define G F</code>, then <code>G</code> and <code>(5)</code> on the next line), as
+  in C. A line inside a multi-line string literal is string text in both preprocessors:
+  a <code>#undef</code> or other <code>#</code> line there is not a directive and no macro expands in it; <code>fmt</code>
+  keeps such a line's bytes. Tests <code>pp_string_lines</code>, <code>fmt_cases/string_hash_line</code>.</li>
+<li>The self-hosted compiler types each <code>?:</code> of a deeply nested one once, in the type
+  checker (memoized per node while no binding, scope or narrowing changes) and in codegen
+  (stamped bottom-up when the outermost one is emitted): 5000 levels took about ten
+  seconds to type-check, 20000 now compile in about a second. <code>tests/deep/gen.sh</code> gains
+  <code>ternary_mixed_20k</code>.</li>
+<li>Inline <code>asm</code> takes output operands, in both compilers: <code>asm("op" : "=r"(y) : "r"(x))</code>
+  with register outputs (<code>=r</code>, <code>=&amp;r</code>, several at once), read-write <code>+r</code>, and memory
+  <code>=m</code>/<code>+m</code>, numbered like clang (outputs first) and lowered as clang does. An output
+  must be a writable lvalue of a non-bool integer, floating-point or pointer type (not a
+  bitfield). Tests <code>inline_asm_out</code> (x86-64 IR checked by <code>run.sh</code> and <code>cg_parity.sh</code>),
+  <code>errors/asm_output_*</code>, <code>errors/asm_input_output_constraint</code>.</li>
+<li><code>extern</code> struct and union arguments and results follow the 32-bit x86 C ABI (cdecl) in
+  both compilers, as clang lowers them: an argument of at most 16 bytes made only of
+  32/64-bit scalars is passed as those scalars, anything else byval; Linux returns every
+  aggregate through sret, while Darwin, Windows and the BSDs return one of 1, 2, 4 or 8
+  bytes in registers (a lone <code>float</code>/<code>double</code> or pointer as itself, except a floating
+  one under MSVC). <code>cabi_parity.sh</code> covers the i686 targets and compares both compilers
+  with clang's IR for the C companions. Test <code>c_abi_x86_32</code> (+ <code>.c</code>).</li>
+<li>
+<p><code>http_serve</code> sends an answer under one <code>write_ms</code> deadline from its first byte and retries a partial send within it, so an answer is no longer cut short by an early partial send.</p>
+</li>
+<li>
+<p>A slice or array compares by its element type in the C++ type checker, whatever the
+  spelling (<code>int*[]</code> is <code>*int[]</code>), and a <code>T[]</code> parameter binds <code>T</code> from a slice of a
+  generic instance or of a trailing-star pointer. Test <code>slice_elem_spelling</code>.</p>
+</li>
+<li>The self-host calls a local or parameter of fn type named like an ADT variant (<code>A(1)</code>,
+  <code>B()</code>) instead of building the variant, as C++ does. Test <code>variant_name_shadow</code>.</li>
+<li>A keyword after <code>.</code> is a member name, so <code>j.int(5)</code> and <code>j.bool(1)</code> dot-call the <code>&lt;json&gt;</code>
+  builder's <code>Json_int</code> and <code>Json_bool</code>. Test <code>json_keyword_methods</code>.</li>
+<li>An enum member value may use <code>?:</code>, <code>&amp;&amp;</code>, <code>||</code> and <code>!</code> (short-circuit, as in C) and a
+  <code>const</code> whose initializer uses them. Tests <code>enum_value_logic</code>,
+  <code>errors/enum_value_ternary_not_const</code>.</li>
+<li><code>null</code> converts to an interface value (<code>{null, null}</code>) in a declaration, an assignment, a
+  return, an argument and a field, and an interface value compares with <code>null</code> and is a
+  condition (<code>if (i)</code>, <code>!i</code>, <code>i &amp;&amp; ...</code>). Tests <code>iface_null_value</code>, <code>errors/iface_compare_ptr</code>.</li>
+<li>A pointer to a nullable pointer is spelled <code>*?*T</code> (<code>&amp;p</code> of a <code>?*T</code> is one); <code>?*T*</code> is
+  still a nullable pointer to <code>*T</code>. Its pointee must be checked before a second
+  dereference, and it does not convert to <code>**T</code>. Tests <code>nullable_ptr_to_ptr</code>,
+  <code>errors/nullable_ptr_to_ptr_deref</code>, <code>errors/nullable_ptr_to_ptr_drop</code>.</li>
+<li>The type checker folds <code>sizeof</code> of a struct under <code>#pragma pack(N)</code> with N of 2 or more,
+  with or without bitfields, per target as code generation lays it out, so enum values,
+  array dimensions and <code>case</code> labels may use it. (A named <code>: 0</code> bitfield stays an error.)
+  Test <code>sizeof_pack_n_fold</code>.</li>
+<li>A type alias inside a composite type is its target in the C++ compiler too: <code>Box&lt;F&gt;</code> is
+  <code>Box&lt;int&gt;</code> with <code>type F = int</code>, <code>List&lt;Vec&gt;</code> is <code>List&lt;V&gt;</code>, <code>fn(int)-&gt;IF</code> is <code>fn(int)-&gt;int</code>.
+  Type arguments are canonicalized before an instance is named, so both spellings share
+  one monomorph in both compilers (<code>unbox&lt;F&gt;</code> no longer adds an <code>unbox_F</code>). Tests
+  <code>alias_in_composite</code>, <code>errors/alias_in_composite_mismatch</code>.</li>
+<li>A generic variant takes its type arguments from the expected type: in a declaration,
+  an assignment, a <code>return</code> and an argument of a non-generic function, <code>Some(5)</code> builds
+  the expected <code>Opt&lt;int64&gt;</code>, and a bare <code>None</code> or an under-determining <code>Left(4)</code> is
+  accepted (<code>Opt&lt;int&gt; n = None;</code>). The payload is checked against those arguments; the
+  explicit forms still work. Tests <code>variant_expected_type</code>, <code>errors/variant_expected_payload</code>.</li>
+<li>The two compilers report a diagnostic at the same line and column: the self-hosted parser
+  stamps each node with the token the C++ parser uses (an operator at its operator, a cast
+  at its <code>(</code>, a member access at its <code>.</code>, a declaration at its name, a statement at its
+  keyword), and its checker points at the same node (a callee, a struct literal field's
+  value, a range bound, a method). <code>tests/selfhost/tc_parity.sh</code> now also compares the
+  line:col of the expected error with the C++ one over the error corpus. A <code>throw</code>
+  statement is located at its keyword (it was at the <code>;</code>), and <code>static</code> on a global is
+  reported by the self-hosted checker, not as a parse error.</li>
+<li>The self-host emits a double literal too large for double as infinity in LLVM hex form
+  (<code>0x7FF0000000000000</code>), as C++ does; a global initializer <code>1e400</code> was rejected by clang.
+  <code>float_literal_range</code> now covers the global case, so <code>corpus_parity.sh</code> checks it.</li>
+<li><code>a * b;</code> and <code>a * g();</code> with <code>a</code> a local or parameter are expression statements in both
+  compilers, in a block or after a <code>case</code> label (C++ read them as declarations, the
+  self-host read <code>a * b;</code> after a <code>case</code> as one). Test <code>local_times_stmt</code>.</li>
+<li><code>sizeof</code> of a generic struct instance, a sum type, a struct with bitfields (SysV/AAPCS
+  or MS rules, per target) and a struct holding an interface value folds in the type
+  checker, so a duplicate <code>case sizeof(T):</code> is a located error instead of an LLVM or
+  clang failure. Tests <code>sizeof_case_layouts</code>, <code>errors/switch_dup_sizeof_{generic,adt,bitfield,iface}</code>.</li>
+<li><code>await</code> works in any position of an <code>async</code> function, in both compilers: inside a
+  <code>try</code> body and a <code>catch</code> handler (an exception thrown before or after a suspension
+  reaches the right handler; <code>finally</code> runs exactly once on every exit), a <code>match</code> arm, a
+  <code>switch</code> subject, a <code>for-in</code> iterable, a range bound, a compound assignment (its target
+  evaluated once, before the await), a condition, a call argument and any larger
+  expression (operands with side effects keep their order; <code>&amp;&amp;</code>, <code>||</code> and <code>?:</code> evaluate
+  an awaiting operand only when it runs). This replaces the located errors added earlier in this cycle
+  in this release. A future dropped while suspended now runs the <code>defer</code>s and <code>finally</code>
+  blocks pending at its await once. An <code>await</code> in a <code>finally</code> is a located error. Tests
+  <code>async_try</code>, <code>async_try_cancel</code>, <code>async_await_positions</code>, <code>async_await_edges</code>,
+  <code>async_generic_try</code>, <code>errors/await_in_finally</code>, <code>run_cmd/await_in_defer</code>, <code>run_cmd/await_in_generic_match</code>.</li>
+<li><code>&lt;regex&gt;</code> reads patterns and texts as UTF-8, with the semantics of Go's regexp (RE2):
+  <code>.</code>, classes and literals match whole code points (match offsets stay byte offsets, and
+  a byte that is not valid UTF-8 reads as U+FFFD), <code>\x{..}</code> goes up to <code>\x{10FFFF}</code>, and
+  it gains <code>\p{..}</code> / <code>\P{..}</code> (the general categories, their one-letter groups, the
+  scripts and <code>Any</code>, Unicode 15 tables generated from Go's by
+  <code>tools/gen_regex_unicode.go</code> into <code>&lt;regex_unicode&gt;</code>), the flags <code>(?i)</code> (simple case
+  folding), <code>(?m)</code>, <code>(?s)</code> and <code>(?U)</code> for the rest of a group or scoped as
+  <code>(?flags:...)</code>, non-capturing groups <code>(?:...)</code>, named groups <code>(?P&lt;name&gt;...)</code> and
+  <code>(?&lt;name&gt;...)</code>, and literal text <code>\Q...\E</code>. A differential against Go's regexp over
+  60 000 generated patterns and texts agrees on every result. Test <code>regex_unicode</code>; the
+  stdlib fuzzer's regex dictionary covers the new syntax.</li>
+<li><code>&lt;eventloop&gt;</code> on AArch64 Linux: <code>struct epoll_event</code> was declared packed as on x86-64,
+  so each event read the wrong descriptor and the async servers spun at full CPU (the
+  <code>http2_*</code> tests hung). It is packed only on x86-64 now.</li>
+<li><code>tests/linux_docker.sh</code> runs a Linux smoke of a release from a Mac: it cross-compiles
+  the run and smoke tests and the self-hosted drivers for AArch64 (or x86-64) Linux,
+  links and runs them in <code>ubuntu:24.04</code> with gcc, runs the self-hosted type checker and
+  code generator over the corpus, and checks the bootstrap fixpoint on Linux. A
+  pre-release check, not a CI gate.</li>
+<li>A native build targets the target's baseline CPU unless <code>--mcpu</code> is given, as clang does (<code>apple-m1</code> on arm64 Apple targets, <code>generic</code> elsewhere). It used the host CPU's name without its feature list, which could select instructions a VM or a masked host does not support (a SIGILL), and made the binary depend on the build machine.</li>
+<li>
+<p><code>-Wall</code> lints only the program's own files, not the modules it imports, as C compilers treat system headers. Importing <code>&lt;http&gt;</code> alone used to print 54 warnings about the stdlib, labelled with the user's file name.</p>
+</li>
+<li>
+<p>A pointer to an array or slice alias as a generic type argument (<code>List&lt;*A3&gt;</code>, <code>Box&lt;*A2&gt;</code> with <code>type A3 = int[3]</code>, <code>type A2 = int[2][3]</code>) names its own instance again (the C++ type checker reported <code>unknown type 'List_int_A3'</code>, a regression from the alias-in-composite change; the self-hosted compiler emitted invalid IR). <code>*T[2]</code> with <code>T</code> an array type is an array of two pointers to that array (<code>int[3]*[2]</code>) in both compilers. Test <code>generic_alias_array_ptr</code>.</p>
+</li>
+<li>Enum values, array dimensions and <code>case</code> labels fold with C's typed integer rules in both compilers: the usual arithmetic conversions, 32-bit <code>int</code> wraparound, unsigned comparison, division and right shift, the arithmetic right shift of a signed value, and <code>sizeof</code> as an unsigned size (<code>((uint)3 - (uint)5) / 2 &gt; 100</code> is 1, <code>(1 &lt;&lt; 31) &gt;&gt; 31</code> is -1, <code>-1 &lt; (uint)0</code> is 0), as a <code>const</code> global, a local and clang give. Test <code>const_fold_typed_c</code> (+ <code>.c</code>).</li>
+<li><code>#pragma pack(N)</code> (and <code>pack(1)</code>) applies to a union: each member's alignment is capped at N, so <code>#pragma pack(2) union U { char[5] c; int x; }</code> is 6 bytes, 2-aligned, as C (it was 8 and 4-aligned, a layout change for such unions), in the layout, the <code>sizeof</code> the type checker folds and the C ABI lowering. Test <code>pack_union_c</code> (+ <code>.c</code>, also in <code>cabi_parity.sh</code>).</li>
+<li><code>-Wall</code> maybe-uninitialized follows <code>&amp;&amp;</code>, <code>||</code> and <code>!</code> in a condition: an assignment in the right operand of <code>a &amp;&amp; (x = f())</code> assigns <code>x</code> where the whole is true (<code>if (b &amp;&amp; (x = f()) &gt; 0) return x;</code> and <code>if (!b || (x = f()) &lt; 0) return 0; return x;</code> no longer warn), in <code>if</code>, <code>while</code>, <code>for</code> and <code>?:</code>. Tests <code>warnings/maybe_uninit_ok</code>, <code>warnings/maybe_uninit</code>.</li>
+<li><code>return null;</code> in a generic function instantiated with an interface type returns the empty interface value (the C++ compiler failed LLVM verification). Test <code>generic_iface_null_return</code>.</li>
+<li>Expected-type variant inference reaches a nested variant (<code>Opt&lt;Opt&lt;int64&gt;&gt; x = Some(Some(5))</code>), a struct-literal field, an array-literal element, an argument of an explicit generic call (<code>get&lt;int64&gt;(Some(8))</code>) and <code>return None;</code> in a generic <code>Opt&lt;T&gt;</code> function (written <code>None&lt;T&gt;()</code> there, which every instance shares), in both compilers. Test <code>variant_expected_more</code>.</li>
+<li>The self-hosted compiler builds a bare generic variant (<code>Some(v)</code>) in a generic body as each instance's enum (a second instance reused the first one's type, invalid IR). Test <code>generic_variant_bare_inst</code>.</li>
+<li>A generic dot-call on an rvalue receiver (<code>mk().get(0)</code>, a call result) passes the address of a temporary holding it, as a struct method call does (the C++ compiler failed with an unlocated error, the self-host emitted invalid IR). Test <code>generic_dot_call_rvalue</code>.</li>
+<li>An inline asm operand naming a local or parameter of an <code>async</code> function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test <code>asm_async_locals</code>.</li>
+<li>A method call on a non-struct value (<code>x.foo()</code> with <code>x</code> an <code>int</code>) reports one error, <code>undefined method 'foo' on type 'int'</code>, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).</li>
+</ul>
+<h3 id="known-issues">Known issues</h3>
+<p>These are open in 0.9.2. None of them miscompiles a valid program.</p>
+<ul>
+<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an <code>await</code> is also
+  rejected in a <code>match</code> arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a <code>?:</code> arm. Bind the awaited value to a local first.</li>
+<li>A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value); write through a pointer to share state.</li>
+<li>The type checker does not fold <code>sizeof</code> of a struct with an unnamed <code>: 0</code> bitfield, so
+  constant-expression checks do not see it (codegen gets its size right).</li>
+<li>The self-hosted compiler generates code for deeply nested binary expressions
+  (<code>a + (a + (...))</code>, thousands of levels) in time quadratic in their depth; the C++
+  compiler is linear.</li>
+</ul>
+<h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
+<h3 id="fixed_1">Fixed</h3>
 <p>A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
 type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unless noted.</p>
 <ul>
@@ -131,7 +1173,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   miscompile.</li>
 </ul>
 <h2 id="090-2026-09-08">[0.9.0] - 2026-09-08</h2>
-<h3 id="added">Added</h3>
+<h3 id="added_1">Added</h3>
 <ul>
 <li><strong>Labeled <code>break</code> and <code>continue</code>.</strong> A loop can be named with a leading label
   (<code>outer: for (...) { ... }</code>), and <code>break outer</code> / <code>continue outer</code> act on that loop
@@ -142,7 +1184,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   innermost first), may not escape a <code>defer</code> body, and is not supported inside an
   <code>async fn</code>. Implemented lockstep in both the C++ and the self-hosted compiler.</li>
 </ul>
-<h3 id="fixed_1">Fixed</h3>
+<h3 id="fixed_2">Fixed</h3>
 <ul>
 <li><strong>Global array initializers are no longer dropped.</strong> A global (or <code>static</code> local) array
   literal such as <code>int[3] G = {10, 20, 30};</code> was silently zero-filled: only scalar globals
@@ -153,7 +1195,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   constant form). Fixed in both compilers. Locals were unaffected.</li>
 </ul>
 <h2 id="080-2026-08-21">[0.8.0] - 2026-08-21</h2>
-<h3 id="fixed_2">Fixed</h3>
+<h3 id="fixed_3">Fixed</h3>
 <ul>
 <li><strong>The release binaries are self-contained.</strong> <code>eskiuc</code> picked up z3 and zstd as dynamic
   libraries from the build machine (versioned <code>/opt/homebrew/...</code> paths on macOS; <code>libz3.so</code>,
@@ -187,7 +1229,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   (<code>windows.yml</code>): a <code>try</code>/<code>catch</code> program compiles, links with the mingw C++ runtime, and
   catches the throw.</li>
 </ul>
-<h3 id="added_1">Added</h3>
+<h3 id="added_2">Added</h3>
 <ul>
 <li><strong><code>match</code> on classic (payload-less) enums.</strong> A plain <code>enum Dir { N, E, S, W }</code> can now be
   <code>match</code>ed with exhaustiveness checking, the same guarantee algebraic enums already had:
@@ -226,7 +1268,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   whose raw heap is not already zero (Linux), while working on those whose is (macOS).</li>
 </ul>
 <h2 id="070">[0.7.0]</h2>
-<h3 id="added_2">Added</h3>
+<h3 id="added_3">Added</h3>
 <ul>
 <li><strong><code>extern</code> variables.</strong> <code>extern &lt;type&gt; &lt;name&gt;;</code> declares a global defined in another
   translation unit (a C global), emitting an external-linkage declaration with no
@@ -248,7 +1290,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   An eskiuc object built this way links cleanly into a <code>.3dsx</code> homebrew via the devkitARM
   toolchain.</li>
 </ul>
-<h3 id="fixed_3">Fixed</h3>
+<h3 id="fixed_4">Fixed</h3>
 <ul>
 <li><strong>Float arguments narrow at the call site.</strong> A <code>double</code> literal (Eskiu's default float
   literal type) passed to a <code>float</code> parameter was left as <code>double</code>, so the argument type
@@ -268,14 +1310,14 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="062">[0.6.2]</h2>
-<h3 id="added_3">Added</h3>
+<h3 id="added_4">Added</h3>
 <ul>
 <li><strong>Cross-compilation targets the right platform.</strong> The <code>--target</code> triple now drives the
   predefined platform macro (<code>__APPLE__</code> / <code>__linux__</code>), so <code>eskiuc --target x86_64-linux-gnu</code>
   on macOS selects the Linux stdlib paths (epoll, Linux <code>sockaddr_in</code>) instead of emitting
   unresolved BSD symbols. With no <code>--target</code> it still follows the build host.</li>
 </ul>
-<h3 id="fixed_4">Fixed</h3>
+<h3 id="fixed_5">Fixed</h3>
 <ul>
 <li><strong>Event-loop timer callbacks are initialized.</strong> <code>el_new</code> allocated the timer array but
   only zeroed each timer's <code>active</code> flag, leaving the <code>on_fire</code> closure as heap garbage
@@ -300,7 +1342,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="061">[0.6.1]</h2>
-<h3 id="added_4">Added</h3>
+<h3 id="added_5">Added</h3>
 <ul>
 <li><strong><code>\xNN</code> hex escape</strong> in string and character literals: one or two hex digits decode
   to a raw byte, so byte-precise strings are possible (e.g. <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8,
@@ -311,7 +1353,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   fixed arrays. Write-through the slice aliases the backing buffer, and <code>.len</code> /
   indexing / <code>for-in</code> work as on any slice.</li>
 </ul>
-<h3 id="fixed_5">Fixed</h3>
+<h3 id="fixed_6">Fixed</h3>
 <ul>
 <li><strong>Escape sequences in string and character literals.</strong> <code>\0</code> now decodes to a NUL
   byte instead of the character <code>'0'</code> (a silent trap), character literals accept <code>\r</code>
@@ -337,7 +1379,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   spec section and a <code>--safe</code> flag row, and corrected glossary token-type names.</li>
 </ul>
 <h2 id="060">[0.6.0]</h2>
-<h3 id="added_5">Added</h3>
+<h3 id="added_6">Added</h3>
 <ul>
 <li><strong><code>&lt;sort&gt;</code> stdlib module.</strong> Generic in-place <code>sort&lt;T&gt;(a, n, cmp)</code> (heapsort, a
   guaranteed O(n log n) worst case) and <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> over a <code>*T</code> array,
@@ -392,7 +1434,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   builds are unaffected. (Self-host mirror of <code>--safe</code> is deferred to the promotion
   track; the shipped C++ compiler carries it.)</li>
 </ul>
-<h3 id="fixed_6">Fixed</h3>
+<h3 id="fixed_7">Fixed</h3>
 <ul>
 <li><strong><code>finally</code> was skipped on an early <code>return</code>/<code>break</code>/<code>continue</code> from inside a <code>try</code>
   body.</strong> The cleanup only ran on fall-through and exception unwind; an early exit jumped
@@ -404,7 +1446,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 <p>Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.</p>
-<h3 id="added_6">Added</h3>
+<h3 id="added_7">Added</h3>
 <ul>
 <li><strong><code>do</code>/<code>while</code> loops.</strong> <code>do { ... } while (cond);</code> runs the body once before testing
   the condition, as in C.</li>
@@ -427,7 +1469,7 @@ compilers and follows C semantics.</p>
   matching same-level <code>:</code> ahead is a ternary, otherwise propagation (parenthesize to
   propagate inside a ternary arm).</li>
 </ul>
-<h3 id="fixed_7">Fixed</h3>
+<h3 id="fixed_8">Fixed</h3>
 <ul>
 <li><strong><code>switch</code> on a sub-<code>int</code> subject.</strong> A <code>switch</code> over a <code>char</code> (or other narrow integer)
   with wider case constants failed LLVM verification; the subject and case constants are
@@ -441,7 +1483,7 @@ and self-hosted compilers found a batch of miscompiles, crashes, and soundness h
 this release fixes them and tightens the type system. The shipped (C++) compiler carries
 every fix below; the self-hosted compiler's matching sema checks are tracked for the
 promotion track.</p>
-<h3 id="fixed_8">Fixed</h3>
+<h3 id="fixed_9">Fixed</h3>
 <ul>
 <li><strong>A catch-less <code>try</code>/<code>finally</code> aborted when an exception passed through it.</strong> With an
   in-flight exception, the <code>finally</code> block was skipped and the runtime aborted
@@ -543,7 +1585,7 @@ promotion track.</p>
 </ul>
 <hr>
 <h2 id="031">[0.3.1]</h2>
-<h3 id="fixed_9">Fixed</h3>
+<h3 id="fixed_10">Fixed</h3>
 <ul>
 <li><strong><code>*T[N]</code> now parses as an array of pointers, not a pointer to an array.</strong> The
   type-string parser (<code>ty::Type::parse</code>) peeled a leading <code>*</code> before the trailing
@@ -553,8 +1595,9 @@ promotion track.</p>
   scalar pointer, silently corrupting locals and crashing the compiler outright on
   a module-level array (a constant-folded GEP tripped an LLVM assertion). The
   trailing <code>[N]</code> now binds outermost, so <code>*Node[7]</code> is an array of 7 pointers
-  consistently across the type checker and codegen; a pointer <em>to</em> an array stays
-  spellable with a trailing star (<code>Node[7]*</code>). Found porting a C program whose
+  consistently across the type checker and codegen. (This entry used to say a
+  pointer to an array is spelled <code>Node[7]*</code>; that form does not parse, so point at the
+  first element with a <code>*Node</code> instead.) Found porting a C program whose
   central data structure was a module-level <code>Actividad *agenda[7]</code>.</li>
 <li>
 <p><strong><code>&lt;eventloop&gt;</code>: initialize the <code>on_read</code> closure of every fd slot.</strong> <code>el_new</code>
@@ -604,7 +1647,7 @@ promotion track.</p>
 analyzer, and code generator) is reimplemented in Eskiu (<code>selfhost/</code>), reaches a 3-stage
 bootstrap fixpoint, and the self-hosted codegen is <strong>feature-complete against the C++
 corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap gates are CI-wired.</p>
-<h3 id="fixed_10">Fixed</h3>
+<h3 id="fixed_11">Fixed</h3>
 <ul>
 <li><strong><code>&amp;&amp;</code> and <code>||</code> now short-circuit.</strong> Code generation evaluated both operands eagerly
   and emitted a logical-and/or, so the right-hand side always ran; a guarded
@@ -622,7 +1665,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   4 GB. They are now <code>int64</code>, matching <code>size_t</code>. Behavior is unchanged for the common
   sub-4 GB case (the value zero-extends into the argument register either way).</li>
 </ul>
-<h3 id="added_7">Added</h3>
+<h3 id="added_8">Added</h3>
 <ul>
 <li><strong><code>-O</code> optimization levels.</strong> <code>eskiuc -O1</code>/<code>-O2</code>/<code>-O3</code> now runs the LLVM middle-end
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
@@ -807,7 +1850,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
 </ul>
 <hr>
 <h2 id="025">[0.2.5]</h2>
-<h3 id="added_8">Added</h3>
+<h3 id="added_9">Added</h3>
 <ul>
 <li><strong><code>&lt;ctype&gt;</code> stdlib module.</strong> Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): <code>is_space</code>, <code>is_digit</code>, <code>is_hex</code>, <code>is_alpha</code>, <code>is_alnum</code>,
@@ -840,7 +1883,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   uniformly mis-lexed program), guards the comment-continuation footgun fixed
   below.</li>
 </ul>
-<h3 id="fixed_11">Fixed</h3>
+<h3 id="fixed_12">Fixed</h3>
 <ul>
 <li><strong>Preprocessor: a <code>//</code> comment ending in <code>\</code> no longer swallows the next source
   line.</strong> Backslash-newline line continuation was applied unconditionally, so a
@@ -1177,10 +2220,10 @@ thread_join(t);
 <li><code>volatile</code> MMIO, <code>asm(...)</code> with GCC-compatible constraints</li>
 </ul>
 <h2 id="0014-alpha">[0.0.14-alpha]</h2>
-<h3 id="added_9">Added</h3>
+<h3 id="added_10">Added</h3>
 <p><strong>Inline assembly</strong>
 - <code>asm("cli");</code>: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
-- <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands, output operands, and clobber lists
+- <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands and clobber lists (no output operands)
 - Lowers to LLVM inline asm nodes; <code>"memory"</code> clobber emits a compiler barrier</p>
 <p><strong>Freestanding mode</strong>
 - <code>--freestanding</code> CLI flag: redirects <code>alloc</code> to call <code>esk_alloc</code> and <code>free</code> to call <code>esk_free</code> instead of the libc <code>malloc</code>/<code>free</code>
@@ -1194,13 +2237,13 @@ thread_join(t);
 <p><strong>v0.1 prerequisites complete</strong>
 - All compiler prerequisites for the kernel-on-QEMU milestone are implemented and tested</p>
 <h2 id="0013-alpha">[0.0.13-alpha]</h2>
-<h3 id="fixed_12">Fixed</h3>
+<h3 id="fixed_13">Fixed</h3>
 <ul>
 <li><strong>Negative literals</strong>: <code>-1</code>, <code>-3.14</code> etc. now parse as negative literal values directly, not as unary minus applied to a positive literal. Global variable initialisers with negative values (e.g. <code>int x = -1;</code>) previously compiled to 0; this is now correct. <code>evaluateConstantExpr</code> folds unary minus on numeric constants as a fallback.</li>
 </ul>
 <hr>
 <h2 id="0012-alpha">[0.0.12-alpha]</h2>
-<h3 id="added_10">Added</h3>
+<h3 id="added_11">Added</h3>
 <p><strong>Lambdas and function pointer types</strong>
 - <code>fn(T,...)-&gt;R</code> function pointer type syntax: first-class function types usable in variable declarations, struct fields, and parameter lists
 - Anonymous function expressions: <code>int(int x) { return x * 2; }</code>, C-like syntax producing a function pointer value
@@ -1216,7 +2259,7 @@ thread_join(t);
 <p><strong>switch/case type checking</strong>
 - The type checker now validates that each <code>case</code> value is compatible with the <code>switch</code> subject expression type; mismatched case types are reported as errors at the <code>case</code> token position</p>
 <h2 id="0011-alpha">[0.0.11-alpha]</h2>
-<h3 id="added_11">Added</h3>
+<h3 id="added_12">Added</h3>
 <p><strong>Decoder rewritten in Eskiu (no C pipeline code)</strong>
 - <code>ine_decoder/crypto.esk</code> (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, <code>run_no_so_pipeline()</code>; all in Eskiu calling OpenSSL via <code>extern</code>
 - <code>ine_decoder/output.esk</code> (186 lines): Spanish character table, field splitter, growable JSON buffer, <code>decode_to_buffers()</code>; pure Eskiu
@@ -1237,7 +2280,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0010-alpha">[0.0.10-alpha]</h2>
-<h3 id="added_12">Added</h3>
+<h3 id="added_13">Added</h3>
 <p><strong>Global variables</strong>
 - <code>VarDecl</code> at module scope now emits <code>llvm::GlobalVariable</code> instead of <code>alloca</code>
 - Constant initializers folded at compile time: <code>int</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>null</code>
@@ -1255,7 +2298,7 @@ thread_join(t);
 <p><strong>Integer argument widening at call sites</strong>
 - Automatically <code>SExt</code>/<code>Trunc</code> integer arguments to match function parameter widths
 - Fixes <code>i32 1712</code> passed to <code>int64 param</code> (was LLVM verification error)</p>
-<h3 id="fixed_13">Fixed</h3>
+<h3 id="fixed_14">Fixed</h3>
 <ul>
 <li><code>*int</code> vs <code>size_t *</code> in <code>extern.esk</code>: <code>run_no_so_pipeline</code> and <code>decode_to_buffers</code> now use <code>int64</code> for length params to match C's <code>size_t</code> (was writing 8 bytes to a 4-byte stack slot → heap corruption)</li>
 <li>ine_decoder <code>pipeline.esk</code>: stage signatures updated to <code>int64</code> for all size parameters</li>
@@ -1266,7 +2309,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="009-alpha">[0.0.9-alpha]</h2>
-<h3 id="added_13">Added</h3>
+<h3 id="added_14">Added</h3>
 <ul>
 <li><strong><code>ine_decoder/</code>, INE QR decoder port</strong>: full pipeline running at <strong>74.4 ms</strong> total
   (QR: 71.7 ms + crypto: 2.8 ms + output decode: &lt;1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C</li>
@@ -1279,27 +2322,27 @@ thread_join(t);
 <li><code>qr_extract.c</code> / <code>qr_extract_impl.cpp</code>: C/C++ shim using CoreGraphics + zxing-cpp 3.x</li>
 <li><code>Makefile</code>, <code>README.md</code></li>
 </ul>
-<h3 id="fixed_14">Fixed</h3>
+<h3 id="fixed_15">Fixed</h3>
 <ul>
 <li><strong>Integer width mismatch in comparisons</strong>: <code>uint8 == int</code> (e.g. <code>plaintext[i] == 124</code>) crashed LLVM with "Both operands to ICmp instruction are not of the same type"; now <code>ZExt</code>s the narrower operand to match the wider before emitting any of the six comparison operators</li>
 <li><strong>Mixed int/float arithmetic</strong>: <code>i64 * double</code> (e.g. timing calculation <code>(t1 - t0) * 1000.0</code>) generated invalid IR; now detects int/float type mismatch in <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code> and promotes the integer operand with <code>SIToFP</code> before emitting the floating-point instruction</li>
 </ul>
 <hr>
 <h2 id="008-alpha">[0.0.8-alpha]</h2>
-<h3 id="added_14">Added</h3>
+<h3 id="added_15">Added</h3>
 <ul>
 <li><strong><code>import "file.esk"</code></strong>: multi-file support with paths resolved relative to the importing file's directory; recursive imports with deduplication (a file imported more than once is parsed only once); <code>Parser.basedir</code> + <code>importedFiles</code> set propagated to sub-parsers</li>
 <li><strong>Interface vtable dispatch</strong>: <code>interface I { void method(); }</code> generates <code>%I_vtable = type { ptr, ... }</code> and <code>%I_fat = type { ptr data, ptr vtable }</code> LLVM types; structs are auto-boxed at call sites via <code>boxAsInterface()</code>; method dispatch loads the vtable pointer from the fat pointer and calls indirectly; <code>getExprEskiuType</code> extended to handle <code>UnaryExpr("&amp;", ...)</code> and <code>UnaryExpr("*", ...)</code> for boxing detection</li>
 <li><strong><code>String.append()</code> and <code>String.concat()</code></strong>: added to <code>stdlib/string.esk</code> using <code>memcpy</code> + pointer arithmetic</li>
 </ul>
-<h3 id="fixed_15">Fixed</h3>
+<h3 id="fixed_16">Fixed</h3>
 <ul>
 <li>Pointer comparison (<code>p == null</code>, <code>ptr1 == ptr2</code>) incorrectly used <code>FCmpOEQ</code> (float equality); now uses <code>ICmpEQ</code>; all six comparison operators updated to check <code>isFloatingPointTy()</code> first</li>
 <li><code>i1 → i32</code> widening used <code>SExt</code> (sign-extends <code>true</code> → <code>-1</code>); now uses <code>ZExt</code> for <code>i1</code> operands so comparisons correctly store <code>0</code> or <code>1</code></li>
 </ul>
 <hr>
 <h2 id="007-alpha">[0.0.7-alpha]</h2>
-<h3 id="added_15">Added</h3>
+<h3 id="added_16">Added</h3>
 <ul>
 <li><strong>Bitwise operators</strong></li>
 <li>Binary: <code>&amp;</code>, <code>|</code>, <code>^</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>, new precedence levels in parser (bitwiseOr → bitwiseXor → bitwiseAnd → equality → shift → comparison → additive)</li>
@@ -1311,7 +2354,7 @@ thread_join(t);
 <li><strong>For-loop with declaration init</strong>: <code>for (int i = 0; i &lt; n; i += 1)</code>, parser wraps the declaration in a <code>BlockStmt</code>; type checker processes init items directly in <code>ForStmt</code> scope, avoiding the inner-scope pop that previously made <code>i</code> undefined in the condition, step, and body</li>
 <li><strong>Pointer arithmetic</strong>: <code>ptr + n</code> → <code>GEP(i8, ptr, n)</code>, <code>ptr - n</code> → <code>GEP(i8, ptr, -n)</code> in <code>visit(BinaryExpr*)</code></li>
 </ul>
-<h3 id="fixed_16">Fixed</h3>
+<h3 id="fixed_17">Fixed</h3>
 <ul>
 <li><code>&amp;</code> address-of returned a loaded value instead of the alloca pointer, breaking all pointer-argument call patterns</li>
 <li>Unary <code>-</code> for floats used integer <code>CreateNeg</code>; now uses <code>CreateFNeg</code> for floating-point operands</li>
@@ -1323,7 +2366,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="006-alpha">[0.0.6-alpha]</h2>
-<h3 id="added_16">Added</h3>
+<h3 id="added_17">Added</h3>
 <ul>
 <li><strong>Source locations in errors</strong>: <code>ASTNode</code> now carries <code>line</code>/<code>col</code>; parser stamps all expression and statement nodes; errors now report <code>file.esk:line:col:</code> instead of <code>file.esk:0:0:</code>; filename taken from the CLI input path</li>
 <li><strong><code>&amp;</code> address-of operator</strong>: correctly returns the lvalue pointer (alloca), enabling <code>fn(&amp;localVar)</code> patterns and template method calls via <code>self</code> pointer</li>
@@ -1333,7 +2376,7 @@ thread_join(t);
 <li><strong>Interface structural check</strong>: <code>isValidAssignment</code> now verifies that a struct satisfies an interface's method signatures (vtable codegen deferred to 0.0.8)</li>
 <li><strong><code>isPointerType</code> unified</strong>: now detects both leading <code>*T</code> and trailing <code>T*</code> conventions</li>
 </ul>
-<h3 id="fixed_17">Fixed</h3>
+<h3 id="fixed_18">Fixed</h3>
 <ul>
 <li><code>&amp;</code> operator returned a loaded value instead of the address, breaking all pointer-argument patterns</li>
 <li>Template method parameter types with pointer suffix (e.g. <code>List&lt;T&gt;*</code>) were incorrectly mangled to <code>List_int_*</code> instead of <code>List_int*</code></li>
@@ -1341,7 +2384,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="005-alpha">[0.0.5-alpha]</h2>
-<h3 id="added_17">Added</h3>
+<h3 id="added_18">Added</h3>
 <ul>
 <li><strong><code>switch</code>/<code>case</code></strong>: <code>SwitchStmt</code> AST node with <code>Case { value, stmts }</code> list; full visitor chain; parser handles <code>switch (expr) { case val: stmts break; default: stmts }</code> with fallthrough support; codegen emits LLVM <code>switch</code> instruction with <code>ConstantInt</code> case values; <code>break</code> branches to <code>switch.end</code> via existing <code>breakTarget</code> mechanism</li>
 <li><strong>Function templates</strong>: <code>fn Name&lt;T, E&gt;(T x) -&gt; RetType&lt;T,E&gt; { ... }</code>; <code>FunctionDecl.typeParams</code> field; <code>TemplateCallExpr</code> AST node parsed in <code>parsePostfix()</code>; lazy instantiation via <code>typeParamOverride</code> map that intercepts all type lookups during template body emission; context save/restore preserves insert point and <code>currentFunction</code> when instantiating inside another function's body; <code>substType</code> handles <code>Name&lt;T,E&gt;</code> nested substitution recursively</li>
@@ -1352,7 +2395,7 @@ thread_join(t);
 <li><code>io.esk</code>: <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>, <code>getchar</code>, <code>putchar</code></li>
 <li><code>mem.esk</code>: <code>memcpy</code>, <code>memset</code>, <code>memmove</code>, <code>memcmp</code>, <code>strlen</code>, <code>memchr</code></li>
 </ul>
-<h3 id="fixed_18">Fixed</h3>
+<h3 id="fixed_19">Fixed</h3>
 <ul>
 <li>Parser: <code>int fn&lt;T&gt;(T x)</code> at top level was silently dropped; <code>parseDeclaration()</code> now detects <code>&lt;</code> after a name as a function template</li>
 <li>Type checker: template function bodies were visited with unresolved type params; now guarded with <code>typeParams.empty()</code> check</li>
@@ -1360,7 +2403,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="004-alpha">[0.0.4-alpha]</h2>
-<h3 id="added_18">Added</h3>
+<h3 id="added_19">Added</h3>
 <ul>
 <li><strong>Template struct declaration</strong>: <code>struct Result&lt;T, E&gt; { ... }</code>; <code>StructDecl</code> gains <code>typeParams</code> field; template declarations are stored in a separate registry and not emitted to LLVM until first use</li>
 <li><strong>Template type references</strong>: <code>Result&lt;int, string&gt;</code> parsed in <code>parseType()</code> via <code>IDENT &lt; TYPE, ... &gt;</code> lookahead; stored as <code>"Result&lt;int,string&gt;"</code> in the AST</li>
@@ -1370,20 +2413,20 @@ thread_join(t);
 <li><strong>Type substitution</strong>: <code>substType</code> handles <code>*T</code> → <code>*int</code>, <code>T*</code> → <code>int*</code>, <code>T[N]</code> → <code>int[N]</code>, and nested template types recursively</li>
 <li><strong><code>varTypeStack</code> normalization</strong>: <code>VarDecl</code> stores the mangled name so <code>MemberExpr</code> resolution finds instantiated struct fields correctly</li>
 </ul>
-<h3 id="fixed_19">Fixed</h3>
+<h3 id="fixed_20">Fixed</h3>
 <ul>
 <li>Parser: <code>int fn&lt;T&gt;(...)</code> at top level was silently dropped; <code>parseDeclaration()</code> now detects <code>&lt;</code> after a function name as a template parameter list</li>
 <li>Type checker: template bodies were visited with unresolved type parameters; now guarded so only concrete instantiations are type-checked</li>
 </ul>
 <hr>
 <h2 id="003-alpha">[0.0.3-alpha]</h2>
-<h3 id="added_19">Added</h3>
+<h3 id="added_20">Added</h3>
 <ul>
 <li><strong><code>alloc(T, N)</code></strong>: new <code>AllocExpr</code> AST node; emits <code>call @malloc(i64 N * sizeof(T))</code>; <code>sizeof(T)</code> resolved via <code>DataLayout</code> initialized at the start of <code>generateCode()</code></li>
 <li><strong><code>free(ptr)</code></strong>: parsed as a regular call; <code>free</code> pre-registered in the type checker as variadic; auto-declared in the LLVM module on first use, no explicit <code>extern</code> required</li>
 <li><strong><code>getOrDeclareFunc()</code></strong>: codegen helper that lazily declares C runtime functions (<code>malloc</code>, <code>free</code>) into the module without requiring explicit <code>extern</code> declarations</li>
 </ul>
-<h3 id="fixed_20">Fixed</h3>
+<h3 id="fixed_21">Fixed</h3>
 <ul>
 <li><code>validateStructType</code> did not strip the leading <code>*T</code> pointer prefix, causing false "undefined struct" errors on <code>*uint8</code>, <code>*Point</code>, etc.</li>
 <li><code>inferBinaryExprType</code> did not handle the <code>=</code> operator for non-numeric types; assignment to pointer fields and struct fields now type-checks correctly</li>
@@ -1391,7 +2434,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="002-alpha">[0.0.2-alpha]</h2>
-<h3 id="added_20">Added</h3>
+<h3 id="added_21">Added</h3>
 <ul>
 <li><strong>Struct codegen</strong>: <code>llvm::StructType::create</code> per <code>StructDecl</code>; <code>alloca %StructType</code> for locals; field read/write via <code>getelementptr</code></li>
 <li><strong>Fixed-size array fields</strong>: <code>uint8[858]</code> → <code>[858 x i8]</code>; parser now captures the array size (was previously discarded); <code>IndexExpr</code> codegen via GEP for both <code>T[N]</code> and <code>*T</code></li>
@@ -1402,7 +2445,7 @@ thread_join(t);
 <li><strong><code>emitObjectFile()</code></strong>: native <code>.o</code> via LLVM <code>TargetMachine</code> + <code>legacy::PassManager</code>; full pipeline <code>eskiuc file.esk -o file.o</code> produces a linkable object file</li>
 <li><strong>Float arithmetic</strong>: <code>+</code>, <code>-</code>, <code>*</code> now emit <code>fadd</code>/<code>fsub</code>/<code>fmul</code> for floating-point operands (previously always emitted integer instructions)</li>
 </ul>
-<h3 id="fixed_21">Fixed</h3>
+<h3 id="fixed_22">Fixed</h3>
 <ul>
 <li>Type checker: method bodies were not registered and type-checked in the first pass</li>
 <li>Type checker: <code>*T</code> (leading-pointer) was not auto-derefed on member access; now strips the leading <code>*</code> before struct field lookup</li>
@@ -1413,7 +2456,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="001-alpha">[0.0.1-alpha]</h2>
-<h3 id="added_21">Added</h3>
+<h3 id="added_22">Added</h3>
 <ul>
 <li><strong>Phase 0: Build system and CLI</strong>. CMake build with LLVM 17+ integration; <code>--version</code> flag; <code>--test-lexer</code>, <code>--test-parser</code>, <code>--test-typechecker</code>, <code>--test-codegen</code> modes; <code>file:line:col</code> error reporting</li>
 <li><strong>Phase 1: Lexer</strong>. Complete tokenizer with line/col tracking; all Eskiu keywords (<code>int</code>, <code>float</code>, <code>uint8</code>–<code>uint64</code>, <code>int8</code>–<code>int64</code>, <code>struct</code>, <code>interface</code>, <code>enum</code>, <code>alloc</code>, <code>free</code>, <code>extern</code>, <code>thread</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, and more); <code>COLON</code> token for type annotations</li>
@@ -1424,7 +2467,7 @@ thread_join(t);
 <li><strong>Pointer types</strong>: both leading <code>*T</code> and trailing <code>T*</code> syntax accepted throughout lexer, parser, and type checker</li>
 <li><strong>Examples</strong>: <code>examples/hello.esk</code>, <code>examples/test_struct.esk</code>, <code>examples/test_struct_error.esk</code></li>
 </ul>
-<h3 id="fixed_22">Fixed</h3>
+<h3 id="fixed_23">Fixed</h3>
 <ul>
 <li>Lexer: <code>COLON</code> token was not recognized, breaking <code>let</code>-style type annotations</li>
 <li>Type checker: function parameters were not registered before the body validation pass, causing false "undeclared identifier" errors</li>

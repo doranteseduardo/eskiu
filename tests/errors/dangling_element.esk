@@ -1,0 +1,4 @@
+// EXPECT-ERROR: returning the address of local 'a' (dangling pointer)
+// An element of a local array dies with the frame, like the array itself.
+*int f() { int[3] a = {1, 2, 3}; return &a[1]; }
+int main() { return 0; }

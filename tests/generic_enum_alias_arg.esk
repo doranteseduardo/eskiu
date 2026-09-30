@@ -1,0 +1,18 @@
+// A generic ADT enum instantiated with an alias type argument is the same instance as
+// with the alias target: `Opt<F>` with `type F = int` lowers as `Opt<int>`, and a function
+// type alias works the same way.
+extern int printf(string fmt, ...);
+
+enum Opt<T> { No, Yes(T) }
+type F = int;
+type G = fn(int)->int;
+
+Opt<F> mk(int k) { if (k > 0) { return Yes<F>(k); } return No<F>(); }
+Opt<G> pick(int k) { if (k > 0) { return Yes<G>(int(int x) { return x * 3; }); } return No<G>(); }
+
+int main() {
+    match mk(4) { Yes(v) -> printf("%d ", v); No -> printf("none "); }
+    match mk(0) { Yes(v) -> printf("%d ", v); No -> printf("none "); }
+    match pick(1) { Yes(f) -> printf("%d\n", f(7)); No -> printf("none\n"); }
+    return 0;
+}

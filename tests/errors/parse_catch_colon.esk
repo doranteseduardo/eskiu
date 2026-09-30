@@ -1,0 +1,2 @@
+// EXPECT-ERROR: Expected variable name in catch
+int main() { try { throw 1; } catch (e: string) { } return 0; }

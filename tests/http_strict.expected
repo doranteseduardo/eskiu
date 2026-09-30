@@ -1,0 +1,15 @@
+full body: 0 body=5
+truncated body: 400
+conflicting lengths: 400
+repeated length: 0 body=3
+length list: 0 body=3
+conflicting list: 400
+bare LF header: 400
+empty method: 400
+empty path: 400
+parse ok: ok=1 host=1[a]
+parse bare LF: ok=0 host=0[]
+parse bare CR: ok=0 host=0[]
+parse empty method: ok=0 host=0[]
+parse empty path: ok=0 host=0[]
+render len=42 last=c nul=0

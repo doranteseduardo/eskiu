@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot take the address of this expression
+int main() { let p: *int = &5; return *p; }

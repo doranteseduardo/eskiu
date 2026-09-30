@@ -1,0 +1,10 @@
+blocking padded: HEADERS(200) DATA[POST /pad body=hi] calls=1
+blocking continuation: HEADERS(200) DATA[GET /continued body=] calls=1
+blocking ping: PING(ack=1,tlsping!) calls=0
+blocking 70 headers: HEADERS(431) DATA[] calls=0
+blocking window overflow: GOAWAY(3) calls=0
+async padded: HEADERS(200) DATA[POST /pad body=hi] calls=1
+async continuation: HEADERS(200) DATA[GET /continued body=] calls=1
+async ping: PING(ack=1,tlsping!) calls=0
+async 70 headers: HEADERS(431) DATA[] calls=0
+async window overflow: GOAWAY(3) calls=0

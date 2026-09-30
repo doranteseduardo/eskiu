@@ -1,0 +1,22 @@
+// A local or parameter of fn type named like an ADT variant shadows the variant:
+// `A(1)` / `B()` call the closure, not the variant constructor.
+extern int printf(string fmt, ...);
+enum E { A(int), B }
+int A2(int x) { return x; }
+int use(fn()->int B) { return B(); }
+int pass(escaping fn()->int B) { fn()->int C = B; return C() + 1; }
+int tag(E e) { int r = 0; match e { A(v) -> r = v; B -> r = -1; } return r; }
+int tags() { return tag(A(3)) * 10 + tag(B); }
+int main() {
+    fn(int)->int A = int(int x) { return x + 5; };
+    printf("%d\n", A(1));
+    printf("%d %d\n", use(int() { return 6; }), pass(int() { return 8; }));
+    fn(int)->int f = A2;
+    printf("%d\n", f(7));
+    {
+        fn()->int B = int() { return 5; };
+        printf("%d\n", B());
+    }
+    printf("%d\n", tags());
+    return 0;
+}

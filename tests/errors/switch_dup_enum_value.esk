@@ -1,0 +1,4 @@
+// EXPECT-ERROR: duplicate case value in switch
+enum E { A, B = 0 }
+int f(int x) { switch (x) { case A: return 1; case B: return 2; } return 0; }
+int main() { return f(0); }

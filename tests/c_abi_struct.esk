@@ -1,0 +1,120 @@
+// Structs passed and returned BY VALUE across `extern` C functions follow the target
+// C ABI (C side: tests/c_abi_struct.c): register-sized aggregates, HFAs, mixed
+// int/float, unions, bitfields, packed, nested, and indirect/sret-sized ones.
+extern int printf(string fmt, ...);
+
+struct Big { int64 a; int64 b; int64 c; int64 d; int64 e; }
+struct Sm { int x; int8 c; }
+struct F2 { float x; float y; }
+struct D3 { double x; double y; double z; }
+struct F4 { float a; float b; float c; float d; }
+struct Mix { float f; int i; }
+struct P3 { int x; int y; int z; }
+struct C3 { char a; char b; char c; }
+struct DL { double d; int64 l; }
+struct FD { float f; double d; }
+union TUU { int64 l; double d; }
+struct TU { int tag; TUU u; }
+struct BF { uint32 a : 3; uint32 b : 5; uint32 c : 24; }
+packed struct PK { int8 t; int64 v; }
+struct Nest { Sm s; int k; }
+
+extern int64 c_sum(Big b);
+extern Big c_mk(int64 s);
+extern int c_sm(Sm s);
+extern Sm c_mksm(int x);
+extern float c_f2(F2 f);
+extern F2 c_mkf2(float a);
+extern double c_d3(D3 d);
+extern D3 c_mkd3(double a);
+extern float c_f4(F4 f);
+extern F4 c_mkf4(float a);
+extern double c_mix(Mix m);
+extern Mix c_mkmix(int i);
+extern int c_p3(P3 p);
+extern P3 c_mkp3(int b);
+extern int c_c3(C3 c);
+extern C3 c_mkc3(char b);
+extern double c_dl(DL v);
+extern DL c_mkdl(int64 l);
+extern double c_fd(FD v);
+extern FD c_mkfd(double d);
+extern int64 c_tu(TU t);
+extern TU c_mktu(int64 l);
+extern int c_bf(BF b);
+extern BF c_mkbf(int c);
+extern int64 c_pk(PK p);
+extern PK c_mkpk(int64 v);
+extern int c_nest(Nest n);
+extern Nest c_mknest(int k);
+extern int64 c_many(Sm a, Sm b, Sm c, Sm d, Sm e, Sm f, Sm g, Sm h, Sm i);
+extern double c_mixed(int a, P3 p, double d, F2 f, Big b, int z, DL v);
+extern Big c_mkbig2(Sm s, double scale);
+
+Sm sm(int x, int c) { let s: Sm; s.x = x; s.c = (int8)c; return s; }
+
+int main() {
+    let b: Big; b.a = 1; b.b = 2; b.c = 3; b.d = 4; b.e = 5;
+    printf("sum %lld\n", c_sum(b));
+    Big m = c_mk(10);
+    printf("mk %lld %lld %lld\n", m.a, m.c, m.e);
+    printf("sm %d\n", c_sm(sm(4, 2)));
+    Sm t = c_mksm(9);
+    printf("mksm %d %d\n", t.x, (int)t.c);
+    let f: F2; f.x = 1.5; f.y = 4.0;
+    printf("f2 %.1f\n", (double)c_f2(f));
+    F2 g = c_mkf2((float)2.0);
+    printf("mkf2 %.1f %.1f\n", (double)g.x, (double)g.y);
+    let d: D3; d.x = 1.0; d.y = 2.0; d.z = 3.0;
+    printf("d3 %.1f\n", c_d3(d));
+    D3 d2 = c_mkd3(5.0);
+    printf("mkd3 %.1f %.1f %.1f\n", d2.x, d2.y, d2.z);
+    let f4: F4; f4.a = 1.0; f4.b = 2.0; f4.c = 3.0; f4.d = 4.0;
+    printf("f4 %.1f\n", (double)c_f4(f4));
+    F4 f5 = c_mkf4((float)7.0);
+    printf("mkf4 %.1f %.1f\n", (double)f5.a, (double)f5.d);
+    let mx: Mix; mx.f = 0.25; mx.i = 8;
+    printf("mix %.2f\n", c_mix(mx));
+    Mix mx2 = c_mkmix(11);
+    printf("mkmix %.1f %d\n", (double)mx2.f, mx2.i);
+    let p: P3; p.x = 1; p.y = 2; p.z = 3;
+    printf("p3 %d\n", c_p3(p));
+    P3 p2 = c_mkp3(4);
+    printf("mkp3 %d %d %d\n", p2.x, p2.y, p2.z);
+    let c3: C3; c3.a = (char)1; c3.b = (char)2; c3.c = (char)3;
+    printf("c3 %d\n", c_c3(c3));
+    C3 c4 = c_mkc3((char)10);
+    printf("mkc3 %d %d %d\n", (int)c4.a, (int)c4.b, (int)c4.c);
+    let dl: DL; dl.d = 0.5; dl.l = 40;
+    printf("dl %.1f\n", c_dl(dl));
+    DL dl2 = c_mkdl(77);
+    printf("mkdl %.2f %lld\n", dl2.d, dl2.l);
+    let fd: FD; fd.f = 2.5; fd.d = 0.25;
+    printf("fd %.2f\n", c_fd(fd));
+    FD fd2 = c_mkfd(9.5);
+    printf("mkfd %.1f %.1f\n", (double)fd2.f, fd2.d);
+    let tu: TU; tu.tag = 0; tu.u.l = 123456789012;
+    printf("tu %lld\n", c_tu(tu));
+    TU tu2 = c_mktu(-5);
+    printf("mktu %d %lld\n", tu2.tag, tu2.u.l);
+    let bf: BF; bf.a = 3; bf.b = 9; bf.c = 1234;
+    printf("bf %d\n", c_bf(bf));
+    BF bf2 = c_mkbf(4321);
+    printf("mkbf %d %d %d\n", (int)bf2.a, (int)bf2.b, (int)bf2.c);
+    let pk: PK; pk.t = (int8)2; pk.v = 1000000000000;
+    printf("pk %lld\n", c_pk(pk));
+    PK pk2 = c_mkpk(99);
+    printf("mkpk %d %lld\n", (int)pk2.t, pk2.v);
+    let ns: Nest; ns.s = sm(5, 1); ns.k = 100;
+    printf("nest %d\n", c_nest(ns));
+    Nest ns2 = c_mknest(6);
+    printf("mknest %d %d %d\n", ns2.s.x, (int)ns2.s.c, ns2.k);
+    printf("many %lld\n", c_many(sm(1, 1), sm(2, 0), sm(3, 0), sm(4, 0), sm(5, 0), sm(6, 0), sm(7, 0), sm(8, 0), sm(9, 3)));
+    printf("mixed %.2f\n", c_mixed(1, p, 0.5, f, b, 2, dl));
+    Big b2 = c_mkbig2(sm(21, 4), 3.0);
+    printf("mkbig2 %lld %lld %lld %lld %lld\n", b2.a, b2.b, b2.c, b2.d, b2.e);
+    let fp: fn(int)->Sm = c_mksm;
+    Sm t2 = fp(12);
+    printf("fnval %d %d\n", t2.x, (int)t2.c);
+    return 0;
+}

@@ -1,0 +1,5 @@
+// EXPECT-ERROR: redefinition of function 'f'
+// A generic and a non-generic function share one name; the call silently took the generic.
+T f<T>(T x) { return x; }
+int f(int x) { return x + 1; }
+int main() { return f(1); }

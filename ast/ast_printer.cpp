@@ -147,27 +147,32 @@ void ASTPrinter::visit(BlockStmt* node) {
 }
 
 void ASTPrinter::visit(IfStmt* node) {
-    println("IfStmt");
-    indentLevel++;
-
-    println("Condition:");
-    indentLevel++;
-    node->condition->accept(this);
-    indentLevel--;
-
-    println("Then:");
-    indentLevel++;
-    node->thenBranch->accept(this);
-    indentLevel--;
-
-    if (node->elseBranch) {
-        println("Else:");
+    // An `else if` chain is printed with a loop, one level deeper per link.
+    int base = indentLevel;
+    for (IfStmt* n = node; n;) {
+        println("IfStmt");
         indentLevel++;
-        node->elseBranch->accept(this);
-        indentLevel--;
-    }
 
-    indentLevel--;
+        println("Condition:");
+        indentLevel++;
+        n->condition->accept(this);
+        indentLevel--;
+
+        println("Then:");
+        indentLevel++;
+        n->thenBranch->accept(this);
+        indentLevel--;
+
+        IfStmt* next = nullptr;
+        if (n->elseBranch) {
+            println("Else:");
+            indentLevel++;
+            next = dynamic_cast<IfStmt*>(n->elseBranch.get());
+            if (!next) n->elseBranch->accept(this);
+        }
+        n = next;
+    }
+    indentLevel = base;
 }
 
 void ASTPrinter::visit(ForStmt* node) {
@@ -269,20 +274,25 @@ void ASTPrinter::visit(ExprStmt* node) {
 }
 
 void ASTPrinter::visit(BinaryExpr* node) {
-    println("BinaryExpr: " + node->op);
-    indentLevel++;
-
-    println("Left:");
-    indentLevel++;
-    node->left->accept(this);
-    indentLevel--;
-
-    println("Right:");
-    indentLevel++;
-    node->right->accept(this);
-    indentLevel--;
-
-    indentLevel--;
+    // A left-leaning chain (`a + b + c ...`) is as deep as it is long: print its left
+    // spine with a loop instead of one recursive call per operator.
+    int base = indentLevel;
+    std::vector<BinaryExpr*> spine;
+    for (BinaryExpr* b = node; b; b = dynamic_cast<BinaryExpr*>(b->left.get())) {
+        println("BinaryExpr: " + b->op);
+        indentLevel++;
+        println("Left:");
+        indentLevel++;
+        spine.push_back(b);
+    }
+    spine.back()->left->accept(this);
+    for (size_t i = spine.size(); i-- > 0;) {
+        indentLevel = base + 2 * (int)i + 1;
+        println("Right:");
+        indentLevel++;
+        spine[i]->right->accept(this);
+    }
+    indentLevel = base;
 }
 
 void ASTPrinter::visit(UnaryExpr* node) {
@@ -445,7 +455,10 @@ void ASTPrinter::visit(SwitchStmt* node) {
             println("Default:");
             indentLevel++;
         }
-        for (auto& s : c.stmts) s->accept(this);
+        for (auto& it : c.stmts) {
+            if (std::holds_alternative<DeclPtr>(it)) std::get<DeclPtr>(it)->accept(this);
+            else std::get<StmtPtr>(it)->accept(this);
+        }
         indentLevel--;
     }
     indentLevel--;
@@ -504,8 +517,12 @@ void ASTPrinter::visit(LambdaExpr* node) {
 
 void ASTPrinter::visit(AsmStmt* node) {
     println("AsmStmt: asm(\"" + node->asmString + "\")");
-    if (!node->inputs.empty()) {
+    if (!node->outputs.empty() || !node->inputs.empty()) {
         indentLevel++;
+        for (const auto& [c, e] : node->outputs) {
+            println("output: \"" + c + "\"");
+            indentLevel++; e->accept(this); indentLevel--;
+        }
         for (const auto& [c, e] : node->inputs) {
             println("input: \"" + c + "\"");
             indentLevel++; e->accept(this); indentLevel--;
@@ -551,6 +568,13 @@ void ASTPrinter::visit(DeferStmt* node) {
 }
 
 void ASTPrinter::visit(SizeofExpr* node) {
+    if (node->operand) {
+        println("SizeofExpr: sizeof(<expr>)");
+        indentLevel++;
+        node->operand->accept(this);
+        indentLevel--;
+        return;
+    }
     println("SizeofExpr: sizeof(" + node->typeName + ")");
 }
 
@@ -580,8 +604,13 @@ void ASTPrinter::visit(EnumDecl* node) {
     println("EnumDecl: " + node->name);
     indentLevel++;
     printTypeParams(node->typeParams, {});   // EnumDecl has no constraints field
+    int sinceExpr = -1;   // members after a value expression: "<expr>+k"
     for (size_t i = 0; i < node->members.size(); ++i) {
-        std::string line = node->members[i].first + " = " + std::to_string(node->members[i].second);
+        const ExprPtr* ve = i < node->valueExprs.size() && node->valueExprs[i] ? &node->valueExprs[i] : nullptr;
+        std::string val = std::to_string(node->members[i].second);
+        if (ve) { val = "<expr>"; sinceExpr = 0; }
+        else if (sinceExpr >= 0) val = "<expr>+" + std::to_string(++sinceExpr);
+        std::string line = node->members[i].first + " = " + val;
         if (i < node->payloads.size() && !node->payloads[i].empty()) {
             line += "(";
             for (size_t j = 0; j < node->payloads[i].size(); ++j) {
@@ -591,6 +620,11 @@ void ASTPrinter::visit(EnumDecl* node) {
             line += ")";
         }
         println(line);
+        if (ve) {
+            indentLevel++;
+            (*ve)->accept(this);
+            indentLevel--;
+        }
     }
     indentLevel--;
 }

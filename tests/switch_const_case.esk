@@ -1,0 +1,20 @@
+// A top-level `const int` (or a constant expression over one) is a valid case label.
+extern int printf(string fmt, ...);
+
+const int K = 3;
+const int L = K * 2;
+
+string name(int v) {
+    switch (v) {
+        case K: return "K";
+        case L: return "L";
+        case K + 10: return "K+10";
+        default: return "other";
+    }
+    return "";
+}
+
+int main() {
+    printf("%s %s %s %s\n", name(3), name(6), name(13), name(1));
+    return 0;
+}

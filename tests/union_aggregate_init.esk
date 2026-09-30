@@ -1,0 +1,13 @@
+extern int printf(string f, ...);
+struct Pk { int a; int b; }
+union U { Pk p; int64 raw; }
+union H { int64 raw; int16[4] h; }
+U gu = U{p: Pk{a: 1, b: 2}};
+H gh = H{h: {1, 2, 3, 4}};
+H[2] ghs = { H{raw: 5}, H{h: {9}} };
+int st() { static U su = U{p: Pk{a: 1, b: 2}}; return (int)su.raw; }
+int main() {
+    printf("%lld %d\n", gu.raw, st());
+    printf("%lld %lld %lld\n", gh.raw, ghs[0].raw, ghs[1].raw);
+    return 0;
+}

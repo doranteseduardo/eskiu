@@ -1,0 +1,4 @@
+// EXPECT-ERROR: needs an integer or bool `ok` field, got 'float'
+struct R2 { float ok; int value; }
+R2 f2(R2 r) { int v = r?; return r; }
+int main() { return 0; }

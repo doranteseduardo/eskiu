@@ -4,10 +4,49 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <filesystem>
 #include "parser_internal.h"
+#include "../lexer/preprocessor.h"
 
 Parser::Parser(const std::vector<Token>& tok)
     : tokens(tok), current(0) {}
+
+std::string Parser::canonicalPath(const std::string& path) {
+    std::error_code ec;
+    std::filesystem::path c = std::filesystem::weakly_canonical(std::filesystem::absolute(path, ec), ec);
+    return ec ? path : c.string();
+}
+
+std::string Parser::resolveImport(const std::string& spec, bool isStdlib,
+                                  const std::string& basedir, const std::string& stdlibPath) {
+    std::string path = spec;
+    // Allow bare name or name with path separator
+    if (isStdlib && path.find('/') == std::string::npos) path = "stdlib/" + path + ".esk";
+    if (isStdlib && !stdlibPath.empty()) return stdlibPath + "/" + path;
+    if (!basedir.empty() && (path.empty() || path[0] != '/')) return basedir + "/" + path;
+    return path;
+}
+
+PPImportHook ImportCache::hookFor(const std::string& basedir) {
+    return [this, basedir](const std::string& spec, bool isStdlib) {
+        if (spec.empty()) return;
+        std::string full = Parser::resolveImport(spec, isStdlib, basedir, stdlibPath);
+        std::string canon = Parser::canonicalPath(full);
+        if (seen.count(canon)) return;
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(full, ec)) return;
+        std::ifstream file(full);
+        if (!file.is_open()) return;
+        seen.insert(canon);
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        size_t slash = full.rfind('/');
+        PPImportHook sub = hookFor(slash != std::string::npos ? full.substr(0, slash) : ".");
+        Entry e;
+        preprocess(ss.str(), *macros, e.text, full, e.ppErr, &sub);
+        files[canon] = std::move(e);
+    };
+}
 
 // ============================================================================
 // Helper Methods
@@ -17,10 +56,17 @@ Token Parser::peek() const {
     if (is_at_end()) {
         return tokens.back();
     }
+    if (splitActive && current == splitPos) {
+        Token t = tokens[current];
+        t.type = TokenType::GT;
+        t.value = ">";
+        return t;
+    }
     return tokens[current];
 }
 
 Token Parser::peek_ahead(int n) const {
+    if (n == 0) return peek();
     size_t pos = current + n;
     if (pos >= tokens.size()) {
         return tokens.back();
@@ -30,6 +76,12 @@ Token Parser::peek_ahead(int n) const {
 
 Token Parser::advance() {
     if (current < tokens.size()) {
+        if (splitActive && current == splitPos) {
+            Token t = peek();
+            splitActive = false;
+            current++;
+            return t;
+        }
         return tokens[current++];
     }
     if (!tokens.empty()) {
@@ -72,12 +124,47 @@ Token Parser::consume(TokenType type, const std::string& message) {
         TokenType t = peek().type;
         if (t >= TokenType::LET && t <= TokenType::UINT64) {
             const std::string& kw = peek().value;
-            throw std::runtime_error(
-                "expected a name, found keyword '" +
-                (kw.empty() ? tokenTypeToString(t) : kw) + "'");
+            fail("expected a name, found keyword '" +
+                 (kw.empty() ? tokenTypeToString(t) : kw) + "'");
         }
     }
+    fail(message);
+}
+
+void Parser::fail(const std::string& message) { fail(message, peek()); }
+
+void Parser::fail(const std::string& message, const Token& at) {
+    errLine = at.line;
+    errCol = at.column;
     throw std::runtime_error(message);
+}
+
+// Does `t` begin a top-level declaration (a type, a qualifier, a decl keyword)?
+static bool startsTopLevelDecl(TokenType t) {
+    switch (t) {
+        case TokenType::IDENT: case TokenType::STRUCT: case TokenType::PACKED:
+        case TokenType::UNION: case TokenType::INTERFACE: case TokenType::ENUM:
+        case TokenType::EXTERN: case TokenType::INTRINSIC: case TokenType::IMPORT:
+        case TokenType::ASYNC: case TokenType::MUST_USE: case TokenType::CONST:
+        case TokenType::STATIC: case TokenType::VOLATILE: case TokenType::LET:
+        case TokenType::STAR: case TokenType::QUESTION: case TokenType::FN:
+        case TokenType::PRAGMA:
+            return true;
+        default:
+            return isPrimitiveTypeToken(t);
+    }
+}
+
+void Parser::skipToNextDecl(size_t declStart) {
+    // The error token may itself start the next declaration (e.g. a missing `}`
+    // detected at the following function); resume there rather than skipping it.
+    if (current > declStart && !is_at_end() && peek().column == 1 && startsTopLevelDecl(peek().type))
+        return;
+    if (!is_at_end()) advance();
+    while (!is_at_end()) {
+        if (peek().column == 1 && startsTopLevelDecl(peek().type)) return;
+        advance();
+    }
 }
 
 bool Parser::is_at_end() const {
@@ -95,118 +182,131 @@ bool Parser::is_at_end() const {
 
 void Parser::consumeTemplateClose(const char* ctx) {
     if (check(TokenType::GT)) { advance(); return; }
-    // A lexed ">>" (right-shift) closes two template levels at once. Split it
-    // permanently into "> >" by rewriting this token to ">" and inserting a
-    // second ">" after it, then consume the first. Insertion (vs. a destructive
-    // rewrite) keeps the stream correct across the parser's backtracking — a
-    // saved position is always before `current`, so it is unaffected.
+    // A lexed ">>" (right-shift) closes two template levels at once. Its first
+    // `>` is consumed by marking the token half-split: until the second `>` is
+    // consumed, peek() presents that token as a lone `>`. The token vector is never
+    // edited, so a split and its undo (rewindTo) are O(1).
     if (check(TokenType::RSHIFT)) {
-        tokens[current].type  = TokenType::GT;
-        tokens[current].value = ">";
-        tokens.insert(tokens.begin() + current + 1, tokens[current]);
-        advance();
+        splitActive = true;
+        splitPos = current;
         return;
     }
     consume(TokenType::GT, ctx);   // not a close — emit the standard error
 }
 
+void Parser::rewindTo(size_t pos) {
+    if (splitActive && pos <= splitPos) splitActive = false;
+    current = pos;
+}
+
 std::string Parser::parseType() {
     std::string type;
+    parseTypeInto(type);
+    return type;
+}
+
+// Append the type at the cursor to `out`. Every prefix (`?`, `const `, leading `*`s)
+// is known before the base type is read, so the spelling is built left to right into
+// one buffer: nested template arguments and fn types cost time linear in their length.
+void Parser::parseTypeInto(std::string& out) {
+    TypeLevelGuard guard(*this);
 
     // Leading `?` marks a checked nullable pointer `?*T`; re-attached as a `?` prefix.
     bool nullable = match(TokenType::QUESTION);
 
     // Optional leading `const` qualifies the base/pointee: `const int*` is a
-    // pointer to const int. Re-attached as a `const ` prefix after the type is
-    // assembled. (A `const` before a `let`/decl binding is handled by the
-    // declaration parser, not here.)
+    // pointer to const int, spelled with a `const ` prefix. (A `const` before a
+    // `let`/decl binding is handled by the declaration parser, not here.)
     bool baseIsConst = match(TokenType::CONST);
 
-    // Handle leading pointers (Rust-style: *i32)
-    int leading_pointers = 0;
-    while (match(TokenType::STAR)) {
-        leading_pointers++;
+    // Handle leading pointers (Rust-style: *i32). A `?` between two stars makes the
+    // pointer after it nullable: `*?*T` is a pointer to a nullable pointer to T.
+    std::string leading;
+    while (check(TokenType::STAR)) {
+        enterTypeLevel();
+        advance();
+        leading += "*";
+        if (check(TokenType::QUESTION) && current + 1 < tokens.size() &&
+            tokens[current + 1].type == TokenType::STAR) {
+            advance();
+            leading += "?";
+        }
     }
 
     if (is_at_end()) {
-        throw std::runtime_error("Unexpected end of file while parsing type");
+        fail("Unexpected end of file while parsing type");
     }
 
     Token typeToken = peek();
-    // Function pointer type: fn(T,U,...)->R
+    // Function pointer type: fn(T,U,...)->R (no `?` prefix, no trailing pointers).
     if (match(TokenType::FN)) {
-        type = "fn(";
+        if (baseIsConst) out += "const ";
+        out += leading;
+        out += "fn(";
         consume(TokenType::LPAREN, "Expected '(' in fn type");
         bool first = true;
         while (!check(TokenType::RPAREN) && !is_at_end()) {
-            if (!first) { consume(TokenType::COMMA, "Expected ',' between fn parameter types"); type += ","; }
+            if (!first) { consume(TokenType::COMMA, "Expected ',' between fn parameter types"); out += ","; }
             first = false;
-            type += parseType();
+            parseTypeInto(out);
         }
         consume(TokenType::RPAREN, "Expected ')' in fn type");
-        type += ")->";
+        out += ")->";
         consume(TokenType::ARROW, "Expected '->' in fn type");
-        type += parseType();
-        // No trailing pointer handling needed for fn types — return early
-        for (int lp = 0; lp < leading_pointers; ++lp) type = "*" + type;
-        if (baseIsConst) type = "const " + type;
-        return type;
+        parseTypeInto(out);
+        return;
     }
+    if (nullable) out += "?";
+    if (baseIsConst) out += "const ";
+    out += leading;
     if (isPrimitiveTypeToken(typeToken.type)) {
         advance();
-        type = typeToken.value;
+        out += typeToken.value;
     } else if (check(TokenType::IDENT)) {
-        type = advance().value;
+        out += advance().value;
         // Template instantiation: Name<TypeArg, ...>  e.g. Result<int, string>
         if (match(TokenType::LT)) {
-            type += "<";
+            out += "<";
             bool first = true;
             do {
-                if (!first) type += ",";
+                if (!first) out += ",";
                 first = false;
-                type += parseType();
+                parseTypeInto(out);
             } while (match(TokenType::COMMA));
             consumeTemplateClose("Expected '>' after template arguments");
-            type += ">";
+            out += ">";
         }
     } else {
-        throw std::runtime_error("Expected type, got " + tokenTypeToString(peek().type));
+        fail("Expected type, got " + tokenTypeToString(peek().type));
     }
 
     // Handle trailing pointers (C-style: i32*). A `const` right after a star
     // makes that pointer level const (`int* const`), encoded as `*const`.
-    while (match(TokenType::STAR)) {
-        type += "*";
-        if (match(TokenType::CONST)) type += "const";
+    while (check(TokenType::STAR)) {
+        enterTypeLevel();
+        advance();
+        out += "*";
+        if (match(TokenType::CONST)) out += "const";
     }
-
-    // Add leading pointers at the beginning
-    for (int i = 0; i < leading_pointers; i++) {
-        type = "*" + type;
-    }
-
-    // Re-attach the base/pointee const as a leading qualifier.
-    if (baseIsConst) type = "const " + type;
 
     // Handle array syntax [N] — capture the size literal
-    while (match(TokenType::LBRACKET)) {
+    while (check(TokenType::LBRACKET)) {
+        enterTypeLevel();
+        advance();
         std::string sizeStr;
         while (!is_at_end() && !check(TokenType::RBRACKET)) {
             sizeStr += peek().value;
             advance();
         }
         if (!match(TokenType::RBRACKET)) {
-            throw std::runtime_error("Expected ']'");
+            fail("Expected ']'");
         }
-        type += "[" + sizeStr + "]";
+        out += "[" + sizeStr + "]";
     }
-
-    if (nullable) type = "?" + type;   // `?*T` checked nullable pointer
-    return type;
 }
 
 std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
-        std::vector<bool>* escaping) {
+        std::vector<bool>* escaping, std::vector<std::pair<int, int>>* positions) {
     std::vector<std::pair<std::string, std::string>> params;
 
     if (!check(TokenType::RPAREN)) {
@@ -215,6 +315,7 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
             if (match(TokenType::ELLIPSIS)) {
                 params.push_back({"...", "..."});
                 if (escaping) escaping->push_back(false);
+                if (positions) positions->push_back({tokens[current - 1].line, tokens[current - 1].column});
                 break;
             }
 
@@ -223,9 +324,10 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
             // heap environment.
             bool isEscaping = match(TokenType::ESCAPING);
             std::string type = parseType();
-            std::string name = consume(TokenType::IDENT, "Expected parameter name").value;
-            params.push_back({type, name});
+            Token nameTok = consume(TokenType::IDENT, "Expected parameter name");
+            params.push_back({type, nameTok.value});
             if (escaping) escaping->push_back(isEscaping);
+            if (positions) positions->push_back({nameTok.line, nameTok.column});
         } while (match(TokenType::COMMA));
     }
 
@@ -239,7 +341,9 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
 std::shared_ptr<Program> Parser::parse() {
     auto decls = parseProgram();
     if (hadError) return nullptr;
-    return std::make_shared<Program>(decls);
+    auto prog = std::make_shared<Program>(decls);
+    prog->linkLibs = linkLibs;
+    return prog;
 }
 
 std::vector<DeclPtr> Parser::parseProgram() {
@@ -250,90 +354,104 @@ std::vector<DeclPtr> Parser::parseProgram() {
     if (!importedFiles) importedFiles = &ownedSet;
     // The root parser owns the shared type-name set; sub-parsers point at it.
     if (!sharedTypeNames) sharedTypeNames = &declaredTypeNames;
+    if (!sharedGenericNames) sharedGenericNames = &declaredGenericNames;
 
-    // Panic-mode recovery shared by both parse paths: report, then skip to the
-    // next ';' so one bad declaration doesn't abort the whole file.
+    // Panic-mode recovery shared by both parse paths: report the error at its
+    // location, then skip to the next top-level declaration so one bad
+    // declaration neither aborts the file nor cascades into spurious errors.
+    size_t declStart = 0;
     auto recover = [&](const std::exception& e) {
-        std::cerr << "error: " << e.what() << std::endl;
+        std::cerr << "error: " << (filename.empty() ? "<input>" : filename) << ":"
+                  << errLine << ":" << errCol << ": " << e.what() << std::endl;
         hadError = true;
-        while (!is_at_end() && !check(TokenType::SEMICOLON)) advance();
-        if (check(TokenType::SEMICOLON)) advance();
+        skipToNextDecl(declStart);
     };
 
     while (!is_at_end()) {
-        // Compiler directive (e.g. #pragma pack) — updates parser state, emits no decl.
+        declStart = current;
+        // Compiler directive (#pragma pack / link): updates parser state, emits no decl.
         if (check(TokenType::PRAGMA)) {
-            applyPragma(advance().value);
+            Token pt = advance();
+            try { applyPragma(pt); } catch (const std::exception& e) { recover(e); }
             continue;
         }
         // Handle import "path/to/file.esk"  or  import <stdlib_name>
         if (match(TokenType::IMPORT)) {
             try {
-                std::string path;
+                std::string spec;
                 bool isStdlib = false;
 
+                Token pathTok = peek();
                 if (check(TokenType::STRING_LIT)) {
                     // import "relative/path.esk"
-                    path = advance().value;
+                    spec = advance().value;
                 } else if (check(TokenType::LT)) {
                     // import <name>  →  resolved against stdlibPath
                     advance(); // consume <
-                    std::string name;
                     while (!check(TokenType::GT) && !is_at_end())
-                        name += advance().value;
+                        spec += advance().value;
                     consume(TokenType::GT, "Expected '>' after stdlib name");
-                    // Allow bare name or name with path separator
-                    if (name.find('/') == std::string::npos)
-                        name = "stdlib/" + name + ".esk";
-                    path = name;
                     isStdlib = true;
                 } else {
-                    throw std::runtime_error("Expected filename or <name> after import");
+                    fail("Expected filename or <name> after import");
                 }
                 consume(TokenType::SEMICOLON, "Expected ';' after import");
 
-                // Resolve full path
-                std::string fullPath;
-                if (isStdlib && !stdlibPath.empty()) {
-                    // stdlib path: ESKIU_ROOT/stdlib/name.esk
-                    fullPath = stdlibPath + "/" + path;
-                } else if (!basedir.empty() && path[0] != '/') {
-                    fullPath = basedir + "/" + path;
-                } else {
-                    fullPath = path;
-                }
+                std::string fullPath = resolveImport(spec, isStdlib, basedir, stdlibPath);
+                std::string canon = canonicalPath(fullPath);
+                if (!importedFiles->count(canon)) {
+                    importedFiles->insert(canon);
 
-                if (!importedFiles->count(fullPath)) {
-                    importedFiles->insert(fullPath);
-
-                    std::ifstream file(fullPath);
-                    if (!file.is_open())
-                        throw std::runtime_error("Cannot open import: '" + fullPath + "'");
-                    std::ostringstream ss;
-                    ss << file.rdbuf();
-                    std::string src = ss.str();
-
-                    Lexer lexer(src, macros, fullPath);  // share macros; fullPath = __FILE__
+                    std::error_code ec;
+                    if (std::filesystem::is_directory(fullPath, ec))
+                        fail("Cannot open import: '" + fullPath + "'", pathTok);
+                    // The preprocessor already handled this import at its line (see
+                    // ImportCache); otherwise read and preprocess it now.
+                    auto cached = importCache ? importCache->files.find(canon)
+                                              : std::map<std::string, ImportCache::Entry>::iterator();
+                    bool haveCached = importCache && cached != importCache->files.end();
+                    std::string src;
+                    if (!haveCached) {
+                        std::ifstream file(fullPath);
+                        if (!file.is_open())
+                            fail("Cannot open import: '" + fullPath + "'", pathTok);
+                        std::ostringstream ss;
+                        ss << file.rdbuf();
+                        src = ss.str();
+                    }
+                    size_t slash = fullPath.rfind('/');
+                    std::string subdir = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    PPImportHook hook;
+                    if (importCache) hook = importCache->hookFor(subdir);
+                    Lexer lexer = haveCached
+                        ? Lexer::fromPreprocessed(cached->second.text, fullPath, cached->second.ppErr)
+                        : Lexer(src, macros, fullPath, importCache ? &hook : nullptr);
                     std::vector<Token> itoks;
                     Token t = lexer.next_token();
                     while (t.type != TokenType::EOF_TOKEN) { itoks.push_back(t); t = lexer.next_token(); }
                     itoks.push_back(t);
-                    if (lexer.hadError) hadError = true;  // propagate lexical errors from the import
+                    // A lexical error in the import stops here, like one in a root
+                    // file: parsing the broken token stream would only cascade.
+                    if (lexer.hadError) { hadError = true; continue; }
 
                     Parser sub(itoks);
-                    size_t slash = fullPath.rfind('/');
-                    sub.basedir       = (slash != std::string::npos) ? fullPath.substr(0, slash) : ".";
+                    sub.filename      = fullPath;
+                    sub.basedir       = subdir;
                     sub.stdlibPath    = stdlibPath;
                     sub.importedFiles = importedFiles;
                     sub.macros        = macros;
+                    sub.importCache   = importCache;
                     sub.sharedTypeNames = sharedTypeNames;   // one set for all parsers
+                    sub.sharedGenericNames = sharedGenericNames;
 
                     auto subProg = sub.parse();
                     if (!subProg) {
                         hadError = true;
                     } else {
+                        for (const auto& d : subProg->declarations) if (d) d->fromImport = true;
                         declarations.insert(declarations.end(),
                             subProg->declarations.begin(), subProg->declarations.end());
+                        for (const auto& l : subProg->linkLibs) addLinkLib(l);
                         // Type names are recorded directly into the shared set as
                         // each file is parsed, so a cast to an imported type —
                         // `(FutureHdr*)p` — parses correctly here regardless of
@@ -348,7 +466,10 @@ std::vector<DeclPtr> Parser::parseProgram() {
 
         try {
             DeclPtr decl = parseDeclaration();
-            if (decl) declarations.push_back(decl);
+            if (decl) {
+                decl->sourceFile = filename;
+                declarations.push_back(decl);
+            }
         } catch (const std::exception& e) {
             recover(e);
         }

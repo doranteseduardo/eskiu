@@ -1,0 +1,3 @@
+// EXPECT-ERROR: variant 'Some' argument 1: integer literal 300 is out of range for 'int8'
+enum Option<T> { None, Some(T) }
+int main() { Option<int8> o = Some<int8>(300); return 0; }

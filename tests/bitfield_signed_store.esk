@@ -1,0 +1,22 @@
+extern int printf(string fmt, ...);
+struct B { int64 a : 40; uint64 u : 40; int16 s : 10; }
+int main() {
+    let b: B;
+    int m = -5;
+    b.a = m;
+    b.u = m;
+    printf("%lld %llu\n", b.a, b.u);
+    int8 q = -1;
+    b.a = q;
+    printf("%lld\n", b.a);
+    B l = B{a: -6, u: 1, s: -3};
+    printf("%lld %d\n", l.a, l.s);
+    int16 k = -1;
+    l.s = k;
+    l.a += k;
+    printf("%d %lld\n", l.s, l.a);
+    uint8 big = 255;
+    l.a = big;
+    printf("%lld\n", l.a);
+    return 0;
+}

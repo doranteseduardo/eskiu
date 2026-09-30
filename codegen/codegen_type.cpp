@@ -22,6 +22,24 @@ bool CodeGen::resolveArrayDim(const std::string& dim, uint64_t& out) const {
     if (e != enumConstants.end()) { out = (uint64_t)e->second; return true; }
     auto c = constInts.find(dim);
     if (c != constInts.end())     { out = (uint64_t)c->second; return true; }
+    // An integer constant expression (`(uint8)258`, `N*2`), as the type checker folds it.
+    long long v = 0;
+    bool sized = false;
+    bool folded = ty::foldDim(dim, [&](const std::string& n, long long& r) {
+        if (auto en = enumConstants.find(n); en != enumConstants.end()) { r = en->second; return true; }
+        if (auto cn = constInts.find(n); cn != constInts.end()) { r = cn->second; return true; }
+        if (n.rfind("sizeof(", 0) == 0) {           // `sizeof(T)`, the type's allocation size
+            llvm::Type* ty = const_cast<CodeGen*>(this)->getTypeFromString(n.substr(7, n.size() - 8));
+            r = (long long)module->getDataLayout().getTypeAllocSize(ty);
+            sized = true;
+            return true;
+        }
+        return false;
+    }, v);
+    if (folded && v > 0) { out = (uint64_t)v; return true; }
+    // The type checker leaves a `sizeof` dimension's value to codegen.
+    if (folded && sized)
+        throw std::runtime_error("array size must be positive, got " + std::to_string(v) + " ('" + dim + "')");
     return false;
 }
 
@@ -124,13 +142,17 @@ llvm::Type* CodeGen::getTypeFromString(const std::string& typeStr) {
             }
             auto it = structTypes.find(t.name);            // bare struct name
             if (it != structTypes.end()) return it->second;
-            if (ifaceFatPtrTypes.count(t.name))            // interface value → opaque ptr
-                return llvm::PointerType::get(*context, 0);
+            // An interface value is its {data, vtable} fat struct.
+            auto fit = ifaceFatPtrTypes.find(t.name);
+            if (fit != ifaceFatPtrTypes.end()) return fit->second;
             break;
         }
         default: break;                                    // Null/Unknown/Error
     }
 
+    // Folding a constant (e.g. the pre-pass over top-level consts, which runs before any
+    // struct is declared): an unknown type means "not foldable yet", not an i32 size.
+    if (constEvalDepth > 0) throw std::runtime_error("unknown type '" + typeStr + "' in a constant");
     std::cerr << "Warning: unknown type '" << typeStr << "', defaulting to i32" << std::endl;
     return i32;
 }
@@ -161,11 +183,29 @@ llvm::AllocaInst* CodeGen::entryAlloca(llvm::Type* ty, llvm::Value* arrSize,
     return tmp.CreateAlloca(ty, arrSize, name);
 }
 
+// A value used as a condition: bool as is, int `!= 0`, float `une 0.0` (NaN is
+// true, as in C), pointer `!= null`.
+llvm::Value* CodeGen::emitTruthy(llvm::Value* val) {
+    llvm::Type* t = val->getType();
+    if (t->isIntegerTy(1)) return val;
+    if (t->isFloatingPointTy())
+        return builder->CreateFCmpUNE(val, llvm::ConstantFP::get(t, 0.0));
+    if (t->isPointerTy()) return builder->CreateIsNotNull(val);
+    if (t->isIntegerTy()) return builder->CreateICmpNE(val, llvm::ConstantInt::get(t, 0));
+    // An interface value `{data, vtable}` is true when its data pointer is set.
+    if (auto* st = llvm::dyn_cast<llvm::StructType>(t);
+        st && st->getNumElements() == 2 && st->getElementType(0)->isPointerTy())
+        return builder->CreateIsNotNull(builder->CreateExtractValue(val, 0));
+    throw std::runtime_error("value cannot be used as a condition");
+}
+
 llvm::Value* CodeGen::coerceInt(llvm::Value* val, llvm::Type* ty, bool unsignedSrc) {
     if (!val || val->getType() == ty) return val;
     if (!val->getType()->isIntegerTy() || !ty->isIntegerTy()) return val;
     unsigned sw = val->getType()->getIntegerBitWidth();
     unsigned dw = ty->getIntegerBitWidth();
+    // To bool: `!= 0`, not a truncation (a returned 4 is true, not its low bit).
+    if (dw == 1) return builder->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0));
     if (sw < dw) return unsignedSrc ? builder->CreateZExt(val, ty) : builder->CreateSExt(val, ty);
     if (sw > dw) return builder->CreateTrunc(val, ty);
     return val;
@@ -190,6 +230,8 @@ llvm::Value* CodeGen::coerceValue(llvm::Value* val, llvm::Type* target, bool uns
     llvm::Type* src = val->getType();
     if (src->isIntegerTy() && target->isIntegerTy())             return coerceInt(val, target, unsignedSrc);
     if (src->isIntegerTy() && target->isFloatingPointTy())       return intToFloat(val, target, unsignedSrc);
+    if (src->isFloatingPointTy() && target->isIntegerTy(1))
+        return builder->CreateFCmpUNE(val, llvm::ConstantFP::get(src, 0.0));
     if (src->isFloatingPointTy() && target->isIntegerTy())       return builder->CreateFPToSI(val, target);
     if (src->isFloatingPointTy() && target->isFloatingPointTy()) return builder->CreateFPCast(val, target);
     return val;
@@ -199,14 +241,112 @@ std::string CodeGen::expandAlias(const std::string& raw) const {
     // const is checked only by the type checker; codegen works on stripped types.
     std::string t = tyq::strip(raw);
     if (t.empty()) return t;
-    if (t.front() == '*') return "*" + expandAlias(t.substr(1));
+    if (t.front() == '*') {
+        // A pointer to an alias of an array (`*AI`, `type AI = int[3]`) is `int[3]*`: a
+        // leading star would bind looser than the array suffix (an array of pointers).
+        std::string inner = expandAlias(t.substr(1));
+        if (!inner.empty() && inner.back() == ']' && inner != t.substr(1)) return inner + "*";
+        return "*" + inner;
+    }
     if (t.back()  == '*') return expandAlias(t.substr(0, t.size() - 1)) + "*";
     auto it = typeAliases.find(t);
     if (it != typeAliases.end()) return expandAlias(it->second);
     return t;
 }
 
+bool CodeGen::isIntPromotingOp(const std::string& op) {
+    static const std::set<std::string> ops = {"+","-","*","/","%","&","|","^","<<",">>",
+                                              "==","!=","<",">","<=",">="};
+    return ops.count(op) > 0;
+}
+
+// The type checker types `uint8 + uint8` as uint8 (so assigning it back needs no
+// cast), but the value codegen computes is the C-promoted `int`. Report `int` for such
+// an arithmetic/bitwise result so every consumer extends it as the signed int it is.
+static std::string promotedResultType(const ExprPtr& expr, const std::string& t) {
+    static const std::set<std::string> narrow = {"bool","char","int8","uint8","int16","uint16"};
+    if (auto* u = dynamic_cast<UnaryExpr*>(expr.get()))     // `-x` / `~x` / `+x` promote too
+        return (u->opFunc.empty() && (u->op == "-" || u->op == "~" || u->op == "+") && narrow.count(t)) ? "int" : t;
+    auto* b = dynamic_cast<BinaryExpr*>(expr.get());
+    if (!b || !b->opFunc.empty()) return t;
+    static const std::set<std::string> arith = {"+","-","*","/","%","&","|","^","<<",">>"};
+    if (!arith.count(b->op)) return t;
+    return narrow.count(t) ? "int" : t;
+}
+
+// The static type of a built-in (non-overloaded) binary operator, mirroring the type
+// checker's inferBinaryExprType + promoteType. Codegen needs it where the resolver
+// table has no entry, e.g. inside a template instance (the type checker skips generic
+// bodies), so `(a + b) / c` over `uint` keeps its signedness there too.
+static std::string builtinBinaryType(const std::string& l, const std::string& op,
+                                     const std::string& r) {
+    static const std::set<std::string> cmp = {"==","!=","<",">","<=",">=","&&","||"};
+    if (cmp.count(op)) return "bool";
+    if (op == "=") return l;
+    auto width = [](const std::string& t) -> int {
+        if (t == "int64" || t == "uint64") return 64;
+        if (t == "int" || t == "int32" || t == "uint" || t == "uint32") return 32;
+        if (t == "int16" || t == "uint16") return 16;
+        if (t == "int8" || t == "uint8" || t == "char" || t == "bool") return 8;
+        return 0;
+    };
+    auto isFloat = [](const std::string& t) { return t == "float" || t == "double"; };
+    auto isPtr = [](const std::string& t) {
+        return !t.empty() && (t.front() == '*' || t.back() == '*' || t == "string");
+    };
+    auto promoted = [&](const std::string& t) { return width(t) && width(t) < 32 ? "int" : t; };
+    if (op == "-" && isPtr(l) && isPtr(r)) return "int64";
+    if ((op == "+" || op == "-") && isPtr(l) && width(r)) return l;
+    if (op == "+" && isPtr(r) && width(l)) return r;
+    if (op == "<<" || op == ">>") return width(l) ? promoted(l) : "";
+    bool ln = width(l) || isFloat(l), rn = width(r) || isFloat(r);
+    if (!ln || !rn) return l == r ? l : "";
+    if (l == "double" || r == "double") return "double";
+    if (l == "float" || r == "float") return "float";
+    std::string a = promoted(l), b = promoted(r);
+    if (a == b) return a;
+    auto isUns = [](const std::string& t) { return t == "uint" || t == "uint32" || t == "uint64"; };
+    int wa = width(a), wb = width(b);
+    bool ua = isUns(a), ub = isUns(b);
+    int w; bool u;
+    if (ua == ub) { w = std::max(wa, wb); u = ua; }
+    else {
+        int wu = ua ? wa : wb, ws = ua ? wb : wa;
+        u = wu >= ws; w = u ? wu : ws;
+    }
+    return w == 64 ? (u ? "uint64" : "int64") : (u ? "uint" : "int");
+}
+
+// The type a field of struct `key` is read as: a bitfield whose values all fit an int
+// reads as `int` (C promotion), any other field as its declared type.
+std::string CodeGen::bitfieldReadEskiu(const std::string& key, const std::string& member,
+                                       const std::string& declType) const {
+    auto lit = structLayout.find(key);
+    if (lit == structLayout.end()) return declType;
+    auto sit = lit->second.find(member);
+    if (sit == lit->second.end() || !sit->second.isBitfield) return declType;
+    return tyq::bitfieldReadType(expandAlias(declType), (int)sit->second.bitWidth) == "int" ? "int" : declType;
+}
+
+// A bitfield value loaded in its storage type, converted to the type it is read as.
+llvm::Value* CodeGen::bitfieldReadValue(llvm::Value* v, const std::string& key, const std::string& member) {
+    auto fit = structFields.find(key);
+    if (fit == structFields.end()) return v;
+    for (const auto& f : fit->second) {
+        if (f.name != member) continue;
+        if (bitfieldReadEskiu(key, member, tyq::strip(f.type)) != "int") return v;
+        llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+        return v->getType() == i32 ? v : builder->CreateTrunc(v, i32);   // the value fits
+    }
+    return v;
+}
+
 std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
+    std::string t = getExprEskiuTypeRaw(expr);
+    return promotedResultType(expr, expandAlias(t)) == "int" ? "int" : t;
+}
+
+std::string CodeGen::getExprEskiuTypeRaw(const ExprPtr& expr) const {
     // Single resolver: prefer the post-transform type checker's resolved type.
     if (resolvedExprTypes) {
         auto it = resolvedExprTypes->find(expr.get());
@@ -234,9 +374,15 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
                             it->second.c_str(), d.c_str(), typeid(*expr).name());
             }
             // Codegen treats a nullable `?*T` exactly like `*T` (same repr); the `?`
-            // only governs sema deref-safety, so strip it here.
-            const std::string& r = it->second;
-            return (!r.empty() && r[0] == '?') ? r.substr(1) : r;
+            // only governs sema deref-safety, so strip it here. Likewise const (a
+            // `const P*` parameter), which has no representation.
+            std::string r = tyq::strip(it->second);
+            if (!r.empty() && r[0] == '?') r = r.substr(1);
+            // An alias is its target for every shape check (a pointer, array, slice, fn or
+            // interface alias indexes, derefs, calls and boxes as the target does).
+            std::string ex = expandAlias(r);
+            if (!ex.empty() && ex[0] == '?') ex = ex.substr(1);
+            return ex;
         }
         // A table miss is by design — the resolver doesn't annotate every expr, so
         // the structural derivation below legitimately carries the rest. (Only a
@@ -247,6 +393,21 @@ std::string CodeGen::getExprEskiuType(const ExprPtr& expr) const {
 }
 
 std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
+    if (chainTypeMemo) {
+        auto it = chainTypeMemo->find(expr.get());
+        if (it != chainTypeMemo->end()) {
+            if (!it->second) {
+                std::string t = deriveExprEskiuTypeUncached(expr);
+                (*chainTypeMemo)[expr.get()] = t;
+                return t;
+            }
+            return *it->second;
+        }
+    }
+    return deriveExprEskiuTypeUncached(expr);
+}
+
+std::string CodeGen::deriveExprEskiuTypeUncached(const ExprPtr& expr) const {
     if (auto ident = dynamic_cast<IdentExpr*>(expr.get())) {
         return expandAlias(lookupVarType(ident->name));
     }
@@ -269,22 +430,46 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
         std::string base = getExprEskiuType(member->base);
         if (member->member == "len" && ty::Type::parse(base).kind == ty::Type::Kind::Slice)
             return "int64";                                   // slice length field
+        if (!base.empty() && base.front() == '?') base = base.substr(1);
+        while (!base.empty() && base.front() == '*') base = base.substr(1);   // `*struct:T`: the star first
         if (base.size() > 7 && base.substr(0, 7) == "struct:") base = base.substr(7);
-        if (!base.empty() && base.front() == '*') base = base.substr(1);
         while (!base.empty() && base.back()  == '*') base.pop_back();
         if (base.find('<') != std::string::npos) base = mangleTemplate(base);
         auto it = structFields.find(base);
         if (it != structFields.end()) {
             for (const auto& f : it->second) {
-                if (f.name == member->member) return tyq::strip(f.type);
+                if (f.name == member->member) return bitfieldReadEskiu(base, f.name, tyq::strip(f.type));
             }
         }
     }
+    if (auto bin = dynamic_cast<BinaryExpr*>(expr.get())) {
+        if (bin->opFunc.empty() && (bin->op == "&&" || bin->op == "||")) return "bool";
+        // Each operand's type is derived once (a deep chain must stay linear).
+        std::string lt, rt, fn = bin->opFunc;
+        if (fn.empty()) {
+            lt = expandAlias(getExprEskiuType(bin->left));
+            rt = expandAlias(getExprEskiuType(bin->right));
+            fn = resolveOpInTemplateTypes(bin->op, {lt, rt});
+        }
+        auto it = funcEskiuReturnType.find(fn);
+        if (!fn.empty() && it != funcEskiuReturnType.end()) return expandAlias(it->second);
+        if (fn.empty()) return builtinBinaryType(lt, bin->op, rt);
+    }
     if (auto unary = dynamic_cast<UnaryExpr*>(expr.get())) {
+        if (unary->op == "-" || unary->op == "!" || unary->op == "~") {
+            std::string t, fn = unary->opFunc;
+            if (fn.empty()) {
+                t = expandAlias(getExprEskiuType(unary->operand));
+                fn = resolveOpInTemplateTypes(unary->op == "-" ? "u-" : unary->op, {t});
+            }
+            auto it = funcEskiuReturnType.find(fn);
+            if (!fn.empty() && it != funcEskiuReturnType.end()) return expandAlias(it->second);
+            if (fn.empty()) return unary->op == "!" ? "bool" : builtinBinaryType(t, "+", t);
+        }
         if (unary->op == "&") return "*" + getExprEskiuType(unary->operand);
         if (unary->op == "*") {
             std::string t = getExprEskiuType(unary->operand);
-            return (!t.empty() && t.front() == '*') ? t.substr(1) : "";
+            return tyq::isPtr(t) ? tyq::pointee(tyq::strip(t)) : "";
         }
     }
     if (auto index = dynamic_cast<IndexExpr*>(expr.get())) {
@@ -295,7 +480,8 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
         else if (bt.kind == ty::Type::Kind::Array || bt.kind == ty::Type::Kind::Slice) elem = bt.elem->str();
         else if (!base.empty() && base.front() == '*') elem = base.substr(1);
         else if (!base.empty() && base.back()  == '*') elem = base.substr(0, base.size() - 1);
-        if (!elem.empty()) return index->highIndex ? (elem + "[]") : elem;   // slice vs element
+        if (!elem.empty() && !index->highIndex) return expandAlias(elem);   // `Mat[4]`: a row is an array
+        if (!elem.empty()) return elem + "[]";                                // a slice
     }
     // A ternary's static type is the common type of its arms (the type checker's
     // resolver table usually supplies it; this is the structural fallback).
@@ -320,6 +506,12 @@ std::string CodeGen::deriveExprEskiuType(const ExprPtr& expr) const {
             if (bt.find('<') != std::string::npos) bt = mangleTemplate(bt);
             auto it = funcEskiuReturnType.find(bt + "_" + m->member);
             if (it != funcEskiuReturnType.end()) return expandAlias(it->second);
+            std::map<std::string, std::string> subs;
+            if (FunctionDecl* gm = genericMethod(bt, m->member, &subs))
+                return expandAlias(substType(gm->returnType, subs));
+            if (FunctionDecl* gf = genericFreeMethod(bt, m->member))
+                return expandAlias(substType(gf->returnType,
+                                             genericFreeMethodSubs(gf, getExprEskiuType(m->base), call->args)));
         }
         return "";
     }

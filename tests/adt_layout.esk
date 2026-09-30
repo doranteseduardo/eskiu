@@ -1,0 +1,53 @@
+// ADT enum payload sizing: array fields, nested enums and generic instances must get
+// enough payload slots, and a struct holding an enum by value must be sized to fit it
+// (so alloc<H> does not under-allocate). Sizes match the C++ codegen's DataLayout.
+import <mem>;
+extern int printf(string fmt, ...);
+
+enum Tok { Num(int64), Pair(int, double), End }
+enum Wrap { W(Tok), Nothing }
+struct Arr { int k; int[5] a; }
+enum EA { HasArr(Arr), NoArr }
+struct H { int k; Tok t; }
+struct B { int x; int64 y; }
+struct Inner { char c; int[3] v; }
+enum Opt<T> { Non, Som(T) }
+
+Opt<B> mkb(int x) { let b: B; b.x = x; b.y = 1000000000000; return Som<B>(b); }
+Opt<Inner> mki() { let i: Inner; i.c = 'q'; i.v[0] = 7; i.v[1] = 8; i.v[2] = 9; return Som<Inner>(i); }
+Opt<Opt<int>> mko(int v) { return Som<Opt<int>>(Som<int>(v)); }
+
+int main() {
+    printf("Tok=%d Wrap=%d Arr=%d EA=%d H=%d\n", (int)sizeof(Tok), (int)sizeof(Wrap),
+           (int)sizeof(Arr), (int)sizeof(EA), (int)sizeof(H));
+    printf("Opt<B>=%d Opt<Inner>=%d Opt<Opt<int>>=%d\n", (int)sizeof(Opt<B>),
+           (int)sizeof(Opt<Inner>), (int)sizeof(Opt<Opt<int>>));
+
+    let w: Wrap = W(Pair(3, 0.5));
+    match w {
+        W(inner) -> { match inner { Pair(a, d) -> printf("pair %d %.2f\n", a, d); _ -> printf("other\n"); } }
+        Nothing -> printf("nothing\n");
+    }
+
+    let ar: Arr; ar.k = 1; ar.a[0] = 10; ar.a[4] = 50;
+    let ea: EA = HasArr(ar);
+    match ea {
+        HasArr(x) -> printf("arr %d %d %d\n", x.k, x.a[0], x.a[4]);
+        NoArr -> printf("none\n");
+    }
+
+    match mkb(5) { Som(b) -> printf("B %d %lld\n", b.x, b.y); Non -> printf("non\n"); }
+    match mki() { Som(i) -> printf("Inner %c %d %d %d\n", i.c, i.v[0], i.v[1], i.v[2]); Non -> printf("non\n"); }
+    match mko(42) {
+        Som(o) -> { match o { Som(v) -> printf("OptOpt %d\n", v); Non -> printf("inner non\n"); } }
+        Non -> printf("non\n");
+    }
+
+    *H hs = alloc<H>(2);
+    hs[1].k = 77; hs[1].t = Num(123456789012);
+    hs[0].k = 11; hs[0].t = Pair(9, 2.5);
+    match hs[1].t { Num(v) -> printf("H[1] %d %lld\n", hs[1].k, v); _ -> printf("other\n"); }
+    match hs[0].t { Pair(a, d) -> printf("H[0] %d %d %.1f\n", hs[0].k, a, d); _ -> printf("other\n"); }
+    free(hs);
+    return 0;
+}

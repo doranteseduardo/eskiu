@@ -1,0 +1,2 @@
+// EXPECT-ERROR: 'continue' outside of a loop
+int main(int argc, string* argv) { switch (argc) { case 1: continue; } return 0; }

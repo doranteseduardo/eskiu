@@ -42,7 +42,7 @@ rm -f /tmp/lexbuild.$$
 # format-only lines (anchored at column 0 — real token lines start with "  Line"
 # and value-continuation lines start with value content, so neither is touched).
 strip_banner() {
-    sed -E '/^Tokenizing: /d; /^=+$/d; /^Total tokens: /d'
+    LC_ALL=C sed -E '/^Tokenizing: /d; /^=+$/d; /^Total tokens: /d'
 }
 
 # A file is preprocessor-dependent (excluded from --full) if a directive that

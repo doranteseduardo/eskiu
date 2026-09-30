@@ -25,9 +25,9 @@ int main() {
     write(pb[1], (*void)"cde", (int64)3);
     g_lp = el_new(64);
     Future<int>* f = both(g_lp, pa[0], pb[0]);
-    if (future_poll<int>(f, void() { el_stop(g_lp); }) == 0) { el_run(g_lp); }
+    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     printf("%d\n", f.value);          // 2 + 3 = 5
     free_future<int>(f);
-    el_free(g_lp);
+    EventLoop_free(g_lp);
     return 0;
 }

@@ -1,0 +1,8 @@
+\s on VT: no match
+\S on VT: 0,3
+[\s] on VT: no match
+[^\s] on VT: 0,1
+[\S] on VT: 0,1
+\s+ on tab LF FF CR SP: 1,6
+\S+ skips them: 5,7
+[[:space:]] on VT: 0,1

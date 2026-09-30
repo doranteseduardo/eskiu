@@ -1,0 +1,14 @@
+extern int printf(string f, ...);
+struct C { fn(int)->int[2] fs; }
+fn(int)->int[2] gfs = { int(int x) { return x + 1; }, int(int x) { return x * 2; } };
+fn(int)->double[2] gds = { double(int x) { return (double)x + 0.5; } };
+int twice() {
+    static fn(int)->int[2] sfs = { int(int x) { return x + 1; }, int(int x) { return x * 2; } };
+    return sfs[1](5);
+}
+int main() {
+    C c = C{fs: { int(int x) { return x + 3; }, int(int x) { return x * 3; } }};
+    printf("%d %d\n", gfs[0](1), gfs[1](5));
+    printf("%d %d %d %.1f\n", twice(), c.fs[0](1), c.fs[1](2), gds[0](1));
+    return 0;
+}

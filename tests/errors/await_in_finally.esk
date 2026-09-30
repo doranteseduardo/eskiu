@@ -1,0 +1,10 @@
+// EXPECT-ERROR: await inside a 'finally' block is not supported in an async function
+// A cancelled future runs its pending finally at once, so a finally cannot suspend.
+import <future>;
+Future<int>* mk(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+async int compute() {
+    int r = 0;
+    try { r = await mk(1); } finally { r = await mk(2); }
+    return r;
+}
+int main() { Future<int>* r = compute(); return r.value; }

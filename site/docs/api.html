@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -124,7 +124,12 @@ public:
 </code></pre>
 <p>The lexer runs a small preprocessor pass before tokenizing. The optional <code>macros</code>
 table is shared across files so <code>#define</code>s propagate through <code>import</code> and
-multi-file builds; <code>filename</code> is exposed to the preprocessor as <code>__FILE__</code>.</p>
+multi-file builds; <code>filename</code> is exposed to the preprocessor as <code>__FILE__</code> and
+labels the lexer's diagnostics. The pass itself is a free function in
+<code>lexer/preprocessor.h</code>:</p>
+<pre><code class="language-cpp">void preprocess(const std::string&amp; src, std::map&lt;std::string, Macro&gt;&amp; defines,
+                std::string&amp; result, const std::string&amp; filename, bool&amp; hadErr);
+</code></pre>
 <p>A streaming lexer: call <code>next_token()</code> until it returns a <code>Token</code> of type
 <code>TokenType::EOF_TOKEN</code>. Callers collect the tokens into a <code>std::vector&lt;Token&gt;</code> for
 the parser (pushing the final EOF token themselves).</p>
@@ -163,10 +168,13 @@ public:
     bool hadError = false;              // set when a declaration/import failed to parse
 
     std::string                basedir;             // dir of the current file (relative imports)
+    std::string                filename;            // current file; labels diagnostics
     std::string                stdlibPath;          // stdlib root (&lt;module&gt; imports)
-    std::set&lt;std::string&gt;*     importedFiles = nullptr;   // shared dedup set
+    std::set&lt;std::string&gt;*     importedFiles = nullptr;   // shared dedup set (canonical paths)
     std::map&lt;std::string,Macro&gt;* macros = nullptr;        // shared macro table
     std::set&lt;std::string&gt;*     sharedTypeNames = nullptr; // type names across all files
+
+    static std::string canonicalPath(const std::string&amp; path);   // importedFiles key
 };
 </code></pre>
 <p>A hand-written recursive-descent parser that builds the AST. <code>parse()</code> consumes
@@ -177,7 +185,13 @@ fail loudly rather than silently dropping code.</p>
 resolve <code>import "file.esk"</code> and <code>import &lt;module&gt;</code> respectively; <code>importedFiles</code>,
 <code>macros</code>, and <code>sharedTypeNames</code> are shared with the sub-parsers spawned for
 imported files so deduplication, macros, and declared type names propagate across
-the whole compilation.</p>
+the whole compilation. <code>importedFiles</code> holds canonical paths (<code>canonicalPath</code>:
+absolute, with <code>.</code>, <code>..</code> and symlinks resolved), and the driver seeds it with each
+root input so a file that imports its importer is parsed once. The libraries named
+by <code>#pragma link("name")</code> in the file and its imports end up in
+<code>Program::linkLibs</code>, deduplicated in first-seen order. Nesting deeper than 100000
+levels is a parse error (<code>nesting too deep</code>), and so is a type nested deeper than 1000
+levels (<code>type nesting too deep</code>).</p>
 <hr>
 <h2 id="type-checker">Type Checker</h2>
 <p>Header: <code>sema/type_checker.h</code></p>
@@ -240,7 +254,7 @@ public:
     llvm::Module* getModule() const;                               // non-owning
 
     std::string targetTriple;     // target triple override (empty = native)
-    std::string targetCPU;        // --mcpu (empty = &quot;generic&quot; when cross, host CPU when native)
+    std::string targetCPU;        // --mcpu (empty = the target baseline: apple-m1 on arm64 Apple, else generic)
     std::string targetFeatures;   // --mattr feature string (LLVM -mattr syntax, e.g. &quot;+vfp2&quot;)
     std::string relocModel;       // --reloc: &quot;static&quot; | &quot;dynamic-no-pic&quot; | &quot;&quot; (&quot;pic&quot;, default)
     bool freestanding = false;    // alloc/free → esk_alloc/esk_free instead of calloc/free
@@ -267,7 +281,7 @@ non-owningly.</p>
   <code>__APPLE__</code> nor <code>__linux__</code>.</li>
 <li><code>targetCPU</code> / <code>targetFeatures</code>: <code>--mcpu</code> / <code>--mattr</code> overrides, forwarded to the
   <code>TargetMachine</code> (e.g. <code>mpcore</code> + <code>+vfp2</code> for the 3DS's ARM11). Empty CPU means
-  <code>generic</code> when cross-compiling, the host CPU when native.</li>
+  the target baseline for native builds too, as in clang: <code>apple-m1</code> on arm64 Apple targets, <code>generic</code> elsewhere (pass <code>--mcpu</code> to tune for a CPU).</li>
 <li><code>relocModel</code>: <code>--reloc</code> selects the relocation model. <code>static</code> (or <code>dynamic-no-pic</code>)
   instead of the default PIC; the 3DS <code>.3dsx</code> loader applies static relocations and has
   no dynamic loader to populate a GOT.</li>
@@ -285,6 +299,31 @@ is transferred away). <code>emitObjectFile(filename)</code> lowers the module to
 object file for <code>targetTriple</code> (or the host) and writes it to <code>filename</code>,
 returning <code>true</code> on success.</p>
 <hr>
+<h2 id="driver-support">Driver Support</h2>
+<p>Header: <code>main_support.h</code> (the <code>cl::opt</code>-free half of the driver, in <code>main_support.cpp</code>)</p>
+<pre><code class="language-cpp">std::shared_ptr&lt;Program&gt; loadProgram(const std::string&amp; filename, const std::string&amp; triple,
+                                     bool freestanding);
+void seedPredefinedMacros(std::map&lt;std::string, Macro&gt;&amp; macros, const std::string&amp; triple,
+                          bool freestanding);
+std::vector&lt;std::string&gt; implicitLinkLibs(const std::map&lt;std::string, Macro&gt;&amp; macros,
+                                          bool usesExceptions, bool usesThreads);
+bool linkExecutable(const std::string&amp; obj, const std::string&amp; out,
+                    const std::vector&lt;std::string&gt;&amp; libs,
+                    const std::vector&lt;std::string&gt;&amp; paths,
+                    const std::vector&lt;std::string&gt;&amp; extra,
+                    bool sanitized = false);
+int runExecutable(const std::string&amp; exe, const std::vector&lt;std::string&gt;&amp; progArgs);
+</code></pre>
+<p><code>loadProgram</code> reads, lexes and parses one file the way a build does (the macros
+<code>seedPredefinedMacros</code> puts in for <code>triple</code>, <code>__FILE__</code>, imports resolved against
+the stdlib root) and returns <code>nullptr</code> after printing a diagnostic. The <code>--test-*</code>,
+<code>--hover-at</code> and <code>--definition-at</code> modes use it. <code>implicitLinkLibs</code> returns the
+runtime libraries a program implies on the target the macros describe (<code>c++</code> or
+<code>stdc++</code> for exceptions, <code>pthread</code> for threads); <code>linkExecutable</code> invokes the C
+driver (<code>findCDriver</code>: <code>$CC</code>, then <code>cc</code>/<code>clang</code>/<code>gcc</code>) with <code>-l</code> libraries, <code>-L</code>
+paths and extra arguments. <code>runExecutable</code> backs <code>eskiuc run</code> and returns the
+program's status, or <code>128+N</code> when signal <code>N</code> killed it.</p>
+<hr>
 <h2 id="pipeline-example">Pipeline Example</h2>
 <p>The passes compose as the driver (<code>main.cpp</code>) uses them:</p>
 <pre><code class="language-cpp">// 1. Lex
@@ -298,6 +337,7 @@ if (lexer.hadError) return 1;
 
 // 2. Parse
 Parser parser(tokens);
+parser.filename = filename;
 parser.basedir = ...; parser.stdlibPath = ...;
 std::shared_ptr&lt;Program&gt; program = parser.parse();
 if (!program) return 1;   // parse failure

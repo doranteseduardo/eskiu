@@ -1,0 +1,13 @@
+// EXPECT-ERROR: initializing 'q': cannot convert '*int' to '*Big'
+// A pointer converts implicitly only to a pointer to the same type (or *void).
+struct Big { int64 a; int64 b; }
+int take(*Big b) { return (int)b.a; }
+int main() {
+    int x = 1;
+    *int p = &x;
+    *Big q = p;
+    int r = take(p);
+    **int pp = &p;
+    *int bad = pp;
+    return r;
+}

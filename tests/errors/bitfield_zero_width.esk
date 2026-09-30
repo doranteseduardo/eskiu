@@ -1,0 +1,3 @@
+// EXPECT-ERROR: bitfield 'x' of 'S' has zero width
+struct S { int a : 3; int x : 0; int b; }
+int main() { let s: S; s.b = 1; return 0; }

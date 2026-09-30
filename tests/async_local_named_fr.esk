@@ -1,0 +1,12 @@
+// A user local named `fr` in an async function must not collide with the
+// transform's internal frame pointer.
+import <future>;
+extern int printf(string fmt, ...);
+struct P { int a; }
+Future<int>* produce() { Future<int>* f = future_new<int>(); future_complete<int>(f, 5); return f; }
+async int g() {
+    int s = 0; int k = 0;
+    while (k < 2) { let fr: P; int v = await produce(); fr.a = v; s = s + fr.a; k = k + 1; }
+    return s;
+}
+int main() { Future<int>* r = g(); printf("%d\n", r.value); return 0; }

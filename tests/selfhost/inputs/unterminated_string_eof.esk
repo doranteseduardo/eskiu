@@ -1,0 +1,3 @@
+// An unterminated string at EOF keeps every byte of its value (lexer parity).
+int x = 1;
+string s = "abc\"de

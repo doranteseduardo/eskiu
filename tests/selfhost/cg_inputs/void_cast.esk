@@ -1,0 +1,14 @@
+// `(void)e` evaluates e for its side effects and discards the value (C idiom); it also
+// marks a `must_use` result as deliberately ignored.
+extern int printf(string f, ...);
+int side = 0;
+int bump() { side = side + 1; return side; }
+must_use int must() { side = side + 10; return 7; }
+int main() {
+    int x = 1;
+    (void)x;
+    (void)bump();
+    (void)must();
+    printf("%d\n", side);
+    return 0;
+}

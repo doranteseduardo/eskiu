@@ -1,0 +1,5 @@
+// EXPECT-ERROR: cannot convert 'int' to 'string'
+import <future>;
+Future<int>* produce() { Future<int>* f = future_new<int>(); future_complete<int>(f, 41); return f; }
+async int f() { string x = await produce(); return 0; }
+int main() { return 0; }

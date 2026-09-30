@@ -1,0 +1,2 @@
+// EXPECT-ERROR: variable 'x' cannot have type 'void'
+int main() { let x: void; return 0; }

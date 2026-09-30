@@ -20,6 +20,18 @@ void ExprStmt::accept(ASTVisitor* visitor) { visitor->visit(this); }
 
 // Expressions
 void BinaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
+
+BinaryExpr::~BinaryExpr() {
+    // Take each solely owned left operand off its node before that node dies, so the
+    // spine is released one node at a time instead of by nested destructor calls.
+    ExprPtr next = std::move(left);
+    while (next && next.use_count() == 1) {
+        auto* b = dynamic_cast<BinaryExpr*>(next.get());
+        if (!b) break;
+        ExprPtr after = std::move(b->left);
+        next = std::move(after);
+    }
+}
 void UnaryExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void IncDecExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }
 void QuestionExpr::accept(ASTVisitor* visitor) { visitor->visit(this); }

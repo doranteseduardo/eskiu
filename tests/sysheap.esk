@@ -7,16 +7,16 @@ extern int printf(string fmt, ...);
 
 int main() {
     let h: Heap;
-    if (heap_init(&h, 65536) == false) { printf("map failed\n"); return 1; }
+    if (Heap_init(&h, 65536) == false) { printf("map failed\n"); return 1; }
 
-    *int xs = (*int)heap_alloc(&h, sizeof(int) * 4);
+    *int xs = (*int)Heap_alloc(&h, sizeof(int) * 4);
     xs[0] = 1;  xs[1] = 2;  xs[2] = 3;  xs[3] = 4;
     int sum = xs[0] + xs[1] + xs[2] + xs[3];
-    heap_free(&h, (*void)xs);
+    Heap_free(&h, (*void)xs);
 
-    *int ys = (*int)heap_alloc(&h, sizeof(int) * 4);   // first-fit reuses xs's region
+    *int ys = (*int)Heap_alloc(&h, sizeof(int) * 4);   // first-fit reuses xs's region
     printf("sum=%d reused=%d\n", sum, (ys == xs));     // 10 1
 
-    heap_destroy(&h);
+    Heap_destroy(&h);
     return 0;
 }

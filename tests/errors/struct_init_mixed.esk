@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot mix positional and named field initializers in a 'P' literal
+// `P{1, a: 2}` would set `a` twice (by position and by name).
+struct P { int a; int b; }
+int main() { P p = P{1, a: 2}; return p.a; }

@@ -1,0 +1,3 @@
+// EXPECT-ERROR: missing return in non-void function 'f'
+int f(int x) { outer: while (true) { while (true) { break outer; } } }
+int main() { return f(1); }

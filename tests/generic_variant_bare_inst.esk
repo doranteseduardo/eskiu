@@ -1,0 +1,20 @@
+// A bare generic variant (`Some(v)`) in a generic body builds the enum instance of each
+// instantiation (`wrap<int>` an `Opt<int>`, `wrap<int64>` an `Opt<int64>`).
+extern int printf(string fmt, ...);
+enum Opt<T> { Some(T), None }
+enum Two<A, B> { Both(A, B), Neither }
+Opt<T> wrap<T>(T v) { return Some(v); }
+Two<A, B> pair<A, B>(A a, B b) { return Both(a, b); }
+int main() {
+    Opt<int> b = wrap<int>(2);
+    Opt<int64> a = wrap<int64>(5000000000);
+    Opt<double> d = wrap<double>(1.5);
+    match (b) { Some(v) -> { printf("%d\n", v); } None -> {} }
+    match (a) { Some(v) -> { printf("%lld\n", v); } None -> {} }
+    match (d) { Some(v) -> { printf("%.1f\n", v); } None -> {} }
+    Two<int, double> p = pair<int, double>(3, 2.5);
+    Two<int64, int> q = pair<int64, int>(7000000000, 4);
+    match (p) { Both(x, y) -> { printf("%d %.1f\n", x, y); } Neither -> {} }
+    match (q) { Both(x, y) -> { printf("%lld %d\n", x, y); } Neither -> {} }
+    return 0;
+}

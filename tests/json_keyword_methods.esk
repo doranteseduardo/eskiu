@@ -1,0 +1,17 @@
+// Keyword names after `.` are member names: `j.int(...)` and `j.bool(...)` reach
+// Json_int and Json_bool with dot syntax.
+import <json>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let j: Json;
+    j.init();
+    j.obj_begin();
+    j.key("n"); j.int((int64)42);
+    j.key("ok"); j.bool(1);
+    j.key("s"); j.str("x");
+    j.obj_end();
+    printf("%s\n", j.cstr());
+    j.free();
+    return 0;
+}

@@ -1,0 +1,24 @@
+// http_chunked_step with a chunk size near INT64_MAX and a limit that allows
+// it: the room check computed size + 2, which overflowed, so the decoder read
+// past the input and spun in its buffer growth. It now waits for more input.
+import <http>;
+extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+
+void one(string s, int64 max) {
+    let out: HttpChunkOut;  out.data = null;  out.len = 0;  out.cap = 0;
+    int64 pos = 0;
+    const int st = http_chunked_step((*uint8)s, strlen(s), &pos, &out, max);
+    printf("st=%d pos=%lld len=%lld\n", st, pos, out.len);
+    if (out.data != null) { free(out.data); }
+}
+
+int main() {
+    one("7ffffffffffffffd\r\nab", 9223372036854775807);
+    one("7ffffffffffffffe\r\nab", 9223372036854775807);
+    one("7fffffffffffffff\r\nab", 9223372036854775807);
+    one("7ffffffffffffffe\r\nab", 9223372036854775806);
+    one("7ffffffffffffffe\r\nab", 1048576);
+    one("2\r\nab\r\n0\r\n\r\n", 9223372036854775807);
+    return 0;
+}

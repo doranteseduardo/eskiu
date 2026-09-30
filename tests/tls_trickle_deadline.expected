@@ -1,0 +1,3 @@
+hello trickled: handshake=0 data=0 goaway=0 (timely=1)
+preface trickled: handshake=1 data=0 goaway=0 (timely=1)
+request at once: handshake=1 data=60000 goaway=1 (timely=1)

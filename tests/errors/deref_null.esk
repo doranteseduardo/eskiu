@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid operand for unary operator: null
+int main() { int x = *null; return x; }

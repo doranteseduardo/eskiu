@@ -1,0 +1,20 @@
+[example.com] recv=0 parse=0
+[example.com:8080] recv=0 parse=0
+[127.0.0.1:80] recv=0 parse=0
+[[::1]:443] recv=0 parse=0
+[[v1.fe]] recv=0 parse=0
+[xn--bcher-kva.example] recv=0 parse=0
+[a%20b] recv=0 parse=0
+[a%2] recv=400 parse=400
+[a%zz] recv=400 parse=400
+[] recv=0 parse=0
+[a b] recv=400 parse=400
+[a, b] recv=400 parse=400
+[a,b] recv=400 parse=400
+[a:b] recv=400 parse=400
+[a:80:81] recv=400 parse=400
+[[::1] recv=400 parse=400
+[[]] recv=400 parse=400
+[a/b] recv=400 parse=400
+[a@b] recv=400 parse=400
+["a"] recv=400 parse=400

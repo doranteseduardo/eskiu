@@ -1,0 +1,3 @@
+// EXPECT-ERROR: requires a null-check
+int f(*int q) { return *q; }
+int main() { ?*int p = null; return f(p); }

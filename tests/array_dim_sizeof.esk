@@ -1,0 +1,18 @@
+// `sizeof(T)` in an array dimension is an integer constant, as in C: a fixed-size scalar
+// folds in the type checker, any other type's size comes from the target layout.
+extern int printf(string fmt, ...);
+struct Box<T> { T v; int64 w; }
+struct S { int a; int64 b; }
+struct T { int8[sizeof(int64)] a; int[sizeof(*int) / 4] b; }
+enum E { A, B = 3 }
+const int K = 2;
+int[sizeof(int)] g;
+int main() {
+    int[sizeof(S) / 4] l;
+    int8[sizeof(Box<int>) + K * B] m;
+    T t;
+    l[3] = 9;
+    printf("%d %d %d %d\n", (int)sizeof(g), (int)sizeof(l), (int)sizeof(m), (int)sizeof(t));
+    printf("%d %d\n", l[3], (int)sizeof(uint8[sizeof(double)]));
+    return 0;
+}

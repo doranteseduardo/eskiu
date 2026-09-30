@@ -1,0 +1,23 @@
+// Appending a String or Bytes to itself must copy from the live buffer, not
+// from the one freed when the append grows it.
+import <string>;
+import <bytes>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let a: String;  String_from(&a, "abcdefgh");
+    String_concat(&a, &a);
+    String_concat(&a, &a);
+    printf("string=[%s] len=%lld\n", String_cstr(&a), a.len);
+    String_free(&a);
+
+    let b: Bytes;  Bytes_init(&b, 8);
+    Bytes_append_raw(&b, (*uint8)"0123456", (int64)7);
+    Bytes_append(&b, &b);
+    Bytes_append(&b, &b);
+    printf("bytes len=%lld [%s]\n", b.len, (string)b.data);
+    Bytes_append_raw(&b, b.data + 20, (int64)8);
+    printf("bytes len=%lld [%s]\n", b.len, (string)b.data);
+    Bytes_free(&b);
+    return 0;
+}

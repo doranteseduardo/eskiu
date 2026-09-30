@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot convert
+// A struct value does not convert to an integer.
+struct S { int32 a; }
+int main() { S s = S { a: 1 }; int32 x = 0; x = s; return x; }

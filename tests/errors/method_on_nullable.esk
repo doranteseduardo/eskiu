@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer of type '?*P'
+// A method call dereferences its receiver, so a `?*T` must be checked first.
+struct P { int a; int get() { return self.a; } }
+int main() { ?*P q = null; return q.get(); }

@@ -1,0 +1,41 @@
+// An `extern` parameter of fn type is a C function pointer (C side:
+// tests/c_abi_fnptr.c): a top-level function passed there is handed over by its C
+// address, through a C-ABI thunk when it takes or returns a struct by value, and
+// `null` passes a null pointer. libc's qsort takes its comparator the same way.
+extern int printf(string fmt, ...);
+extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)->int cmp);
+
+struct P2 { int x; int y; }
+struct F2 { float x; float y; }
+struct Big { int64 a; int64 b; int64 c; int64 d; int64 e; }
+
+extern int c_apply_p2(fn(P2)->int cb, int x, int y);
+extern float c_apply_f2(fn(F2)->float cb, float x);
+extern int64 c_make_big(fn(int64)->Big cb, int64 k);
+extern int c_count(fn(int)->int pred, int n);
+extern int c_maybe(fn(int)->int cb, int v);
+
+int dot(P2 p) { return p.x * 100 + p.y; }
+float area(F2 f) { return f.x * f.y; }
+Big mk(int64 k) { let b: Big; b.a = k; b.b = k * 2; b.c = k * 3; b.d = k * 4; b.e = k * 5; return b; }
+int is_even(int v) { if (v % 2 == 0) { return 1; } return 0; }
+int twice(int v) { return v * 2; }
+
+int by_value(*void a, *void b) {
+    int x = *(*int)a; int y = *(*int)b;
+    if (x < y) { return -1; }
+    if (x > y) { return 1; }
+    return 0;
+}
+
+int main() {
+    printf("p2 %d\n", c_apply_p2(dot, 3, 4));
+    printf("f2 %.2f\n", (double)c_apply_f2(area, 1.5));
+    printf("big %lld\n", c_make_big(mk, (int64)2));
+    printf("even %d\n", c_count(is_even, 9));
+    printf("maybe %d %d\n", c_maybe(twice, 21), c_maybe(null, 21));
+    int[6] arr = {5, 3, 9, 1, 7, 2};
+    qsort((*void)&arr[0], (int64)6, (int64)4, by_value);
+    printf("sorted %d %d %d %d %d %d\n", arr[0], arr[1], arr[2], arr[3], arr[4], arr[5]);
+    return 0;
+}

@@ -1,0 +1,30 @@
+// Awaiting a future of a struct, a generic struct instance or a pair of them: the
+// lowered frame's future fields type-check against the awaited futures.
+import <future>;
+import <futureval>;
+extern int printf(string fmt, ...);
+struct V { int x; int y; }
+struct Box<T> { T v; }
+struct W { int64 a; double b; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+async V mk(int a) { int q = await rdy<int>(a); V r = V{q, q + 1}; return r; }
+async Box<V> mkb(int a) { int q = await rdy<int>(a); return Box<V>{V{q, q + 1}}; }
+async int run() {
+  V va = await rdy<V>(V{3, 4});
+  V vb;
+  vb = await mk(3);
+  Box<V> b = await mkb(3);
+  Box<int> c = await rdy<Box<int>>(Box<int>{9});
+  return va.y + vb.y + b.v.y + c.v;
+}
+async int64 pair() {
+  Pair<W, int> p = await join2v<W, int>(rdy<W>(W{5, 1.5}), rdy<int>(7));
+  W w = p.first;
+  return w.a * 10 + (int64)p.second + (int64)w.b;
+}
+int main() {
+  Future<int>* f = run();
+  Future<int64>* g = pair();
+  printf("%d %lld %d\n", f.value, g.value, g.state);
+  return 0;
+}

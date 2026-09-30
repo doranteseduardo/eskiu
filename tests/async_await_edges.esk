@@ -1,0 +1,137 @@
+// More positions of await in an async function: a return value and a loop condition
+// inside try, a plain try with an early return inside a split one, break from a match
+// arm, lambdas capturing frame locals in a try and in its handler, a catch variable
+// assigned from an await, continue through try/finally, nested awaits and awaits in
+// struct and array literals, a static local, and a switch inside a try.
+import <future>;
+extern int printf(string fmt, ...);
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+int boom(int v) { if (v < 0) { throw v; } return v; }
+enum Color { Red, Green, Blue }
+struct P { int x; int y; }
+
+async int ret_in_try(int v) {
+    try {
+        return await rdy<int>(v) + boom(v);
+    } catch (int e) {
+        printf("ret_in_try caught %d\n", e);
+        return await rdy<int>(e * 2);
+    } finally {
+        printf("ret_in_try finally\n");
+    }
+}
+
+async int cond_in_try() {
+    int n = 0;
+    try {
+        while (await rdy<int>(n) < 3) { n = n + 1; if (n == 2) { boom(-9); } }
+    } catch (int e) { printf("cond_in_try caught %d at n=%d\n", e, n); }
+    return n;
+}
+
+async int plain_try_return(int v) {
+    try {
+        int a = await rdy<int>(v);
+        try { if (a > 1) { return a * 100; } } catch (int e) { printf("never\n"); }
+        return a;
+    } finally { printf("plain_try_return finally\n"); }
+}
+
+async int match_break() {
+    int total = 0;
+    for (int i = 0; i < 5; i++) {
+        Color c = i == 3 ? Blue : Green;
+        match c {
+            Red -> { total = total + 1000; }
+            Green -> { total = total + await rdy<int>(i); }
+            Blue -> { break; }
+        }
+    }
+    return total;
+}
+
+async int lambda_in_try(int v) {
+    int base = await rdy<int>(v);
+    int r = 0;
+    try {
+        int k = await rdy<int>(3);
+        fn(int)->int add = int(int q) { return q + base + k; };
+        r = add(1);
+        free_closure(add);
+        boom(r - 100);
+    } catch (int e) {
+        fn()->int neg = int() { return e - base; };
+        r = neg();
+        free_closure(neg);
+    }
+    return r;
+}
+
+async int catch_var_assign() {
+    int r = 0;
+    try { boom(-5); } catch (int e) {
+        e = await rdy<int>(e * 3);
+        r = e;
+    }
+    return r;
+}
+
+async int finally_loop() {
+    int s = 0;
+    int i = 0;
+    while (i < 4) {
+        i = i + 1;
+        try {
+            int x = await rdy<int>(i);
+            if (x % 2 == 0) { continue; }
+            s = s + x;
+        } finally { s = s + 100; }
+    }
+    return s;
+}
+
+async int nested_awaits() {
+    int a = await rdy<int>(await rdy<int>(4) + 1);
+    P p = P{ x: await rdy<int>(7), y: a };
+    int[3] arr = { await rdy<int>(1), 2, await rdy<int>(3) };
+    return p.x * 100 + p.y * 10 + arr[0] + arr[2];
+}
+
+async int static_try() {
+    static int calls = 0;
+    calls = calls + 1;
+    try { int x = await rdy<int>(calls); boom(-x); } catch (int e) { return e; }
+    return 0;
+}
+
+async int switch_in_try(int v) {
+    int r = 0;
+    try {
+        switch (v) {
+            case 1: r = await rdy<int>(10); break;
+            case 2: r = await rdy<int>(20); boom(-r); break;
+            default: r = -1;
+        }
+    } catch (int e) { r = e * 2; }
+    return r;
+}
+
+int get(Future<int>* f) { int v = f.value; free_future<int>(f); return v; }
+
+int main() {
+    printf("%d\n", get(ret_in_try(5)));
+    printf("%d\n", get(ret_in_try(-4)));
+    printf("%d\n", get(cond_in_try()));
+    printf("%d\n", get(plain_try_return(3)));
+    printf("%d\n", get(plain_try_return(1)));
+    printf("%d\n", get(match_break()));
+    printf("%d\n", get(lambda_in_try(10)));
+    printf("%d\n", get(lambda_in_try(200)));
+    printf("%d\n", get(catch_var_assign()));
+    printf("%d\n", get(finally_loop()));
+    printf("%d\n", get(nested_awaits()));
+    printf("%d\n", get(static_try()));
+    printf("%d\n", get(static_try()));
+    printf("%d %d %d\n", get(switch_in_try(1)), get(switch_in_try(2)), get(switch_in_try(3)));
+    return 0;
+}

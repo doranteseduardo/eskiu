@@ -34,10 +34,10 @@ int drive(int mode, int withData) {
     close(fds[1]);                                     // EOF if nothing written
     g = el_new(64);
     Future<int>* f = handle(g, mode, fds[0]);
-    if (future_poll<int>(f, void() { el_stop(g); }) == 0) { el_run(g); }
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;
     free_future<int>(f);
-    el_free(g);
+    EventLoop_free(g);
     return v;
 }
 

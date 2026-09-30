@@ -1,0 +1,10 @@
+// EXPECT-ERROR: in instantiation of Box<string>.bump
+// An inline method of a generic struct is checked per struct instance once it is
+// called: `self.v * 2` is fine for Box<int> but not for Box<string>.
+struct Box<T> { T v; T bump() { return self.v * 2; } }
+int main() {
+    Box<int> a = Box<int>{1};
+    Box<string> b = Box<string>{"x"};
+    b.bump();
+    return a.bump();
+}

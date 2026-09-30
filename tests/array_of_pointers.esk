@@ -1,0 +1,14 @@
+// `*T[N]` is an array of N pointers (the array suffix binds tighter than the star).
+extern int printf(string fmt, ...);
+int deref_sum(*int[3] ps) { return *ps[0] + *ps[1] + *ps[2]; }
+int main() {
+    int a = 1; int b = 2; int c = 3;
+    *int[3] ps = {&a, &b, &c};
+    *ps[1] = 20;
+    int[3] l = {4, 5, 6};
+    *int first = &l[0];
+    ps[2] = first;
+    printf("%d %d %d %d\n", *ps[0], b, *ps[2], deref_sum(ps));
+    printf("%d\n", (int)sizeof(ps));
+    return 0;
+}

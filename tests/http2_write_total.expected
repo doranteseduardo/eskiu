@@ -1,0 +1,7 @@
+write_total_ms=0: still open after 10050 ms, open streams 1
+write_total_ms=2000: timed out at +2100 ms after 14 bytes, running=1, open streams 0
+deadline +300
+expire early: 0
+timed_out_with: 1
+reset: RST_STREAM(1,8) data=0
+next request: HEADERS(3) data=2

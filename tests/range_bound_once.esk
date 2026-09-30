@@ -1,0 +1,28 @@
+// A range loop's upper bound is evaluated once, before the first iteration.
+import <future>;
+extern int printf(string fmt, ...);
+
+int calls = 0;
+int lim() { calls = calls + 1; return 4; }
+
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+async int total() {
+    int s = 0;
+    for (i in 0..lim()) { let v: int = await produce(i); s = s + v; }
+    return s;
+}
+
+int main() {
+    int s = 0;
+    for (i in 0..lim()) { s = s + i; }
+    printf("%d %d\n", s, calls);
+    int n = 3;
+    int c = 0;
+    for (i in 0..n) { n = n + 1; c = c + 1; if (c > 10) { break; } }
+    printf("%d\n", c);
+    for (i in 0..2) { for (i in 5..7) { printf("%d ", i); } }
+    printf("\n");
+    Future<int>* r = total();
+    printf("%d %d\n", r.value, calls);
+    return 0;
+}

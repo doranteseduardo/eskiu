@@ -1,0 +1,216 @@
+// The h2c server's frame handling (RFC 9113), one short connection per case
+// over a socketpair: the client's frames are written up front, the write side
+// is shut, and the server's reply frames are read back and summarized.
+//  - PADDED DATA and PADDED+PRIORITY HEADERS are unpadded (the pad length byte
+//    and the padding used to end up in the body);
+//  - a header block split over CONTINUATION frames is reassembled (it used to
+//    be ignored), and any other frame in the middle is a PROTOCOL_ERROR;
+//  - PING is answered with PONG;
+//  - window overflow past 2^31 - 1 and bad SETTINGS values are connection
+//    errors (FLOW_CONTROL_ERROR = 3, PROTOCOL_ERROR = 1) instead of being taken;
+//  - padding as long as the frame is a PROTOCOL_ERROR;
+//  - DATA on a stream whose request already ended (its response waiting for
+//    window) is a stream error: RST_STREAM(STREAM_CLOSED = 5);
+//  - more than 64 header fields get a 431 without calling the handler (the
+//    request used to be dispatched with an empty method and path).
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <channel>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int protocol, *int sv);
+extern int shutdown(int fd, int how);
+
+EventLoop* g_lp;
+int g_calls = 0;
+
+void echo(HttpRequest* req, HttpResponse* res) {
+    g_calls++;
+    let b: String;  b.init(32);
+    b.append(req.method.cstr());  b.push(' ');  b.append(req.path.cstr());
+    b.append(" body=");  b.append(req.body.cstr());
+    HttpResponse_set_body(res, b.cstr());
+    b.free();
+}
+
+// Client bytes for one connection.
+*uint8 g_buf;
+int g_len = 0;
+
+void begin() {
+    g_len = 0;
+    string p = h2_preface();
+    for (i in 0..24) { g_buf[g_len++] = (uint8)p[i]; }
+    g_len += h2_frame_finish(g_buf + g_len, H2_SETTINGS, 0, 0, 0);   // empty SETTINGS
+}
+
+// Append a frame whose payload is the `n` bytes at `p`.
+void frame(int type, int flags, int sid, *uint8 p, int n) {
+    for (i in 0..n) { g_buf[g_len + 9 + i] = p[i]; }
+    g_len += h2_frame_finish(g_buf + g_len, type, flags, sid, n);
+}
+
+// An HPACK block for `method` `path` into `blk`; returns its length.
+int req_block(*uint8 blk, string method, string path) {
+    int off = hpack_encode_header(blk, 0, (*uint8)":method", 7, (*uint8)method, strlen(method));
+    off = hpack_encode_header(blk, off, (*uint8)":path", 5, (*uint8)path, strlen(path));
+    off = hpack_encode_header(blk, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    return off;
+}
+
+void settings1(int id, int64 v) {
+    uint8[6] p;
+    h2_put_setting(&p[0], 0, id, v);
+    frame(H2_SETTINGS, 0, 0, &p[0], 6);
+}
+
+void window_update(int sid, int64 inc) {
+    uint8[4] p;
+    h2_put_u32(&p[0], 0, inc);
+    frame(H2_WINDOW_UPDATE, 0, sid, &p[0], 4);
+}
+
+// Run the server over the queued client bytes and summarize what it sent back.
+void run(string label) {
+    *int sv = alloc<int>(2);
+    socketpair(1, 1, 0, sv);
+    net_send(sv[1], (*void)g_buf, (int64)g_len);
+    shutdown(sv[1], 1);
+    g_calls = 0;
+    Chan<int>* done = chan_new<int>(1);
+    Future<uint8>* f = http2_serve_conn_async(g_lp, sv[0], echo, done);
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    free_future<uint8>(f);
+    Chan_free<int>(done);
+
+    *uint8 rb = alloc<uint8>(65536);
+    int total = 0;
+    int64 k = net_recv(sv[1], (*void)rb, (int64)65536);
+    while (k > 0) { total += (int)k; k = net_recv(sv[1], (*void)(rb + total), (int64)(65536 - total)); }
+    printf("%s:", label);
+    let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
+    *HpackHeader hs = alloc<HpackHeader>(16);
+    int pos = 0;
+    while (pos + 9 <= total) {
+        let fr: H2Frame;  h2_read_header(rb + pos, &fr);
+        *uint8 pl = rb + pos + 9;
+        if (fr.type == H2_HEADERS) {
+            int n = hpack_decode(&dec, pl, fr.length, hs, 16);
+            for (i in 0..n) {
+                if (h2_name_eq(&hs[i], ":status") != 0) { printf(" HEADERS(%.*s)", hs[i].vlen, (string)hs[i].value); }
+            }
+        } else if (fr.type == H2_DATA) {
+            printf(" DATA[%.*s]", fr.length, (string)pl);
+        } else if (fr.type == H2_GOAWAY) {
+            printf(" GOAWAY(%lld)", h2_get_u32(pl, 4));
+        } else if (fr.type == H2_RST_STREAM) {
+            printf(" RST(%d,%lld)", fr.stream_id, h2_get_u32(pl, 0));
+        } else if (fr.type == H2_PING) {
+            printf(" PING(ack=%d,%.*s)", fr.flags & 1, 8, (string)pl);
+        } else if (fr.type == H2_SETTINGS && (fr.flags & 1) != 0) {
+            printf(" ACK");
+        } else if (fr.type == H2_WINDOW_UPDATE) {
+            printf(" WU(%d)", fr.stream_id);
+        }
+        pos += 9 + fr.length;
+    }
+    printf(" calls=%d\n", g_calls);
+    HpackDecoder_free(&dec);
+    free((*void)hs);
+    free((*void)rb);
+    net_close(sv[1]);
+    free((*void)sv);
+}
+
+int main() {
+    g_lp = el_new(16);
+    g_buf = alloc<uint8>(65536);
+    *uint8 blk = alloc<uint8>(4096);
+    *uint8 p = alloc<uint8>(4096);
+
+    // PADDED+PRIORITY HEADERS, then PADDED DATA.
+    begin();
+    int bl = req_block(blk, "POST", "/pad");
+    p[0] = (uint8)3;                                   // pad length
+    for (i in 0..5) { p[1 + i] = (uint8)0; }           // priority block
+    for (i in 0..bl) { p[6 + i] = blk[i]; }
+    for (i in 0..3) { p[6 + bl + i] = (uint8)0; }
+    frame(H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_PADDED | H2_FLAG_PRIORITY, 1, p, 6 + bl + 3);
+    p[0] = (uint8)4;  p[1] = (uint8)'a';  p[2] = (uint8)'b';  p[3] = (uint8)'c';
+    for (i in 0..4) { p[4 + i] = (uint8)0; }
+    frame(H2_DATA, H2_FLAG_END_STREAM | H2_FLAG_PADDED, 1, p, 8);
+    run("padded");
+
+    // A header block split across HEADERS + two CONTINUATION frames.
+    begin();
+    bl = req_block(blk, "GET", "/continued");
+    frame(H2_HEADERS, H2_FLAG_END_STREAM, 1, blk, 2);
+    frame(H2_CONTINUATION, 0, 1, blk + 2, 3);
+    frame(H2_CONTINUATION, H2_FLAG_END_HEADERS, 1, blk + 5, bl - 5);
+    run("continuation");
+
+    begin();
+    frame(H2_HEADERS, H2_FLAG_END_STREAM, 1, blk, 2);
+    frame(H2_PING, 0, 0, (*uint8)"12345678", 8);
+    run("interrupted continuation");
+
+    begin();
+    frame(H2_PING, 0, 0, (*uint8)"pingpong", 8);
+    run("ping");
+
+    begin();
+    window_update(0, 2147483647);
+    run("connection window overflow");
+
+    begin();
+    settings1(H2_SETTINGS_INITIAL_WINDOW_SIZE, (int64)2147483648);
+    run("initial window too big");
+
+    begin();
+    settings1(H2_SETTINGS_ENABLE_PUSH, (int64)2);
+    run("enable_push 2");
+
+    begin();
+    settings1(H2_SETTINGS_MAX_FRAME_SIZE, (int64)100);
+    run("max_frame_size 100");
+
+    begin();
+    bl = req_block(blk, "POST", "/p");
+    frame(H2_HEADERS, H2_FLAG_END_HEADERS, 1, blk, bl);
+    p[0] = (uint8)3;  p[1] = (uint8)0;  p[2] = (uint8)0;
+    frame(H2_DATA, H2_FLAG_END_STREAM | H2_FLAG_PADDED, 1, p, 3);
+    run("padding fills frame");
+
+    // INITIAL_WINDOW_SIZE 0 holds the response body; DATA after END_STREAM.
+    begin();
+    settings1(H2_SETTINGS_INITIAL_WINDOW_SIZE, (int64)0);
+    bl = req_block(blk, "GET", "/held");
+    frame(H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, 1, blk, bl);
+    frame(H2_DATA, 0, 1, (*uint8)"x", 1);
+    run("data after end_stream");
+
+    // 70 header fields: more than the server decodes per request.
+    begin();
+    bl = req_block(blk, "GET", "/many");
+    for (i in 0..70) {
+        uint8[3] nm;
+        nm[0] = (uint8)'h';  nm[1] = (uint8)('0' + i / 10);  nm[2] = (uint8)('0' + i % 10);
+        bl = hpack_encode_header(blk, bl, &nm[0], 3, (*uint8)"v", 1);
+    }
+    frame(H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, 1, blk, bl);
+    bl = req_block(blk, "GET", "/after");
+    frame(H2_HEADERS, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM, 3, blk, bl);
+    run("70 headers");
+
+    free((*void)p);
+    free((*void)blk);
+    free((*void)g_buf);
+    EventLoop_free(g_lp);
+    return 0;
+}

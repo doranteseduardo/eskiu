@@ -1,0 +1,23 @@
+// A `?:` bound for an interface boxes each arm with its own struct's vtable, so the arms
+// may point at different conforming structs: in a declaration, an assignment, a return
+// and an argument, nested arms too.
+extern int printf(string fmt, ...);
+interface I { int m(); }
+struct A { int v; int m() { return self.v; } }
+struct B { int w; int m() { return self.w * 10; } }
+struct C { int u; int m() { return self.u * 100; } }
+I pick(bool c, *A a, *B b) { return c ? a : b; }
+int call(I x) { return x.m(); }
+int main() {
+    A a = A{v: 1}; B b = B{w: 2}; C cc = C{u: 3};
+    bool t = true; bool f = false;
+    I i = f ? &a : &b;
+    printf("%d\n", i.m());
+    i = t ? &a : &b;
+    printf("%d\n", i.m());
+    printf("%d %d\n", pick(true, &a, &b).m(), pick(false, &a, &b).m());
+    printf("%d %d\n", call(t ? &b : &a), call(f ? &b : &a));
+    I n = f ? &a : (t ? &cc : &b);
+    printf("%d\n", n.m());
+    return 0;
+}

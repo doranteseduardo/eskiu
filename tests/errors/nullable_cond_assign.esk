@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot dereference a possibly-null pointer of type '?*int'
+// The condition assigns `p` after testing it, so the test proves nothing afterwards.
+int main() { int x = 5; ?*int p = &x; if (p != null && (p = null) == null) { return *p; } return 0; }

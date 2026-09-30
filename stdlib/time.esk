@@ -72,7 +72,7 @@ void sleep_ms(int64 ms) {
     let req: timespec;
     req.tv_sec  = ms / 1000;
     req.tv_nsec = (ms % 1000) * 1000000;
-    nanosleep(&req, (*timespec)0);
+    nanosleep(&req, null);
 }
 #endif
 
@@ -81,11 +81,12 @@ void sleep_ms(int64 ms) {
 //   import <time>; import <string>;
 //   let dt: DateTime; time_to_utc(time_now_s(), &dt);
 //   let s: String; String_init(&s, 24);
-//   time_format_iso(&dt, &s);        // "2026-07-13T18:30:00Z"
+//   DateTime_format_iso(&dt, &s);        // "2026-07-13T18:30:00Z"
 //
 // Conversions use Howard Hinnant's days<->civil algorithm, which is exact for
-// the proleptic Gregorian calendar over the whole int64 range. UTC only; there
-// is no timezone or leap-second handling.
+// the proleptic Gregorian calendar for every year that fits DateTime.year (an
+// int, about +/-2.1 billion years). UTC only; there is no timezone or
+// leap-second handling.
 
 struct DateTime {
     int year;
@@ -99,15 +100,15 @@ struct DateTime {
 }
 
 // Days since the Unix epoch for a civil (y, m, d). Inverse of the split below.
+// Integer division truncates toward zero, so negative values are biased first
+// to round the era down.
 int64 time_days_from_civil(int64 y, int m, int d) {
-    if (m <= 2) { y = y - 1; }
-    int64 era;
-    if (y >= 0) { era = y / 400; } else { era = (y - 399) / 400; }
-    int64 yoe = y - era * 400;
-    int64 mp;
-    if (m > 2) { mp = m - 3; } else { mp = m + 9; }
-    int64 doy = (153 * mp + 2) / 5 + d - 1;
-    int64 doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    if (m <= 2) { y--; }
+    const int64 era = (y >= 0 ? y : y - 399) / 400;
+    const int64 yoe = y - era * 400;
+    const int64 mp = m > 2 ? m - 3 : m + 9;
+    const int64 doy = (153 * mp + 2) / 5 + d - 1;
+    const int64 doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     return era * 146097 + doe - 719468;
 }
 
@@ -115,60 +116,72 @@ int64 time_days_from_civil(int64 y, int m, int d) {
 void time_to_utc(int64 t, DateTime* dt) {
     int64 days = t / 86400;
     int64 secs = t % 86400;
-    if (secs < 0) { secs = secs + 86400; days = days - 1; }
+    if (secs < 0) { secs += 86400; days--; }
     dt.hour = (int)(secs / 3600);
     dt.min = (int)((secs % 3600) / 60);
     dt.sec = (int)(secs % 60);
 
     int64 wd = (days % 7 + 4) % 7;          // 1970-01-01 was a Thursday
-    if (wd < 0) { wd = wd + 7; }
+    if (wd < 0) { wd += 7; }
     dt.wday = (int)wd;
 
-    int64 z = days + 719468;
-    int64 era;
-    if (z >= 0) { era = z / 146097; } else { era = (z - 146096) / 146097; }
-    int64 doe = z - era * 146097;
-    int64 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    int64 y = yoe + era * 400;
-    int64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    int64 mp = (5 * doy + 2) / 153;
+    const int64 z = days + 719468;
+    const int64 era = (z >= 0 ? z : z - 146096) / 146097;
+    const int64 doe = z - era * 146097;
+    const int64 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const int64 y = yoe + era * 400;
+    const int64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const int64 mp = (5 * doy + 2) / 153;
     dt.day = (int)(doy - (153 * mp + 2) / 5 + 1);
-    if (mp < 10) { dt.month = (int)(mp + 3); } else { dt.month = (int)(mp - 9); }
-    if (dt.month <= 2) { dt.year = (int)(y + 1); } else { dt.year = (int)y; }
+    dt.month = (int)(mp < 10 ? mp + 3 : mp - 9);
+    dt.year = (int)(dt.month <= 2 ? y + 1 : y);
 
     dt.yday = (int)(days - time_days_from_civil(dt.year, 1, 1));
 }
 
 // The epoch-seconds timestamp (UTC) for a DateTime's y/m/d/h/m/s fields.
-int64 time_from_utc(DateTime* dt) {
-    int64 days = time_days_from_civil(dt.year, dt.month, dt.day);
-    return days * 86400 + dt.hour * 3600 + dt.min * 60 + dt.sec;
+int64 DateTime_to_epoch(DateTime* dt) {
+    const int64 days = time_days_from_civil(dt.year, dt.month, dt.day);
+    return days * 86400 + (int64)dt.hour * 3600 + (int64)dt.min * 60 + (int64)dt.sec;
 }
 
-// Append `v` as `width` zero-padded decimal digits to `out` (helper).
+// Append `v` as `width` zero-padded decimal digits to `out` (helper). A
+// negative value gets its sign first, then the padded magnitude ("-0001").
 void time_pad(String* out, int v, int width) {
     let tmp: String;
-    String_init(&tmp, 8);
-    String_from_int(&tmp, v);
-    int64 have = String_len(&tmp);
-    int64 pad = (int64)width - have;
-    while (pad > 0) { String_push(out, '0'); pad = pad - 1; }
-    String_concat(out, &tmp);
-    String_free(&tmp);
+    tmp.init(8);
+    defer tmp.free();
+    int64 mag = v;
+    if (mag < 0) { out.push('-'); mag = -mag; }
+    // Collect the digits least significant first, then flip them.
+    do {
+        tmp.push((char)('0' + (int)(mag % 10)));
+        mag /= 10;
+    } while (mag > 0);
+    tmp.reverse();
+    for (int64 pad = width - tmp.len; pad > 0; pad--) { out.push('0'); }
+    out.concat(&tmp);
 }
 
-// Append the ISO 8601 UTC form "YYYY-MM-DDTHH:MM:SSZ" to `out`.
-void time_format_iso(DateTime* dt, String* out) {
+// Append the ISO 8601 UTC form "YYYY-MM-DDTHH:MM:SSZ" to `out`. A year before
+// 0 uses the expanded sign form ("-0001-..."); a year past 9999 uses more digits.
+void DateTime_format_iso(DateTime* dt, String* out) {
     time_pad(out, dt.year, 4);
-    String_push(out, '-');
+    out.push('-');
     time_pad(out, dt.month, 2);
-    String_push(out, '-');
+    out.push('-');
     time_pad(out, dt.day, 2);
-    String_push(out, 'T');
+    out.push('T');
     time_pad(out, dt.hour, 2);
-    String_push(out, ':');
+    out.push(':');
     time_pad(out, dt.min, 2);
-    String_push(out, ':');
+    out.push(':');
     time_pad(out, dt.sec, 2);
-    String_push(out, 'Z');
+    out.push('Z');
 }
+
+// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
+// deprecated: use DateTime_to_epoch
+int64 time_from_utc(DateTime* dt) { return DateTime_to_epoch(dt); }
+// deprecated: use DateTime_format_iso
+void time_format_iso(DateTime* dt, String* out) { DateTime_format_iso(dt, out); }

@@ -55,6 +55,7 @@ int main() {
         "fn(int)->fn(string)->bool", "fn(int)->*Future<int>",
         // arrays — literal + symbolic dims, with pointers/structs
         "int[10]", "int[MAX]", "struct:Point[8]", "*int[4]", "int[N]",
+        "int[2][3]", "T[2][2][3]", "int[3][]", "*int[2][5]",
     };
 
     for (const auto& s : corpus) check(s);
@@ -82,6 +83,7 @@ int main() {
             {"*T", {{"T","int"}}, "*int"},
             {"T*", {{"T","int"}}, "int*"},
             {"T[8]", {{"T","int"}}, "int[8]"},          // dim untouched
+            {"T[2][3]", {{"T","int"}}, "int[2][3]"},    // C order kept
             {"List<T>", {{"T","int"}}, "List<int>"},
             {"fn(*T)->T", {{"T","int"}}, "fn(*int)->int"},
             {"Map<K,V>", {{"K","string"},{"V","bool"}}, "Map<string,bool>"},
@@ -94,6 +96,59 @@ int main() {
             if (got != c.want) {
                 std::printf("FAIL substitute: %s -> %s (want %s)\n", c.in.c_str(), got.c_str(), c.want.c_str());
                 ++failures;
+            }
+        }
+    }
+
+    // A fn type among several template arguments: the `>` of `->` closes nothing.
+    {
+        ty::Type t = ty::Type::parse("A<B<fn()->int,C>>");
+        if (t.args.size() != 1 || t.args[0].args.size() != 2 || t.args[0].args[1].str() != "C") {
+            std::printf("FAIL: A<B<fn()->int,C>> splits its arguments wrong\n"); ++failures;
+        }
+        check("Map<fn(int)->int,string>");
+    }
+
+    // Array shapes the linear parser must build like the reference grammar: the leftmost
+    // bracket is the outer dimension, and an array suffix binds before `*` and `fn`.
+    {
+        ty::Type m = ty::Type::parse("int[2][3]");
+        if (m.kind != ty::Type::Kind::Array || m.dim != "2" || !m.elem ||
+            m.elem->kind != ty::Type::Kind::Array || m.elem->dim != "3") {
+            std::printf("FAIL: int[2][3] is not 2 arrays of 3\n"); ++failures;
+        }
+        ty::Type p = ty::Type::parse("*int[3]");
+        if (p.kind != ty::Type::Kind::Array || !p.elem || p.elem->kind != ty::Type::Kind::Pointer) {
+            std::printf("FAIL: *int[3] is not an array of pointers\n"); ++failures;
+        }
+        ty::Type f = ty::Type::parse("fn(int)->int[2]");
+        if (f.kind != ty::Type::Kind::Array || !f.elem || f.elem->kind != ty::Type::Kind::Fn) {
+            std::printf("FAIL: fn(int)->int[2] is not an array of fns\n"); ++failures;
+        }
+        ty::Type s = ty::Type::parse("int[][4]");
+        if (s.kind != ty::Type::Kind::Slice || !s.elem || s.elem->dim != "4") {
+            std::printf("FAIL: int[][4] is not a slice of int[4]\n"); ++failures;
+        }
+        for (const char* sp : {"int[2][3]", "*int[3]", "fn(int)->int[2]", "int[][4]", "Box<int[2]>[3]",
+                               "int[K < 4 ? 2 : 1]", "const int[2][3]", "int[3]*"})
+            check(sp);
+    }
+
+    // Deep spellings round-trip (parse and str run in time linear in the length).
+    {
+        const int n = 1000;
+        std::string tmpl, arr = "int", ptr, fn;
+        for (int i = 0; i < n; ++i) tmpl += "B<";
+        tmpl += "int";
+        for (int i = 0; i < n; ++i) tmpl += ">";
+        for (int i = 0; i < n; ++i) arr += "[1]";
+        for (int i = 0; i < n; ++i) ptr += "*";
+        ptr += "int";
+        for (int i = 0; i < n; ++i) fn += "fn()->";
+        fn += "int";
+        for (const std::string& s : {tmpl, arr, ptr, fn}) {
+            if (ty::Type::parse(s).str() != s) {
+                std::printf("FAIL deep round-trip: %.20s...\n", s.c_str()); ++failures;
             }
         }
     }

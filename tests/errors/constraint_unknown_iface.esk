@@ -1,0 +1,3 @@
+// EXPECT-ERROR: unknown constraint interface 'Nope'
+T f<T: Nope>(T x) { return x; }
+int main() { return f<int>(1); }

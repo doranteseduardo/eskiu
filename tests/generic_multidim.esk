@@ -1,0 +1,28 @@
+// A multidimensional array keeps C order (leftmost bracket outermost) inside generic
+// code: a local in a generic fn and a field of a generic struct instance, including a
+// non-square shape and a constant in-range index.
+extern int printf(string fmt, ...);
+struct M<T> { T v; T[2][3] g; int[2][2][3] h; }
+
+int fill<T>(T seed) {
+    T[2][3] a;
+    int[3][2] b;
+    for (i in 0..2) { for (j in 0..3) { a[i][j] = (T)(i * 10 + j); b[j][i] = i + j; } }
+    *T f = (*T)&a;
+    for (k in 0..6) { printf("%d ", (int)f[k]); }
+    return (int)sizeof(a) + (int)sizeof(b);
+}
+
+int main() {
+    printf("| %d\n", fill<int>(0));
+    printf("| %d\n", fill<int64>(0));
+    M<int> m; m.g[1][2] = 5;
+    int n = 0;
+    for (i in 0..2) { for (j in 0..3) { m.g[i][j] = i * 10 + j; } }
+    for (i in 0..2) { for (j in 0..2) { for (k in 0..3) { m.h[i][j][k] = n; n++; } } }
+    *int f = (*int)&m.g; *int h = (*int)&m.h;
+    for (k in 0..6) { printf("%d ", f[k]); }
+    for (k in 0..12) { printf("%d ", h[k]); }
+    printf("| %d %d\n", m.g[1][2], (int)sizeof(M<int>));
+    return 0;
+}

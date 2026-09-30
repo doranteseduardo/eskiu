@@ -1,0 +1,34 @@
+after_await(4): no throw
+after_await(4): finally
+= 4
+after_await(-3): caught -3
+after_await(-3): finally
+= -30
+= 5
+before_await(-2): caught -2
+= -1
+nested(3): no throw
+nested(3): inner finally
+nested(3): outer finally
+= 0
+nested(-1): inner caught -1
+nested(-1): inner finally
+nested(-1): outer caught -2
+nested(-1): outer finally
+= -2
+early(6): finally
+= 6
+early(0): fell through
+early(0): finally
+= 0
+unmatched: inner finally
+unmatched: outer caught bad
+= 7
+loop_try: finally 0
+loop_try: finally 1
+loop_try: finally 2
+loop_try: finally 3
+= 2
+defer_in_try: defer
+defer_in_try: caught -5
+= -5

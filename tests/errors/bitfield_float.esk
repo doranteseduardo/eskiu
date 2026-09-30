@@ -1,0 +1,3 @@
+// EXPECT-ERROR: must have an integer type
+struct F { float a : 3; }
+int main() { let f: F; f.a = 1.0; return 0; }

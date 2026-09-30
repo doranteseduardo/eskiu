@@ -29,6 +29,9 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     llvm::FunctionType* fty = llvm::FunctionType::get(retTy, paramTypes, false);
     llvm::Function* func = llvm::Function::Create(
         fty, llvm::Function::InternalLinkage, lambdaName, module.get());
+    // Its `return` converts to the declared type like a function's (an interface boxes).
+    funcEskiuReturnType[lambdaName] = typeParamOverride.empty()
+        ? node->returnType : substType(node->returnType, typeParamOverride);
 
     auto argIt = func->arg_begin();
     argIt->setName("env");
@@ -46,6 +49,8 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     builder->SetInsertPoint(entry);
     currentFunction  = func;
     currentSretParam = nullptr;
+    // The lambda body is its own function: not the enclosing body's defers, loops or `try`.
+    BodyContext bodyCtx(this);
     pushScope();
 
     // Expose captured variables by loading from env
@@ -67,19 +72,16 @@ llvm::Function* CodeGen::emitLambdaFunction(LambdaExpr* node,
     argIt = func->arg_begin();
     ++argIt; // skip env
     for (; argIt != func->arg_end(); ++argIt, ++i) {
-        llvm::Value* slot = &*argIt;
-        if (argIt->getType()->isStructTy()) {
-            auto* a = entryAlloca(argIt->getType(), nullptr,
-                                            node->params[i].second + ".byval");
-            builder->CreateStore(&*argIt, a);
-            slot = a;
-        }
+        // Every parameter gets a stack slot, as in a named function: the body may
+        // reassign it like a local, and a struct param has an address to GEP.
+        auto* slot = entryAlloca(argIt->getType(), nullptr, node->params[i].second);
+        builder->CreateStore(&*argIt, slot);
         defineSymbol(node->params[i].second, slot);
         defineVarType(node->params[i].second, node->params[i].first);
     }
 
     if (node->body) node->body->accept(this);
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!hasTerminator(builder->GetInsertBlock())) {
         if (retTy->isVoidTy()) builder->CreateRetVoid();
         else builder->CreateRet(llvm::Constant::getNullValue(retTy));
     }
@@ -209,33 +211,61 @@ llvm::Value* CodeGen::createMaybeInvoke(
     return inv;
 }
 
+// The name a thrown value's type is matched by (a catch clause strcmp's it): the
+// written spelling with const, aliases and the `struct:` tag removed, a template
+// instance mangled (`Box<int>` -> `Box_int`), and `int32` spelled `int`.
+std::string CodeGen::exceptionTypeName(const std::string& raw) const {
+    std::string t = expandAlias(tyq::strip(raw));
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    for (const char* tag : {"struct:", "interface:"}) {
+        size_t p;
+        while ((p = t.find(tag)) != std::string::npos) t.erase(p, std::string(tag).size());
+    }
+    if (t.find('<') != std::string::npos) t = mangleTemplate(t);
+    if (t == "int32") t = "int";
+    if (t == "uint32") t = "uint";
+    return t.empty() ? "unknown" : t;
+}
+
+void CodeGen::ensureEHRuntime() {
+    ensureEHDecls(module.get(), *context, ehPersonalityName());
+}
+
 void CodeGen::visit(ThrowStmt* node) {
     ensureEHDecls(module.get(), *context, ehPersonalityName());
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
     llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
 
-    // EskiuEx: { i64 value, ptr type_name } — 16 bytes
+    // EskiuEx: { [8 bytes reserved], ptr type_name, payload } where the payload is
+    // the thrown value stored by its own type at offset 16 (a double, an int64 or a
+    // whole struct keep their bits; a catch loads the same type back).
+    llvm::Value* val = evaluateExpr(node->value);
+    llvm::Type* payTy = val->getType();
+    uint64_t paySize = module->getDataLayout().getTypeAllocSize(payTy);
     llvm::Function* allocEx = getOrDeclareFunc("__cxa_allocate_exception",
         ptrTy, {i64});
     llvm::Value* exPtr = builder->CreateCall(allocEx,
-        {llvm::ConstantInt::get(i64, 16)}, "ex.alloc");
+        {llvm::ConstantInt::get(i64, 16 + paySize)}, "ex.alloc");
+    auto* paySlot = builder->CreateConstGEP1_64(
+        llvm::Type::getInt8Ty(*context), exPtr, 16, "ex.pay.slot");
+    builder->CreateStore(val, paySlot);
 
-    // Store value as i64
-    llvm::Value* val = evaluateExpr(node->value);
-    llvm::Value* ival;
-    if (val->getType()->isPointerTy())
-        ival = builder->CreatePtrToInt(val, i64);
-    else
-        ival = builder->CreateSExtOrTrunc(val, i64);
-    builder->CreateStore(ival, exPtr);
+    // The static type of the thrown value. The type checker stamps it on the node,
+    // but a generic body is shared by its instances, so there it is derived per
+    // instance from the value's type under the active substitutions.
+    std::string thrownType = node->valueType;
+    if (thrownType.empty() || !typeParamOverride.empty()) {
+        std::string d = getExprEskiuType(node->value);
+        if (!typeParamOverride.empty()) d = substType(d, typeParamOverride);
+        if (!d.empty() && d != "unknown") thrownType = d;
+    }
+    thrownType = exceptionTypeName(thrownType);
 
     // Store type name at offset 8
-    std::string thrownType = node->valueType.empty() ? "unknown" : node->valueType;
     auto* typeStr = builder->CreateGlobalString(thrownType, ".ex.tname");
     auto* typeSlot = builder->CreateConstGEP1_64(
         llvm::Type::getInt8Ty(*context), exPtr, 8, "ex.type.slot");
-    auto* typeSlotPtr = builder->CreateBitCast(typeSlot, ptrTy, "ex.type.ptr");
-    builder->CreateStore(typeStr, typeSlotPtr);
+    builder->CreateStore(typeStr, typeSlot);
 
     // __cxa_throw(ex, _ZTIPv, null)
     // Must be an invoke when inside a try body so the local landingpad fires.
@@ -275,6 +305,7 @@ void CodeGen::visit(TryStmt* node) {
     }
 
     llvm::BasicBlock* lpadBB    = llvm::BasicBlock::Create(*context, "try.lpad",    fn);
+    llvm::BasicBlock* dispatchBB = llvm::BasicBlock::Create(*context, "try.dispatch", fn);
     llvm::BasicBlock* finallyBB = llvm::BasicBlock::Create(*context, "try.finally", fn);
     llvm::BasicBlock* doneBB    = llvm::BasicBlock::Create(*context, "try.done",    fn);
 
@@ -286,11 +317,17 @@ void CodeGen::visit(TryStmt* node) {
     // fall-through and exception paths still emit it via finallyBB / the landingpad
     // below, so we pop this frame WITHOUT running it here.
     cleanupScopes.emplace_back();
-    if (node->finally) cleanupScopes.back().push_back({node->finally.get(), /*isErr=*/false});
+    // (An async lowering wrapper's `finally` runs only on the exceptional path.)
+    if (node->finally && !node->unwindOnly) cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
+    // A defer in the body joins the catch dispatch from its own landingpad after running
+    // the body's pending defers (see emitDeferPad).
+    tryStack.push_back({cleanupScopes.size(), dispatchBB, {}});
     if (node->body) node->body->accept(this);
-    cleanupScopes.pop_back();
+    std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> incoming = std::move(tryStack.back().incoming);
+    tryStack.pop_back();
+    popCleanupFrame();
     unwindTarget = savedUnwind;
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(finallyBB);
 
     // ── landingpad ────────────────────────────────────────────────────────
@@ -301,7 +338,17 @@ void CodeGen::visit(TryStmt* node) {
     lp->addClause(llvm::ConstantPointerNull::get(
         llvm::cast<llvm::PointerType>(ptrTy)));
 
-    llvm::Value* exObjPtr = builder->CreateExtractValue(lp, {0}, "ex.ptr");
+    incoming.insert(incoming.begin(), {builder->CreateExtractValue(lp, {0}, "ex.ptr"), lpadBB});
+    builder->CreateBr(dispatchBB);
+
+    // ── catch dispatch (from the landingpad or a body defer's pad) ─────────
+    builder->SetInsertPoint(dispatchBB);
+    llvm::Value* exObjPtr = incoming.front().first;
+    if (incoming.size() > 1) {
+        llvm::PHINode* phi = builder->CreatePHI(ptrTy, incoming.size(), "ex.obj");
+        for (auto& in : incoming) phi->addIncoming(in.first, in.second);
+        exObjPtr = phi;
+    }
 
     // __cxa_begin_catch(ex) → pointer to our EskiuEx
     llvm::Function* beginCatch = getOrDeclareFunc("__cxa_begin_catch",
@@ -320,7 +367,10 @@ void CodeGen::visit(TryStmt* node) {
     llvm::Function* strcmpFn  = getOrDeclareFunc("strcmp", i32, {ptrTy, ptrTy});
 
     for (auto& c : node->catches) {
-        auto* cTypeStr  = builder->CreateGlobalString(c.type, ".catch.t");
+        // A generic body's catch type names the type params: match per instance.
+        const std::string cType = typeParamOverride.empty() ? c.type
+                                                             : substType(c.type, typeParamOverride);
+        auto* cTypeStr  = builder->CreateGlobalString(exceptionTypeName(cType), ".catch.t");
         llvm::Value* cmp   = builder->CreateCall(strcmpFn, {exType, cTypeStr}, "tcmp");
         llvm::Value* match = builder->CreateICmpEQ(cmp,
             llvm::ConstantInt::get(i32, 0), "tmatch");
@@ -332,24 +382,35 @@ void CodeGen::visit(TryStmt* node) {
         builder->SetInsertPoint(handlerBB);
         pushScope();
 
-        // Load value (offset 0)
-        llvm::Value* ival = builder->CreateLoad(i64, exData, "ex.ival");
-        llvm::Type*  catchTy = getTypeFromString(c.type);
-        llvm::Value* catchVal = catchTy->isPointerTy()
-            ? builder->CreateIntToPtr(ival, catchTy)
-            : builder->CreateTrunc(ival, catchTy);
+        // Load the payload (offset 16) by the catch type, which the name match made
+        // the thrown value's own type.
+        llvm::Type*  catchTy = getTypeFromString(cType);
+        auto* paySlot = builder->CreateConstGEP1_64(
+            llvm::Type::getInt8Ty(*context), exData, 16, "ex.pay");
+        llvm::Value* catchVal = builder->CreateLoad(catchTy, paySlot, "ex.val");
         auto* catchAlloca = entryAlloca(catchTy, nullptr, c.name);
         builder->CreateStore(catchVal, catchAlloca);
         defineSymbol(c.name, catchAlloca);
-        defineVarType(c.name, c.type);
+        defineVarType(c.name, cType);
+        // The payload is copied out, so the exception object can be released before the
+        // handler runs; then an early exit (return/break/continue) from the handler has
+        // nothing left to end.
+        builder->CreateCall(endCatch, {});
 
+        // `finally` also runs when the handler leaves early (return/break/continue).
+        // A throw out of the handler runs it too (then the new exception propagates): the
+        // handler's calls unwind to a pad that runs the pending cleanups, as after a defer.
+        cleanupScopes.emplace_back();
+        if (node->finally && !node->unwindOnly) {
+            cleanupScopes.back().push_back(makeCleanup(node->finally.get(), /*isErr=*/false));
+            emitDeferPad();
+        }
         if (c.body) c.body->accept(this);
+        popCleanupFrame();
         popScope();
 
-        if (!builder->GetInsertBlock()->getTerminator()) {
-            builder->CreateCall(endCatch, {});
+        if (!hasTerminator(builder->GetInsertBlock()))
             builder->CreateBr(finallyBB);
-        }
 
         builder->SetInsertPoint(nextBB);
     }
@@ -359,9 +420,9 @@ void CodeGen::visit(TryStmt* node) {
     // exception with __cxa_rethrow. (end_catch + resume here double-freed the
     // exception and aborted; and the finally was skipped entirely.) The rethrow is an
     // invoke when an enclosing try can catch it, so its landingpad fires.
-    if (!builder->GetInsertBlock()->getTerminator()) {
+    if (!hasTerminator(builder->GetInsertBlock())) {
         if (node->finally) node->finally->accept(this);
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        if (!hasTerminator(builder->GetInsertBlock())) {
             llvm::Function* rethrow = getOrDeclareFunc("__cxa_rethrow",
                 llvm::Type::getVoidTy(*context), {});
             if (savedUnwind) {
@@ -378,8 +439,8 @@ void CodeGen::visit(TryStmt* node) {
 
     // ── finally (normal, non-exceptional path) ─────────────────────────────
     builder->SetInsertPoint(finallyBB);
-    if (node->finally) node->finally->accept(this);
-    if (!builder->GetInsertBlock()->getTerminator())
+    if (node->finally && !node->unwindOnly) node->finally->accept(this);
+    if (!hasTerminator(builder->GetInsertBlock()))
         builder->CreateBr(doneBB);
 
     builder->SetInsertPoint(doneBB);
@@ -405,6 +466,30 @@ void CodeGen::visit(FreeClosureExpr* node) {
     exprValueStack.push(llvm::UndefValue::get(llvm::Type::getVoidTy(*context)));
 }
 
+// `ptr __eskiu_thread_owned(ptr pack)`: the start routine of a thread that owns its
+// closure. `pack` is a malloc'd {fn, env}; run fn(env), then free env and pack.
+llvm::Function* CodeGen::ownedThreadTrampoline() {
+    const char* name = "__eskiu_thread_owned";
+    if (llvm::Function* f = module->getFunction(name)) return f;
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    auto* fty = llvm::FunctionType::get(ptrTy, {ptrTy}, false);
+    auto* f = llvm::Function::Create(fty, llvm::Function::InternalLinkage, name, module.get());
+    llvm::BasicBlock* savedBB = builder->GetInsertBlock();
+    llvm::BasicBlock::iterator savedPt = builder->GetInsertPoint();
+    builder->SetInsertPoint(llvm::BasicBlock::Create(*context, "entry", f));
+    llvm::StructType* packTy = llvm::StructType::get(*context, {ptrTy, ptrTy});
+    llvm::Value* pack = f->getArg(0);
+    llvm::Value* fn  = builder->CreateLoad(ptrTy, builder->CreateStructGEP(packTy, pack, 0), "fn");
+    llvm::Value* env = builder->CreateLoad(ptrTy, builder->CreateStructGEP(packTy, pack, 1), "env");
+    llvm::Function* freeFn = getOrDeclareFunc("free", llvm::Type::getVoidTy(*context), {ptrTy}, false);
+    builder->CreateCall(freeFn, {pack});
+    builder->CreateCall(llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {ptrTy}, false), fn, {env});
+    builder->CreateCall(freeFn, {env});
+    builder->CreateRet(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)));
+    if (savedBB) builder->SetInsertPoint(savedBB, savedPt);
+    return f;
+}
+
 void CodeGen::visit(ThreadCreateExpr* node) {
     // Evaluate the closure — a fat pointer {fn_ptr, env_ptr}
     llvm::Value* fatPtr = evaluateExpr(node->worker);
@@ -421,6 +506,22 @@ void CodeGen::visit(ThreadCreateExpr* node) {
     llvm::Function* pthreadCreate = getOrDeclareFunc("pthread_create",
         llvm::Type::getInt32Ty(*context),
         {ptrTy, ptrTy, ptrTy, ptrTy});
+
+    // A lambda written in the call (`thread_create(void() { ... })`) has no other owner,
+    // so the thread owns it: start it through a trampoline that frees its env once the
+    // body returns. A closure value passed in stays its owner's (free_closure after
+    // thread_join), since the same closure may start several threads.
+    if (dynamic_cast<LambdaExpr*>(node->worker.get())) {
+        llvm::Function* mallocFn = getOrDeclareFunc("malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
+        llvm::Value* pack = builder->CreateCall(mallocFn,
+            {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 2 * module->getDataLayout().getPointerSize())},
+            "thr.pack");
+        llvm::StructType* packTy = llvm::StructType::get(*context, {ptrTy, ptrTy});
+        builder->CreateStore(fnPtr, builder->CreateStructGEP(packTy, pack, 0));
+        builder->CreateStore(envPtr, builder->CreateStructGEP(packTy, pack, 1));
+        fnPtr = ownedThreadTrampoline();
+        envPtr = pack;
+    }
 
     builder->CreateCall(pthreadCreate, {
         tidAlloca,
@@ -444,32 +545,81 @@ void CodeGen::visit(ThreadJoinStmt* node) {
     });
 }
 
+// Extended asm (GCC syntax) as LLVM inline asm, numbered like clang: the outputs first
+// (`$0`...), then the inputs. A register output (`=r`, `=&r`) is a result of the call,
+// stored into its lvalue afterwards (several make a struct result); a memory output
+// (`=m`) is an indirect `=*m` operand taking the lvalue's address. A read-write `+r`
+// also feeds the lvalue's value in through an input tied to the output (`"0"`), and
+// `+m` passes the address again as a `*m` input; those follow the explicit inputs.
 void CodeGen::visit(AsmStmt* node) {
-    // Build LLVM inline asm from GCC-style extended asm syntax
     std::vector<llvm::Value*> argVals;
+    std::vector<llvm::Type*> elemTypes;       // per argument: its elementtype (indirect), or null
     std::string constraints;
+    auto addConstraint = [&](const std::string& c) {
+        if (!constraints.empty()) constraints += ",";
+        constraints += c;
+    };
+    struct RegOut { llvm::Value* addr; llvm::Type* ty; bool vol; };
+    std::vector<RegOut> regOuts;
+    struct Tied { std::string constraint; llvm::Value* val; llvm::Type* elem; };
+    std::vector<Tied> tied;
 
+    for (size_t i = 0; i < node->outputs.size(); ++i) {
+        const std::string& c = node->outputs[i].first;
+        const ExprPtr& e = node->outputs[i].second;
+        bool rw = !c.empty() && c[0] == '+';
+        std::string body = c.substr(1);
+        llvm::Type* ty = getTypeFromString(getExprEskiuType(e));
+        llvm::Value* addr = evaluateLValue(e);
+        bool vol = volatileRooted(e.get());
+        if (body == "m") {
+            addConstraint("=*m");
+            argVals.push_back(addr); elemTypes.push_back(ty);
+            if (rw) tied.push_back({"*m", addr, ty});
+        } else {
+            addConstraint("=" + body);
+            regOuts.push_back({addr, ty, vol});
+            if (rw) {
+                auto* cur = builder->CreateLoad(ty, addr);
+                cur->setVolatile(vol);
+                tied.push_back({std::to_string(i), cur, nullptr});
+            }
+        }
+    }
     for (auto& [constraint, expr] : node->inputs) {
-        argVals.push_back(evaluateExpr(expr));
-        if (!constraints.empty()) constraints += ",";
-        constraints += constraint;
+        argVals.push_back(evaluateExpr(expr)); elemTypes.push_back(nullptr);
+        addConstraint(constraint);
     }
-    for (const auto& clob : node->clobbers) {
-        if (!constraints.empty()) constraints += ",";
-        constraints += "~{" + clob + "}";
+    for (auto& t : tied) {
+        argVals.push_back(t.val); elemTypes.push_back(t.elem);
+        addConstraint(t.constraint);
     }
+    for (const auto& clob : node->clobbers) addConstraint("~{" + clob + "}");
     // sideeffect + alignstack are standard for kernel inline asm
     if (!constraints.empty()) constraints += ",~{dirflag},~{fpsr},~{flags}";
 
     std::vector<llvm::Type*> argTypes;
     for (auto* v : argVals) argTypes.push_back(v->getType());
+    llvm::Type* retTy = llvm::Type::getVoidTy(*context);
+    if (regOuts.size() == 1) retTy = regOuts[0].ty;
+    else if (regOuts.size() > 1) {
+        std::vector<llvm::Type*> fields;
+        for (auto& r : regOuts) fields.push_back(r.ty);
+        retTy = llvm::StructType::get(*context, fields);
+    }
 
-    auto* fty = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(*context), argTypes, false);
+    auto* fty = llvm::FunctionType::get(retTy, argTypes, false);
     auto* iasm = llvm::InlineAsm::get(
         fty, node->asmString, constraints,
         /*hasSideEffects=*/true, /*isAlignStack=*/false,
         llvm::InlineAsm::AD_ATT);
 
-    builder->CreateCall(iasm, argVals);
+    auto* call = builder->CreateCall(iasm, argVals);
+    for (size_t i = 0; i < elemTypes.size(); ++i)
+        if (elemTypes[i])
+            call->addParamAttr((unsigned)i, llvm::Attribute::get(*context, llvm::Attribute::ElementType, elemTypes[i]));
+    for (size_t i = 0; i < regOuts.size(); ++i) {
+        llvm::Value* v = regOuts.size() == 1 ? (llvm::Value*)call : builder->CreateExtractValue(call, {(unsigned)i});
+        builder->CreateStore(v, regOuts[i].addr)->setVolatile(regOuts[i].vol);
+    }
 }

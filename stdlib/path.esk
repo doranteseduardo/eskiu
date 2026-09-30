@@ -11,75 +11,80 @@ import <string>;
 
 // 1 if the path starts at the filesystem root.
 int path_is_absolute(string p) {
-    if (p[0] == '/') { return 1; }
-    return 0;
+    return p[0] == '/' ? 1 : 0;
+}
+
+// Append p[from..to) to out, one character at a time.
+void _path_push_range(String* out, string p, int from, int to) {
+    for (int i = from; i < to; i++) { out.push(p[i]); }
 }
 
 // Join `a` and `b` with a single '/', collapsing a trailing slash on `a` and a
 // leading slash on `b`. An empty component is dropped.
 void path_join(String* out, string a, string b) {
-    String_clear(out);
-    int alen = strlen(a);
-    int blen = strlen(b);
-    if (alen == 0) { String_append(out, b); return; }
-    if (blen == 0) { String_append(out, a); return; }
+    out.clear();
+    const int alen = strlen(a);
+    const int blen = strlen(b);
+    if (alen == 0) { out.append(b); return; }
+    if (blen == 0) { out.append(a); return; }
     int ae = alen;
-    while (ae > 0 && a[ae - 1] == '/') { ae = ae - 1; }
-    int i = 0;
-    while (i < ae) { String_push(out, a[i]); i = i + 1; }
-    String_push(out, '/');
+    while (ae > 0 && a[ae - 1] == '/') { ae--; }
+    _path_push_range(out, a, 0, ae);
+    out.push('/');
     int bs = 0;
-    while (bs < blen && b[bs] == '/') { bs = bs + 1; }
-    i = bs;
-    while (i < blen) { String_push(out, b[i]); i = i + 1; }
+    while (bs < blen && b[bs] == '/') { bs++; }
+    _path_push_range(out, b, bs, blen);
 }
 
 // The final component (trailing slashes ignored). "/usr/bin/" -> "bin".
+// POSIX edge cases: "/" (or "///") -> "/", "" -> ".".
 void path_basename(String* out, string p) {
-    String_clear(out);
-    int n = strlen(p);
+    out.clear();
+    const int n = strlen(p);
+    if (n == 0) { out.append("."); return; }
     int end = n;
-    while (end > 0 && p[end - 1] == '/') { end = end - 1; }
+    while (end > 0 && p[end - 1] == '/') { end--; }
+    if (end == 0) { out.append("/"); return; }
     int start = end;
-    while (start > 0 && p[start - 1] != '/') { start = start - 1; }
-    int i = start;
-    while (i < end) { String_push(out, p[i]); i = i + 1; }
+    while (start > 0 && p[start - 1] != '/') { start--; }
+    _path_push_range(out, p, start, end);
 }
 
 // Everything before the final component: "/usr/bin" -> "/usr", "foo" -> ".".
+// POSIX edge cases: "/" -> "/", "" -> ".", and the slashes separating the two
+// parts are all dropped ("a//b" -> "a", "//a" -> "/").
 void path_dirname(String* out, string p) {
-    String_clear(out);
-    int n = strlen(p);
+    out.clear();
+    const int n = strlen(p);
     int end = n;
-    while (end > 0 && p[end - 1] == '/') { end = end - 1; }
-    int slash = -1;
-    int i = 0;
-    while (i < end) {
-        if (p[i] == '/') { slash = i; }
-        i = i + 1;
+    while (end > 0 && p[end - 1] == '/') { end--; }
+    if (end == 0) {
+        out.append(n == 0 ? "." : "/");
+        return;
     }
-    if (slash < 0)  { String_append(out, "."); return; }
-    if (slash == 0) { String_append(out, "/"); return; }
-    i = 0;
-    while (i < slash) { String_push(out, p[i]); i = i + 1; }
+    int slash = -1;
+    for (i in 0..end) {
+        if (p[i] == '/') { slash = i; }
+    }
+    if (slash < 0) { out.append("."); return; }
+    while (slash > 0 && p[slash - 1] == '/') { slash--; }
+    if (slash == 0) { out.append("/"); return; }
+    _path_push_range(out, p, 0, slash);
 }
 
 // The extension without the dot: "a/b.txt" -> "txt". Empty for no extension or
 // a leading-dot name (".bashrc").
 void path_extension(String* out, string p) {
-    String_clear(out);
-    int n = strlen(p);
+    out.clear();
+    const int n = strlen(p);
     int end = n;
-    while (end > 0 && p[end - 1] == '/') { end = end - 1; }
+    while (end > 0 && p[end - 1] == '/') { end--; }
     int bstart = end;
-    while (bstart > 0 && p[bstart - 1] != '/') { bstart = bstart - 1; }
+    while (bstart > 0 && p[bstart - 1] != '/') { bstart--; }
     int dot = -1;
-    int i = bstart;
-    while (i < end) {
+    for (i in bstart..end) {
         if (p[i] == '.') { dot = i; }
-        i = i + 1;
     }
     if (dot < 0 || dot == bstart) { return; }   // none, or a dotfile
-    i = dot + 1;
-    while (i < end) { String_push(out, p[i]); i = i + 1; }
+    _path_push_range(out, p, dot + 1, end);
 }

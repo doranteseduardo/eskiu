@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot convert 'int' to 'string'
+T id<T>(T x) { return x; }
+int main() { string s = id<string>(5); return 0; }

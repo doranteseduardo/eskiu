@@ -1,0 +1,5 @@
+// EXPECT-ERROR: parameter 'x' cannot have type 'void'
+// A type argument may not make a parameter a `void` value.
+T id<T>(T x) { return x; }
+void v() {}
+int main() { id<void>(v()); return 0; }

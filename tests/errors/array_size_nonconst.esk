@@ -1,0 +1,7 @@
+// EXPECT-ERROR: array size must be a compile-time constant, got 'n'
+int main(int argc, string* argv) {
+    int n = argc + 4;
+    int[n] a;
+    a[0] = 1;
+    return a[0];
+}

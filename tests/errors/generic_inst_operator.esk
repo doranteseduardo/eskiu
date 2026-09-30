@@ -1,0 +1,10 @@
+// EXPECT-ERROR: in instantiation of add<P>
+// `+` on T is fine for add<int>, but P has no `+`: the inferred instance add<P> is rejected.
+struct P { int v; }
+T add<T>(T a, T b) { return a + b; }
+int main() {
+    int n = add<int>(1, 2);
+    P x = P{1}; P y = P{2};
+    P z = add(x, y);
+    return z.v + n;
+}

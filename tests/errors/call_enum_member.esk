@@ -1,0 +1,3 @@
+// EXPECT-ERROR: undefined function 'R'
+enum C { R, G }
+int main() { return R(); }

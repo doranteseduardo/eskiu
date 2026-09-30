@@ -1,0 +1,100 @@
+// The pre-0.9.2 stdlib names (renamed to the Type_method convention) still
+// compile and behave as thin wrappers over the new names.
+import <random>;
+import <regex>;
+import <string>;
+import <sysheap>;
+import <eventloop>;
+import <executor>;
+import <channel>;
+import <hpack>;
+import <http2>;
+import <time>;
+import <ctype>;
+extern int printf(string fmt, ...);
+extern int pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+extern int64 read(int fd, *void buf, int64 n);
+
+int g_ticks = 0;
+
+int main() {
+    let a: Rng;  rng_seed(&a, (uint64)7);
+    let b: Rng;  Rng_seed(&b, (uint64)7);
+    int same = 1;
+    if (rng_next(&a) != Rng_next(&b)) { same = 0; }
+    if (rng_below(&a, (uint64)10) != Rng_below(&b, (uint64)10)) { same = 0; }
+    if (rng_range(&a, (int64)1, (int64)7) != Rng_range(&b, (int64)1, (int64)7)) { same = 0; }
+    if (rng_bool(&a) != Rng_bool(&b)) { same = 0; }
+    if (rng_double(&a) != Rng_double(&b)) { same = 0; }
+    uint8[4] x;  uint8[4] y;
+    rng_fill(&a, &x[0], (int64)4);  Rng_fill(&b, &y[0], (int64)4);
+    if (x[3] != y[3]) { same = 0; }
+    printf("random: %d\n", same);
+
+    Regex re = regex_compile("(b+)");
+    let m: Match;
+    int hit = regex_search(&re, "abbc", &m);
+    let g: String;  String_init(&g, 8);
+    match_group(&m, "abbc", 1, &g);
+    printf("regex: %d %s\n", hit, String_cstr(&g));
+    String_free(&g);
+    match_free(&m);
+    regex_free(&re);
+
+    let h: Heap;
+    bool hok = heap_init(&h, (int64)65536);
+    *void p = heap_alloc(&h, (int64)64);
+    heap_free(&h, p);
+    printf("heap: %d %d\n", hok, p != null);
+    heap_destroy(&h);
+
+    EventLoop* lp = el_new(16);
+    int[2] fds;  pipe(&fds[0]);
+    write(fds[1], (*void)"x", (int64)1);
+    el_add_read(lp, fds[0], void(EventLoop* l, int fd) {
+        uint8[4] b;  read(fd, (*void)&b[0], (int64)4);
+        g_ticks = g_ticks + 1;
+        el_del(l, fd);
+    });
+    int t = el_add_timer(lp, time_monotonic_ms() + (int64)20, void() { g_ticks = g_ticks + 10; el_stop(lp); });
+    el_run(lp);
+    int t2 = el_add_timer(lp, (int64)0, void() {});
+    el_del_timer(lp, t2);
+    el_add_write(lp, fds[1], void(EventLoop* l, int fd) { el_del(l, fd); });
+    el_del_free(lp, fds[1]);
+    printf("eventloop: %d\n", g_ticks);
+    el_free(lp);
+
+    Executor* ex = executor_new(el_new(16));
+    executor_schedule(ex, void() { g_ticks = g_ticks + 100; executor_stop(ex); });
+    executor_run(ex);
+    printf("executor: %d\n", g_ticks);
+    executor_free(ex);
+
+    Chan<int>* ch = chan_new<int>(4);
+    chan_send(ch, 5);
+    Future<int>* rf = chan_recv(ch);
+    printf("channel: %d %d\n", rf.state == READY, rf.value);
+    free_future<int>(rf);
+    chan_free<int>(ch);
+
+    let hd: HpackDecoder;  hpack_decoder_init(&hd, (int64)4096);
+    let hh: HpackHuff;  hpack_huff_build(&hh);
+    printf("hpack: %d %d\n", hd.dyn_cap > 0, hh.nodes > 1);
+    hpack_huff_free(&hh);
+    hpack_decoder_free(&hd);
+
+    let conn: H2Conn;  h2_conn_init(&conn, -1);
+    let st: H2Stream;  h2_stream_init(&st, 1, 100, 100);
+    printf("http2: %d %d\n", h2_can_send(&conn, &st, 50), h2_can_send(&conn, &st, 500));
+
+    let dt: DateTime;  time_to_utc((int64)86400, &dt);
+    let iso: String;  String_init(&iso, 24);
+    time_format_iso(&dt, &iso);
+    printf("time: %s %lld\n", String_cstr(&iso), time_from_utc(&dt));
+    String_free(&iso);
+
+    printf("space: %d %d %d\n", String_is_space(' '), String_is_space('x'), is_space(32));
+    return 0;
+}

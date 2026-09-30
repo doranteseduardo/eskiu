@@ -1,0 +1,49 @@
+// Run the compiler on a thread with a large stack (mirrors the C++ main).
+//
+// The parser, the type checker and codegen recurse once per nesting level of the
+// source (parentheses, blocks, nested ifs and lambdas), so a default 8 MB main-thread
+// stack overflows long before the parser's nesting limit (P_MAX_NESTING) is reached.
+// Each driver's `main` hands its body to run_on_big_stack, which runs it on a thread
+// with a BIG_STACK_BYTES stack (reserved address space; pages are only touched as
+// deep input needs them).
+
+extern int pthread_attr_init(*void attr);
+extern int pthread_attr_setstacksize(*void attr, int64 size);
+extern int pthread_create(*void thread, *void attr, *void start, *void arg);
+extern int pthread_join(*void thread, *void ret);
+
+int64 BIG_STACK_BYTES = 1073741824;   // 1 GB
+
+// A driver's argc/argv and exit code, handed across to the big-stack thread:
+//   void main_body() { big_rc = driver_main(big_argc, big_argv); }
+//   int main(int argc, string* argv) {
+//       big_argc = argc; big_argv = argv; run_on_big_stack(main_body); return big_rc;
+//   }
+int big_argc = 0;
+*string big_argv = null;
+int big_rc = 0;
+
+// A closure value is {code, env}; held in a struct, its two words can be read as
+// pointers without casting the closure itself.
+struct BigStackBody {
+    fn()->void body;
+}
+
+// Run `body` to completion on a BIG_STACK_BYTES thread, or on the current thread if
+// one cannot be created. The closure's code takes the env as its only argument, so
+// with the env as the thread argument it is directly a pthread start routine.
+void run_on_big_stack(escaping fn()->void body) {
+    let h: BigStackBody;
+    h.body = body;
+    **void slots = (**void)&h;
+    int64[16] attr;                    // pthread_attr_t (56 or 64 bytes)
+    int64[2] tid;                      // pthread_t
+    *void ap = (*void)&attr[0];
+    if (pthread_attr_init(ap) == 0 &&
+        pthread_attr_setstacksize(ap, BIG_STACK_BYTES) == 0 &&
+        pthread_create((*void)&tid[0], ap, slots[0], slots[1]) == 0) {
+        pthread_join(*((**void)&tid[0]), null);
+        return;
+    }
+    body();
+}

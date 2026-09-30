@@ -1,0 +1,63 @@
+// Fuzz target: <uuid> formatting from an input-seeded generator (canonical v4 form),
+// and <time> calendar conversion: epoch -> fields -> ISO text -> epoch round trip,
+// plus formatting of arbitrary (out-of-range) DateTime fields.
+import "harness.esk";
+import <uuid>;
+import <random>;
+import <time>;
+import <string>;
+
+int64 rd64(*uint8 d, int len, int off) {
+    int64 v = 0;
+    int i = 0;
+    while (i < 8) {
+        int64 b = 0;
+        if (off + i < len) { b = (int64)d[off + i]; }
+        v = v | (b << (int64)(8 * i));
+        i = i + 1;
+    }
+    return v;
+}
+
+int hexdig(char c) { return (c >= 48 && c <= 57) || (c >= 97 && c <= 102); }
+
+void fuzz_one(*uint8 data, int len, string s) {
+    let r: Rng; Rng_seed(&r, (uint64)rd64(data, len, 0));
+    let u: String; String_init(&u, 40);
+    uuid_v4(&r, &u);
+    if (u.len != 36) { fuzz_fail("uuid length"); }
+    int i = 0;
+    while (i < 36) {
+        char c = u.data[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) { if (c != 45) { fuzz_fail("uuid hyphen"); } }
+        else if (hexdig(c) == 0) { fuzz_fail("uuid digit"); }
+        i = i + 1;
+    }
+    if (u.data[14] != 52) { fuzz_fail("uuid version"); }
+    char var = u.data[19];
+    if (var != 56 && var != 57 && var != 97 && var != 98) { fuzz_fail("uuid variant"); }
+    String_free(&u);
+
+    // Epoch seconds within about a billion years either way (DateTime.year is an int).
+    int64 t = rd64(data, len, 8) % (int64)36028797018963968;
+    let dt: DateTime;
+    time_to_utc(t, &dt);
+    if (dt.month < 1 || dt.month > 12 || dt.day < 1 || dt.day > 31 || dt.hour < 0 || dt.hour > 23
+        || dt.min < 0 || dt.min > 59 || dt.sec < 0 || dt.sec > 59 || dt.wday < 0 || dt.wday > 6
+        || dt.yday < 0 || dt.yday > 365) { fuzz_fail("time_to_utc field out of range"); }
+    if (DateTime_to_epoch(&dt) != t) { fuzz_fail("epoch round trip"); }
+    let iso: String; String_init(&iso, 32);
+    DateTime_format_iso(&dt, &iso);
+    if (iso.len < 20 || iso.data[iso.len - 1] != 90) { fuzz_fail("iso form"); }
+    String_free(&iso);
+
+    // Arbitrary field values must format without trouble.
+    let junk: DateTime;
+    junk.year = (int)rd64(data, len, 16); junk.month = (int)rd64(data, len, 20);
+    junk.day = (int)rd64(data, len, 24); junk.hour = (int)rd64(data, len, 28);
+    junk.min = (int)rd64(data, len, 32); junk.sec = (int)rd64(data, len, 36);
+    junk.wday = 0; junk.yday = 0;
+    let j2: String; String_init(&j2, 32);
+    DateTime_format_iso(&junk, &j2);
+    String_free(&j2);
+}

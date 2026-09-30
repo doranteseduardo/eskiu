@@ -1,0 +1,27 @@
+// An `extern` prototype next to the program's own definition is an Eskiu function:
+// it keeps the Eskiu calling convention (no C-ABI lowering of by-value structs, a fn
+// parameter stays a closure), so the definition and every call agree.
+extern int printf(string fmt, ...);
+
+struct P { int x; int y; float f; }
+struct Big { int64 a; int64 b; int64 c; }
+
+extern int addp(P p);
+extern P mkp(int k);
+extern Big mkbig(int64 k);
+extern int apply(fn(int)->int f, int v);
+
+int addp(P p) { return p.x + p.y + (int)p.f; }
+P mkp(int k) { let p: P; p.x = k; p.y = k * 2; p.f = 1.5; return p; }
+Big mkbig(int64 k) { let b: Big; b.a = k; b.b = k + 1; b.c = k + 2; return b; }
+int apply(fn(int)->int f, int v) { return f(v); }
+
+int main() {
+    P q = mkp(4);
+    printf("addp %d\n", addp(q));
+    Big b = mkbig((int64)7);
+    printf("big %lld %lld %lld\n", b.a, b.b, b.c);
+    int k = 10;
+    printf("apply %d\n", apply(int(int v) { return v + k; }, 5));
+    return 0;
+}

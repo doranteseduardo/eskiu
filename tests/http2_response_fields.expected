@@ -1,0 +1,16 @@
+engine, connection fields
+  :status: 200
+  content-length: 3
+  x-kept: yes
+  DATA 3 end=1
+engine, 204
+  :status: 204
+  DATA 0 end=1
+h2_build_response, connection fields
+  :status: 200
+  content-length: 3
+  x-kept: yes
+  DATA 3 end=1
+h2_build_response, 204
+  :status: 204
+  DATA 0 end=1

@@ -1,0 +1,8 @@
+// EXPECT-ERROR: asm output operand must have an integer, floating-point or pointer type
+struct S { int64 a; }
+int main() {
+    S s;
+    s.a = 0;
+    asm("nop" : "=r"(s));
+    return 0;
+}

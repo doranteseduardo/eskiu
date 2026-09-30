@@ -1,0 +1,60 @@
+// A union declared under `#pragma pack(N)` caps its members' alignment at N as C does:
+// its size, its alignment as a field or array element, the `sizeof` the type checker
+// folds, and the C ABI when passed or returned by value across an `extern`. The C side
+// (tests/pack_union_c.c) reports the C compiler's layout and takes and returns them.
+extern int printf(string fmt, ...);
+extern int64 c_layout(int i);
+extern int c_take_u2(U2 u);
+extern double c_take_u2d(U2d u);
+extern int64 c_take_u4(U4 u);
+extern int c_take_s2(S2 s);
+extern U2 c_ret_u2(int x);
+extern S4 c_ret_s4(int k);
+extern void c_fill_s1(*S1 p);
+
+#pragma pack(2)
+union U2 { char[5] c; int x; }
+union U2d { char[3] c; double d; }
+#pragma pack(1)
+union U1 { char[5] c; int x; }
+#pragma pack(4)
+union U4 { char[9] c; int64 v; }
+#pragma pack()
+struct S2 { char a; U2 u; char b; }
+struct S1 { char a; U1 u; char b; }
+struct S4 { char a; U4 u; U2d w; }
+
+enum K { K_U2 = sizeof(U2), K_U2D = sizeof(U2d), K_U1 = sizeof(U1), K_U4 = sizeof(U4),
+         K_S2 = sizeof(S2), K_S1 = sizeof(S1), K_S4 = sizeof(S4) }
+
+int64 off(*void base, *void field) { return (int64)field - (int64)base; }
+
+int main() {
+    S2 s2; S1 s1; S4 s4;
+    int64[15] v = {
+        (int64)sizeof(U2), (int64)sizeof(U2d), (int64)sizeof(U1), (int64)sizeof(U4),
+        (int64)sizeof(S2), off(&s2, &s2.u), off(&s2, &s2.b),
+        (int64)sizeof(S1), off(&s1, &s1.u), off(&s1, &s1.b),
+        (int64)sizeof(S4), off(&s4, &s4.u), off(&s4, &s4.w),
+        (int64)sizeof(U2[3]), (int64)sizeof(S4[2])
+    };
+    int bad = 0;
+    for (i in 0..15) {
+        if (v[i] != c_layout(i)) { printf("layout %d: %lld, C %lld\n", i, v[i], c_layout(i)); bad = bad + 1; }
+    }
+    int[7] k = {K_U2, K_U2D, K_U1, K_U4, K_S2, K_S1, K_S4};
+    int[7] kv = {(int)v[0], (int)v[1], (int)v[2], (int)v[3], (int)v[4], (int)v[7], (int)v[10]};
+    for (i in 0..7) { if (k[i] != kv[i]) { printf("folded %d: %d vs %d\n", i, k[i], kv[i]); bad = bad + 1; } }
+    printf("layout mismatches: %d\n", bad);
+    U2 u2; u2.x = 4242;
+    U2d ud; ud.d = 2.5;
+    U4 u4; u4.v = 9000000000;
+    s2.a = 3; s2.u.c[4] = 5; s2.b = 7;
+    printf("%d %.1f %lld %d\n", c_take_u2(u2), c_take_u2d(ud), c_take_u4(u4), c_take_s2(s2));
+    U2 r = c_ret_u2(-77);
+    S4 r4 = c_ret_s4(6);
+    printf("%d %d %lld %.1f\n", r.x, (int)r4.a, r4.u.v, r4.w.d);
+    c_fill_s1(&s1);
+    printf("%d %d %d\n", (int)s1.a, s1.u.x, (int)s1.b);
+    return 0;
+}

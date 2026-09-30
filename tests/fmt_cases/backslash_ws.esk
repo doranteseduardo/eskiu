@@ -1,0 +1,5 @@
+#define X 1 \  
+int y = 2;
+int main() {
+  return y;
+}

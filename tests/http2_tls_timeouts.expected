@@ -1,0 +1,6 @@
+== blocking
+silent: (timely=1)
+idle after a request: SETTINGS ACK HEADERS DATA[hi] GOAWAY(last=1,0) (timely=1)
+== async
+silent: (timely=1)
+idle after a request: SETTINGS ACK HEADERS DATA[hi] GOAWAY(last=1,0) (timely=1)

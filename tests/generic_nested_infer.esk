@@ -1,0 +1,13 @@
+// A generic call's type argument is inferred through a nested generic call whose result
+// is the argument (`unbox(unbox(bb))`), not only through a variable holding it.
+extern int printf(string f, ...);
+struct Box<T> { T v; }
+T unbox<T>(Box<T> b) { return b.v; }
+Box<T> wrap<T>(T x) { return Box<T>{v: x}; }
+int main() {
+    Box<Box<int>> bb = Box<Box<int>>{v: Box<int>{v: 7}};
+    int a = unbox(unbox(bb));
+    int b = unbox(wrap(unbox(unbox(bb)) + 1));
+    printf("%d %d\n", a, b);
+    return 0;
+}

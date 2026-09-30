@@ -1,0 +1,14 @@
+// A struct literal accepts a trailing comma, like an array literal.
+extern int printf(string fmt, ...);
+struct P { int x; int y; }
+struct Box<T> { T v; int tag; }
+struct L { P a; int[2] b; }
+
+int main() {
+    P c = P{ x: 5, y: 6, };
+    P d = P{ 7, 8, };
+    Box<int> b = Box<int>{ v: 3, tag: 4, };
+    L l = L{ a: P{ 1, 2, }, b: {9, 10,}, };
+    printf("%d %d %d %d %d %d %d %d %d\n", c.x, c.y, d.x, d.y, b.v, b.tag, l.a.y, l.b[1], P{ x: 11, }.x);
+    return 0;
+}

@@ -1,0 +1,8 @@
+// EXPECT-ERROR: asm output operand cannot be a bitfield
+struct F { uint32 a : 3; uint32 b : 5; }
+int main() {
+    F f;
+    f.a = 1;
+    asm("nop" : "=r"(f.a));
+    return 0;
+}

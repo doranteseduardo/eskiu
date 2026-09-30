@@ -1,0 +1,2 @@
+// EXPECT-ERROR: floating constant expression (value -1) is out of range
+int main() { uint32 d = (uint32)(0.0 - 1.0); return (int)d; }

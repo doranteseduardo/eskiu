@@ -1,0 +1,23 @@
+p2 47
+sm 12034
+f2 3.75
+f4 4321.0
+d3 432.0
+mix 900.75
+dl 82.5
+c3 656667
+ps 5120
+ret ps 9098
+big 54321
+many 9045450
+mixed 49.25
+ret p2 607
+ret sm 712
+ret f2 22.5
+ret d3 321.0
+ret mix 30.25
+ret dl 15.5
+ret c3 979899
+ret big 54321
+ret big2 118
+direct 12

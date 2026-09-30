@@ -1,0 +1,18 @@
+extern int printf(string f, ...);
+struct B<T> { T[3] a; }
+struct Box<T> { T v; }
+int64 sz<T>() { T one; T[4] loc; B<T> b; return (int64)sizeof(one) * 1000000 + (int64)sizeof(loc) * 1000 + (int64)sizeof(b); }
+int64 sz2<T>() { return (int64)sizeof(T[4]); }
+T id<T>(T v) { return v; }
+fn()->double mk<T>(T a, T b) {
+    Box<T> bx = Box<T>{v: a};
+    return double() { T loc = id<T>(bx.v) + b; T[2] arr = {loc, loc}; return (double)arr[1] + (double)sizeof(loc); };
+}
+int main() {
+    printf("%lld %lld\n", sz<double>(), sz2<double>());
+    printf("%lld %lld\n", sz<int8>(), sz2<int8>());
+    fn()->double f = mk<int64>((int64)3000000000, (int64)1);
+    fn()->double g = mk<int8>((int8)100, (int8)27);
+    printf("%.1f %.1f\n", f(), g());
+    return 0;
+}

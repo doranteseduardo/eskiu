@@ -1,0 +1,2 @@
+// EXPECT-ERROR: 2:25: exponent has no digits in floating-point literal '2.5e-'
+int main() { double b = 2.5e-; return 0; }

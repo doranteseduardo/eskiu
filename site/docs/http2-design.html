@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -141,7 +141,7 @@ raw/Huffman per string. Validated against the RFC vectors, §C.1.1 (integer),
 <h3 id="streams-and-flow-control-stdlibhttp2esk">Streams and flow control (<code>stdlib/http2.esk</code>)</h3>
 <p>The per-stream state machine (<code>H2Stream</code>: idle → open → half-closed-local/remote →
 closed, via <code>h2_stream_on_recv</code>/<code>h2_stream_on_send</code>); credit-based flow control
-(<code>h2_can_send</code>/<code>h2_account_sent</code>/<code>h2_account_recv</code>/<code>h2_grant_window</code>) over
+(<code>H2Conn_can_send</code>/<code>h2_account_sent</code>/<code>h2_account_recv</code>/<code>h2_grant_window</code>) over
 per-stream and connection windows; and the stream-frame codecs: HEADERS, DATA,
 WINDOW_UPDATE, RST_STREAM (<code>h2_write_*</code>). HEADERS+CONTINUATION reassembly to
 END_HEADERS is the async <code>h2_read_header_block_async</code>. RESERVED states are omitted
@@ -149,26 +149,55 @@ END_HEADERS is the async <code>h2_read_header_block_async</code>. RESERVED state
 <h3 id="multiplexed-server-api-stdlibhttp2_serveresk">Multiplexed server API (<code>stdlib/http2_server.esk</code>)</h3>
 <p><code>http2_serve_async(lp, fd, handler, max_conns)</code> (and per-connection
 <code>http2_serve_conn_async</code>) mirrors the concurrent <code>&lt;http_async&gt;</code> server and reuses
-<code>&lt;http&gt;</code>'s <code>HttpRequest</code>/<code>HttpResponse</code>. It drives the handshake, then runs a
-frame-dispatch loop: a request (HEADERS + optional DATA) is HPACK-decoded into an
-<code>HttpRequest</code>, the handler fills an <code>HttpResponse</code>, and the response is encoded
-back as a HEADERS frame (<code>:status</code> + <code>content-length</code> + the handler's headers,
-lowercased) followed by the body split into <code>SETTINGS_MAX_FRAME_SIZE</code>-bounded
-(16384) DATA frames, the last carrying END_STREAM. SETTINGS/PING/WINDOW_UPDATE are
-handled; GOAWAY/EOF ends the loop.</p>
-<p>The async server is fully non-blocking (responses via <code>net_write_async</code>) and
-flow-controlled: <code>h2_respond_async</code> spends the stream and connection send windows
-per DATA frame and parks for WINDOW_UPDATE when a window is exhausted, so it
-delivers bodies larger than the 65535-byte default window. Streams are
-multiplexed: interleaved request frames are routed to per-stream slots
-(<code>H2PendingStream</code>) and each completes (handler + response) on its END_STREAM, so
-a client may run many concurrent streams on one connection; responses are
-serialized on the connection's single writer (correct, and avoids concurrent
-socket writes). While a response is parked on flow control, other streams' frames
-wait, a bounded property suited to the typical small-response mix. This path is
-cleartext h2c; TLS is the layer below. Tested over a socketpair end-to-end
-(<code>http2_server</code>), with DATA chunking (<code>http2_chunking</code>) and interleaved two-stream
-multiplexing (<code>http2_multiplex</code>).</p>
+<code>&lt;http&gt;</code>'s <code>HttpRequest</code>/<code>HttpResponse</code>. A request (HEADERS + optional DATA) is
+HPACK-decoded into an <code>HttpRequest</code>, the handler fills an <code>HttpResponse</code>, and the
+response is encoded back as a HEADERS frame (<code>:status</code> + <code>content-length</code> + the
+handler's headers, lowercased) followed by the body split into
+<code>SETTINGS_MAX_FRAME_SIZE</code>-bounded (16384) DATA frames, the last carrying
+END_STREAM.</p>
+<p>The protocol lives in <code>H2Server</code>, a transport-agnostic connection engine: the
+transport reads one frame, hands it to <code>H2Server_step</code>, and writes out whatever
+the engine queued (<code>s.out[0..s.outlen)</code>). The h2c server and both TLS servers are
+thin loops around it, so they share one implementation of:</p>
+<ul>
+<li>receive flow control: DATA (padding included) spends the stream and connection
+  receive windows, and the engine sends WINDOW_UPDATE once half a window has been
+  taken in, so uploads of any size keep flowing;</li>
+<li>PADDED DATA/HEADERS, PRIORITY, and header blocks split over CONTINUATION
+  frames (any other frame in the middle of a block is a PROTOCOL_ERROR);</li>
+<li>send flow control: responses are queued per stream and sent as the stream and
+  connection windows allow. Frames keep being read while a response waits, so a
+  new request is decoded in order (HPACK stays in sync) and answered, and a
+  WINDOW_UPDATE credits only the stream it names;</li>
+<li>connection errors with GOAWAY and stream errors with RST_STREAM as RFC 9113
+  prescribes: window overflow past 2^31 - 1 (FLOW_CONTROL_ERROR), invalid SETTINGS
+  values (<code>h2_settings_error</code>), frames on idle streams, bad frame sizes;</li>
+<li>requests with more than <code>H2_MAX_HEADERS</code> (64) fields, a decoded header list
+  over <code>H2_MAX_HEADER_LIST</code> (64 KiB, name + value + 32 per field, advertised as
+  SETTINGS_MAX_HEADER_LIST_SIZE) or past what <code>s.max_buffered</code> leaves (open
+  streams' header lists count toward it) get 431 without their fields being
+  kept, and requests with a bad host or <code>:authority</code> (the HTTP/1.1 Host rules)
+  or with a malformed field (a CR, LF or NUL in a value, an uppercase name) get 400,
+  without calling the handler;</li>
+<li>a malformed request (RFC 9113 §8.1.1, §8.2.2, §8.3) is a stream error, reset
+  with PROTOCOL_ERROR before the handler runs: an unknown, response, repeated or
+  late pseudo-header, a missing <code>:method</code>/<code>:scheme</code>/<code>:path</code> (CONNECT needs
+  <code>:authority</code> and has neither <code>:scheme</code> nor <code>:path</code>), a connection-specific
+  field, <code>te</code> other than <code>trailers</code>, two host fields or a host that differs
+  from <code>:authority</code> (without a host field the handler sees <code>:authority</code> as
+  Host), a content-length the DATA frames do not add
+  up to, a pseudo-header in trailers. The block is still decoded (HPACK stays in
+  sync), and frames the peer had in flight on a stream we reset are ignored;</li>
+<li>responses carry no connection-specific fields and one content-length (none for
+  a 1xx or 204 status, whose body is dropped).</li>
+</ul>
+<p>Streams are multiplexed (up to <code>H2_MAX_STREAMS</code>, 128, advertised as
+SETTINGS_MAX_CONCURRENT_STREAMS); ready requests are answered in arrival order and
+the connection has a single writer. A peer GOAWAY stops new streams; the loop ends
+once the open ones are answered. Tested over a socketpair end-to-end
+(<code>http2_server</code>, <code>http2_chunking</code>, <code>http2_multiplex</code>, <code>http2_frame_rules</code>), with a
+window-honoring client thread (<code>http2_flow_control</code>), and for the TLS transports
+with an OpenSSL stand-in (<code>http2_tls_engine</code>).</p>
 <h3 id="tls-alpn-stdlibtlsesk">TLS / ALPN (<code>stdlib/tls.esk</code>)</h3>
 <p>OpenSSL (libssl) by FFI. A server <code>SSL_CTX</code> loads a cert/key and installs an ALPN
 callback selecting <code>h2</code> (<code>tls_server_ctx</code>); the ALPN selector is handed to OpenSSL
@@ -177,12 +206,17 @@ server flavours run the <code>&lt;http2&gt;</code> frame protocol (reusing the c
 the <code>&lt;http2_server&gt;</code> request/response glue) over the encrypted stream:</p>
 <ul>
 <li><strong>Blocking</strong>, thread-per-connection: <code>http2_tls_serve_conn</code> over
-  <code>tls_accept</code>/<code>tls_read_full</code>/<code>tls_write_all</code>/<code>tls_close</code>.</li>
+  <code>tls_accept</code>/<code>tls_read_full</code>/<code>tls_write_all</code>/<code>tls_close</code>. The socket runs
+  non-blocking and the calls wait with <code>poll</code> (<code>net_wait_ready</code>) on what is left
+  of their deadline whenever OpenSSL asks for <code>WANT_READ</code>/<code>WANT_WRITE</code>. A socket
+  timeout (<code>SO_RCVTIMEO</code>) cannot bound them: OpenSSL loops <code>recv()</code> inside one
+  <code>SSL_read</code> until a record is complete, and each trickled byte restarts it.</li>
+<li>Both drive the same <code>H2Server</code> engine as the h2c server.</li>
 <li><strong>Async</strong>, many TLS connections on one event-loop thread:
   <code>http2_tls_serve_async</code>. A non-blocking SSL pump
   (<code>tls_accept_async</code>/<code>tls_read_async</code>/<code>tls_write_all_async</code>) retries <code>SSL_*</code> on
   <code>WANT_READ</code>/<code>WANT_WRITE</code> and parks on the matching readiness via the reactor's
-  <code>el_add_read</code>/<code>el_add_write</code>.</li>
+  <code>EventLoop_add_read</code>/<code>EventLoop_add_write</code>.</li>
 </ul>
 <p>Verified end-to-end against <code>curl --http2</code>: ALPN negotiates h2 and the request is
 served as <code>HTTP/2 200</code>, including multiple concurrent connections on the async

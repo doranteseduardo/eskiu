@@ -1,0 +1,10 @@
+// EXPECT-ERROR: parse_error_located.esk:7:5: Expected ';'
+// A syntax error is reported at its location, and recovery resumes at the next
+// top-level declaration instead of cascading into "Expected declaration".
+extern int printf(string fmt, ...);
+int f() {
+    int x = 1 + 2
+    return x;
+}
+int g() { return 2; }
+int main() { return f() + g(); }

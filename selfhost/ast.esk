@@ -9,6 +9,66 @@ import <mem>;
 import <list>;
 import <string>;
 
+extern int dprintf(int fd, string fmt, ...);   // diagnostics go to stderr, like the C++
+
+// Integer rank of `t` after promotion (32 = int/uint, 64 = int64/uint64); 0 = not an
+// integer. `*uns` is set for an unsigned rank. Mirrors the C++ ty::rangeVarType
+// (shared by sema and codegen).
+int ast_range_rank(string t, int* uns) {
+    *uns = 0;
+    if (ast_streq(t, "int64") == 1) { return 64; }
+    if (ast_streq(t, "uint64") == 1) { *uns = 1; return 64; }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) { *uns = 1; return 32; }
+    if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1 || ast_streq(t, "int8") == 1
+        || ast_streq(t, "int16") == 1 || ast_streq(t, "uint8") == 1 || ast_streq(t, "uint16") == 1
+        || ast_streq(t, "char") == 1) { return 32; }
+    return 0;
+}
+
+// The loop-variable type of `for (i in a..b)` from its two bound types: C's usual
+// arithmetic conversions over integers. "" when a bound is not an integer.
+string ast_range_var_type(string a, string b) {
+    int ua = 0; int ub = 0;
+    int ra = ast_range_rank(a, &ua);
+    int rb = ast_range_rank(b, &ub);
+    if (ra == 0 || rb == 0) { return ""; }
+    int r = ra; if (rb > r) { r = rb; }
+    int u = ua;
+    if (ra == rb) { if (ub == 1) { u = 1; } } else if (rb > ra) { u = ub; }
+    if (r == 64) { if (u == 1) { return "uint64"; } return "int64"; }
+    if (u == 1) { return "uint"; }
+    return "int";
+}
+
+// The type a bare integer-literal range bound takes: the first of int, int64, uint64
+// that holds it (mirrors the C++ rangeLiteralType: 0x hex, 0-octal, else decimal).
+string ast_range_lit_type(string v) {
+    int i = 0; int neg = 0;
+    if (v[0] == 45) { neg = 1; i = 1; }
+    uint64 base = (uint64)10;
+    if (v[i] == 48 && (v[i + 1] == 120 || v[i + 1] == 88)) { base = (uint64)16; i = i + 2; }
+    else if (v[i] == 48) { base = (uint64)8; }
+    uint64 mag = (uint64)0;
+    int done = 0;
+    while (done == 0 && v[i] != 0) {
+        int c = (int)v[i];
+        int dv = -1;
+        if (c >= 48 && c <= 57) { dv = c - 48; }
+        else if (c >= 97 && c <= 102) { dv = c - 87; }
+        else if (c >= 65 && c <= 70) { dv = c - 55; }
+        if (dv < 0 || (uint64)dv >= base) { done = 1; }
+        else {
+            if (mag > ((uint64)18446744073709551615 - (uint64)dv) / base) { return "int"; }   // overflows: not a valid literal
+            mag = mag * base + (uint64)dv;
+            i = i + 1;
+        }
+    }
+    if (neg == 1) { if (mag <= (uint64)2147483648) { return "int"; } return "int64"; }
+    if (mag <= (uint64)2147483647) { return "int"; }
+    if (mag <= (uint64)9223372036854775807) { return "int64"; }
+    return "uint64";
+}
+
 // ── operator-overload name mangling (shared by parser + sema) ─────────────────
 // An `operator <op>(...)` decl compiles to a normal function under a canonical mangled
 // name (`+`->`add`, `[]`->`index`, unary `-`->`neg`); `a op b` resolves to it by operands.
@@ -37,7 +97,8 @@ int ast_has_prefix(string s, string pfx) {
     return 1;
 }
 // Type spelling → symbol-safe fragment: a `struct:`/`union:`/`enum:`/`interface:` prefix
-// (how sema spells a nominal type) is dropped, `*`->`p_`, other non-ident chars dropped.
+// (how sema spells a nominal type) is dropped, `*`->`p_`, `[`->`_A`, `]`->`_`, other
+// non-ident chars dropped.
 string ast_ty_mangle(string tin) {
     string t = tin;
     if (ast_has_prefix(t, "struct:") == 1)    { t = (string)((*uint8)t + 7); }
@@ -50,9 +111,21 @@ string ast_ty_mangle(string tin) {
         int c = (int)t[i];
         if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { String_push(&out, (char)c); }
         else if (c == 42) { String_append(&out, "p_"); }
+        else if (c == 91) { String_append(&out, "_A"); }
+        else if (c == 93) { String_push(&out, '_'); }
         i = i + 1;
     }
     return (string)String_cstr(&out);
+}
+// The type a bitfield of declared (dealiased) integer type `t` and `w` bits is read as:
+// `int` when every value fits an int (C promotion), else `t` (mirrors tyq::bitfieldReadType).
+string ast_bf_read_type(string t, int w) {
+    if (w <= 0) { return t; }
+    int u32 = 0;
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1 || ast_streq(t, "uint64") == 1) { u32 = 1; }
+    if (u32 == 1 && w < 32) { return "int"; }
+    if (ast_streq(t, "int64") == 1 && w <= 32) { return "int"; }
+    return t;
 }
 string ast_op_name(string op, List<string>* tys) {
     string w = ast_op_word(op);
@@ -68,6 +141,100 @@ string ast_op_name(string op, List<string>* tys) {
     return (string)String_cstr(&out);
 }
 
+// ── generic type-argument inference (shared by sema + codegen) ────────────────
+// `s[a..b)` as a fresh string.
+string ast_sub(string s, int a, int b) {
+    *uint8 buf = alloc<uint8>(b - a + 1);
+    int k = 0; while (a + k < b) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    buf[k] = 0;
+    return (string)buf;
+}
+// Canonical spelling for unification: `const` and a `struct:` tag dropped (neither
+// changes the shape) and trailing '*' moved to the front ("const Box<T>*" -> "*Box<T>"),
+// so declared and inferred spellings compare equal.
+string ast_unify_canon(string t) {
+    int a = 0; int stars = 0;
+    int more = 1;
+    while (more == 1) {
+        more = 0;
+        while ((int)t[a] == 42 || (int)t[a] == 32) { if ((int)t[a] == 42) { stars = stars + 1; } a = a + 1; }
+        if (ast_has_prefix((string)((*uint8)t + a), "const ") == 1) { a = a + 6; more = 1; }
+        if (ast_has_prefix((string)((*uint8)t + a), "struct:") == 1) { a = a + 7; more = 1; }
+    }
+    int b = a; while (t[b] != 0) { b = b + 1; }
+    more = 1;
+    while (more == 1) {
+        more = 0;
+        while (b > a && ((int)t[b - 1] == 42 || (int)t[b - 1] == 32)) { if ((int)t[b - 1] == 42) { stars = stars + 1; } b = b - 1; }
+        if (b - a >= 6 && ast_has_prefix((string)((*uint8)t + b - 6), "*const") == 1) { stars = stars + 1; b = b - 6; more = 1; }
+    }
+    let out: String; String_init(&out, b - a + stars + 1);
+    int i = 0; while (i < stars) { String_push(&out, '*'); i = i + 1; }
+    String_append(&out, ast_sub(t, a, b));
+    return (string)String_cstr(&out);
+}
+// The top-level comma-separated args inside the outermost <...> of `s` (nesting-aware,
+// the "->" of a fn type is not a closing '>').
+void ast_targs(string s, List<string>* out) {
+    int i = 0;
+    while (s[i] != 0 && (int)s[i] != 60) { i = i + 1; }
+    if (s[i] == 0) { return; }
+    i = i + 1;
+    int depth = 1; int start = i;
+    while (s[i] != 0 && depth > 0) {
+        int c = (int)s[i];
+        if (c == 60 || c == 40) { depth = depth + 1; }
+        else if (c == 41) { depth = depth - 1; }
+        else if (c == 62 && (int)s[i - 1] != 45) { depth = depth - 1; if (depth == 0) { break; } }
+        else if (c == 44 && depth == 1) {
+            int a = start; while ((int)s[a] == 32) { a = a + 1; }
+            int b = i; while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+            List_push<string>(out, ast_sub(s, a, b));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    int a = start; while ((int)s[a] == 32) { a = a + 1; }
+    int b = i; while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+    if (b > a) { List_push<string>(out, ast_sub(s, a, b)); }
+}
+// The binding of type parameter `tp` from unifying a parameter type `pat` against a
+// concrete argument type `arg`: matching pointer levels peel off, a bare `tp` binds the
+// whole remaining type, and `G<P1, P2>` against `G<C1, C2>` recurses into every type
+// argument, so one parameter can bind several type parameters (`Pair<A, B> p`).
+// "" when `tp` does not occur or the shapes differ. Mirrors the C++ unifyTypeParam.
+string ast_unify_tparam(string pat0, string arg0, string tp) {
+    string pat = ast_unify_canon(pat0);
+    string arg = ast_unify_canon(arg0);
+    int i = 0;
+    while ((int)pat[i] == 42 && (int)arg[i] == 42) { i = i + 1; }
+    pat = (string)((*uint8)pat + i);
+    arg = ast_unify_canon((string)((*uint8)arg + i));
+    if (pat[0] == 0 || arg[0] == 0) { return ""; }
+    if (ast_streq(pat, tp) == 1) { return arg; }
+    int pn = 0; while (pat[pn] != 0) { pn = pn + 1; }
+    if (pn > 2 && (int)pat[pn - 1] == 93 && (int)pat[pn - 2] == 91) {   // `T[]`: the element
+        int an = 0; while (arg[an] != 0) { an = an + 1; }
+        if (an > 2 && (int)arg[an - 1] == 93 && (int)arg[an - 2] == 91) {
+            return ast_unify_tparam(ast_sub(pat, 0, pn - 2), ast_sub(arg, 0, an - 2), tp);
+        }
+        return "";
+    }
+    int pl = 0; while (pat[pl] != 0 && (int)pat[pl] != 60) { pl = pl + 1; }
+    int al = 0; while (arg[al] != 0 && (int)arg[al] != 60) { al = al + 1; }
+    if (pat[pl] == 0 || arg[al] == 0 || pl != al || (int)pat[0] == 42) { return ""; }
+    int k = 0; while (k < pl) { if (pat[k] != arg[k]) { return ""; } k = k + 1; }
+    List<string> pa; List_init<string>(&pa, 2); ast_targs(pat, &pa);
+    List<string> aa; List_init<string>(&aa, 2); ast_targs(arg, &aa);
+    k = 0;
+    while (k < List_len<string>(&pa) && k < List_len<string>(&aa)) {
+        string b = ast_unify_tparam(List_get<string>(&pa, k), List_get<string>(&aa, k), tp);
+        if (b[0] != 0) { return b; }
+        k = k + 1;
+    }
+    return "";
+}
+
 // Node kind tags (mirror the C++ node set; extended as slices land).
 enum DeclKind {
     DK_FUNCTION, DK_EXTERN, DK_INTRINSIC, DK_STRUCT, DK_UNION,
@@ -77,7 +244,7 @@ enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
     SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
-    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER
+    SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER, SK_ASMOUTPUT
 }
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
@@ -104,6 +271,15 @@ struct ExprNode {
     List<string> names;    // struct-init field names (parallel to kids; "" = positional)
     *StmtNode stmt;        // lambda body
     string op_fn;          // EK_BINARY/EK_UNARY/EK_INDEX: resolved operator-overload fn ("" = built-in)
+    List<string> ids_memo; // EK_LAMBDA: identifiers of the body, collected once (cg_collect_idents_e)
+    int ids_done;          // EK_LAMBDA: ids_memo is filled
+    string cg_ety;         // EK_MEMBER: codegen's type of this member, valid while cg_stamp is active
+    int cg_stamp;
+    string aty;            // in an async function: the type sema inferred (the async lowering types its temporaries by it)
+    string sm_ety;         // EK_TERNARY: sema's type of this node, valid while sm_epoch is current
+    int sm_epoch;
+    int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
+    int col;
 }
 
 struct StmtNode {
@@ -114,12 +290,18 @@ struct StmtNode {
     *StmtNode s2;          // else / for body
     List<*StmtNode> items; // block items
     string name;           // var-decl name / for-in variable
-    string type;           // var-decl type
+    string type;           // var-decl type / SK_ASM: the clobbers as `~{c},...` constraints
     int is_const;          // SK_VARDECL: declared value-const (read-only binding)
     int is_static;         // SK_VARDECL: `static` local (one instance, persists across calls)
-    int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer
+    int is_vol;            // SK_VARDECL: `volatile` (its loads/stores, and those through it, are volatile)
+    int is_err;            // SK_DEFER: errdefer (runs only on the error path) vs plain defer; SK_TRY: an async lowering wrapper whose finally runs only on unwinding
+    int is_range;          // SK_VARDECL: a `for (i in A..B)` desugar decl; sema retypes it to the bounds' common integer type
     string resolved_elem;  // SK_FORIN: element type stamped by sema (mirrors C++ resolvedElemType); "" = fall back to structural resolution at lowering
+    string resolved_iter;  // SK_FORIN: the iterable's type stamped by sema (the async lowering holds a non-place iterable in a local)
     string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
+    string arm_types;      // SK_ARM: its payload bindings' types, ';'-separated, stamped by sema (null = not stamped)
+    int line;              // source position for diagnostics (0 = unknown)
+    int col;
 }
 
 // A generic type parameter with its (possibly empty) interface constraints, e.g.
@@ -139,15 +321,43 @@ struct DeclNode {
     List<TypeParam> type_params;   // generic <T, U: Iface> on fn/struct/enum (else empty)
     List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
-    List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none)
+    List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none, -1 = `: 0`)
+    List<*ExprNode> enum_vals;     // enum: member value expressions (parallel to params; null = a
+                                   // literal or the previous + 1), folded by sema into params' ty
     int is_async;                  // function declared `async` (1) or not (0)
     int is_mustuse;                  // function declared `must_use` (discarding result is an error)
     int is_const;                  // DK_VARDECL: declared value-const global
     int is_extern;                 // DK_VARDECL: `extern <type> <name>;` (C global, external linkage, no init)
+    int is_vol;                    // DK_VARDECL: `volatile` global
+    int is_static;                 // DK_VARDECL: `static` written on a global (a sema error)
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
     string operator_sym;           // `operator <op>(...)`: the op ("+","[]","u-"); "" = normal fn
+    string file;                   // top-level decl: the source file it came from (diagnostics)
+    int line;                      // source position for diagnostics (0 = unknown)
+    int col;
+}
+
+// Position of the token the parser consumed last; each node the parser allocates is
+// stamped with it (a diagnostic position, near the construct).
+int g_pos_line = 0;
+int g_pos_col = 0;
+
+*ExprNode ast_new_expr() {
+    *ExprNode e = alloc<ExprNode>(1);
+    e.line = g_pos_line; e.col = g_pos_col;
+    return e;
+}
+*StmtNode ast_new_stmt() {
+    *StmtNode st = alloc<StmtNode>(1);
+    st.line = g_pos_line; st.col = g_pos_col;
+    return st;
+}
+*DeclNode ast_new_decl() {
+    *DeclNode d = alloc<DeclNode>(1);
+    d.line = g_pos_line; d.col = g_pos_col;
+    return d;
 }
 
 struct Program {
@@ -187,12 +397,28 @@ void print_expr(*ExprNode e, int d) {
         return;
     }
     if (e.kind == EK_BINARY) {
-        pind(d);
-        printf("BinaryExpr: %s\n", e.sval);
-        pline(d + 1, "Left:");
-        print_expr(e.a, d + 2);
-        pline(d + 1, "Right:");
-        print_expr(e.b, d + 2);
+        // A left-leaning chain (`a + b + c ...`) is printed along its left spine with a
+        // loop, not one recursive call per operator (mirrors the C++ printer).
+        let spine: List<*ExprNode>; List_init<*ExprNode>(&spine, 8);
+        *ExprNode b = e;
+        int k = 0;
+        while (b.kind == EK_BINARY) {
+            pind(d + 2 * k);
+            printf("BinaryExpr: %s\n", b.sval);
+            pline(d + 2 * k + 1, "Left:");
+            List_push<*ExprNode>(&spine, b);
+            b = b.a;
+            k = k + 1;
+        }
+        print_expr(b, d + 2 * k);
+        int i = k - 1;
+        while (i >= 0) {
+            pline(d + 2 * i + 1, "Right:");
+            *ExprNode op = List_get<*ExprNode>(&spine, i);
+            print_expr(op.b, d + 2 * i + 2);
+            i = i - 1;
+        }
+        List_free<*ExprNode>(&spine);
         return;
     }
     if (e.kind == EK_UNARY) {
@@ -262,6 +488,11 @@ void print_expr(*ExprNode e, int d) {
     }
     if (e.kind == EK_SIZEOF) {
         pind(d);
+        if (e.a != null) {                 // sizeof(expr)
+            printf("SizeofExpr: sizeof(<expr>)\n");
+            print_expr(e.a, d + 1);
+            return;
+        }
         printf("SizeofExpr: sizeof(%s)\n", e.sval);
         return;
     }
@@ -339,14 +570,22 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_IF) {
-        pline(d, "IfStmt");
-        pline(d + 1, "Condition:");
-        print_expr(s.expr, d + 2);
-        pline(d + 1, "Then:");
-        print_stmt(s.s1, d + 2);
-        if (s.s2 != null) {
-            pline(d + 1, "Else:");
-            print_stmt(s.s2, d + 2);
+        // An `else if` chain is printed with a loop, one level deeper per link.
+        *StmtNode n = s;
+        int k = d;
+        while (n != null) {
+            pline(k, "IfStmt");
+            pline(k + 1, "Condition:");
+            print_expr(n.expr, k + 2);
+            pline(k + 1, "Then:");
+            print_stmt(n.s1, k + 2);
+            *StmtNode next = null;
+            if (n.s2 != null) {
+                pline(k + 1, "Else:");
+                if (n.s2.kind == SK_IF) { next = n.s2; } else { print_stmt(n.s2, k + 2); }
+            }
+            n = next;
+            k = k + 2;
         }
         return;
     }
@@ -498,7 +737,8 @@ void print_stmt(*StmtNode s, int d) {
         while (i < n) {
             *StmtNode inp = List_get<*StmtNode>(&s.items, i);
             pind(d + 1);
-            printf("input: \"%s\"\n", inp.name);
+            if (inp.kind == SK_ASMOUTPUT) { printf("output: \"%s\"\n", inp.name); }
+            else { printf("input: \"%s\"\n", inp.name); }
             print_expr(inp.expr, d + 2);
             i = i + 1;
         }
@@ -635,10 +875,15 @@ void print_decl(*DeclNode dn, int d) {
         print_type_params(dn, d + 1);
         int i = 0;
         int n = List_len<Param>(&dn.params);
+        int since = 0 - 1;                           // members after a value expression: "<expr>+k"
         while (i < n) {
             Param pm = List_get<Param>(&dn.params, i);
+            *ExprNode ve = null;
+            if (i < List_len<*ExprNode>(&dn.enum_vals)) { ve = List_get<*ExprNode>(&dn.enum_vals, i); }
             pind(d + 1);
-            printf("%s = %s", pm.name, pm.ty);       // name = value
+            if (ve != null) { printf("%s = <expr>", pm.name); since = 0; }
+            else if (since >= 0) { since = since + 1; printf("%s = <expr>+%d", pm.name, since); }
+            else { printf("%s = %s", pm.name, pm.ty); }       // name = value
             List<string> pl = List_get<List<string>>(&dn.payloads, i);
             int pn = List_len<string>(&pl);
             if (pn > 0) {                            // ADT variant payload: (t1, t2)
@@ -652,6 +897,7 @@ void print_decl(*DeclNode dn, int d) {
                 printf(")");
             }
             printf("\n");
+            if (ve != null) { print_expr(ve, d + 2); }
             i = i + 1;
         }
         return;
@@ -680,4 +926,307 @@ void print_program(*Program p) {
         print_decl(List_get<*DeclNode>(&p.decls, i), 1);
         i = i + 1;
     }
+}
+
+// Does `e` name the same place however often it is evaluated? A variable, and a field or
+// constant-index element of one (no call, assignment, operator overload or variable
+// index), like astwalk::isStablePlace. `for (x in E)` over anything else evaluates E once.
+int ast_stable_place(*ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_IDENT) { return 1; }
+    if (e.kind == EK_MEMBER) { return ast_stable_place(e.a); }
+    if (e.kind == EK_INDEX) {
+        if (e.op_fn != null && e.op_fn[0] != 0) { return 0; }
+        if (e.b == null || e.b.kind != EK_LITERAL) { return 0; }
+        int i = 0;
+        while (i < List_len<*ExprNode>(&e.kids)) { if (List_get<*ExprNode>(&e.kids, i).kind != EK_LITERAL) { return 0; } i = i + 1; }
+        return ast_stable_place(e.a);
+    }
+    if (e.kind == EK_UNARY) {
+        if (e.op_fn != null && e.op_fn[0] != 0) { return 0; }
+        if (ast_streq(e.sval, "&") == 1) { return ast_stable_place(e.a); }
+    }
+    return 0;
+}
+
+// ── array dimensions as integer constant expressions (mirrors the C++ ty::foldDim) ──
+
+// The fold state over a dimension's text: the parser keeps the tokens' text
+// (`(uint8)258`, `N*2`). `look`, passed down the recursion, resolves a name (a `const`
+// int or an enum member): it stores the value and returns 1, or returns 0.
+struct DimFold { string s; int i; int n; int ok; }
+
+// A folded integer constant with its C type after promotion (mirrors ty::CInt): `rank`
+// 32 (int / uint) or 64 (int64 / uint64), `uns` 1 for the unsigned ones, `v` the value in
+// that type (a 32-bit one sign- or zero-extended). The constant folders (enum values,
+// array dimensions, `case` labels) compute with these so they follow C's usual
+// arithmetic conversions.
+struct AstCInt { int64 v; int rank; int uns; }
+
+AstCInt ast_ci_make(int64 v, int rank, int uns) {
+    AstCInt r;
+    r.rank = 32; if (rank == 64) { r.rank = 64; }
+    r.uns = uns;
+    r.v = v;
+    if (r.rank == 32) {
+        if (uns == 1) { r.v = (int64)(uint)v; } else { r.v = (int64)(int)v; }
+    }
+    return r;
+}
+AstCInt ast_ci_bool(int b) { if (b != 0) { return ast_ci_make((int64)1, 32, 0); } return ast_ci_make((int64)0, 32, 0); }
+// An integer literal's value (bits `v`): `int` when it fits, else `int64` (`uint64` past it).
+AstCInt ast_ci_lit(int64 v) {
+    if (v < (int64)0) { return ast_ci_make(v, 64, 1); }
+    if (v <= (int64)2147483647) { return ast_ci_make(v, 32, 0); }
+    return ast_ci_make(v, 64, 0);
+}
+// A value known only as an int64 (an enum member, a const): `int` when it fits.
+AstCInt ast_ci_of(int64 v) {
+    if (v >= (int64)-2147483648 && v <= (int64)2147483647) { return ast_ci_make(v, 32, 0); }
+    return ast_ci_make(v, 64, 0);
+}
+// `(t)x` for an integer type `t`; 0 when `t` is not one.
+int ast_ci_cast(string t, AstCInt x, AstCInt* out) {
+    int64 v = x.v;
+    if (ast_streq(t, "bool") == 1) { *out = ast_ci_bool((int)(v != (int64)0)); return 1; }
+    if (ast_streq(t, "int8") == 1) { *out = ast_ci_make((int64)(int8)v, 32, 0); return 1; }
+    if (ast_streq(t, "uint8") == 1 || ast_streq(t, "char") == 1) { *out = ast_ci_make((int64)(uint8)v, 32, 0); return 1; }
+    if (ast_streq(t, "int16") == 1) { *out = ast_ci_make((int64)(int16)v, 32, 0); return 1; }
+    if (ast_streq(t, "uint16") == 1) { *out = ast_ci_make((int64)(uint16)v, 32, 0); return 1; }
+    if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1) { *out = ast_ci_make(v, 32, 0); return 1; }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) { *out = ast_ci_make(v, 32, 1); return 1; }
+    if (ast_streq(t, "int64") == 1) { *out = ast_ci_make(v, 64, 0); return 1; }
+    if (ast_streq(t, "uint64") == 1) { *out = ast_ci_make(v, 64, 1); return 1; }
+    return 0;
+}
+// Unary `-`, `~`, `!`, `+`.
+int ast_ci_unary(string op, AstCInt x, AstCInt* out) {
+    if (ast_streq(op, "-") == 1) { *out = ast_ci_make((int64)0 - x.v, x.rank, x.uns); return 1; }
+    if (ast_streq(op, "~") == 1) { *out = ast_ci_make(~x.v, x.rank, x.uns); return 1; }
+    if (ast_streq(op, "!") == 1) { *out = ast_ci_bool((int)(x.v == (int64)0)); return 1; }
+    if (ast_streq(op, "+") == 1) { *out = x; return 1; }
+    return 0;
+}
+// `x op y` (mirrors ty::cintBinary); 0 when `op` does not fold or is undefined.
+int ast_ci_binary(string op, AstCInt x, AstCInt y, AstCInt* out) {
+    int64 z = (int64)0;
+    if (ast_streq(op, "&&") == 1) { *out = ast_ci_bool((int)(x.v != z && y.v != z)); return 1; }
+    if (ast_streq(op, "||") == 1) { *out = ast_ci_bool((int)(x.v != z || y.v != z)); return 1; }
+    if (ast_streq(op, "<<") == 1 || ast_streq(op, ">>") == 1) {
+        // The result has the (promoted) left operand's type; the count must fit its width.
+        if (y.uns == 0 && y.v < z) { return 0; }
+        if ((uint64)y.v >= (uint64)x.rank) { return 0; }
+        if (ast_streq(op, "<<") == 1) { *out = ast_ci_make((int64)((uint64)x.v << (uint64)y.v), x.rank, x.uns); }
+        else if (x.uns == 1) { *out = ast_ci_make((int64)((uint64)x.v >> (uint64)y.v), x.rank, x.uns); }
+        else { *out = ast_ci_make(x.v >> y.v, x.rank, x.uns); }
+        return 1;
+    }
+    // The usual arithmetic conversions: the wider rank wins, unsigned at equal rank.
+    int r = x.rank; if (y.rank > r) { r = y.rank; }
+    int u = 0;
+    if (x.rank == y.rank) { if (x.uns == 1 || y.uns == 1) { u = 1; } }
+    else if (x.rank > y.rank) { u = x.uns; } else { u = y.uns; }
+    AstCInt a = ast_ci_make(x.v, r, u);
+    AstCInt b = ast_ci_make(y.v, r, u);
+    uint64 ua = (uint64)a.v; uint64 ub = (uint64)b.v;
+    if (ast_streq(op, "==") == 1) { *out = ast_ci_bool((int)(a.v == b.v)); return 1; }
+    if (ast_streq(op, "!=") == 1) { *out = ast_ci_bool((int)(a.v != b.v)); return 1; }
+    if (ast_streq(op, "<") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua < ub)); } else { *out = ast_ci_bool((int)(a.v < b.v)); } return 1; }
+    if (ast_streq(op, ">") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua > ub)); } else { *out = ast_ci_bool((int)(a.v > b.v)); } return 1; }
+    if (ast_streq(op, "<=") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua <= ub)); } else { *out = ast_ci_bool((int)(a.v <= b.v)); } return 1; }
+    if (ast_streq(op, ">=") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua >= ub)); } else { *out = ast_ci_bool((int)(a.v >= b.v)); } return 1; }
+    int64 v = z;
+    if (ast_streq(op, "+") == 1) { v = (int64)(ua + ub); }
+    else if (ast_streq(op, "-") == 1) { v = (int64)(ua - ub); }
+    else if (ast_streq(op, "*") == 1) { v = (int64)(ua * ub); }
+    else if (ast_streq(op, "&") == 1) { v = a.v & b.v; }
+    else if (ast_streq(op, "|") == 1) { v = a.v | b.v; }
+    else if (ast_streq(op, "^") == 1) { v = a.v ^ b.v; }
+    else if (ast_streq(op, "/") == 1 || ast_streq(op, "%") == 1) {
+        if (b.v == z) { return 0; }
+        if (u == 1) {
+            if (ast_streq(op, "/") == 1) { v = (int64)(ua / ub); } else { v = (int64)(ua % ub); }
+        } else {
+            int64 mn = (int64)-2147483648;
+            if (r == 64) { mn = (int64)-9223372036854775807 - (int64)1; }
+            if (a.v == mn && b.v == (int64)-1) { return 0; }
+            if (ast_streq(op, "/") == 1) { v = a.v / b.v; } else { v = a.v % b.v; }
+        }
+    }
+    else { return 0; }
+    *out = ast_ci_make(v, r, u);
+    return 1;
+}
+
+int ast_df_at(DimFold* f, string op) {
+    int k = 0;
+    while (op[k] != 0) {
+        if (f.i + k >= f.n || f.s[f.i + k] != op[k]) { return 0; }
+        k = k + 1;
+    }
+    return 1;
+}
+int ast_df_ident_start(int c) { if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95) { return 1; } return 0; }
+int ast_df_ident_char(int c) { if (ast_df_ident_start(c) == 1 || (c >= 48 && c <= 57)) { return 1; } return 0; }
+string ast_df_ident(DimFold* f) {
+    int b = f.i;
+    while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) { f.i = f.i + 1; }
+    int len = f.i - b;
+    *uint8 buf = alloc<uint8>(len + 1);
+    int k = 0; while (k < len) { buf[k] = (uint8)f.s[b + k]; k = k + 1; }
+    buf[len] = 0;
+    return (string)buf;
+}
+AstCInt ast_df_ternary(DimFold* f, fn(string, *int64)->int look);
+AstCInt ast_df_fail(DimFold* f) { f.ok = 0; return ast_ci_make((int64)0, 32, 0); }
+AstCInt ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
+    if (f.ok == 0 || f.i >= f.n) { return ast_df_fail(f); }
+    int c = (int)f.s[f.i];
+    if (c == 45 || c == 43 || c == 126 || c == 33) {                           // - + ~ !
+        f.i = f.i + 1;
+        AstCInt x = ast_df_unary(f, look);
+        if (f.ok == 0) { return ast_df_fail(f); }
+        AstCInt r = x;
+        string op = "-";
+        if (c == 43) { op = "+"; } else if (c == 126) { op = "~"; } else if (c == 33) { op = "!"; }
+        ast_ci_unary(op, x, &r);
+        return r;
+    }
+    if (c == 40) {                                                              // '('
+        f.i = f.i + 1;
+        int save = f.i;
+        if (f.i < f.n && ast_df_ident_start((int)f.s[f.i]) == 1) {             // `(type)x`, a cast
+            string t = ast_df_ident(f);
+            AstCInt probe = ast_ci_make((int64)0, 32, 0);
+            if (ast_df_at(f, ")") == 1 && ast_ci_cast(t, probe, &probe) == 1) {
+                f.i = f.i + 1;
+                AstCInt x = ast_df_unary(f, look);
+                if (f.ok == 0) { return ast_df_fail(f); }
+                AstCInt r = x;
+                ast_ci_cast(t, x, &r);
+                return r;
+            }
+            f.i = save;
+        }
+        AstCInt v = ast_df_ternary(f, look);
+        if (ast_df_at(f, ")") == 0) { return ast_df_fail(f); }
+        f.i = f.i + 1;
+        return v;
+    }
+    if (c >= 48 && c <= 57) {                                                   // a number
+        int b = f.i;
+        while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) { f.i = f.i + 1; }
+        int64 base = (int64)10; int k = b;
+        if (f.i - b > 1 && f.s[b] == '0' && (f.s[b + 1] == 'x' || f.s[b + 1] == 'X')) { base = (int64)16; k = b + 2; }
+        else if (f.i - b > 1 && f.s[b] == '0') { base = (int64)8; k = b + 1; }
+        if (k >= f.i) { return ast_df_fail(f); }
+        int64 v = (int64)0;
+        while (k < f.i) {
+            int ch = (int)f.s[k]; int64 d = (int64)99;
+            if (ch >= 48 && ch <= 57) { d = (int64)(ch - 48); }
+            else if (ch >= 97 && ch <= 102) { d = (int64)(ch - 87); }
+            else if (ch >= 65 && ch <= 70) { d = (int64)(ch - 55); }
+            if (d >= base) { return ast_df_fail(f); }
+            v = (int64)((uint64)v * (uint64)base + (uint64)d);
+            k = k + 1;
+        }
+        return ast_ci_lit(v);
+    }
+    if (ast_df_ident_start(c) == 1) {
+        int nb = f.i;
+        string nm = ast_df_ident(f);
+        // `sizeof(T)` goes to `look` whole, as the text "sizeof(T)"; its value is a size
+        // (unsigned 64-bit, C's size_t).
+        int is_size = 0;
+        if (ast_streq(nm, "sizeof") == 1 && ast_df_at(f, "(") == 1) {
+            int depth = 0;
+            while (f.i < f.n) {
+                if (f.s[f.i] == '(') { depth = depth + 1; }
+                else if (f.s[f.i] == ')') { depth = depth - 1; if (depth == 0) { break; } }
+                f.i = f.i + 1;
+            }
+            if (f.i >= f.n) { return ast_df_fail(f); }
+            f.i = f.i + 1;
+            nm = ast_sub(f.s, nb, f.i);
+            is_size = 1;
+        }
+        int64 v = (int64)0;
+        if (look(nm, &v) == 0) { return ast_df_fail(f); }
+        if (is_size == 1) { return ast_ci_make(v, 64, 1); }
+        return ast_ci_of(v);
+    }
+    return ast_df_fail(f);
+}
+// The binary operator at the cursor for precedence `level` (0 `||` .. 9 `*`), or "".
+string ast_df_op(DimFold* f, int level) {
+    string two = "";
+    if (ast_df_at(f, "||") == 1) { two = "||"; } else if (ast_df_at(f, "&&") == 1) { two = "&&"; }
+    else if (ast_df_at(f, "==") == 1) { two = "=="; } else if (ast_df_at(f, "!=") == 1) { two = "!="; }
+    else if (ast_df_at(f, "<=") == 1) { two = "<="; } else if (ast_df_at(f, ">=") == 1) { two = ">="; }
+    else if (ast_df_at(f, "<<") == 1) { two = "<<"; } else if (ast_df_at(f, ">>") == 1) { two = ">>"; }
+    if (level == 0 && ast_streq(two, "||") == 1) { return two; }
+    if (level == 1 && ast_streq(two, "&&") == 1) { return two; }
+    if (level == 5 && (ast_streq(two, "==") == 1 || ast_streq(two, "!=") == 1)) { return two; }
+    if (level == 6 && (ast_streq(two, "<=") == 1 || ast_streq(two, ">=") == 1)) { return two; }
+    if (level == 7 && (ast_streq(two, "<<") == 1 || ast_streq(two, ">>") == 1)) { return two; }
+    if (two[0] != 0 || f.i >= f.n) { return ""; }
+    int c = (int)f.s[f.i];
+    if (level == 2 && c == 124) { return "|"; }
+    if (level == 3 && c == 94) { return "^"; }
+    if (level == 4 && c == 38) { return "&"; }
+    if (level == 6 && c == 60) { return "<"; }
+    if (level == 6 && c == 62) { return ">"; }
+    if (level == 8 && c == 43) { return "+"; }
+    if (level == 8 && c == 45) { return "-"; }
+    if (level == 9 && c == 42) { return "*"; }
+    if (level == 9 && c == 47) { return "/"; }
+    if (level == 9 && c == 37) { return "%"; }
+    return "";
+}
+AstCInt ast_df_binary(DimFold* f, int level, fn(string, *int64)->int look) {
+    if (level == 10) { return ast_df_unary(f, look); }
+    AstCInt l = ast_df_binary(f, level + 1, look);
+    while (f.ok == 1) {
+        string o = ast_df_op(f, level);
+        if (o[0] == 0) { return l; }
+        int ol = 0; while (o[ol] != 0) { ol = ol + 1; }
+        f.i = f.i + ol;
+        AstCInt r = ast_df_binary(f, level + 1, look);
+        if (f.ok == 0 || ast_ci_binary(o, l, r, &l) == 0) { return ast_df_fail(f); }
+    }
+    return ast_df_fail(f);
+}
+AstCInt ast_df_ternary(DimFold* f, fn(string, *int64)->int look) {
+    AstCInt c = ast_df_binary(f, 0, look);
+    if (f.ok == 0 || ast_df_at(f, "?") == 0) { return c; }
+    f.i = f.i + 1;
+    AstCInt a = ast_df_ternary(f, look);
+    if (ast_df_at(f, ":") == 0) { return ast_df_fail(f); }
+    f.i = f.i + 1;
+    AstCInt b = ast_df_ternary(f, look);
+    if (f.ok == 0) { return ast_df_fail(f); }
+    // The arms meet at their common type (the usual arithmetic conversions).
+    int r = a.rank; if (b.rank > r) { r = b.rank; }
+    int u = 0;
+    if (a.rank == b.rank) { if (a.uns == 1 || b.uns == 1) { u = 1; } }
+    else if (a.rank > b.rank) { u = a.uns; } else { u = b.uns; }
+    if (c.v != (int64)0) { return ast_ci_make(a.v, r, u); }
+    return ast_ci_make(b.v, r, u);
+}
+// Fold dimension `dim` into `out`: 1 when it is an integer constant expression (numbers,
+// integer casts, unary and binary operators, `?:`, parentheses, names `look` resolves;
+// a `sizeof(T)` reaches `look` as that whole text), with C's typed integer semantics.
+int ast_fold_dim(string dim, fn(string, *int64)->int look, int64* out) {
+    int n = 0; while (dim[n] != 0) { n = n + 1; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int k = 0; int j = 0;
+    while (j < n) { if (dim[j] != ' ' && dim[j] != '\t') { buf[k] = (uint8)dim[j]; k = k + 1; } j = j + 1; }
+    buf[k] = 0;
+    if (k == 0) { return 0; }
+    let f: DimFold;
+    f.s = (string)buf; f.i = 0; f.n = k; f.ok = 1;
+    AstCInt v = ast_df_ternary(&f, look);
+    if (f.ok == 0 || f.i != f.n) { return 0; }
+    *out = v.v;
+    return 1;
 }

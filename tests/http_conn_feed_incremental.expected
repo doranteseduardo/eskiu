@@ -1,0 +1,10 @@
+st=0 body=300000
+bounded cpu: yes
+st=0 body=11 path=/t body=hello world
+st=0 body=4 path=/c body=abcd
+st=400 body=0
+st=400 body=0
+st=400 body=0
+st=400 body=0
+st=400 body=0
+step 1 len 1

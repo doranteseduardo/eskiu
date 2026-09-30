@@ -1,0 +1,3 @@
+// EXPECT-ERROR: 'main' must take no parameters or (int argc, string* argv)
+// The C runtime passes argc and argv; `main(int, int)` read argv as an int.
+int main(int a, int b) { return 0; }

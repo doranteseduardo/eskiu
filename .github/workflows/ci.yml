@@ -51,6 +51,26 @@ jobs:
       - name: Fuzz (compiler)
         run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --iterations 1500 --seed 1
 
+      # External oracle: generated programs in a C-translatable subset (every integer
+      # width, casts, control flow, arrays, structs, pointers, globals, statics, defer)
+      # must print exactly what their C translation prints under clang -O0 -fwrapv, for
+      # the C++ eskiuc (-O0 and -O2) and the self-hosted eskiuc-esk. It catches bugs
+      # both Eskiu compilers share, which the differentials above cannot see.
+      - name: Fuzz (C oracle)
+        run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 200 --seed 1
+
+      # Negative corpus: generated programs with one injected type/semantic error must be
+      # rejected by both compilers with a file:line:col diagnostic on the error's line,
+      # never accepted, crashed on, or turned into bad IR.
+      - name: Fuzz (negative corpus)
+        run: ESKIU_CLANG=clang-22 python3 tests/fuzz/neg_fuzz.py --programs 300 --seed 1
+
+      # Stdlib parsers (json, base64, url, regex, hpack, http, multipart, uuid/time)
+      # under AddressSanitizer: a seeded mutation loop; a crash, ASan report, broken
+      # round trip, hang or memory blowup fails.
+      - name: Fuzz (stdlib, asan)
+        run: CC=clang-22 python3 tests/fuzz/stdlib_fuzz.py --inputs 1500 --seed 1
+
       # -O0 vs -O2 behavioral differential over the whole corpus: a program must
       # behave identically with and without the middle-end optimizer. Catches
       # optimization-path miscompiles (bad IR attributes, type/ABI mismatches, UB)
@@ -149,3 +169,8 @@ jobs:
       # narrows, `?*T`->`*T` needs a check, `*T`->`?*T` widens).
       - name: Nullable self-host parity
         run: CC=clang-22 tests/selfhost/nullable_parity.sh
+
+      # C-ABI lowering parity: every lowered extern declaration and callback thunk the
+      # self-host emits must match the C++ compiler's signature, across 9 target triples.
+      - name: C ABI self-host parity
+        run: CLANG=clang-22 tests/selfhost/cabi_parity.sh

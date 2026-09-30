@@ -1,0 +1,3 @@
+// EXPECT-ERROR: Expected ';' after import
+import <io>
+int main() { return 0; }

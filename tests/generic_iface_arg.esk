@@ -1,0 +1,20 @@
+// A struct pointer passed where a generic instance takes an interface is boxed to it.
+import <list>;
+extern int printf(string fmt, ...);
+interface Sh { int area(); }
+struct Sq { int s; }
+int Sq_area(Sq* self) { return self.s * self.s; }
+int useit<T>(T k, Sh y) { return y.area() + (int)k; }
+T id<T>(T x) { return x; }
+int main() {
+    let a: Sq = Sq{ s: 3 };
+    printf("%d\n", useit<int>(1, &a));
+    printf("%d\n", useit(2, &a));
+    let s: Sh = id<Sh>(&a);
+    printf("%d\n", s.area());
+    let l: List<Sh>; List_init<Sh>(&l, 2);
+    l.push(&a);
+    List_push<Sh>(&l, &a);
+    printf("%d %d\n", List_len<Sh>(&l), l.get(1).area());
+    return 0;
+}

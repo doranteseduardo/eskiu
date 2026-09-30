@@ -1,0 +1,2 @@
+// EXPECT-ERROR: thread_create expects a closure 'fn()->void', got 'int'
+int main() { *void t = thread_create(5); thread_join(t); return 0; }

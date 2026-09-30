@@ -1,0 +1,5 @@
+// EXPECT-ERROR: redefinition of 'a' in the same scope
+// A function's outermost block shares its parameters' scope (C): a local there may not
+// reuse a parameter name. Found by tests/fuzz/neg_fuzz.py (the self-host rejected it).
+int f(int a) { int a = 2; return a; }
+int main() { return f(1); }

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: array index 3 is out of bounds for array of size 3
+// An enum member used as an index is a constant, checked against the array size.
+enum E { A, B, C, D }
+int main() { int[3] a = {1, 2, 3}; return a[D]; }

@@ -1,0 +1,4 @@
+// Separate compilation: `helper` is only a prototype here; lib.esk defines it and the
+// two objects are linked together.
+int helper(int x);
+int main() { return helper(3); }

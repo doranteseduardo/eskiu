@@ -1,0 +1,4 @@
+// EXPECT-ERROR: cannot slice a temporary array: store it in a variable first
+struct P { int x; int[3] v; }
+P mp() { P p; p.x = 1; p.v[0] = 4; return p; }
+int main() { int[] s = mp().v[0..2]; return (int)s.len; }

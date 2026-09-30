@@ -1,0 +1,50 @@
+import <future>;
+extern int printf(string fmt, ...);
+Future<int>* rdy(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+int risky(int x) { if (x > 2) { throw x; } return x; }
+enum Opt { No, Yes(int) }
+
+async int counted(int x) {
+    static int calls = 0;
+    calls++;
+    int w = await rdy(x);
+    return w + calls * 100;
+}
+
+async int slices(int[] ps) {
+    int[3] arr = {5, 2, 3};
+    int[] sl = arr[0..3];
+    int y = await rdy(0);
+    for (v in sl) { y += v; }
+    for (v in ps) { y += v * 10; }
+    return y;
+}
+
+async int guarded(int x) {
+    int e = 7;
+    int r = 0;
+    try { r = risky(x); } catch (int e) { r = -e; }
+    int w = await rdy(r);
+    return w * 10 + e;
+}
+
+async int matched(int s) {
+    int z = 1;
+    Opt o = Yes(s);
+    int v = 0;
+    match o { Yes(z) -> v = z; No -> v = -1; }
+    int w = await rdy(v);
+    Opt p = Yes(w + z);
+    match p { Yes(q) -> return q; No -> return -1; }
+}
+
+int main() {
+    Future<int>* a = counted(5);
+    Future<int>* b = counted(5);
+    printf("%d %d\n", a.value, b.value);
+    int[2] ps = {1, 4};
+    printf("%d\n", slices(ps[0..2]).value);
+    printf("%d %d\n", guarded(5).value, guarded(1).value);
+    printf("%d\n", matched(4).value);
+    return 0;
+}

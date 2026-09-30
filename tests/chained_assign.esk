@@ -1,0 +1,24 @@
+// A chained assignment passes on the value converted to the inner target's type.
+import <io>;
+
+struct B { int8 b; }
+
+int8 gs;
+
+int main() {
+    int v200 = 200; int v300 = 300; int v129 = 129;
+    int8 s = 0;
+    int l = 0;
+    l = s = v200;
+    printf("%d %d\n", l, s);
+    B bx = B{0};
+    int m = bx.b = v300;
+    printf("%d %d\n", m, bx.b);
+    int k = gs = v129;
+    printf("%d %d\n", k, gs);
+    double d = 0.0;
+    int i = 0;
+    d = i = 7;
+    printf("%.1f\n", d);
+    return 0;
+}

@@ -1,0 +1,53 @@
+// http_recv reads a chunked trailer section incrementally. It rescanned every
+// trailer line from the last chunk on each read and kept all of them in its
+// buffer, so a long trailer sent in small pieces cost CPU quadratic in its
+// size. Consumed trailer lines are now dropped, and a trailer section longer
+// than HTTP_CHUNK_TRAILER_MAX is 400.
+import <http>;
+import <string>;
+import <mem>;
+import <net>;
+extern int printf(string fmt, ...);
+extern int socketpair(int d, int t, int p, *int sv);
+extern int64 write(int fd, *void b, int64 n);
+extern int64 strlen(string s);
+
+int g_fd = 0;
+int g_lines = 0;
+
+void writer() {
+    string h = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n";
+    write(g_fd, (*void)h, strlen(h));
+    uint8[100] line;
+    for (i in 0..100) { line[i] = 'a'; }
+    line[95] = ':';  line[96] = ' ';  line[97] = 'x';  line[98] = '\r';  line[99] = '\n';
+    for (i in 0..g_lines) { write(g_fd, (*void)&line[0], 100); }
+    write(g_fd, (*void)"\r\n", 2);
+    net_close(g_fd);
+}
+
+void run(int lines) {
+    int[2] sv;
+    socketpair(1, 1, 0, &sv[0]);
+    g_fd = sv[1];
+    g_lines = lines;
+    let t: *void = thread_create(writer);
+    let r: HttpReq;  HttpReq_init(&r);
+    const int st = http_recv(sv[0], &r, 1 << 20);
+    uint8[4096] rest;
+    while (net_recv(sv[0], &rest[0], 4096) > 0) {}   // what a rejected request left unread
+    thread_join(t);
+    printf("%d trailer lines: st=%d body=%lld", lines, st, r.body_len);
+    if (st == 0) { printf(" [%.*s]", (int)r.body_len, r.body); }
+    printf("\n");
+    HttpReq_free(&r);
+    net_close(sv[0]);
+}
+
+int main() {
+    run(0);
+    run(600);
+    run(700);
+    run(20000);
+    return 0;
+}

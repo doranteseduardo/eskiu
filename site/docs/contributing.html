@@ -86,7 +86,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <body>
   <header class="top">
     <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
       <nav class="top-links">
         <a href="index.html">docs</a>
         <a href="../the-book-of-eskiu.html">book</a>
@@ -120,7 +120,7 @@ Issue vs PR: issue first when crossing phase boundaries or proposing design; dir
 Visitor propagation: declare in ASTVisitor, build failure drives implementation in ASTPrinter/TypeChecker/CodeGen
 parseType() and parseBlockStatement() are the single dispatch points for types and statement keywords
 New type spellings go in sema/type.cpp (<code>ty::Type::parse</code>, the one grammar interpreter shared by sema and codegen) and the typecheck split files (typecheck_type.cpp et al.); do not add a second type-string evaluator
-Template note: bodies NOT type-checked at declaration time; deferred to monomorphic instantiation</p>
+Template note: bodies are not type-checked at declaration time; each instance is checked with its concrete type arguments after the main pass (<code>queueInstance</code> / <code>checkPendingInstances</code>, and <code>sema_queue_inst</code> / <code>sema_check_insts</code> in the self-host)</p>
 <h2 id="code-style">Code Style</h2>
 <p>C++17, no deps beyond LLVM
 camelCase methods/members, snake_case locals
@@ -131,6 +131,7 @@ No RTTI except existing dynamic_cast sites</p>
 <p>There IS an automated suite: run it before any PR.
 - <code>tests/run.sh</code>: the regression harness over the <code>.esk</code> test corpus (the four <code>--test-*</code> modes plus end-to-end compile/run).
 - Generative + mutation fuzzer <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: it compiles each generated program at <code>-O0</code> and <code>-O2</code> and flags any divergence in output. This is how miscompiles are caught.
+- C oracle (<code>eskiu_fuzz.py --oracle</code>, <code>tests/fuzz/c_oracle.py</code>): generated programs also emitted as C; both Eskiu compilers must print what clang prints. Negative corpus <code>tests/fuzz/neg_fuzz.py</code>: one injected error per program, both compilers must reject it with a located diagnostic. <code>tests/fuzz/stdlib_fuzz.py</code>: the stdlib parsers under ASan. All three have CI gates; usage in <code>tests/README.md</code>.
 - Golden-IR oracle <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code>: captures/checks the emitted IR for the type zoo; the codegen-regression guard.
 - <code>--asan</code> / <code>--ubsan</code> gates in CI for runtime memory errors and undefined behavior.
 - A formatter-idempotency pass (<code>eskiuc fmt --check</code>) over every test.
@@ -147,13 +148,13 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 <li>[ ] Docs updated if behavior changed</li>
 </ul>
 <h2 id="current-focus">Current Focus</h2>
-<p>v0.9.1 (a correctness campaign closing a set of latent miscompiles), over the v0.9.0 labeled-<code>break</code>/<code>continue</code> release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive plain-enum <code>match</code>), the v0.7.0 cross-compilation release, the v0.6.0 memory-safety + stdlib release, the v0.5 basic-C surface release, and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under <code>selfhost/</code>, parity-gated against the C++ <code>eskiuc</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
+<p>v0.9.2 (a full-project correctness and hardening audit, about 500 fixes), over the v0.9.1 correctness campaign, the v0.9.0 labeled-<code>break</code>/<code>continue</code> release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive plain-enum <code>match</code>), the v0.7.0 cross-compilation release, the v0.6.0 memory-safety + stdlib release, the v0.5 basic-C surface release, and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under <code>selfhost/</code>, parity-gated against the C++ <code>eskiuc</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
 - v0.6.0 is a memory-safety + stdlib release, in the Zig spirit (compile-time checks and opt-in runtime guards, no borrow checker): <code>defer</code>/<code>errdefer</code> for leak-proof cleanup, the slice type <code>T[]</code>, the <code>must_use</code> qualifier, the <code>--safe</code> bounds-checking build mode, and the checked nullable pointer <code>?*T</code>; plus the <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code>, <code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, and <code>&lt;uuid&gt;</code> stdlib modules and a UTC civil calendar in <code>&lt;time&gt;</code>.
 - v0.5.0 filled the last common C constructs the language was missing (<code>do</code>/<code>while</code>, prefix/postfix <code>++</code>/<code>--</code>, array-literal initializers, <code>static</code> locals, multidimensional arrays <code>T[N][M]</code>, and the ternary <code>cond ? a : b</code>), each landed in lockstep across both compilers so idiomatic C ports compile without workarounds.
 - v0.4.0 was a four-front bug hunt (behavioral differential, sema soundness, synthesized-default audit, feature edges) that fixed a batch of miscompiles and crashes across both compilers and tightened the type system (floating-point to integer needs an explicit cast; out-of-range literals, division by a literal zero, uninitialized reads, dangling <code>&amp;local</code>, function redefinition, and non-void fall-through are errors). The self-host sema's matching checks are deferred to the promotion track.
 - Earlier 0.3.1 correctness work (via the <code>-O</code> optimization levels): a float-closure return-type miscompile, a rejected fn-type ABI mismatch, the <code>*T[N]</code> parse fix, and correct <code>size_t</code> externs.
 - A <code>-O0</code>-vs-<code>-O2</code> behavioral differential (<code>tests/opt_differential.sh</code>) guards the whole corpus against optimization-path miscompiles.</p>
-<p>The live track toward v1.0 is promoting the Eskiu-written compiler to the primary build; see <code>selfhost/PROMOTION_PLAN.md</code>. Genuinely deferred: a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.</p>
+<p>The promotion of the Eskiu-written compiler is complete (<code>selfhost/PROMOTION_PLAN.md</code>): CMake builds it as <code>eskiuc-esk</code> next to the shipped C++ <code>eskiuc</code>, and CI gates their equivalence. What remains for v1.0 is a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.</p>
     </div>
   </div>
   <footer>

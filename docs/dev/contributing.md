@@ -27,7 +27,7 @@ Checklist: Lexer → Parser → AST → ASTVisitor → Type checker → Codegen 
 Visitor propagation: declare in ASTVisitor, build failure drives implementation in ASTPrinter/TypeChecker/CodeGen
 parseType() and parseBlockStatement() are the single dispatch points for types and statement keywords
 New type spellings go in sema/type.cpp (`ty::Type::parse`, the one grammar interpreter shared by sema and codegen) and the typecheck split files (typecheck_type.cpp et al.); do not add a second type-string evaluator
-Template note: bodies NOT type-checked at declaration time; deferred to monomorphic instantiation
+Template note: bodies are not type-checked at declaration time; each instance is checked with its concrete type arguments after the main pass (`queueInstance` / `checkPendingInstances`, and `sema_queue_inst` / `sema_check_insts` in the self-host)
 
 ## Code Style
 C++17, no deps beyond LLVM
@@ -40,6 +40,7 @@ No RTTI except existing dynamic_cast sites
 There IS an automated suite: run it before any PR.
 - `tests/run.sh`: the regression harness over the `.esk` test corpus (the four `--test-*` modes plus end-to-end compile/run).
 - Generative + mutation fuzzer `tests/fuzz/eskiu_fuzz.py` with an **O0-vs-O2 differential oracle**: it compiles each generated program at `-O0` and `-O2` and flags any divergence in output. This is how miscompiles are caught.
+- C oracle (`eskiu_fuzz.py --oracle`, `tests/fuzz/c_oracle.py`): generated programs also emitted as C; both Eskiu compilers must print what clang prints. Negative corpus `tests/fuzz/neg_fuzz.py`: one injected error per program, both compilers must reject it with a located diagnostic. `tests/fuzz/stdlib_fuzz.py`: the stdlib parsers under ASan. All three have CI gates; usage in `tests/README.md`.
 - Golden-IR oracle `tests/type_zoo/snapshot.sh` + `tests/type_zoo/golden/`: captures/checks the emitted IR for the type zoo; the codegen-regression guard.
 - `--asan` / `--ubsan` gates in CI for runtime memory errors and undefined behavior.
 - A formatter-idempotency pass (`eskiuc fmt --check`) over every test.
@@ -56,11 +57,11 @@ Codegen checks: single alloca per var, every branch terminated, no undef, correc
 - [ ] Docs updated if behavior changed
 
 ## Current Focus
-v0.9.1 (a correctness campaign closing a set of latent miscompiles), over the v0.9.0 labeled-`break`/`continue` release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive plain-enum `match`), the v0.7.0 cross-compilation release, the v0.6.0 memory-safety + stdlib release, the v0.5 basic-C surface release, and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under `selfhost/`, parity-gated against the C++ `eskiuc`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
+v0.9.2 (a full-project correctness and hardening audit, about 500 fixes), over the v0.9.1 correctness campaign, the v0.9.0 labeled-`break`/`continue` release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive plain-enum `match`), the v0.7.0 cross-compilation release, the v0.6.0 memory-safety + stdlib release, the v0.5 basic-C surface release, and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under `selfhost/`, parity-gated against the C++ `eskiuc`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
 - v0.6.0 is a memory-safety + stdlib release, in the Zig spirit (compile-time checks and opt-in runtime guards, no borrow checker): `defer`/`errdefer` for leak-proof cleanup, the slice type `T[]`, the `must_use` qualifier, the `--safe` bounds-checking build mode, and the checked nullable pointer `?*T`; plus the `<random>`, `<regex>`, `<sort>`, `<url>`, and `<uuid>` stdlib modules and a UTC civil calendar in `<time>`.
 - v0.5.0 filled the last common C constructs the language was missing (`do`/`while`, prefix/postfix `++`/`--`, array-literal initializers, `static` locals, multidimensional arrays `T[N][M]`, and the ternary `cond ? a : b`), each landed in lockstep across both compilers so idiomatic C ports compile without workarounds.
 - v0.4.0 was a four-front bug hunt (behavioral differential, sema soundness, synthesized-default audit, feature edges) that fixed a batch of miscompiles and crashes across both compilers and tightened the type system (floating-point to integer needs an explicit cast; out-of-range literals, division by a literal zero, uninitialized reads, dangling `&local`, function redefinition, and non-void fall-through are errors). The self-host sema's matching checks are deferred to the promotion track.
 - Earlier 0.3.1 correctness work (via the `-O` optimization levels): a float-closure return-type miscompile, a rejected fn-type ABI mismatch, the `*T[N]` parse fix, and correct `size_t` externs.
 - A `-O0`-vs-`-O2` behavioral differential (`tests/opt_differential.sh`) guards the whole corpus against optimization-path miscompiles.
 
-The live track toward v1.0 is promoting the Eskiu-written compiler to the primary build; see `selfhost/PROMOTION_PLAN.md`. Genuinely deferred: a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.
+The promotion of the Eskiu-written compiler is complete (`selfhost/PROMOTION_PLAN.md`): CMake builds it as `eskiuc-esk` next to the shipped C++ `eskiuc`, and CI gates their equivalence. What remains for v1.0 is a package manager. See docs/dev/phases.md for the full feature table and roadmap. New feature proposals require an issue.

@@ -29,12 +29,14 @@ comments separate tokens and are otherwise insignificant.
 
 ```
 IDENT      = [A-Za-z_] [A-Za-z0-9_]*
-INT_LIT    = [0-9]+  |  '0x' [0-9A-Fa-f]+
-FLOAT_LIT  = [0-9]+ '.' [0-9]+
+INT_LIT    = [1-9][0-9]*  |  '0' [0-7]*  |  '0x' [0-9A-Fa-f]+   // leading 0 = octal (C rule)
+FLOAT_LIT  = [0-9]+ '.' [0-9]+ EXP?  |  [0-9]+ EXP
+EXP        = ('e' | 'E') ('+' | '-')? [0-9]+
 STRING_LIT = '"' ( escape | not('"') )* '"'        // adjacent literals concatenate: "a" "b" == "ab"
 CHAR_LIT   = "'" ( escape | not("'") ) "'"
-escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | '\' | '"' | "'" | '0'    // string and char share the set
-                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits
+escape     = '\' ( 'n' | 't' | 'r' | 'f' | 'v' | 'a' | 'b' | '\' | '"' | "'" | '?'  // string and char share the set
+                 | OCT OCT? OCT?                                         // raw byte, 1-3 octal digits (<= \377)
+                 | 'x' HEX HEX? )                                        // raw byte, 1-2 hex digits; any other escape is an error
 ```
 
 Comments: `// … end-of-line` and `/* … */` (block comments do not nest).
@@ -48,7 +50,7 @@ float double bool char string void
 struct packed union interface enum fn
 if else while do for in switch match case default break continue return
 import extern intrinsic  sizeof alloc_with free_closure
-thread_create thread_join  asm  try catch finally throw  defer errdefer
+thread_create thread_join  asm  try catch finally throw  defer errdefer  operator
 null true false
 ```
 
@@ -80,14 +82,16 @@ directive =
     '#define' IDENT macro-body
   | '#define' IDENT '(' (IDENT (',' IDENT)*)? ')' macro-body    // function-like
   | '#undef'  IDENT
-  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#else'  |  '#endif'
-  | '#pragma' …                          // passed through to the compiler (e.g. pack)
+  | '#ifdef'  IDENT  |  '#ifndef' IDENT  |  '#if' const-expr  |  '#elif' const-expr
+  | '#else'  |  '#endif'
+  | '#pragma' …                          // passed through to the compiler (pack, link)
   | '#error'  text                       // aborts compilation on an active branch
   | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)
 ```
 
 Predefined macros: `__FILE__`, `__LINE__`, a host-OS macro
-(`__APPLE__`/`__linux__`), and `__ESKIU_FREESTANDING__` under `--freestanding`.
+(`__APPLE__`/`__linux__`), an architecture macro (`__aarch64__`/`__x86_64__`/`__arm__`),
+and `__ESKIU_FREESTANDING__` under `--freestanding`.
 
 ---
 
@@ -130,7 +134,7 @@ interface-decl  = 'interface' IDENT '{' ( type IDENT '(' param-list? ')' ';' )* 
 
 enum-decl       = 'enum' IDENT type-params? '{' enum-variant (',' enum-variant)* ','? '}'   // enum type-params are names only (no constraints)
 enum-variant    = IDENT ( '(' type (',' type)* ')' )?           // ADT payload
-                | IDENT ( '=' '-'? INT_LIT )?                    // classic, optional integer value
+                | IDENT ( '=' expr )?                            // classic, optional integer constant expression
 
 type-alias      = 'type' IDENT '=' type ';'
 
@@ -157,7 +161,8 @@ suffix      = array | '*' 'const'?                   // arrays and trailing poin
 base        = scalar-type
             | IDENT ( '<' type (',' type)* '>' )?   // named type or template instance
             | 'fn' '(' (type (',' type)*)? ')' '->' type   // function-pointer type
-ptr         = '*'                                    // leading-pointer (spec) spelling
+ptr         = '*' '?'?                               // leading-pointer (spec) spelling; `*?*T` (a `?`
+                                                     // before another '*') points to a nullable pointer
 array       = '[' (INT_LIT | IDENT)? ']'             // IDENT = a named const dim; empty = slice `T[]`
 
 scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
@@ -167,8 +172,8 @@ scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
 
 Pointers may be written either C-style (`int*`) or leading (`*int`); both are
 equivalent. An array suffix binds tighter than a leading pointer, so `*T[N]` is an array
-of N pointers (each element a `*T`), while a pointer to an array is written with the star
-after the brackets: `T[N]*`. Suffixes chain for multidimensional arrays: `T[N][M]` is N
+of N pointers (each element a `*T`). There is no pointer-to-array type (`T[N]*` does not
+parse); use a `*T` to the first element. Suffixes chain for multidimensional arrays: `T[N][M]` is N
 arrays of M (C order, leftmost bracket outermost). Empty brackets make a **slice**: `T[]`
 is a fat pointer (data + length), constructed by slicing an array (`a[lo..hi]`). `va_list`
 is a built-in named type used by variadics.
@@ -197,8 +202,8 @@ throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
 switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, `default` may repeat
-switch-case   = 'case' expr ':' statement*
-default-case  = 'default' ':' statement*
+switch-case   = 'case' expr ':' ( declaration | statement )*   // the switch body is one scope
+default-case  = 'default' ':' ( declaration | statement )*
 
 match-stmt    = 'match' expr '{' match-arm+ '}'
 match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // variant + payload bindings
@@ -206,13 +211,16 @@ match-arm     = IDENT ( '(' IDENT (',' IDENT)* ')' )? '->' statement   // varian
 
 try-stmt      = 'try' block ( 'catch' '(' type IDENT ')' block )* ( 'finally' block )?
 defer-stmt    = ( 'defer' | 'errdefer' ) statement   // block-exit cleanup, LIFO; errdefer runs only on the `?`-error path
-asm-stmt      = 'asm' '(' STRING_LIT ( ':' ':' asm-operand (',' asm-operand)*
-                              ( ':' STRING_LIT (',' STRING_LIT)* )? )? ')' ';'
+asm-stmt      = 'asm' '(' STRING_LIT ( ':' asm-operands                 // outputs: "=r" / "+r" / "=m" (lvalues)
+                              ( ':' asm-operands                  // inputs
+                              ( ':' STRING_LIT (',' STRING_LIT)* )? )? )? ')' ';'
+asm-operands  = ( asm-operand (',' asm-operand)* )?
 asm-operand   = STRING_LIT '(' expr ')'
 thread-join-stmt = 'thread_join' '(' expr ')' ';'
 ```
 
-`for (i in A..B)` desugars to a counted `for (int i = A; i < B; i = i + 1)`.
+`for (i in A..B)` desugars to a counted `for (T i = A; i < B; i = i + 1)`, where `T` is
+the bounds' common integer type (see the spec's for-in section).
 
 ---
 
@@ -244,7 +252,7 @@ postfix         = primary postfix-op*
 postfix-op      = '(' arg-list? ')'          // call
                 | '[' expr ']'               // index
                 | '[' expr '..' expr ']'     // slice (half-open) → a `T[]` fat pointer
-                | '.' IDENT                  // member
+                | '.' (IDENT | keyword)      // member (a keyword is a name here: `j.int(5)`)
                 | '?'                        // error propagation (Result)
                 | '++' | '--'                // post-increment / decrement
 arg-list        = expr (',' expr)*
@@ -256,6 +264,13 @@ postfix `expr?` (with no matching `:` ahead) is the Result error-propagation ope
 same-level `:` after the `?`. Assignment is the lowest-precedence, right-associative
 level; the ternary sits just above it, also right-associative.
 
+The parser implements the binary levels by precedence climbing, so an operator chain
+of any length parses without deep recursion. Nesting (parentheses, blocks, nested
+statements and lambdas) is limited to 100000 levels, past which the parser reports
+`nesting too deep`. A type nests at most 1000 levels (each pointer level, array
+dimension, template argument list and fn type counts one, and so does the innermost
+type), past which the parser reports `type nesting too deep`.
+
 ```
 primary =
     INT_LIT | FLOAT_LIT | STRING_LIT | CHAR_LIT | 'true' | 'false' | 'null'
@@ -265,7 +280,8 @@ primary =
   | IDENT '<' type (',' type)* '>' ( '(' arg-list? ')' | struct-init )  // turbofish call / templated literal
   | '(' expr ')'
   | lambda
-  | 'sizeof' '(' type ')'
+  | 'sizeof' '(' type ')'           // a bare name, or a spelling over a known type (`*Node`)
+  | 'sizeof' '(' expr ')'           // any other operand (`*p`, `a[0]`): its type, not evaluated
   | 'alloc_with' '(' expr ',' type ',' expr ')'
   | 'free_closure' '(' expr ')'
   | 'thread_create' '(' expr ')'

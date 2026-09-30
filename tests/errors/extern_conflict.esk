@@ -1,0 +1,5 @@
+// EXPECT-ERROR: conflicting declaration of extern 'puts'
+// Two different signatures cannot both describe the C function `puts`.
+extern int puts(string s);
+extern int puts(int s);
+int main() { return 0; }

@@ -1,5 +1,5 @@
 # Build directories
-build/
+build*/
 dist/
 cmake-build-debug/
 cmake-build-release/
@@ -50,3 +50,4 @@ __pycache__/
 !playground/dist/**
 /.cache
 assets/*.tar.gz
+**/.DS_Store

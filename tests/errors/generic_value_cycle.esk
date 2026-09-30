@@ -1,0 +1,7 @@
+// EXPECT-ERROR: struct 'N<T>' contains itself by value (through field 'next' of 'N<T>')
+struct N<T> { T v; N<T> next; }
+int main() {
+    let n: N<int>;
+    n.v = 1;
+    return n.v;
+}

@@ -4,6 +4,7 @@
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
 #include "../template_utils.h"
+#include "../sema/type.h"
 
 // CodeGen — calls, template instantiation, intrinsics, function pointers,
 // and explicit-allocator construction.
@@ -11,7 +12,7 @@
 
 void CodeGen::unifyTypeParam(std::string pattern, std::string concrete,
                              const std::set<std::string>& tps,
-                             std::map<std::string, std::string>& subs) {
+                             std::map<std::string, std::string>& subs) const {
     auto stripStruct = [](std::string s) {
         return s.rfind("struct:", 0) == 0 ? s.substr(7) : s;
     };
@@ -21,8 +22,8 @@ void CodeGen::unifyTypeParam(std::string pattern, std::string concrete,
         while (!t.empty() && t.front() == '*') { t = t.substr(1); stars++; }
         return std::string(stars, '*') + t;
     };
-    pattern  = canon(stripStruct(pattern));
-    concrete = canon(stripStruct(concrete));
+    pattern  = canon(stripStruct(tyq::strip(pattern)));    // const does not change the shape
+    concrete = canon(stripStruct(tyq::strip(concrete)));
     // strip matching leading '*' from both
     size_t pi = 0, ci = 0;
     while (pi < pattern.size() && pattern[pi] == '*' &&
@@ -33,6 +34,15 @@ void CodeGen::unifyTypeParam(std::string pattern, std::string concrete,
 
     if (tps.count(pattern)) {                   // bare type parameter
         if (!subs.count(pattern)) subs[pattern] = concrete;
+        return;
+    }
+    auto isSlice = [](const std::string& t) {
+        return t.size() > 2 && t.compare(t.size() - 2, 2, "[]") == 0;
+    };
+    if (isSlice(pattern)) {                     // `T[]` against a slice binds the element
+        if (isSlice(concrete))
+            unifyTypeParam(pattern.substr(0, pattern.size() - 2),
+                           concrete.substr(0, concrete.size() - 2), tps, subs);
         return;
     }
     size_t lt = pattern.find('<');              // Name<args> vs an instance
@@ -63,26 +73,101 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
     std::map<std::string, std::string> subs;
     for (size_t i = 0; i < tp.size() && i < args.size(); ++i) subs[tp[i]] = args[i];
 
-    std::vector<llvm::Type*> fieldTypes;
     std::vector<StructDecl::Field> fields;
-    for (const auto& f : tmpl->fields) {
-        std::string concrete = substType(f.type, subs);
-        fieldTypes.push_back(getTypeFromString(concrete));
-        fields.push_back({concrete, f.name});
+    for (const auto& f : tmpl->fields)
+        fields.push_back({substType(f.type, subs), f.name, f.bitWidth});
+    layoutStruct(mangled, fields, tmpl->isPacked, tmpl->packAlign);
+}
+
+std::string CodeGen::instanceSpelling(const std::string& t) {
+    ty::Type ty = ty::Type::parse(tyq::strip(t));
+    auto inner = [&](std::shared_ptr<ty::Type>& p) {
+        if (p) p = std::make_shared<ty::Type>(ty::Type::parse(instanceSpelling(p->str())));
+    };
+    switch (ty.kind) {
+        case ty::Type::Kind::Pointer: inner(ty.pointee); return ty.str();
+        case ty::Type::Kind::Array:
+        case ty::Type::Kind::Slice:   inner(ty.elem);    return ty.str();
+        case ty::Type::Kind::Fn:
+            for (auto& p : ty.params) p = ty::Type::parse(instanceSpelling(p.str()));
+            inner(ty.ret);
+            return ty.str();
+        case ty::Type::Kind::Template: {
+            std::string s = ty.str();
+            auto [tn, targs] = splitTemplateType(s);
+            std::string mangled = mangleTemplate(s);
+            ensureTemplateInstantiated(mangled, tn, targs);
+            return mangled;
+        }
+        default: return tyq::strip(t);
     }
-    // #pragma pack(N>=2): same manual layout as concrete structs.
-    if (tmpl->packAlign >= 2) {
-        std::vector<llvm::Type*> phys;
-        std::map<std::string, BitfieldSlot> slots;
-        buildPackedLayout(fields, (unsigned)tmpl->packAlign, phys, slots);
-        structTypes[mangled]  = llvm::StructType::create(*context, phys, mangled, /*isPacked=*/true);
-        structFields[mangled] = fields;
-        structLayout[mangled] = slots;
-        return;
+}
+
+FunctionDecl* CodeGen::genericMethod(const std::string& instName, const std::string& method,
+                                     std::map<std::string, std::string>* subsOut) const {
+    auto ia = templateInstanceArgs.find(instName);
+    if (ia == templateInstanceArgs.end()) return nullptr;
+    auto td = templateDecls.find(ia->second.first);
+    if (td == templateDecls.end()) return nullptr;
+    for (const auto& m : td->second->methods) {
+        auto* mf = dynamic_cast<FunctionDecl*>(m.get());
+        if (!mf || mf->name != method) continue;
+        if (subsOut) {
+            const auto& tp = td->second->typeParams;
+            for (size_t i = 0; i < tp.size() && i < ia->second.second.size(); ++i)
+                (*subsOut)[tp[i]] = ia->second.second[i];
+        }
+        return mf;
     }
-    llvm::StructType* st = llvm::StructType::create(*context, fieldTypes, mangled, tmpl->isPacked);
-    structTypes[mangled] = st;
-    structFields[mangled] = fields;
+    return nullptr;
+}
+
+FunctionDecl* CodeGen::genericFreeMethod(const std::string& instName, const std::string& method) const {
+    auto ia = templateInstanceArgs.find(instName);
+    if (ia == templateInstanceArgs.end()) return nullptr;
+    auto ft = funcTemplateDecls.find(ia->second.first + "_" + method);
+    if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return nullptr;
+    return ft->second;
+}
+
+std::map<std::string, std::string> CodeGen::genericFreeMethodSubs(FunctionDecl* fd, const std::string& recvType,
+                                                                  const std::vector<ExprPtr>& args) const {
+    const std::string& selfT = fd->params[0].first;
+    bool recvPtr = tyq::isPtr(recvType), selfPtr = tyq::isPtr(selfT);
+    std::string recvAsSelf = recvType;
+    if (selfPtr && !recvPtr) recvAsSelf = "*" + recvType;
+    else if (!selfPtr && recvPtr) recvAsSelf = tyq::pointee(recvType);
+    std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
+    std::map<std::string, std::string> subs;
+    unifyTypeParam(selfT, recvAsSelf, tps, subs);
+    for (size_t j = 1; j < fd->params.size() && j - 1 < args.size(); ++j)
+        unifyTypeParam(fd->params[j].first, getExprEskiuType(args[j - 1]), tps, subs);
+    return subs;
+}
+
+llvm::Function* CodeGen::instantiateGenericMethod(const std::string& instName, const std::string& method) {
+    std::string mangled = instName + "_" + method;
+    if (llvm::Function* f = module->getFunction(mangled)) return f;
+    std::map<std::string, std::string> subs;
+    FunctionDecl* mf = genericMethod(instName, method, &subs);
+    if (!mf || !mf->body) return nullptr;
+    std::vector<std::pair<std::string, std::string>> params{{"*" + instName, "self"}};
+    for (const auto& p : mf->params) params.push_back({substType(p.first, subs), p.second});
+
+    // Same context save/restore as a generic function instantiated mid-body.
+    llvm::BasicBlock*          savedBB        = builder->GetInsertBlock();
+    llvm::BasicBlock::iterator savedPoint     = builder->GetInsertPoint();
+    llvm::Function*            savedFunc      = currentFunction;
+    llvm::Value*               savedSretParam = currentSretParam;
+    auto                       savedOverride  = typeParamOverride;
+    typeParamOverride = subs;
+    auto inst = std::make_shared<FunctionDecl>(mangled, substType(mf->returnType, subs), params, mf->body);
+    inst->accept(this);
+    typeParamOverride = savedOverride;
+    currentFunction  = savedFunc;
+    currentSretParam = savedSretParam;
+    if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
+    return module->getFunction(mangled);
 }
 
 // Lower a call to an `intrinsic`-declared function to inline IR. The registry of
@@ -166,8 +251,8 @@ void CodeGen::visit(CallExpr* node) {
             std::string mangled = ensureEnumInst(gi.first, targs);
             std::map<std::string, std::string> sub2;
             for (size_t i = 0; i < ge->typeParams.size() && i < targs.size(); ++i) sub2[ge->typeParams[i]] = targs[i];
-            std::vector<llvm::Type*> fts;
-            for (const auto& ft : payload) fts.push_back(getTypeFromString(substType(ft, sub2)));
+            std::vector<std::string> fts;
+            for (const auto& ft : payload) fts.push_back(substType(ft, sub2));
             exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
             return;
         }
@@ -194,8 +279,26 @@ void CodeGen::visit(CallExpr* node) {
             FunctionDecl* fd = tIt->second;
             std::set<std::string> tps(fd->typeParams.begin(), fd->typeParams.end());
             std::map<std::string, std::string> subs;
+            // Structural parameters bind first; by-value `T a` deductions of one parameter
+            // meet at their common integer type (as the type checker decides).
             for (size_t j = 0; j < fd->params.size() && j < node->args.size(); ++j)
-                unifyTypeParam(fd->params[j].first, getExprEskiuType(node->args[j]), tps, subs);
+                if (!tps.count(tyq::strip(fd->params[j].first)))
+                    unifyTypeParam(fd->params[j].first, getExprEskiuType(node->args[j]), tps, subs);
+            std::map<std::string, std::string> byValue;
+            for (size_t j = 0; j < fd->params.size() && j < node->args.size(); ++j) {
+                std::string tp = tyq::strip(fd->params[j].first);
+                if (!tps.count(tp) || subs.count(tp)) continue;
+                std::string at = getExprEskiuType(node->args[j]);
+                if (at.empty() || at == "null") continue;
+                std::map<std::string, std::string> one;
+                unifyTypeParam(fd->params[j].first, at, tps, one);
+                if (!one.count(tp)) continue;
+                auto bv = byValue.find(tp);
+                if (bv == byValue.end()) { byValue[tp] = one[tp]; continue; }
+                std::string common = ty::rangeVarType(expandAlias(bv->second), expandAlias(one[tp]));
+                if (!common.empty() && expandAlias(bv->second) != expandAlias(one[tp])) bv->second = common;
+            }
+            for (const auto& kv : byValue) subs[kv.first] = kv.second;
             std::vector<std::string> typeArgs;
             for (const auto& tpName : fd->typeParams) {
                 auto sIt = subs.find(tpName);
@@ -223,14 +326,12 @@ void CodeGen::visit(CallExpr* node) {
         // Interface vtable dispatch
         auto ifIt = ifaceMethodOrder.find(baseType);
         if (ifIt != ifaceMethodOrder.end()) {
-            // An interface value IS a pointer to the fat {data, vtable} struct,
-            // so its *value* (loaded from the variable's slot) is the fat pointer.
-            llvm::Value* fatPtr = evaluateExpr(member->base);
-            llvm::StructType* fatType = ifaceFatPtrTypes[baseType];
-            llvm::Value* dataGEP = builder->CreateStructGEP(fatType, fatPtr, 0);
-            llvm::Value* dataPtr = builder->CreateLoad(llvm::PointerType::get(*context, 0), dataGEP);
-            llvm::Value* vtGEP   = builder->CreateStructGEP(fatType, fatPtr, 1);
-            llvm::Value* vtPtr   = builder->CreateLoad(llvm::PointerType::get(*context, 0), vtGEP);
+            // An interface value IS the fat {data, vtable} struct; through a `*I` it is
+            // loaded first (`pi.f()` calls `(*pi).f()`).
+            llvm::Value* fat     = evaluateExpr(member->base);
+            if (baseIsPtr) fat = builder->CreateLoad(ifaceFatPtrTypes[baseType], fat, "iface.val");
+            llvm::Value* dataPtr = builder->CreateExtractValue(fat, {0}, "iface.data");
+            llvm::Value* vtPtr   = builder->CreateExtractValue(fat, {1}, "iface.vt");
             const auto& order = ifIt->second;
             size_t idx = 0;
             for (; idx < order.size(); ++idx) if (order[idx] == member->member) break;
@@ -251,7 +352,8 @@ void CodeGen::visit(CallExpr* node) {
                 (idx < paramLists.size()) ? &paramLists[idx] : nullptr;
             std::vector<llvm::Value*> iargs = {dataPtr};
             for (size_t ai = 0; ai < node->args.size(); ++ai) {
-                llvm::Value* av = evaluateExpr(node->args[ai]);
+                llvm::Value* av = (iParams && ai < iParams->size())
+                    ? evalForType(node->args[ai], (*iParams)[ai]) : evaluateExpr(node->args[ai]);
                 if (iParams && ai < iParams->size())
                     av = coerceValue(av, getTypeFromString((*iParams)[ai]),
                                      eskiuUnsigned(getExprEskiuType(node->args[ai])));
@@ -278,7 +380,7 @@ void CodeGen::visit(CallExpr* node) {
             }
 
             auto* ftype = llvm::FunctionType::get(retType, paramLLVM, false);
-            llvm::Value* call = builder->CreateCall(ftype, fnPtr, iargs);
+            llvm::Value* call = createMaybeInvoke(ftype, fnPtr, iargs);
             if (iSret)
                 exprValueStack.push(builder->CreateLoad(
                     llvm::cast<llvm::StructType>(getTypeFromString(retTypes[idx])), sretBuf));
@@ -290,14 +392,70 @@ void CodeGen::visit(CallExpr* node) {
         // Struct method call
         std::string mangled = baseType + "_" + member->member;
         llvm::Function* mfunc = module->getFunction(mangled);
+        if (!mfunc) mfunc = instantiateGenericMethod(baseType, member->member);
         if (mfunc) {
             // self: a value-struct receiver passes its address; a pointer receiver
             // passes the pointer it holds (loaded), not the address of its slot.
             llvm::Value* self = baseIsPtr ? evaluateExpr(member->base)
-                                          : evaluateLValue(member->base);
+                                          : evaluateAddress(member->base);
             std::vector<llvm::Value*> margs = {self};
-            for (auto& arg : node->args) margs.push_back(evaluateExpr(arg));
-            exprValueStack.push(builder->CreateCall(mfunc, margs));
+            // The method's param types; [0] is self.
+            auto mpt = funcEskiuParamTypes.find(mangled);
+            for (size_t ai = 0; ai < node->args.size(); ++ai) {
+                bool has = mpt != funcEskiuParamTypes.end() && ai + 1 < mpt->second.size();
+                margs.push_back(has ? evalForType(node->args[ai], mpt->second[ai + 1])
+                                    : evaluateExpr(node->args[ai]));
+            }
+            // Widen/narrow each argument to the method's declared parameter type, like a
+            // direct call does (`r.set(5)` against an int64 parameter passes an i32 otherwise).
+            llvm::FunctionType* mfty = mfunc->getFunctionType();
+            unsigned mbase = funcSretTypes.count(mangled) ? 1u : 0u;
+            for (size_t ai = 0; ai < node->args.size(); ++ai) {
+                unsigned pi = mbase + 1 + (unsigned)ai;
+                if (pi >= mfty->getNumParams()) break;
+                llvm::Type* pt = mfty->getParamType(pi);
+                if (margs[ai + 1]->getType() != pt)
+                    margs[ai + 1] = coerceValue(margs[ai + 1], pt,
+                                                eskiuUnsigned(getExprEskiuType(node->args[ai])));
+            }
+            // A large struct return goes through the hidden sret pointer, and inside a
+            // `try` the call must be an invoke, exactly as for a direct call.
+            auto msret = funcSretTypes.find(mangled);
+            if (msret != funcSretTypes.end()) {
+                llvm::Value* sretAlloca = entryAlloca(msret->second, nullptr, "sret.tmp");
+                margs.insert(margs.begin(), sretAlloca);
+                createMaybeInvoke(mfty, mfunc, margs);
+                exprValueStack.push(builder->CreateLoad(msret->second, sretAlloca));
+            } else {
+                exprValueStack.push(createMaybeInvoke(mfty, mfunc, margs));
+            }
+            return;
+        }
+        // A generic free function `S_m<T..>` on a generic struct instance (the sema
+        // side is checkGenericMethodCall): lower `x.m(args)` as the call `S_m(&x, args)`
+        // (`S_m(x, args)` for a pointer receiver), whose type arguments are inferred.
+        if (FunctionDecl* gf = genericFreeMethod(baseType, member->member)) {
+            bool selfPtr = tyq::isPtr(gf->params[0].first);
+            ExprPtr recv = member->base;
+            if (selfPtr && !baseIsPtr) {
+                // `&x`, or for an rvalue receiver (`mk().get(0)`) the address of a
+                // temporary holding it, passed through a hidden local.
+                std::string recvTy = getExprEskiuType(member->base);
+                llvm::Value* addr = evaluateAddress(member->base);
+                std::string tmpName = "__recv." + std::to_string(recvTmpCount++);
+                llvm::AllocaInst* slot = entryAlloca(llvm::PointerType::get(*context, 0), nullptr, tmpName);
+                builder->CreateStore(addr, slot);
+                defineSymbol(tmpName, slot);
+                defineVarType(tmpName, "*" + recvTy);
+                recv = std::make_shared<IdentExpr>(tmpName);
+            }
+            else if (!selfPtr && baseIsPtr) recv = std::make_shared<UnaryExpr>("*", member->base);
+            recv->line = member->line; recv->col = member->col;
+            std::vector<ExprPtr> cargs{recv};
+            cargs.insert(cargs.end(), node->args.begin(), node->args.end());
+            CallExpr call(std::make_shared<IdentExpr>(gf->name), cargs);
+            call.line = node->line; call.col = node->col;
+            visit(&call);
             return;
         }
         // Free-function constraint satisfaction: `t.m(x)` on a PRIMITIVE receiver
@@ -321,7 +479,7 @@ void CodeGen::visit(CallExpr* node) {
                         fargs[i] = coerceValue(fargs[i], pt, eskiuUnsigned(srcTy));
                     }
                 }
-                exprValueStack.push(builder->CreateCall(ffunc, fargs));
+                exprValueStack.push(createMaybeInvoke(ffunc->getFunctionType(), ffunc, fargs));
                 return;
             }
         }
@@ -346,44 +504,39 @@ void CodeGen::visit(CallExpr* node) {
     // Indirect call through a fat-pointer closure {fn_ptr, env_ptr}
     if (!llvm::isa<llvm::Function>(calleeVal)) {
         std::string eskiuType = getExprEskiuType(node->callee);
-        if (eskiuType.size() > 3 && eskiuType.substr(0, 3) == "fn(") {
-            // Extract params and return type from "fn(T,...)->R"
-            size_t rp = eskiuType.find(")->");
-            std::string paramStr = eskiuType.substr(3, rp - 3);
-            std::string retStr   = eskiuType.substr(rp + 3);
+        ty::Type fnTy = ty::Type::parse(expandAlias(eskiuType));
+        if (fnTy.isFn()) {
+            // The signature comes from the parsed fn type, so nested fn types and
+            // template args with commas (`fn(fn(int)->int, Pair<int,double>)->int`)
+            // split correctly.
+            std::vector<std::string> paramStrs;
+            for (const auto& p : fnTy.params) paramStrs.push_back(p.str());
             std::vector<llvm::Type*> pts;
             llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
             pts.push_back(ptrTy); // env* always first
-            if (!paramStr.empty()) {
-                size_t pos = 0;
-                while (pos < paramStr.size()) {
-                    size_t comma = paramStr.find(',', pos);
-                    if (comma == std::string::npos) comma = paramStr.size();
-                    pts.push_back(getTypeFromString(paramStr.substr(pos, comma - pos)));
-                    pos = comma + 1;
-                }
-            }
-            llvm::Type* retTy = getTypeFromString(retStr);
+            for (const auto& ps : paramStrs) pts.push_back(getTypeFromString(ps));
+            llvm::Type* retTy = getTypeFromString(fnTy.ret->str());
             llvm::FunctionType* fty = llvm::FunctionType::get(retTy, pts, false);
 
             // Extract fn_ptr and env_ptr from the fat pointer struct
-            llvm::StructType* fatTy = llvm::cast<llvm::StructType>(calleeVal->getType());
             llvm::Value* fnPtr  = builder->CreateExtractValue(calleeVal, {0}, "fn.ptr");
             llvm::Value* envPtr = builder->CreateExtractValue(calleeVal, {1}, "env.ptr");
 
+            // Each argument converts to its parameter type like a direct call's: an
+            // interface param boxes, and numbers get full coercion (int -> float,
+            // float <-> double), not just integer widening.
             std::vector<llvm::Value*> iargs = {envPtr};
             for (size_t i = 0; i < node->args.size(); ++i) {
-                llvm::Value* av = evaluateExpr(node->args[i]);
                 size_t pidx = i + 1;   // env pointer is param 0
-                if (pidx < pts.size() && av->getType()->isIntegerTy()
-                        && pts[pidx]->isIntegerTy() && av->getType() != pts[pidx]) {
-                    av = coerceInt(av, pts[pidx],
-                                   eskiuUnsigned(getExprEskiuType(node->args[i])));
-                }
+                llvm::Value* av = i < paramStrs.size() ? evalForType(node->args[i], paramStrs[i])
+                                                       : evaluateExpr(node->args[i]);
+                if (pidx < pts.size() && av->getType() != pts[pidx])
+                    av = coerceValue(av, pts[pidx],
+                                     eskiuUnsigned(getExprEskiuType(node->args[i])));
                 iargs.push_back(av);
             }
             // A void-returning call must not be given a name (LLVM forbids it).
-            exprValueStack.push(builder->CreateCall(
+            exprValueStack.push(createMaybeInvoke(
                 fty, fnPtr, iargs, retTy->isVoidTy() ? "" : "fn.call"));
             return;
         }
@@ -391,25 +544,53 @@ void CodeGen::visit(CallExpr* node) {
     }
     llvm::Function* func = llvm::cast<llvm::Function>(calleeVal);
 
+    // An extern with by-value aggregates: coerce the args to its Eskiu-level signature
+    // (variadic extras get the C default promotions), then lower to the C ABI.
+    // A C function pointer parameter takes the C address of a named function.
+    auto fpIt = externFnPtrParams.find(func->getName().str());
+    auto isCFnParam = [&](size_t i) {
+        return fpIt != externFnPtrParams.end() && i < fpIt->second.size() && fpIt->second[i];
+    };
+    auto vaIt = externVaListParams.find(func->getName().str());
+    auto isCVaParam = [&](size_t i) {
+        return vaIt != externVaListParams.end() && i < vaIt->second.size() && vaIt->second[i];
+    };
+    auto abiIt = externAbi.find(func->getName().str());
+    if (abiIt != externAbi.end()) {
+        auto lparams = abiIt->second.logical->params();
+        std::vector<llvm::Value*> cargs;
+        for (size_t i = 0; i < node->args.size(); ++i) {
+            llvm::Value* v = isCFnParam(i) ? evalCFnPointer(node->args[i])
+                           : isCVaParam(i) ? evalCVaList(node->args[i]) : evaluateExpr(node->args[i]);
+            bool uns = eskiuUnsigned(getExprEskiuType(node->args[i]));
+            if (i < lparams.size()) {
+                if (v->getType() != lparams[i]) v = coerceValue(v, lparams[i], uns);
+            } else if (v->getType()->isIntegerTy() && v->getType()->getIntegerBitWidth() < 32) {
+                llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+                v = (uns || v->getType()->isIntegerTy(1)) ? builder->CreateZExt(v, i32)
+                                                           : builder->CreateSExt(v, i32);
+            } else if (v->getType()->isFloatTy()) {
+                v = builder->CreateFPExt(v, llvm::Type::getDoubleTy(*context));
+            }
+            cargs.push_back(v);
+        }
+        exprValueStack.push(emitCAbiCall(func, abiIt->second, cargs));
+        return;
+    }
+
     // Evaluate args, boxing structs as interfaces where the param type demands it
     std::vector<llvm::Value*> args;
     auto ptIt = funcEskiuParamTypes.find(func->getName().str());
     for (size_t i = 0; i < node->args.size(); ++i) {
-        bool boxed = false;
-        if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size()) {
-            const std::string& ep = ptIt->second[i];
-            if (ifaceFatPtrTypes.count(ep)) {
-                // Param expects an interface — evaluate arg as pointer and box it
-                std::string argType = getExprEskiuType(node->args[i]);
-                if (!argType.empty() && argType.front() == '*') argType = argType.substr(1);
-                if (argType.size() > 7 && argType.substr(0, 7) == "struct:") argType = argType.substr(7);
-                while (!argType.empty() && argType.back() == '*') argType.pop_back();
-                llvm::Value* sPtr = evaluateExpr(node->args[i]); // &struct → ptr
-                args.push_back(boxAsInterface(ep, argType, sPtr));
-                boxed = true;
-            }
-        }
-        if (!boxed) args.push_back(evaluateExpr(node->args[i]));
+        // A param that expects an interface boxes a struct pointer argument.
+        if (isCFnParam(i))
+            args.push_back(evalCFnPointer(node->args[i]));
+        else if (isCVaParam(i))
+            args.push_back(evalCVaList(node->args[i]));
+        else if (ptIt != funcEskiuParamTypes.end() && i < ptIt->second.size())
+            args.push_back(evalForType(node->args[i], ptIt->second[i]));
+        else
+            args.push_back(evaluateExpr(node->args[i]));
     }
 
     // Widen/truncate integer arguments to match function parameter types. If the
@@ -492,24 +673,54 @@ void CodeGen::visit(AllocWithExpr* node) {
 
     std::string fnName = at + "_alloc";
     llvm::Function* af = module->getFunction(fnName);
+    if (!af) af = instantiateGenericMethod(at, "alloc");   // an inline method of a generic struct
     if (!af)
         throw std::runtime_error("alloc_with: allocator type '" + at +
                                  "' has no alloc method (" + fnName + ")");
 
     llvm::Type* elemTy = getTypeFromString(node->elemType);
     uint64_t esz = module->getDataLayout().getTypeAllocSize(elemTy);
-    llvm::Value* n64 = builder->CreateIntCast(evaluateExpr(node->count),
-                            llvm::Type::getInt64Ty(*context), false);
-    llvm::Value* total = builder->CreateMul(
-        n64, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), esz), "allocw.size");
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Value* n64 = builder->CreateIntCast(evaluateExpr(node->count), i64,
+                            !eskiuUnsigned(getExprEskiuType(node->count)));
+    // n * sizeof(T) as a signed 64-bit size: a count that overflows it, or is negative,
+    // (or a size too wide for a narrower size parameter) yields null instead of a
+    // wrapped, too-small allocation.
+    llvm::Function* smul = llvm::Intrinsic::getOrInsertDeclaration(
+        module.get(), llvm::Intrinsic::smul_with_overflow, {i64});
+    llvm::Value* prod = builder->CreateCall(smul, {n64, llvm::ConstantInt::get(i64, esz)}, "allocw.mul");
+    llvm::Value* total = builder->CreateExtractValue(prod, {0}, "allocw.size");
+    llvm::Value* bad = builder->CreateOr(builder->CreateExtractValue(prod, {1}),
+        builder->CreateICmpSLT(total, llvm::ConstantInt::get(i64, 0)), "allocw.bad");
 
     // Coerce the size to the alloc method's second parameter type.
     llvm::FunctionType* fty = af->getFunctionType();
-    if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType())
-        total = builder->CreateIntCast(total, fty->getParamType(1), false);
+    if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType()) {
+        llvm::Type* pt = fty->getParamType(1);
+        if (pt->isIntegerTy() && pt->getIntegerBitWidth() < 64) {
+            uint64_t maxv = (uint64_t(1) << (pt->getIntegerBitWidth() - 1)) - 1;
+            bad = builder->CreateOr(bad, builder->CreateICmpSGT(total, llvm::ConstantInt::get(i64, maxv)));
+        }
+        total = builder->CreateIntCast(total, pt, false);
+    }
 
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* doCall = llvm::BasicBlock::Create(*context, "allocw.call", fn);
+    llvm::BasicBlock* fail   = llvm::BasicBlock::Create(*context, "allocw.fail", fn);
+    llvm::BasicBlock* done   = llvm::BasicBlock::Create(*context, "allocw.done", fn);
+    builder->CreateCondBr(bad, fail, doCall);
+    builder->SetInsertPoint(doCall);
     // Returns *void; the cast to *T is a no-op under opaque pointers.
-    exprValueStack.push(builder->CreateCall(af, {allocPtr, total}, "allocw.ptr"));
+    llvm::Value* p = createMaybeInvoke(af->getFunctionType(), af, {allocPtr, total}, "allocw.ptr");
+    llvm::BasicBlock* callEnd = builder->GetInsertBlock();
+    builder->CreateBr(done);
+    builder->SetInsertPoint(fail);
+    builder->CreateBr(done);
+    builder->SetInsertPoint(done);
+    llvm::PHINode* phi = builder->CreatePHI(p->getType(), 2, "allocw.res");
+    phi->addIncoming(p, callEnd);
+    phi->addIncoming(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(p->getType())), fail);
+    exprValueStack.push(phi);
 }
 
 llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
@@ -517,13 +728,21 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
     std::string wname = "__fnptr_" + target->getName().str();
     llvm::Function* wrapper = module->getFunction(wname);
     if (!wrapper) {
-        // Thunk: (env*, params...) -> ret  that ignores env and calls target.
-        llvm::FunctionType* tfty = target->getFunctionType();
+        // Thunk: (env*, params...) -> ret  that ignores env and calls target. It
+        // presents the Eskiu-level signature an indirect call uses: a C-ABI-lowered
+        // extern is wrapped at its logical signature, and an sret function returns
+        // its struct by value (the thunk passes the hidden sret slot itself).
+        auto abiIt = externAbi.find(target->getName().str());
+        auto sretIt = funcSretTypes.find(target->getName().str());
+        bool viaSret = abiIt == externAbi.end() && sretIt != funcSretTypes.end();
+        llvm::FunctionType* tfty = abiIt != externAbi.end() ? abiIt->second.logical
+                                                            : target->getFunctionType();
         std::vector<llvm::Type*> wparams;
         wparams.push_back(ptrTy);  // env (unused)
-        for (llvm::Type* pt : tfty->params()) wparams.push_back(pt);
-        llvm::FunctionType* wfty = llvm::FunctionType::get(
-            tfty->getReturnType(), wparams, tfty->isVarArg());
+        auto tparams = tfty->params();
+        for (size_t i = viaSret ? 1 : 0; i < tparams.size(); ++i) wparams.push_back(tparams[i]);
+        llvm::Type* wret = viaSret ? sretIt->second : tfty->getReturnType();
+        llvm::FunctionType* wfty = llvm::FunctionType::get(wret, wparams, tfty->isVarArg());
         wrapper = llvm::Function::Create(wfty, llvm::Function::InternalLinkage,
                                          wname, module.get());
 
@@ -531,21 +750,53 @@ llvm::Value* CodeGen::makeFunctionPointer(llvm::Function* target) {
         llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", wrapper);
         builder->SetInsertPoint(entry);
         std::vector<llvm::Value*> callArgs;
+        llvm::Value* sretSlot = nullptr;
+        if (viaSret) {
+            sretSlot = builder->CreateAlloca(sretIt->second, nullptr, "sret.tmp");
+            callArgs.push_back(sretSlot);
+        }
         auto ai = wrapper->arg_begin(); ++ai;  // skip env
         for (; ai != wrapper->arg_end(); ++ai) callArgs.push_back(&*ai);
-        llvm::Value* r = builder->CreateCall(target, callArgs);
-        if (tfty->getReturnType()->isVoidTy()) builder->CreateRetVoid();
+        llvm::Value* r = abiIt != externAbi.end()
+            ? emitCAbiCall(target, abiIt->second, callArgs, /*allowInvoke=*/false)
+            : builder->CreateCall(target, callArgs);
+        if (viaSret) builder->CreateRet(builder->CreateLoad(sretIt->second, sretSlot));
+        else if (tfty->getReturnType()->isVoidTy()) builder->CreateRetVoid();
         else builder->CreateRet(r);
         if (prev) builder->SetInsertPoint(prev);
     }
 
-    // Build fat pointer {wrapper, null} — same shape lambdas produce.
+    // The fat pointer {wrapper, null}, the shape lambdas produce. It is a constant, so a
+    // global initializer can hold a function name (`Op g = add;`), as in C.
     llvm::StructType* fatTy = llvm::cast<llvm::StructType>(getTypeFromString("fn()->void"));
-    llvm::Value* fatAlloca = entryAlloca(fatTy, nullptr, "fnptr.fat");
-    builder->CreateStore(wrapper, builder->CreateStructGEP(fatTy, fatAlloca, 0));
-    builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)),
-                         builder->CreateStructGEP(fatTy, fatAlloca, 1));
-    return builder->CreateLoad(fatTy, fatAlloca, "fnptr.fat.val");
+    return llvm::ConstantStruct::get(fatTy,
+        {wrapper, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy))});
+}
+
+llvm::Function* CodeGen::instantiateFnTemplate(FunctionDecl* fd, const std::string& mangledName,
+                                               const std::map<std::string, std::string>& subs) {
+    // Instantiate if not already in module.
+    // Save/restore the insert point — we may be inside another function's body.
+    if (!module->getFunction(mangledName)) {
+        llvm::BasicBlock*          savedBB         = builder->GetInsertBlock();
+        llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
+        llvm::Function*            savedFunc       = currentFunction;
+        llvm::Value*               savedSretParam  = currentSretParam;
+        // Restore (not clear) the override: this call may be nested inside another
+        // template body whose substitutions must survive the inner instantiation.
+        auto                       savedOverride   = typeParamOverride;
+
+        typeParamOverride = subs;
+        auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
+        inst->accept(this);
+        typeParamOverride = savedOverride;
+
+        // Restore caller's context
+        currentFunction  = savedFunc;
+        currentSretParam = savedSretParam;
+        if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
+    }
+    return module->getFunction(mangledName);
 }
 
 void CodeGen::visit(TemplateCallExpr* node) {
@@ -554,7 +805,7 @@ void CodeGen::visit(TemplateCallExpr* node) {
         llvm::Value* ap = evaluateLValue(node->args[0]);
         std::string t = typeParamOverride.empty() ? node->typeArgs[0]
                                                    : substType(node->typeArgs[0], typeParamOverride);
-        exprValueStack.push(builder->CreateVAArg(ap, getTypeFromString(t), "va.arg"));
+        exprValueStack.push(emitVaArg(ap, getTypeFromString(t)));
         return;
     }
     // Generic algebraic-variant construction: `Some<int>(5)`, `Left<A,B>(x)`. Type
@@ -570,8 +821,8 @@ void CodeGen::visit(TemplateCallExpr* node) {
         std::map<std::string, std::string> subs;
         for (size_t i = 0; i < ge->typeParams.size() && i < args.size(); ++i)
             subs[ge->typeParams[i]] = args[i];
-        std::vector<llvm::Type*> fts;
-        for (const auto& ft : ge->payloads[gi.second]) fts.push_back(getTypeFromString(substType(ft, subs)));
+        std::vector<std::string> fts;
+        for (const auto& ft : ge->payloads[gi.second]) fts.push_back(substType(ft, subs));
         exprValueStack.push(buildEnumValue(structTypes[mangled], gi.second, fts, node->args));
         return;
     }
@@ -597,33 +848,17 @@ void CodeGen::visit(TemplateCallExpr* node) {
     std::string mangledName = node->templateName;
     for (const auto& t : node->typeArgs) mangledName += "_" + mangleTemplate(resolveArg(t));
 
-    // Instantiate if not already in module.
-    // Save/restore the insert point — we may be inside another function's body.
-    if (!module->getFunction(mangledName)) {
-        llvm::BasicBlock*          savedBB         = builder->GetInsertBlock();
-        llvm::BasicBlock::iterator savedPoint      = builder->GetInsertPoint();
-        llvm::Function*            savedFunc       = currentFunction;
-        llvm::Value*               savedSretParam  = currentSretParam;
-        // Restore (not clear) the override: this call may be nested inside another
-        // template body whose substitutions must survive the inner instantiation.
-        auto                       savedOverride   = typeParamOverride;
-
-        typeParamOverride = subs;
-        auto inst = std::make_shared<FunctionDecl>(mangledName, fd->returnType, fd->params, fd->body);
-        inst->accept(this);
-        typeParamOverride = savedOverride;
-
-        // Restore caller's context
-        currentFunction  = savedFunc;
-        currentSretParam = savedSretParam;
-        if (savedBB) builder->SetInsertPoint(savedBB, savedPoint);
-    }
-
-    llvm::Function* func = module->getFunction(mangledName);
+    llvm::Function* func = instantiateFnTemplate(fd, mangledName, subs);
     if (!func) throw std::runtime_error("Template instantiation failed: " + mangledName);
 
+    // An argument bound to an interface parameter (`Sh y`, or `T x` with T = Sh) is
+    // boxed to the interface, as for a direct call.
     std::vector<llvm::Value*> args;
-    for (auto& arg : node->args) args.push_back(evaluateExpr(arg));
+    for (size_t i = 0; i < node->args.size(); ++i) {
+        bool fixed = i < fd->params.size() && fd->params[i].first != "...";
+        args.push_back(fixed ? evalForType(node->args[i], substType(fd->params[i].first, subs))
+                             : evaluateExpr(node->args[i]));
+    }
 
     // Coerce arguments to the instantiated function's parameter types — e.g. a
     // `double` literal passed where T=float substituted the parameter to `float`.
@@ -642,9 +877,9 @@ void CodeGen::visit(TemplateCallExpr* node) {
     if (sretIt != funcSretTypes.end()) {
         llvm::Value* sretAlloca = entryAlloca(sretIt->second, nullptr, "sret.tmp");
         args.insert(args.begin(), sretAlloca);
-        builder->CreateCall(func, args);
+        createMaybeInvoke(func->getFunctionType(), func, args);
         exprValueStack.push(builder->CreateLoad(sretIt->second, sretAlloca));
     } else {
-        exprValueStack.push(builder->CreateCall(func, args));
+        exprValueStack.push(createMaybeInvoke(func->getFunctionType(), func, args));
     }
 }

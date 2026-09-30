@@ -1,0 +1,9 @@
+// EXPECT-ERROR: '?' is not allowed inside a finally block
+// A `?` is an early return: in a finally it would swallow the exception being unwound.
+import <result>;
+Result<int, string> g(int x) { if (x > 0) { return Ok<int, string>(x); } return Err<int, string>("neg"); }
+Result<int, string> f(int x) {
+    try { throw 5; } finally { int v = g(x)?; }
+    return Ok<int, string>(5);
+}
+int main() { try { Result<int, string> r = f(-1); return r.ok ? 0 : 3; } catch (int e) { return 9; } return 1; }

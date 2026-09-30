@@ -1,0 +1,7 @@
+// EXPECT-ERROR: nullable
+struct N { int v; }
+type NP = ?*N;
+int main() {
+    NP q = null;
+    return q.v;
+}

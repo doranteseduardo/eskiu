@@ -1,0 +1,2 @@
+// EXPECT-ERROR: return type mismatch: expected int, got string
+int main() { fn()->int f = int() { return "s"; }; return f(); }

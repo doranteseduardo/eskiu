@@ -1,0 +1,89 @@
+// Dot-call syntax on a generic struct instance: `x.m(args)` with x: S<A..> calls the
+// generic free function `S_m<T..>` (the `Type_method` convention) with the type
+// arguments taken from the receiver. A value receiver passes its address, a pointer
+// receiver passes the pointer. Works inside generic bodies too.
+import <list>;
+import <map>;
+import <channel>;
+extern int printf(string fmt, ...);
+
+struct Box<T> { T v; }
+T Box_get<T>(Box<T>* self) { return self.v; }
+void Box_set<T>(Box<T>* self, T x) { self.v = x; }
+void Box_twice<T>(Box<T>* self, T x) { self.set(x); self.set(self.get() + x); }
+
+struct Pair<A, B> { A a; B b; }
+Pair<B, A> Pair_swap<A, B>(Pair<A, B>* p) { let r: Pair<B, A>; r.a = p.b; r.b = p.a; return r; }
+A Pair_first<A, B>(Pair<A, B>* p) { return p.a; }
+
+void fill<T>(List<T>* l, T x, int n) {
+    for (i in 0..n) { l.push(x); }
+}
+
+int Future_ready<T>(Future<T>* f) { return f.state == READY ? 1 : 0; }
+
+uint64 hash_int(*int k) { return (uint64)*k; }
+int eq_int(*int a, *int b) { return *a == *b ? 1 : 0; }
+
+async int consume(Chan<int>* ch, List<int>* seen) {
+    int a = await ch.recv();
+    seen.push(a);
+    int b = await ch.recv();
+    seen.push(b);
+    return a + b;
+}
+
+int main() {
+    let b: Box<int>;
+    b.set(20);
+    printf("%d\n", b.get());                 // 20
+    b.twice(5);
+    printf("%d\n", b.get());                 // 10
+    Box<int>* pb = &b;
+    pb.set(7);
+    printf("%d\n", pb.get());                // 7
+
+    let p: Pair<int, double>;
+    p.a = 3; p.b = 2.5;
+    let q: Pair<double, int> = p.swap();
+    printf("%.1f %d %.1f\n", q.a, q.b, q.first());   // 2.5 3 2.5
+
+    List<int> l; l.init(4);
+    l.push(8); l.push(9);
+    printf("%d %d %d\n", l.len(), l.get(0), l.get(1));   // 2 8 9
+    l.set(0, 1);
+    l.remove(1);
+    printf("%d %d\n", l.len(), l.get(0));    // 1 1
+    l.free();
+
+    List<int64> big; big.init(1);
+    fill(&big, (int64)5000000000, 3);
+    printf("%d %lld\n", big.len(), big.get(2));   // 3 5000000000
+    big.free();
+
+    Map<int> m; m.init(8);
+    int created = 0;
+    *int slot = m.at("x", &created);
+    *slot = 41;
+    int out = 0;
+    int found = m.get("x", &out);
+    printf("%d %d %d\n", created, found, out);    // 1 1 41
+    m.free();
+
+    HashMap<int, int> h; h.init(8, hash_int, eq_int);
+    *int hs = h.at(7, &created);
+    *hs = 70;
+    int hf = h.get(7, &out);
+    printf("%d %d\n", hf, out);              // 1 70
+    h.free();
+
+    Chan<int>* ch = chan_new<int>(4);
+    ch.send(10); ch.send(20);
+    List<int> seen; seen.init(2);
+    Future<int>* r = consume(ch, &seen);
+    printf("%d %d %d %d\n", r.ready(), r.value, seen.len(), seen.get(1));   // 1 30 2 20
+    free_future<int>(r);
+    seen.free();
+    ch.free();
+    return 0;
+}

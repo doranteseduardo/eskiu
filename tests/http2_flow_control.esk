@@ -1,0 +1,185 @@
+// h2c flow control in both directions, with a client thread that honors the
+// windows like a real peer, over a socketpair:
+//  1. a 100000-byte upload (more than the 65535 default window) completes: the
+//     server credits the windows back with WINDOW_UPDATE as it takes the data
+//     in (it never did, so the upload hung at 65535 bytes);
+//  2. a 200000-byte response stops at the stream window; while it waits, a
+//     WINDOW_UPDATE for another (closed) stream must not credit it (it used to), and a new
+//     request that adds to the HPACK dynamic table is decoded and answered
+//     (such frames used to be read and dropped, desyncing HPACK);
+//  3. raising stream 1's window lets the rest of the response through, and a
+//     later request that refers to the dynamic entry still decodes.
+import <mem>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <channel>;
+import <hpack>;
+import <http2>;
+import <http>;
+import <http2_server>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int socketpair(int domain, int type, int protocol, *int sv);
+
+EventLoop* g_lp;
+int g_cli = -1;
+*uint8 g_rb;
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    let b: String;  b.init(64);
+    b.append(req.path.cstr());
+    b.append(" len=");
+    let n: String;  n.init(8);  n.from_int((int)req.body.len);  b.append(n.cstr());  n.free();
+    let h: String;  h.init(8);
+    if (req.header("x-test", &h) == 1) { b.append(" x-test=");  b.append(h.cstr()); }
+    h.free();
+    if (req.path.eq_cstr("/big") == 1) { for (i in 0..200000) { b.push('z'); } }
+    HttpResponse_set_body(res, b.cstr());
+    b.free();
+}
+
+void send_frame(int type, int flags, int sid, *uint8 p, int n) {
+    *uint8 f = alloc<uint8>(n + 9);
+    for (i in 0..n) { f[9 + i] = p[i]; }
+    int total = h2_frame_finish(f, type, flags, sid, n);
+    net_send(g_cli, (*void)f, (int64)total);
+    free((*void)f);
+}
+
+void send_wu(int sid, int64 inc) {
+    uint8[4] p;  h2_put_u32(&p[0], 0, inc);
+    send_frame(H2_WINDOW_UPDATE, 0, sid, &p[0], 4);
+}
+
+// Read exactly n bytes from the client socket.
+void read_n(*uint8 b, int n) {
+    int got = 0;
+    while (got < n) {
+        int64 k = net_recv(g_cli, (*void)(b + got), (int64)(n - got));
+        if (k <= 0) { return; }
+        got += (int)k;
+    }
+}
+
+// Read one server frame into g_rb; returns its header.
+H2Frame read_frame() {
+    let f: H2Frame;
+    read_n(g_rb, 9);
+    h2_read_header(g_rb, &f);
+    read_n(g_rb + 9, f.length);
+    return f;
+}
+
+void send_request(int sid, string method, string path, int end_stream, int with_dyn, int use_dyn) {
+    *uint8 blk = alloc<uint8>(256);
+    int off = hpack_encode_header(blk, 0, (*uint8)":method", 7, (*uint8)method, strlen(method));
+    off = hpack_encode_header(blk, off, (*uint8)":path", 5, (*uint8)path, strlen(path));
+    off = hpack_encode_header(blk, off, (*uint8)":scheme", 7, (*uint8)"http", 4);
+    if (with_dyn != 0) {                                  // literal with incremental indexing
+        blk[off++] = (uint8)64;
+        off = hpack_encode_str(blk, off, (*uint8)"x-test", 6);
+        off = hpack_encode_str(blk, off, (*uint8)"dyn", 3);
+    }
+    if (use_dyn != 0) { blk[off++] = (uint8)190; }        // indexed 62: that dynamic entry
+    int flags = H2_FLAG_END_HEADERS | (end_stream != 0 ? H2_FLAG_END_STREAM : 0);
+    send_frame(H2_HEADERS, flags, sid, blk, off);
+    free((*void)blk);
+}
+
+// Read frames until stream `sid` ends; returns its body length and prints the
+// start of the body. Other streams' DATA is added to *other.
+int64 read_response(int sid, *int64 other, int64 stop_at) {
+    int64 len = 0;
+    while (true) {
+        H2Frame f = read_frame();
+        if (f.type == H2_DATA && f.stream_id == sid) {
+            if (len == 0) { printf("  stream %d: %.*s\n", sid, f.length < 40 ? f.length : 40, (string)(g_rb + 9)); }
+            len += f.length;
+            if ((f.flags & H2_FLAG_END_STREAM) != 0 || (stop_at > 0 && len >= stop_at)) { return len; }
+        } else if (f.type == H2_DATA) {
+            other[0] = other[0] + f.length;
+        } else if (f.type == H2_GOAWAY || f.type == H2_RST_STREAM) {
+            printf("  unexpected frame type %d\n", f.type);
+            return len;
+        }
+    }
+    return len;
+}
+
+void client() {
+    net_send(g_cli, (*void)h2_preface(), (int64)24);
+    send_frame(H2_SETTINGS, 0, 0, null, 0);
+
+    // 1. Upload 100000 bytes, spending the windows and waiting for credit.
+    send_request(1, "POST", "/up", 0, 0, 0);
+    *uint8 chunk = alloc<uint8>(16384);
+    for (i in 0..16384) { chunk[i] = (uint8)'u'; }
+    int64 conn_w = 65535;  int64 strm_w = 65535;  int64 sent = 0;  int updates = 0;
+    while (sent < 100000) {
+        int64 n = 100000 - sent;
+        if (n > 16384) { n = 16384; }
+        if (n > conn_w) { n = conn_w; }
+        if (n > strm_w) { n = strm_w; }
+        if (n <= 0) {
+            H2Frame f = read_frame();
+            if (f.type == H2_WINDOW_UPDATE) {
+                updates++;
+                int64 inc = (int64)h2_read_window_update(g_rb + 9);
+                if (f.stream_id == 0) { conn_w += inc; } else { strm_w += inc; }
+            }
+            continue;
+        }
+        send_frame(H2_DATA, sent + n >= 100000 ? H2_FLAG_END_STREAM : 0, 1, chunk, (int)n);
+        sent += n;  conn_w -= n;  strm_w -= n;
+    }
+    free((*void)chunk);
+    int64 other = 0;
+    int64 got = read_response(1, &other, 0);
+    printf("upload: sent=%lld updates>0=%d\n", sent, updates > 0 ? 1 : 0);
+
+    // 2. A response larger than the stream window waits for credit (the
+    // connection window is opened first, so only the stream window limits it).
+    send_wu(0, (int64)10000000);
+    send_request(3, "GET", "/big", 1, 0, 0);
+    int64 big = read_response(3, &other, 65535);
+    send_wu(1, (int64)10000000);                 // stream 1 is closed: ignored, not stream 3
+    send_request(5, "GET", "/s5", 1, 1, 0);
+    other = 0;
+    int64 s5 = read_response(5, &other, 0);
+    printf("while waiting: big so far=%lld extra big data=%lld\n", big, other);
+
+    // 3. Credit stream 3; the rest arrives. Then reuse the dynamic entry.
+    send_wu(3, (int64)10000000);
+    other = 0;
+    int64 rest = 0;
+    while (true) {
+        H2Frame f = read_frame();
+        if (f.type == H2_DATA && f.stream_id == 3) { rest += f.length; }
+        if ((f.flags & H2_FLAG_END_STREAM) != 0 && f.stream_id == 3) { break; }
+    }
+    printf("big total=%lld\n", big + rest);
+    send_request(7, "GET", "/s7", 1, 0, 1);
+    int64 s7 = read_response(7, &other, 0);
+    send_frame(H2_GOAWAY, 0, 0, (*uint8)"\0\0\0\0\0\0\0\0", 8);
+}
+
+int main() {
+    *int sv = alloc<int>(2);
+    socketpair(1, 1, 0, sv);
+    g_cli = sv[1];
+    g_rb = alloc<uint8>(65536);
+    g_lp = el_new(16);
+    Chan<int>* done = chan_new<int>(1);
+    Future<uint8>* f = http2_serve_conn_async(g_lp, sv[0], handler, done);
+    let t: *void = thread_create(client);
+    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    thread_join(t);
+    free_future<uint8>(f);
+    Chan_free<int>(done);
+    net_close(sv[1]);
+    free((*void)g_rb);
+    free((*void)sv);
+    EventLoop_free(g_lp);
+    return 0;
+}

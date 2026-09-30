@@ -1,0 +1,5 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer of type '?*S'
+struct S { int v; }
+?*S gp = null;
+int clear() { gp = null; return 1; }
+int main() { S s = S{v: 1}; gp = &s; if (gp != null) { int k = clear(); } else { return 0; } return gp.v; }

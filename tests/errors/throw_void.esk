@@ -1,0 +1,6 @@
+// EXPECT-ERROR: cannot throw a 'void' value
+void v() { }
+int main() {
+    throw v();
+    return 0;
+}

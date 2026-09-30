@@ -1,0 +1,43 @@
+// A deferred statement names the variables visible where it was written, even when it
+// runs at an exit where a later declaration shadows one of them (a later `let` in the
+// same block, or an inner block left by break/continue/return). Found by the C oracle
+// in tests/fuzz/eskiu_fuzz.py (the C++ back end emitted invalid IR, the self-hosted
+// one read the wrong variable).
+extern int printf(string fmt, ...);
+
+struct S { int8 a; int64 b; }
+
+int after_let() {
+    int32 v = 7;
+    {
+        defer printf("v=%d\n", v);
+        S v = S { a: 1, b: 2 };
+        printf("inner %lld\n", v.b);
+    }
+    return v;
+}
+
+int early_exit(int n) {
+    int32 x = 10;
+    for (int i = 0; i < 3; i++) {
+        defer printf("x=%d i=%d\n", x, i);
+        {
+            int64 x = 99;
+            if (i == n) { break; }
+            if (i == 0) { continue; }
+            printf("shadow %lld\n", x);
+        }
+    }
+    {
+        defer { printf("ret x=%d\n", x); }
+        uint8 x = 3;
+        if (n >= 0) { return x; }
+    }
+    return 0;
+}
+
+int main() {
+    printf("%d\n", after_let());
+    printf("%d\n", early_exit(2));
+    return 0;
+}

@@ -1,0 +1,33 @@
+// Enum values, array dimensions and `case` labels fold with C's typed integer rules
+// (usual arithmetic conversions, 32-bit wraparound, unsigned comparison and division,
+// the arithmetic shift of a signed value, `sizeof` as an unsigned size), in both
+// compilers, and agree with the C compiler (tests/const_fold_typed_c.c).
+extern int printf(string fmt, ...);
+extern int c_val(int i);
+extern int c_count();
+extern int c_dim();
+enum E { S2 = (1 << 31) >> 31, C1 = -1 < (uint)0, C2 = (uint)0 - 1 > 0, D1 = (uint)7 / (uint)-1, R1 = -8 >> 1,
+         U1 = (uint)-8 >> 28, M1 = -7 % 3, A = (uint)-1 / 2 > 5, B = (int)((uint)1 << 31) >> 31,
+         C = (uint)-1 >> 31, D = (int)(uint)-1, F = ((uint)3 - (uint)5) / 2 > 100,
+         G = (int8)-1 < (uint8)1, H = (uint16)65535 * 2 > 0, K = sizeof(int) - 5 > 0,
+         L = 2147483647 + 1 < 0, T = (true ? (uint)1 : -1) - 2 > 0 }
+const int GF = ((uint)3 - (uint)5) / 2 > 100;
+int pick(uint x) {
+    switch (x) {
+        case (uint)0 - 1: return 1;
+        case ((uint)3 - (uint)5) / 2: return 2;
+        default: return 0;
+    }
+}
+int main() {
+    int[17] mine = {S2, C1, C2, D1, R1, U1, M1, A, B, C, D, F, G, H, K, L, T};
+    int bad = 0;
+    for (i in 0..c_count()) {
+        if (mine[i] != c_val(i)) { printf("value %d: %d, C %d\n", i, mine[i], c_val(i)); bad = bad + 1; }
+    }
+    int[((uint)3 - (uint)5) > 100 ? 4 : 1] arr;
+    int[(1 << 31) >> 31 == -1 ? 2 : 1] arr2;
+    printf("%d %d %lld %lld %d\n", c_count(), bad, sizeof(arr), sizeof(arr2), c_dim());
+    printf("%d %d %d %d\n", GF, F, pick((uint)0 - 1), pick(2147483647));
+    return 0;
+}

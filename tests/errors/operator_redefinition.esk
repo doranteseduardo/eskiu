@@ -1,0 +1,5 @@
+// EXPECT-ERROR: redefinition of function 'operator +(V, V)'
+struct V { int x; }
+V operator +(V a, V b) { return a; }
+V operator +(V a, V b) { return b; }
+int main() { let a: V = V{x: 1}; let c: V = a + a; return c.x; }

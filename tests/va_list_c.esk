@@ -1,0 +1,26 @@
+// A va_list handed to a C function (vprintf, vsnprintf) goes the way the target's C
+// va_list does: by address on x86-64 System V and AArch64 Linux, as the `char*` on
+// Darwin AArch64, Windows x64 and 32-bit ARM. Also through an Eskiu va_list param.
+extern int printf(string fmt, ...);
+extern int vprintf(string fmt, va_list ap);
+extern int vsnprintf(*char buf, int64 n, string fmt, va_list ap);
+
+void logf(string f, ...) { va_list ap; va_start(ap); vprintf(f, ap); va_end(ap); }
+
+int fwd(*char buf, string f, va_list ap) { return vsnprintf(buf, 64, f, ap); }
+
+int fmt(*char buf, string f, ...) {
+    va_list ap;
+    va_start(ap);
+    int n = fwd(buf, f, ap);
+    va_end(ap);
+    return n;
+}
+
+int main() {
+    logf("x=%d s=%s d=%.2f\n", 42, "ok", 2.5);
+    char[64] buf;
+    int n = fmt(&buf[0], "%d-%s-%lld", 7, "seven", (int64)1234567890123);
+    printf("%d %s\n", n, (string)&buf[0]);
+    return 0;
+}

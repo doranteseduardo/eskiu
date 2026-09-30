@@ -1,0 +1,44 @@
+// Sending to a socket whose peer has closed returns an error (EPIPE) instead of
+// raising SIGPIPE: net_send, net_send_str, http_reply and the async write path.
+import <http>;
+import <net_async>;
+import <eventloop>;
+import <future>;
+extern int socketpair(int d, int t, int p, *int sv);
+extern int printf(string f, ...);
+
+int closed_pair() {
+    let sv: int[2];
+    socketpair(1, 1, 0, &sv[0]);
+    net_close(sv[1]);
+    return sv[0];
+}
+
+EventLoop* g;
+
+int main() {
+    int fd = closed_pair();
+    int64 r = net_send(fd, (*void)"hello", 5);
+    printf("net_send: %s\n", r < 0 ? "error" : "sent");
+    r = net_send_str(fd, "hello");
+    printf("net_send_str: %s\n", r < 0 ? "error" : "sent");
+    net_close(fd);
+
+    fd = closed_pair();
+    let b: String; String_from(&b, "hello");
+    http_reply(fd, 200, "text/plain", "", &b);
+    String_free(&b);
+    printf("http_reply: survived\n");
+    net_close(fd);
+
+    fd = closed_pair();
+    net_set_nonblocking(fd);
+    g = el_new(8);
+    Future<int>* w = net_write_async(g, fd, (*uint8)"hello", 5);
+    if (future_poll<int>(w, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    printf("net_write_async: %d\n", w.value);
+    free_future_polled<int>(w);
+    EventLoop_free(g);
+    net_close(fd);
+    return 0;
+}

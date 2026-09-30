@@ -1,0 +1,3 @@
+// EXPECT-ERROR: initializing 't': cannot convert '*void' to 'int'
+// thread_create returns the thread's handle, a `*void`, not a number.
+int main() { int t = thread_create(void() {}); return t; }

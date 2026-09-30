@@ -1,0 +1,33 @@
+// SETTINGS values are validated (RFC 9113 §6.5.2) before any is applied:
+// ENABLE_PUSH other than 0/1 and MAX_FRAME_SIZE outside 16384..16777215 are
+// PROTOCOL_ERROR (1), INITIAL_WINDOW_SIZE above 2^31 - 1 is FLOW_CONTROL_ERROR
+// (3), a length not a multiple of 6 is FRAME_SIZE_ERROR (6). h2_apply_settings
+// rejects such a payload (-1) and leaves the settings untouched; unknown ids
+// are still ignored.
+import <mem>;
+import <http2>;
+extern int printf(string fmt, ...);
+
+void check(string label, int id, int64 v) {
+    uint8[6] p;
+    h2_put_setting(&p[0], 0, id, v);
+    let s: H2Settings;  h2_settings_defaults(&s);
+    const int rc = h2_apply_settings(&s, &p[0], 6);
+    printf("%s: error=%d apply=%d window=%lld frame=%lld push=%d\n", label, h2_settings_error(&p[0], 6),
+           rc, s.initial_window_size, s.max_frame_size, s.enable_push);
+}
+
+int main() {
+    check("push 0", H2_SETTINGS_ENABLE_PUSH, (int64)0);
+    check("push 2", H2_SETTINGS_ENABLE_PUSH, (int64)2);
+    check("window max", H2_SETTINGS_INITIAL_WINDOW_SIZE, (int64)2147483647);
+    check("window over", H2_SETTINGS_INITIAL_WINDOW_SIZE, (int64)2147483648);
+    check("frame min", H2_SETTINGS_MAX_FRAME_SIZE, (int64)16384);
+    check("frame small", H2_SETTINGS_MAX_FRAME_SIZE, (int64)16383);
+    check("frame max", H2_SETTINGS_MAX_FRAME_SIZE, (int64)16777215);
+    check("frame big", H2_SETTINGS_MAX_FRAME_SIZE, (int64)16777216);
+    check("unknown id", 99, (int64)4294967295);
+    uint8[6] p;
+    printf("length 5: error=%d\n", h2_settings_error(&p[0], 5));
+    return 0;
+}

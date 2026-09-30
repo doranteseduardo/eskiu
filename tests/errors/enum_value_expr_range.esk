@@ -1,0 +1,4 @@
+// EXPECT-ERROR: enum member 'B' of 'E' has value 4294967296, out of range for 'int'
+// A folded enum value must fit an int, like a literal one.
+enum E { A = 65536, B = (int64)A * A }
+int main() { return (int)B; }

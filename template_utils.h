@@ -12,11 +12,39 @@
 // were previously duplicated verbatim in sema/ and codegen/.
 // ============================================================================
 
+// The program's type aliases (name -> target), registered by the type checker and codegen
+// as they meet each `type` declaration: a template argument that names an alias mangles
+// as its target, so `Box<F>` (`type F = int`) and `Box<int>` are one instance.
+inline std::map<std::string, std::string>& templateTypeAliases() {
+    static std::map<std::string, std::string> aliases;
+    return aliases;
+}
+
 // "Result<int,string>" -> "Result_int_string"
-inline std::string mangleTemplate(const std::string& type) {
+inline std::string mangleTemplate(const std::string& type0) {
+    const auto& aliases = templateTypeAliases();
+    std::string type = aliases.empty() ? type0 : ty::dealiasSpelling(type0, aliases);
     std::string out;
-    for (char c : type) {
-        if (c == '<' || c == '>' || c == ',') out += '_';
+    int depth = 0;
+    bool afterArray = false;
+    for (size_t i = 0; i < type.size(); ++i) {
+        char c = type[i];
+        bool wasAfterArray = afterArray;
+        afterArray = false;
+        if (c == '<') ++depth;
+        else if (c == '>' && depth) --depth;
+        // An array / slice type argument (`Box<int[3]>`, `Box<int[]>`) mangles to an
+        // identifier (`Box_int_A3`, `Box_int_S`), not a bracketed array spelling.
+        if (depth > 0 && c == '[') {
+            if (i + 1 < type.size() && type[i + 1] == ']') { out += "_S"; ++i; }
+            else out += "_A";
+        }
+        else if (depth > 0 && c == ']') afterArray = true;
+        // A pointer to an array or slice argument (`Box<int[3]*>`, from `Box<*A3>` with
+        // `type A3 = int[3]`) marks each star `_P`: a trailing `*` would read as a pointer
+        // to the instance.
+        else if (depth > 0 && c == '*' && wasAfterArray) { out += "_P"; afterArray = true; }
+        else if (c == '<' || c == '>' || c == ',') out += '_';
         else if (c != ' ')                   out += c;
     }
     while (!out.empty() && out.back() == '_') out.pop_back();

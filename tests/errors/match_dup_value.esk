@@ -1,0 +1,4 @@
+// EXPECT-ERROR: duplicate match value
+enum Color { Red = 1, Green = 1, Blue }
+int f(Color c) { match c { Red -> return 1; Green -> return 2; Blue -> return 4; } return 0; }
+int main() { return f(Green); }

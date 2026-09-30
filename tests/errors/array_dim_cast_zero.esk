@@ -1,0 +1,4 @@
+// EXPECT-ERROR: array size must be positive, got 0
+// A dimension folds like C: `(uint8)256` truncates to 0, which has no layout.
+int[(uint8)256] g;
+int main() { return 0; }

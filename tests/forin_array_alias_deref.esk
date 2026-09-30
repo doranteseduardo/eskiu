@@ -1,0 +1,16 @@
+// for-in over an array reached through an alias: `*p` with p: *A4 (type A4 = int[4]),
+// and a field of alias type.
+extern int printf(string fmt, ...);
+type A4 = int[4];
+struct H { A4 v; }
+int main() {
+    int[4] a = {1, 2, 3, 4};
+    *A4 p = &a;
+    int s = 0;
+    for (x in *p) { s = s + x; }
+    H h; h.v[0] = 5; h.v[1] = 0; h.v[2] = 1; h.v[3] = 6;
+    int t = 0;
+    for (y in h.v) { t = t + y; }
+    printf("%d %d\n", s, t);
+    return 0;
+}

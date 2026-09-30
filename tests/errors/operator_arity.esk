@@ -1,0 +1,7 @@
+// EXPECT-ERROR: 4:3: operator '[]' takes 2 parameters, got 1
+struct V { int x; }
+V operator +(V a) { return a; }
+V operator [](V a) { return a; }
+V operator !(V a, V b) { return a; }
+V operator -(V a, V b, V c) { return a; }
+int main() { return 0; }

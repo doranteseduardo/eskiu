@@ -1,0 +1,3 @@
+// EXPECT-ERROR: discards a const qualifier
+T id<T>(T x) { return x; }
+int main() { int a = 1; const int* r = &a; *int q = id(r); *q = 5; return a; }

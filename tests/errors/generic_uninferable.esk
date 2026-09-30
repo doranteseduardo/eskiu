@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot infer type argument(s) T of generic function 'mk'
+T mk<T>() { let t: T; return t; }
+int main() { let y: int = mk(); return y; }

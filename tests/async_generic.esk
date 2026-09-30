@@ -1,0 +1,70 @@
+// Generic async functions: each instance gets its own frame, resume function and
+// constructor. Covers awaits whose type depends on the type parameter (let, return,
+// assignment and bare forms), a void generic task spawned per instance, two type
+// parameters, and a real suspension through the event loop.
+import <future>;
+import <net_async>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+extern int pipe(*int fds);
+extern int64 write(int fd, *void buf, int64 n);
+
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+
+struct Box<T> { T v; }
+
+async T gid<T>(T x) {
+    int k = await rdy<int>(1);
+    return x;
+}
+async T relay<T>(T v) {
+    T a = await gid<T>(v);
+    await rdy<T>(a);
+    a = await gid(a);
+    return await gid<T>(a);
+}
+async B second<A, B>(A a, B b) {
+    B got = await relay<B>(b);
+    Box<B> bx = Box<B>{ v: got };
+    A keep = await gid<A>(a);
+    return bx.v;
+}
+int g_done = 0;
+async void task<T>(T v) {
+    T r = await relay<T>(v);
+    g_done = g_done + 1;
+}
+uint8[16] gbuf;
+async int reader<T>(EventLoop* lp, int fd, T tag) {
+    int n = await net_read_async(lp, fd, &gbuf[0], (int64)16);
+    T t = await gid<T>(tag);
+    EventLoop_stop(lp);
+    return n;
+}
+
+async int run() {
+    int a = await relay<int>(40);
+    double d = await relay<double>(2.5);
+    string s = await relay<string>("ok");
+    int64 w = await second<string, int64>("x", (int64)5000000000);
+    printf("%d %.1f %s %lld\n", a, d, s, w);
+    return a + (int)d;
+}
+
+int main() {
+    Future<int>* r = run();
+    printf("%d %d\n", r.value, r.state);
+    free_future<int>(r);
+    spawn(task<int>(3));
+    spawn(task<string>("s"));
+    printf("%d\n", g_done);
+    int[2] fds; pipe(&fds[0]);
+    write(fds[1], (*void)"abc", (int64)3);
+    EventLoop* lp = el_new(64);
+    Future<int>* f = reader<double>(lp, fds[0], 1.5);
+    if (future_poll<int>(f, void() { }) == 0) { EventLoop_run(lp); }
+    printf("%d\n", f.value);
+    free_future<int>(f);
+    EventLoop_free(lp);
+    return 0;
+}

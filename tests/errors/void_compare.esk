@@ -1,0 +1,3 @@
+// EXPECT-ERROR: invalid operands for operator
+void hi() { }
+int main() { if (hi() == hi()) { return 1; } return 0; }

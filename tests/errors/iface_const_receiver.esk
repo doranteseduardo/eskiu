@@ -1,0 +1,5 @@
+// EXPECT-ERROR: conversion discards a const qualifier
+// Boxing `&x` of a const into an interface whose method writes `self` would modify x.
+interface S { int a(); }
+struct X { int v; int a() { self.v = 9; return self.v; } }
+int main() { const X x = X{v: 1}; S s = &x; return s.a(); }

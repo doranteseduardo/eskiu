@@ -1,0 +1,15 @@
+// `uint32` is another spelling of `uint` (as `int32` is of `int`): pointers and fn types
+// spelled with either match.
+extern int printf(string fmt, ...);
+uint32 f(uint32 x) { return x + 1; }
+int main() {
+    uint v = 3;
+    *uint32 p = &v;
+    uint32 w = 4;
+    *uint q = &w;
+    int32 k = 5;
+    *int pk = &k;
+    fn(uint)->uint g = f;
+    printf("%d\n", (int)(*p + *q + g(1)) + *pk);
+    return 0;
+}

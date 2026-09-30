@@ -1,0 +1,4 @@
+// EXPECT-ERROR: redefinition of global variable 'G'
+int G = 1;
+int G = 2;
+int main() { return G; }

@@ -42,7 +42,7 @@ rm -f /tmp/parsebuild.$$
 # The C++ --test-parser wraps the AST dump in a banner; strip those format-only
 # lines (anchored at column 0 — AST lines are indented, so they're untouched).
 strip_banner() {
-    sed -E '/^Parsing: /d; /^=+$/d; /^Parse succeeded!$/d'
+    LC_ALL=C sed -E '/^Parsing: /d; /^=+$/d; /^Parse succeeded!$/d'
 }
 
 

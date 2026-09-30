@@ -1,0 +1,4 @@
+// EXPECT-ERROR: undefined variable 'gsz'
+*int gptr = &gsz;
+int gsz = 5;
+int main() { return *gptr; }

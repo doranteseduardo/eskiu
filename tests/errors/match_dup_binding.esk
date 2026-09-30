@@ -1,0 +1,5 @@
+// EXPECT-ERROR: duplicate binding 'x' in match arm 'A'
+// Each payload binding of an arm names its own variable.
+enum E { A(int, int), B }
+int f(E e) { match e { A(x, x) -> return x; B -> return 0; } return 0; }
+int main() { return f(A(1, 2)); }

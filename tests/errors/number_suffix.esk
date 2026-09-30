@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid suffix 'b101' on numeric literal '0'
+int main() { return 0b101; }

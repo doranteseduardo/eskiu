@@ -1,0 +1,4 @@
+// EXPECT-ERROR: array size must be a compile-time constant, got 'N'
+int[N] arr;
+const int N = 3;
+int main() { return arr[2]; }

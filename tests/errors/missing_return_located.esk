@@ -1,0 +1,6 @@
+// EXPECT-ERROR: :3:5: missing return in non-void function 'f'
+// Function diagnostics point at the function's name.
+int f(int x) {
+    if (x > 0) { return 1; }
+}
+int main() { return f(1); }

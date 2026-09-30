@@ -1,0 +1,3 @@
+// EXPECT-ERROR: read-only
+struct Big { int a; }
+int main() { Big x = Big{a: 3}; const *Big p = &x; p.a = 5; return x.a; }

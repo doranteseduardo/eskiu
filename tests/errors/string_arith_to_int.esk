@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot convert 'string' to 'int'
+int main() { string s = "abc"; int x = s - 1; return x; }

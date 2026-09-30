@@ -1,0 +1,5 @@
+// EXPECT-ERROR: conversion discards a const qualifier
+extern int printf(string fmt, ...);
+const int A = 5;
+int* p = &A;
+int main() { *p = 3; printf("%d\n", A); return 0; }

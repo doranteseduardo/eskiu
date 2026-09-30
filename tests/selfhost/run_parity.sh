@@ -58,6 +58,18 @@ for f in "${files[@]}"; do
     fi
 done
 
+# Program arguments reach the program verbatim (no shell: spaces, `$`, `;` intact),
+# and a `--` after the script is dropped, in both drivers.
+ARGS_ESK=tests/run_cmd/args.esk
+total=$((total + 1))
+cpp_out="$(ESKIU_ROOT="$ROOT" "$BIN" run "$ARGS_ESK" -- "b c" '$HOME' "x;echo INJECT" 2>/dev/null)"; cpp_code=$?
+self_out="$(ESKIU_ROOT="$ROOT" "$ESKMAIN" run "$ARGS_ESK" -- "b c" '$HOME' "x;echo INJECT" 2>/dev/null)"; self_code=$?
+if [ "$self_code" = "$cpp_code" ] && [ "$self_out" = "$cpp_out" ] && [ "$cpp_out" = $'[b c]\n[$HOME]\n[x;echo INJECT]' ]; then
+    echo "ok    args  (exit $self_code)"
+else
+    echo "FAIL  args  (self exit=$self_code out=$self_out | cpp exit=$cpp_code out=$cpp_out)"; fail=1
+fi
+
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "run parity: $total/$total programs match"; else echo "run parity: MISMATCH"; fi
 exit "$fail"

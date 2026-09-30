@@ -1,0 +1,4 @@
+// EXPECT-ERROR: argument 2 has type 'void' (a void call has no value)
+extern int printf(string f, ...);
+void hi() { }
+int main() { printf("%d", hi()); return 0; }

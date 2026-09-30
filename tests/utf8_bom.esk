@@ -1,0 +1,3 @@
+﻿// A leading UTF-8 byte order mark is skipped.
+extern int printf(string fmt, ...);
+int main() { printf("bom ok\n"); return 0; }

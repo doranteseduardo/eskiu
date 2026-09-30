@@ -1,0 +1,11 @@
+// EXPECT-ERROR: :8:14: duplicate case value
+// The error points at the repeated case value, not the switch subject.
+int main() {
+    int32 x = 1;
+    switch (x & 3) {
+        case 1: break;
+        case 2: break;
+        case 1: break;
+    }
+    return 0;
+}

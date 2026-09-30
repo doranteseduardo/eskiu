@@ -26,8 +26,8 @@ The project follows two phases:
 | Pointers and pointer arithmetic | ✅ |
 | Structs with methods | ✅ |
 | Operator overloading (`operator +/-/*//%/==/.../[]`, static + structural, zero-cost; lockstep both compilers) | ✅ |
-| Interfaces with vtable dispatch (fat pointer) | ✅ |
-| Templates: structs and functions, monomorphic instantiation | ✅ |
+| Interfaces with vtable dispatch (fat pointer); interface values as locals, fields and returns, signature-checked conformance (v0.9.2) | ✅ |
+| Templates: structs and functions, monomorphic instantiation; each instance's body type-checked with its type arguments, inline methods on generic structs, dot-calls on generic instances (`l.push(8)`) (v0.9.2) | ✅ |
 | Control flow: if/else, while, for, switch/case (with type checking) | ✅ |
 | Lambdas (`int(int x) { return x*2; }`) and `fn(T)->R` function pointer types | ✅ |
 | Negative literals: `-1`, `-3.14` as first-class values | ✅ |
@@ -62,18 +62,19 @@ The project follows two phases:
 | `List<StructType>` through helper functions; `T*` (trailing-star) pointer deref: codegen/sema fixes (v0.2.0) | ✅ |
 | Consistency audit hardening (v0.2.0): unsigned div/rem/shift/compare; 64-bit int literals; sign/zero-extend by signedness; variadic arg promotion; closures don't capture globals; member access on a temporary; `(Type)`/`(Type*)`/alias/enum casts; alias as local pointer/array; `fn` return types; fn-pointer field calls; `>>` closing nested templates | ✅ |
 | Function-as-value: a named function decays to a `fn(...)->R` (no lambda wrapper) | ✅ |
-| Predefined OS macros: `__APPLE__` / `__linux__` for `#ifdef` portability | ✅ |
+| Predefined OS macros: `__APPLE__` / `__linux__` for `#ifdef` portability; architecture macros `__aarch64__` / `__x86_64__` / `__arm__` (v0.9.2) | ✅ |
 | Pointer dereference as lvalue: `*ptr = value` through pointer parameters | ✅ |
 | Forward declarations / call-before-define / mutual recursion | ✅ |
 | Enums: `enum Color { Red, Green = 5, Blue }` | ✅ |
 | Type aliases: `type u8 = uint8;` | ✅ |
-| Struct bitfields: `uint32 x : 1;` | ✅ |
-| Preprocessor: `#define` (object/function-like, multi-line via `\`), `#ifdef`/`#ifndef`/`#else`/`#endif` | ✅ |
+| Struct bitfields: `uint32 x : 1;`, laid out like the target's C compiler (SysV/AAPCS or MS) (v0.9.2) | ✅ |
+| Preprocessor: `#define` (object/function-like, multi-line via `\`), `#ifdef`/`#ifndef`/`#else`/`#endif`; `#if`/`#elif` with `defined`, located errors for unknown directives (v0.9.2) | ✅ |
+| C ABI for structs passed/returned by value across `extern` (AArch64, x86-64 SysV, Windows x64, 32-bit ARM, both compilers); C callbacks taking structs by value through a thunk; `extern` fn-typed params as C function pointers (v0.9.2) | ✅ |
 | Packed structs: `packed struct` and `#pragma pack(push/pop)` | ✅ |
 | Template type-argument inference: direct (`max(3, 5)`) and composite (`List_get(&nums, i)`) | ✅ |
-| One-step linking: `eskiuc -o prog` invokes the system C toolchain | ✅ |
+| One-step linking: `eskiuc -o prog` invokes the system C toolchain; `#pragma link("name")` and implied libraries (C++ runtime, pthread), `--no-default-libs` (v0.9.2) | ✅ |
 | Multi-file compilation: `eskiuc a.esk b.esk -o prog` | ✅ |
-| `-Wall` warnings: unused vars/params/functions, assignment-in-condition | ✅ |
+| `-Wall` warnings: unused vars/params/functions, assignment-in-condition, maybe-uninitialized locals | ✅ |
 | `<bytes>` and `HashMap<K,V>` stdlib (v0.2.1) | ✅ |
 | Bounded generics: `<T: Iface>` / `<T: A + B>` constraints (v0.2.2) | ✅ |
 | Primitives satisfy constraints via a free function (v0.2.3) | ✅ |
@@ -82,7 +83,7 @@ The project follows two phases:
 | Package manager | ❌ |
 | Self-hosting: lexer/parser/preprocessor/sema/codegen all in Eskiu; 3-stage bootstrap fixpoint, codegen feature-complete (v0.3.0, `selfhost/`) | ✅ |
 | Optimization levels: `-O0`/`-O1`/`-O2`/`-O3`; `-O1`+ run the LLVM middle-end before codegen (v0.3.1) | ✅ |
-| `*T[N]` = array of pointers; pointer-to-array is `T[N]*` (v0.3.1) | ✅ |
+| `*T[N]` = array of pointers (v0.3.1); no pointer-to-array spelling | ✅ |
 | Incompatible `fn`-type assignments rejected; libc `size_t` externs use `int64` (v0.3.1) | ✅ |
 | `-O0`-vs-`-O2` behavioral differential CI gate (`tests/opt_differential.sh`) (v0.3.1) | ✅ |
 
@@ -113,7 +114,7 @@ Everything in the feature table above ships in v0.1.0: the full systems language
 
 The theme is making Eskiu a practical language for concurrent backend services:
 real async I/O, an HTTP stack, and the everyday stdlib + tooling that adoption
-needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.9.1** (a correctness campaign that closed a set of latent miscompiles), over the v0.9.0 labeled-`break`/`continue` release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive `match` on plain enums), the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
+needs. v0.1.0 is frozen at its tag; v0.2.0 shipped the items below. The current release is **v0.9.2** (a full-project correctness and hardening audit, about 500 fixes), over the v0.9.1 correctness campaign, the v0.9.0 labeled-`break`/`continue` release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive `match` on plain enums), the v0.7.0 cross-compilation release and the v0.6.0 memory-safety + stdlib release, on top of the v0.5 basic-C surface release and the v0.3 self-hosting milestone (see the sections below).
 
 Tracking checklist (checked = landed on `develop`).
 
@@ -144,7 +145,7 @@ Phase 3 rounds out ergonomics and tooling.
   - [x] **Concurrent `<http_async>`**: the accept loop `spawn`s a detached handler per connection and goes straight back to accepting, so a slow request never blocks the others. A `<channel>` wait-group makes the server future complete only after every handler finishes, so bounded shutdown stays clean. Test: `http_async_concurrent` (3 simultaneous clients).
   - [x] **Async examples**: `examples/async_combinators.esk` showcases `select2`/`join2`/`timer_after`/`spawn`.
   - [ ] **Tighter locals-across-await liveness** *(deferred: optimization, not a fix)*. Only hoist a local to the frame struct if it is live across an `await`; non-crossing locals could stay stack temporaries (smaller frames). Deliberately deferred: the current "hoist all locals" is correct and leak-free; the optimization needs a sound dataflow liveness pass over branches/loops where any error miscompiles a coroutine (a crossing local left on the stack), for a marginal frame-size win. Worth doing only with a proper liveness pass + fuzzing, not speculatively.
-- [x] **Channels** (`<channel>`): an async, bounded message channel integrated with the `Future` model: `chan_recv(ch)` is a `*Future<T>` that completes when an item is available, `chan_send(ch, v)` enqueues or hands off directly to a parked receiver. v1: bounded ring, single outstanding receiver, non-blocking send; generic and leak-free. (Multi-consumer / async backpressure-send and cross-thread atomics are later additions.)
+- [x] **Channels** (`<channel>`): an async, bounded message channel integrated with the `Future` model: `Chan_recv(ch)` is a `*Future<T>` that completes when an item is available, `Chan_send(ch, v)` enqueues or hands off directly to a parked receiver. v1: bounded ring, single outstanding receiver, non-blocking send; generic and leak-free. (Multi-consumer / async backpressure-send and cross-thread atomics are later additions.)
 - [x] **Sum types (algebraic enums + `match`)**: payload-bearing `enum` variants make the enum a tagged union; variants are constructed by name and destructured with `match` (binds payload fields per arm). **Complete**: concrete + **generic** payload variants (`Option<T>`/`Either<A,B>`, monomorphized per instantiation; generic construction via explicit type args `Some<int>(5)`), `match` with payload binding + `_` default + **exhaustiveness** (missing-variant / duplicate-arm errors); classic int enums unchanged. Tests: `enum_adt`, `enum_generic`, `errors/match_nonexhaustive`.
 - [x] **Exhaustiveness for classic (payload-less) enums (DONE).** `match` now accepts a plain `enum { V1, V2 }` and checks it exhaustively (missing-variant / duplicate-arm errors, `_` default), the same guarantee ADT enums already had: adding a variant turns every unhandled `match` into a compile error. Lowered as a switch on the enum's int value (cases keyed by each variant's constant, so explicit `= N` is respected); a classic enum keeps its nominal name on a variable/param so `match` can recover the variant set, and still behaves as an int everywhere else. Landed lockstep in both compilers (the self-host sema already checked exhaustiveness; only its codegen needed the value-switch). Surfaced dogfooding the ine-qr decoder (a `QRFormat { V1, V2 }` dispatch that could only be `if`-chained). Tests: `enum_match`, `errors/match_plain_nonexhaustive`.
 - [x] **Generic value-returning `select`/`join`** (`<futureval>`): `select2v<A,B>` resolves with the winner's value as `Either<A,B>` (loser dropped); `join2v<A,B>` resolves with both as a `Pair<A,B>`. Built on generic algebraic enums; leak-free. Tests: `select_value`, `join_value`.
@@ -154,7 +155,7 @@ Phase 3 rounds out ergonomics and tooling.
 
 **Phase 3: Ergonomics and tooling**
 - [x] `for (i in 0..10)`: native half-open ranges `[A, B)`. Desugared at parse time to a counted `for`, so it reuses all the loop machinery (codegen, async transform, break/continue). Lexer gained a `..` (`RANGE`) token. Test: `range_for`
-- [x] User-defined variadic functions: `int f(int n, ...)` read with `va_list` / `va_start` / `va_arg<T>` / `va_end` (LLVM `va_arg` instruction; works on arm64 + x86-64). Test: `variadic`
+- [x] User-defined variadic functions: `int f(int n, ...)` read with `va_list` / `va_start` / `va_arg<T>` / `va_end` (LLVM `va_arg` instruction; on AArch64 Linux the compiler expands the AAPCS64 read itself). Tests: `variadic`, `variadic_regs`
 - [x] Pointer constness: `const int*` (pointer to const: pointee read-only, pointer rebindable) vs `int* const` (const pointer: binding read-only, pointee writable), composable as `const int* const`. Reading through and rebinding a `const T*` are allowed; writing through it, and any conversion that drops a const qualifier (init, assignment, argument, return), are rejected. const has no ABI effect (stripped in codegen). Tests: `pointer_const`, `errors/const_ptr_write`, `errors/const_ptr_drop`
 - [x] `__FILE__` and `__LINE__` in the preprocessor: `__LINE__` refreshed per line, `__FILE__` threaded from the compiled/imported path. Test: `pp_loc`
 - [x] `#error` directive: aborts compilation with the message (respects `#ifdef` branches). Test: `errors/pp_error`
@@ -242,7 +243,7 @@ A hardening release over the self-hosting milestone. No new language surface.
 - [x] `-O0`/`-O1`/`-O2`/`-O3` optimization levels: `-O1`+ run the LLVM middle-end (mem2reg/SROA/instcombine/inlining/GVN) before code generation; `-O0` (default) unchanged.
 - [x] Fixed a float-closure `-O2` miscompile: sema reconciles a lambda's return type with its target `fn(...)->R` (a mismatched header returned `0.0` under `-O2`).
 - [x] Reject incompatible `fn`-type assignments (an `fn(P)->R1` value into an `fn(P)->R2` slot was a silent ABI miscompile; now a compile error).
-- [x] `*T[N]` parses as an array of pointers; a pointer to an array is `T[N]*`.
+- [x] `*T[N]` parses as an array of pointers. (There is no pointer-to-array spelling; `T[N]*` does not parse.)
 - [x] libc `size_t` externs (`memcpy`/`memset`/`memmove`/`memcmp`/`memchr` size arg, `strlen` return) use `int64`.
 - [x] New CI gate `tests/opt_differential.sh`: a `-O0`-vs-`-O2` behavioral differential over the whole corpus, catching optimization-path miscompiles.
 - [x] Parser self-host parity widened to the full corpus (51 → 121 files).
@@ -285,7 +286,7 @@ practical stdlib modules. Each landed as granular per-layer commits.
 - [x] `must_use` function qualifier: the compiler rejects a call whose result is discarded; `stdlib` `alloc` is marked `must_use` so a forgotten allocation is a compile error. Both compilers.
 - [x] `--safe` build mode (C++ only): opt-in runtime bounds check on array and slice indexing, trapping on violation; off by default so release builds pay nothing. Self-host mirror on the promotion track.
 - [x] Checked nullable pointer `?*T` (C++ only): bare `*T` stays C-nullable, `?*T` cannot be dereferenced/indexed/membered until proven non-null; `if (q != null)` narrows it; `*T` widens to `?*T` but not the reverse. Lowered as a bare pointer (zero runtime cost). Self-host mirror on the promotion track.
-- [x] Stdlib: `<random>` (xoshiro256\*\* PRNG), `<regex>` (Thompson-NFA / Pike VM with capture groups, linear-time), `<sort>` (generic heapsort + binary search), `<url>` (RFC 3986 percent-encoding + query parsing), `<uuid>` (RFC 4122 v4), and a UTC civil calendar in `<time>` (`DateTime`, `time_to_utc`/`time_from_utc`, ISO 8601 formatting).
+- [x] Stdlib: `<random>` (xoshiro256\*\* PRNG), `<regex>` (Thompson-NFA / Pike VM with capture groups, linear-time), `<sort>` (generic heapsort + binary search), `<url>` (RFC 3986 percent-encoding + query parsing), `<uuid>` (RFC 4122 v4), and a UTC civil calendar in `<time>` (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, ISO 8601 formatting).
 
 ### v1.0: Production-ready
 

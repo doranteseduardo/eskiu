@@ -11,7 +11,9 @@
 // Ownership mirrors the other leaf futures: the awaiter (or a combinator) owns
 // the future. On normal fire the loop frees the on_fire env and the awaiter frees
 // the future; on cancel, on_drop deregisters the timer (freeing on_fire) and
-// future_drop frees the rest. Leak-free either way.
+// future_drop frees the rest. Leak-free either way. Lifetime: the future points
+// at its loop, so drop (or finish) it before EventLoop_free; dropping it after
+// would deregister the timer from the freed loop.
 
 import <mem>;
 import <future>;
@@ -21,9 +23,9 @@ import <time>;
 Future<int>* timer_after(EventLoop* lp, int64 ms) {
     Future<int>* f = future_new<int>();
     int64 deadline = time_monotonic_ms() + ms;
-    int id = el_add_timer(lp, deadline, void() { future_complete<int>(f, 0); });
+    int id = EventLoop_add_timer(lp, deadline, void() { future_complete<int>(f, 0); });   // the table grows: never -1
     // Cancel path: deregister the timer (frees the on_fire env). The timer never
     // frees the future; future_drop owns that.
-    f.on_drop = void() { el_del_timer(lp, id); };
+    f.on_drop = void() { EventLoop_del_timer(lp, id); };
     return f;
 }

@@ -1,0 +1,4 @@
+// EXPECT-ERROR: bitfield 'e' of 'F' must have an integer type, got 'E'
+enum E { A(int), B }
+struct F { E e : 3; int k; }
+int main() { let f: F; f.k = 1; return 0; }

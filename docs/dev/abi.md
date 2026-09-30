@@ -44,8 +44,9 @@ non-null requirement is enforced by the type checker at compile time and adds no
 runtime cost or storage.
 
 A leading `*` and a trailing `[N]` follow the source rule that the array binds
-outermost: `*T[N]` is an array of N `ptr` elements, while a pointer to an array is
-spelled `T[N]*` (a single `ptr`). For C interop, libc `size_t` parameters and returns
+outermost: `*T[N]` is an array of N `ptr` elements. There is no pointer-to-array
+spelling (`T[N]*` does not parse); a `*T` to the first element is the single `ptr` C
+code expects for a `T (*)[N]`. For C interop, libc `size_t` parameters and returns
 (`strlen`, the size argument of `memcpy`/`memset`/`memmove`/`memcmp`/`memchr`) are
 declared `int64` so the extern signatures match the C ABI on 64-bit targets.
 
@@ -77,19 +78,57 @@ N)`). The result is emitted as a packed LLVM struct (padding is explicit) and
 matches the C `#pragma pack(N)` ABI. Field access goes through a
 logical→physical index map (padding shifts indices).
 
+LLVM sees such a struct as 1-aligned, so its C alignment (`min(max-field-align,
+N)`) is recorded beside the type (`cAlignOverride` / `cg_set_calign`) and read
+through `cAlignOf` / `cg_c_align` wherever C alignment matters: a struct with a
+field (or array element) whose C alignment is above LLVM's is laid out the same
+way by hand (no cap) and records its own alignment, and so do a bitfield struct
+and a union holding one; the C ABI lowering classifies the aggregate with that
+alignment and takes the leaves of a hand-laid struct from its fields, not its
+padding runs. The type checker's `constLayout` / `sema_const_layout` fold
+`sizeof` with the same alignment.
+
 ### Bitfields
 
-Consecutive bitfields are packed into a storage word of the field's declared
-integer type; a non-bitfield field closes the current word. Each field records
-its physical slot, bit offset and width. Reads load the word, shift by the bit
-offset and mask (sign-extending for signed fields); writes are read-modify-write
-of the word.
+A struct with bitfields is laid out the way the target's C compiler does it.
+
+- **SysV / AAPCS targets** (Linux, macOS, bare-metal ARM; clang's Itanium
+  layout): a bitfield takes the next free bit unless that would make it cross a
+  boundary of a storage unit of its declared type (a `uint32` field must fit in
+  an aligned 4-byte unit), in which case it starts at that boundary. So adjacent
+  bitfields of different declared types share bytes (`uint8 a:4; uint32 w:12;`
+  is 4 bytes, `w` at bits 4..15), and a normal field starts at the next free
+  byte, aligned, possibly inside a bitfield's unit (`uint32 a:4; char c;` puts
+  `c` at offset 1). The struct is aligned to its most aligned field, bitfields
+  included. In a `packed struct` or under `#pragma pack(N)`, bitfields are
+  packed back to back with no unit rule.
+- **Windows targets** (MS layout): consecutive bitfields share a storage word
+  of their declared type while the type size stays the same and the next one
+  fits; a new word opens when the declared type size changes or the field does
+  not fit, and a normal field closes the current word. Under `#pragma pack(N)`
+  each word and field is aligned to at most N.
+
+Under the SysV/AAPCS layout every field of such a struct is addressed by byte
+offset. The LLVM type only reproduces the C size and alignment: each storage
+unit as an integer of its declared type, the normal fields outside those units
+as themselves, and `[n x i8]` for the remaining bytes (a packed struct is a
+packed LLVM struct of normal fields and byte runs). Reads load the bitfield's
+storage unit (in a packed struct, the exact byte span, e.g. `i24`), shift by the
+bit offset and mask (sign-extending for signed fields); writes, compound
+assignments and `++`/`--` are read-modify-write of that unit.
 
 ### Unions
 
-A `union` lowers to a single byte array `[N x i8]` (wrapped in a one-field
-struct), where `N` is the size of the largest member. All members share offset
-0; a member access reinterprets the storage at that type.
+A `union` lowers to `{ M, [P x i8] }`, where `M` is its most-aligned member
+(ties go to the larger one) and the byte padding brings the size up to the
+largest member rounded to that alignment. So the union has C's size and
+alignment, and lands at the C offset inside a struct (`struct { int tag; union {
+int64 l; int i; } u; }` puts `u` at 8). All members share offset 0; a member
+access reinterprets the storage at that type. Under `#pragma pack(N)` each member's
+alignment is capped at `N` (as C); when that lowers the union's alignment the storage
+is the packed `<{ M, [P x i8] }>` with its C alignment recorded (`cAlignOverride` /
+`cg_set_calign`), so it lands at the C offset in a struct and the C ABI lowering sees
+the C size and alignment.
 
 ---
 
@@ -130,13 +169,69 @@ lowered types. Scalars and pointers pass in registers per the target ABI.
 (`getTypeAllocSize > 16`) returns `void` and takes a hidden pointer as its first
 parameter; the caller allocates the result buffer and passes its address.
 Structs ≤ 16 bytes are returned by value (the target ABI splits them into
-registers as usual). This is the System V / AArch64 rule and is C-compatible.
+registers as usual). This is the convention between Eskiu functions; calls to
+`extern` C functions follow the C ABI lowering below.
+
+**Aggregates across `extern` (C ABI).** Between Eskiu functions a struct or
+union argument/result is a first-class LLVM value. An `extern` function that
+takes or returns one by value is instead declared with the lowered C signature
+(`codegen/codegen_cabi.cpp`, mirrored by the self-hosted codegen), and each call
+converts to and from it, so it links against C compiled by clang/gcc:
+
+| Target | Aggregate argument | Aggregate result |
+|---|---|---|
+| AArch64 (AAPCS64, Darwin + Linux) | HFA of 1-4 `float`/`double` → `[N x fp]` in FP registers (with `alignstack(8)` off Darwin); ≤ 8 bytes → `i64`; ≤ 16 → `[2 x i64]`; larger → pointer to a caller-made copy | HFA → `{ fp, ... }`; ≤ 8 bytes → `iN`; ≤ 16 → `[2 x i64]`; larger → `sret` (x8) |
+| x86-64 System V (Linux, macOS) | each eightbyte classified INTEGER/SSE → one or two register values (`i64`, `i32`, `double`, `<2 x float>`, `ptr`, ...), as wide as the data in it (a union's widest member decides: `union { int; double; }` is `i64`, `union { float; double; }` is `double`); > 16 bytes, a misaligned field, or no free registers left → `byval` | the same classes as a `{ lo, hi }` pair or one value; > 16 bytes → `sret` |
+| Windows x64 | size 1/2/4/8 → `iN`; otherwise pointer to a caller-made copy | size 1/2/4/8 → `iN`; otherwise `sret` |
+| 32-bit ARM (AAPCS) | hard-float HFA → `{ fp, ... }`; ≤ 64 bytes → `[N x i32]` (`[N x i64]` if 8-aligned); larger → `byval` | hard-float HFA → `{ fp, ... }`; ≤ 4 bytes → `i32`; otherwise `sret` |
+| 32-bit x86 (cdecl: i386 SysV, Darwin, Windows) | ≤ 16 bytes made only of 32/64-bit scalars (`int`, `int64`, `float`, `double`, pointers) with no padding → those scalars as separate arguments (`{ int, double }` → `i32, double`; not on Windows, where `double` is 8-aligned and leaves padding); anything else → `byval` in a 4-byte-aligned stack slot | Linux (and other SysV i386 systems): always `sret`. Darwin, Windows and the BSDs: 1, 2, 4 or 8 bytes whose fields are each register-sized → `iN` in EAX:EDX, except a single-element struct of a `float`/`double` (in ST0; not under MSVC's rules, mingw keeps it) or a pointer, returned as that scalar; otherwise `sret` |
+
+The coerced types match what clang emits for the same C signature
+(`tests/selfhost/cabi_parity.sh` checks the 32-bit x86 ones against clang's IR
+for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
+`va_list` are not C aggregates and keep their own layout.
+
+**Narrow integers.** Like clang, an `extern`'s `int8`/`int16`/`uint8`/`uint16`/
+`bool`/`char` parameters and results are declared `signext` or `zeroext` (by the
+type's signedness; `char` follows the target's C `char`, unsigned on AArch64 and
+32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
+32 bits. Every Eskiu function returning one extends its result (`define signext
+i8 @f`), since a C caller (a callback, or C calling it by name) relies on that on
+AArch64 Darwin and x86-64.
+
+**Callbacks from C.** An Eskiu function handed to C as a raw function pointer
+(`(*void)f`, the cast of a top-level function name to a pointer type) is called
+with the C convention. When it takes or returns an aggregate by value, the cast
+yields the address of a thunk `__cabi_<name>` instead of `@name`: the thunk has
+the lowered C signature from the table above (with the same `sret`/`byval`
+attributes), rebuilds the Eskiu-level values, calls `f`, and returns the result
+the C way. A function without by-value aggregates is passed as itself. Eskiu
+code calling `f` directly is unaffected.
+
+**C function pointer parameters.** A parameter of fn type in an `extern` (one the
+program does not also define) is a C function pointer: it is declared `ptr`, not
+the `{ fn, env }` closure, and each call passes the named top-level function's C
+address (its `__cabi_` thunk when needed) or `null`. The type checker rejects any
+other argument there, since a closure's environment cannot cross into C.
 
 **Variadics.** A `...` parameter makes the LLVM function `isVarArg`. The built-in
 `va_list` is the struct `{ ptr, ptr, ptr, i32, i32 }` (32 B, 8-aligned), a
 superset of the x86-64 (24 B) and AArch64 (32 B) layouts, so one type serves
-both; `va_start`/`va_arg<T>`/`va_end` lower to the corresponding LLVM
-intrinsics/instruction. Variadic arguments follow C default promotions:
+both; `va_start`/`va_end` lower to the LLVM intrinsics. `va_arg<T>` is the
+LLVM `va_arg` instruction, except on AArch64 outside Darwin and Windows, whose
+backend does not expand it for the AAPCS64 `va_list` `{__stack, __gr_top,
+__vr_top, __gr_offs, __vr_offs}`: there the compiler emits the read as clang does
+(an integer or pointer from the general-register save area while `__gr_offs` is
+negative, a `float`/`double` from the FP/SIMD save area in 16-byte steps while
+`__vr_offs` is, then `__stack` in 8-byte slots; `emitVaArg` / `cg_va_arg`). On
+x86-64 System V LLVM expands the instruction itself for the scalars `va_arg`
+reads. An `extern` parameter of type `va_list` (`vprintf`,
+`vsnprintf`) is declared `ptr` and gets what C passes for its `va_list`: the
+address of the storage on x86-64 System V and AArch64 outside Darwin and Windows
+(an array/struct type there), and the `char*` that `llvm.va_start` stored at
+offset 0 on Darwin AArch64, Windows x64 and 32-bit ARM (`evalCVaList` /
+`cg_c_va_list`). Between Eskiu functions a `va_list` stays a first-class value.
+Variadic arguments follow C default promotions:
 integers narrower than 32 bits widen to `i32` (sign- or zero-extended), `bool`
 zero-extends, and `float` widens to `double`.
 

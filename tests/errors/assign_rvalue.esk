@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot assign to this expression
+int main() { let a: int = 1; let b: int = 2; (a + b) = 3; return a; }

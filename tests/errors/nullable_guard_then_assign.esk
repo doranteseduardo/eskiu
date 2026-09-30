@@ -1,0 +1,10 @@
+// EXPECT-ERROR: cannot access a member of a possibly-null pointer
+// Only the else branch exits, and the then branch reassigns the pointer.
+struct N { int v; }
+int main(int argc, string* argv) {
+    N n; n.v = 4;
+    ?*N p = &n;
+    ?*N z = null;
+    if (p != null) { p = z; } else { return 0; }
+    return p.v;
+}

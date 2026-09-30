@@ -1,0 +1,6 @@
+// EXPECT-ERROR: asm output operand is read-only
+int main() {
+    const int64 y = 3;
+    asm("mov $0, $0" : "+r"(y));
+    return 0;
+}

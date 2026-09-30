@@ -167,8 +167,10 @@ string token_name(int t) {
 // read_string / read_char switches (the stored LiteralExpr value is decoded,
 // quotes stripped). Shared by the lexer driver and the parser. Return the byte.
 // Decode one backslash escape (mirrors the C++ lexer's decodeEscape); strings
-// and chars share the same set. Unknown escapes yield the char itself.
+// and chars share the same set. The lexer rejects an unknown escape.
 int decode_str_escape(int e) {
+    if (e == 97) { return 7; }     // \a
+    if (e == 98) { return 8; }     // \b
     if (e == 110) { return 10; }   // \n
     if (e == 116) { return 9; }    // \t
     if (e == 114) { return 13; }   // \r
@@ -192,10 +194,18 @@ int hex_val(int c) {
 // Decode one escape. `src[i]` is the char right after the backslash; `hi` bounds
 // the literal (exclusive) so we never read past it. Returns the byte and sets
 // `adv` to how many chars beyond src[i] were consumed (0 for a simple escape,
-// 1 or 2 for `\xN` / `\xNN`). Mirrors the C++ lexer's read_string/read_char.
+// 1 or 2 for `\xN` / `\xNN`, 0 to 2 for octal `\N`..`\NNN`). Mirrors the C++
+// lexer's readEscape.
 int decode_escape_span(*uint8 src, int i, int hi, *int adv) {
     adv[0] = 0;
     int e = (int)src[i];
+    if (e >= 48 && e <= 55) {               // octal: one to three digits
+        int v = e - 48; int k = 0;
+        while (k < 2 && i + 1 + k < hi && (int)src[i + 1 + k] >= 48 && (int)src[i + 1 + k] <= 55) {
+            v = v * 8 + ((int)src[i + 1 + k] - 48); k = k + 1;
+        }
+        adv[0] = k; return v & 255;
+    }
     if (e == 120) {                         // 'x'
         int h1 = -1;
         if (i + 1 < hi) { h1 = hex_val((int)src[i + 1]); }

@@ -1,0 +1,2 @@
+// EXPECT-ERROR: cannot convert '*int' to 'int'
+int main() { int v = 1; *int p = &v; int x = p + 1; return x; }

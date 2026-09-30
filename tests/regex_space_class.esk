@@ -1,0 +1,26 @@
+// \s is [\t\n\f\r ] as in RE2: it used to match a vertical tab (\v) too, and
+// \S and [^\s] missed it. A POSIX [[:space:]] does include \v.
+import <regex>;
+extern int printf(string fmt, ...);
+
+void show(string label, string p, string s) {
+    Regex re = regex_compile(p);
+    if (re.ok == 0) { printf("%s: error %s\n", label, re.err); Regex_free(&re); return; }
+    let m: Match;
+    if (Regex_search(&re, s, &m) == 1) { printf("%s: %d,%d\n", label, m.cap[0], m.cap[1]); }
+    else { printf("%s: no match\n", label); }
+    Match_free(&m);
+    Regex_free(&re);
+}
+
+int main() {
+    show("\\s on VT", "a\\sb", "a\vb");
+    show("\\S on VT", "a\\Sb", "a\vb");
+    show("[\\s] on VT", "[\\s]", "\v");
+    show("[^\\s] on VT", "[^\\s]", "\v");
+    show("[\\S] on VT", "[\\S]", "\v");
+    show("\\s+ on tab LF FF CR SP", "\\s+", "x\t\n\f\r y");
+    show("\\S+ skips them", "\\S+", "\t\n\f\r yz");
+    show("[[:space:]] on VT", "[[:space:]]", "\v");
+    return 0;
+}

@@ -39,6 +39,15 @@ for f in "${files[@]}"; do
     total=$((total + 1))
     base="$(basename "$f" .esk)"
 
+    # Reference first: the C++ build. Link libc++abi so exception programs (which need
+    # the Itanium __cxa_* runtime) link on both sides, matching the self-host clang
+    # invocation below. An input the C++ rejects is skipped (the self-host type-checks
+    # under --test-codegen too, so it would reject it as well).
+    if ! "$BIN" "$f" -o "$WORK/$base.cpp" >/dev/null 2>&1; then
+        echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); continue
+    fi
+    cpp_out="$("$WORK/$base.cpp" 2>/dev/null)"; cpp_code=$?
+
     # Self-hosted: emit .ll, compile with clang, run.
     if ! ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen "$f" > "$WORK/$base.ll" 2>"$WORK/$base.emit.err"; then
         echo "FAIL  $base  (self-host codegen errored)"; sed 's/^/      /' "$WORK/$base.emit.err" | head; fail=1; continue
@@ -48,20 +57,46 @@ for f in "${files[@]}"; do
     fi
     self_out="$("$WORK/$base.self" 2>/dev/null)"; self_code=$?
 
-    # Reference: the C++ build. Link libc++abi so exception programs (which need
-    # the Itanium __cxa_* runtime) link on both sides, matching the self-host clang
-    # invocation above.
-    if ! "$BIN" "$f" -lc++abi -o "$WORK/$base.cpp" >/dev/null 2>&1; then
-        echo "skip  $base  (C++ eskiuc could not build it)"; total=$((total - 1)); continue
-    fi
-    cpp_out="$("$WORK/$base.cpp" 2>/dev/null)"; cpp_code=$?
-
     if [ "$self_code" = "$cpp_code" ] && [ "$self_out" = "$cpp_out" ]; then
         echo "ok    $base  (exit $self_code)"
     else
         echo "FAIL  $base  (self exit=$self_code out=$self_out | cpp exit=$cpp_code out=$cpp_out)"; fail=1
     fi
 done
+
+# Accesses through a `volatile` variable are volatile in the emitted IR (10 in the test's
+# main, as the C++ back-end emits them; tests/run.sh checks the C++ side).
+if [ "$#" -eq 0 ]; then
+    total=$((total + 1))
+    vn="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/volatile_access.esk 2>/dev/null | grep -c 'volatile i32')"
+    if [ "$vn" = 10 ]; then echo "ok    volatile_access  (IR: 10 volatile accesses)"
+    else echo "FAIL  volatile_access  (IR: $vn volatile i32 accesses, expected 10)"; fail=1; fi
+    total=$((total + 1))
+    vb="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/volatile_bitfield.esk 2>/dev/null | grep -c 'volatile i16')"
+    if [ "$vb" = 12 ]; then echo "ok    volatile_bitfield  (IR: 12 volatile accesses)"
+    else echo "FAIL  volatile_bitfield  (IR: $vb volatile i16 accesses, expected 12)"; fail=1; fi
+    # Inline asm outputs lower like clang's on x86-64 (tests/run.sh checks the C++ side).
+    total=$((total + 1))
+    ia="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --target x86_64-unknown-linux-gnu --test-codegen tests/inline_asm_out.esk 2>/dev/null)"
+    if [[ "$ia" == *"call { i64, i64 } asm sideeffect"* && "$ia" == *'"=r,r,0,~{dirflag}'* \
+       && "$ia" == *'"=&r,r,~{dirflag}'* && "$ia" == *'"=*m,*m,~{memory}'* \
+       && "$(grep -c 'ptr elementtype(i64)' <<< "$ia")" -eq 2 ]]; then
+        echo "ok    inline_asm_out  (x86-64 IR: outputs lowered like clang)"
+    else echo "FAIL  inline_asm_out  (x86-64 asm output lowering)"; fail=1; fi
+    # An await the async lowering can't place is an error located at that await.
+    total=$((total + 1))
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_defer.esk 2>&1 >/dev/null)"
+    case "$aw" in
+        *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"*) echo "ok    await_in_defer  (located error)" ;;
+        *) echo "FAIL  await_in_defer  ($aw)"; fail=1 ;;
+    esac
+    total=$((total + 1))
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_generic_match.esk 2>&1 >/dev/null)"
+    case "$aw" in
+        *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"*) echo "ok    await_in_generic_match  (located error)" ;;
+        *) echo "FAIL  await_in_generic_match  ($aw)"; fail=1 ;;
+    esac
+fi
 
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "cg parity: $total/$total programs match"; else echo "cg parity: MISMATCH"; fi

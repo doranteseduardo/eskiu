@@ -18,7 +18,7 @@ tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
 eskiuc --version
 ```
 
-Expected output: `Eskiu 0.9.1 (LLVM ...)`
+Expected output: `Eskiu 0.9.2 (LLVM ...)`
 
 The tarball installs:
 - `bin/eskiuc`: the compiler
@@ -30,7 +30,7 @@ The tarball installs:
 
 ## Option B: Build from source
 
-Requires LLVM 17+, CMake 3.20+, and a C++17 compiler.
+Requires LLVM 21+, CMake 3.20+, and a C++17 compiler.
 
 ```bash
 cmake -S . -B build
@@ -38,7 +38,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.9.1 (LLVM ...)`
+Expected output: `Eskiu 0.9.2 (LLVM ...)`
 
 ## Hello, Eskiu
 

@@ -1,0 +1,6 @@
+// EXPECT-ERROR: asm input constraint '=r' cannot start with '=' or '+'
+int main() {
+    int64 a = 1;
+    asm("nop" :: "=r"(a));
+    return 0;
+}

@@ -2,6 +2,7 @@
 #include "../lexer/lexer.h"
 #include <stdexcept>
 #include "parser_internal.h"
+#include "../ast/ast_walk.h"
 
 // Parser — statement parsing (blocks, control flow, match/switch, returns).
 // Part of the parser.cpp split; see parser.h.
@@ -11,6 +12,7 @@
 // ============================================================================
 
 StmtPtr Parser::parseStatement() {
+    NestGuard guard(*this);
     // Labeled loop: IDENT ':' <for|while|do>. A bare `IDENT:` at statement level has no
     // other meaning, and we only treat it as a label when a loop keyword follows.
     if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::COLON) {
@@ -63,10 +65,11 @@ StmtPtr Parser::parseStatement() {
     }
     // throw expr;
     if (match(TokenType::THROW)) {
+        Token thTok = tokens[current - 1];
         ExprPtr val = parseExpression();
         consume(TokenType::SEMICOLON, "Expected ';' after throw");
         auto s = std::make_shared<ThrowStmt>(val);
-        s->line = tokens[current-1].line; s->col = tokens[current-1].column;
+        s->line = thTok.line; s->col = thTok.column;
         return s;
     }
 
@@ -91,10 +94,10 @@ StmtPtr Parser::parseStatement() {
             advance(); // consume 'catch'
             consume(TokenType::LPAREN, "Expected '(' after catch");
             std::string ctype = parseType();
-            std::string cname = consume(TokenType::IDENT, "Expected variable name in catch").value;
+            Token nameTok = consume(TokenType::IDENT, "Expected variable name in catch");
             consume(TokenType::RPAREN, "Expected ')'");
             StmtPtr cbody = parseBlockStatement();
-            catches.push_back({ctype, cname, cbody});
+            catches.push_back({ctype, nameTok.value, cbody, nameTok.line, nameTok.column});
         }
 
         StmtPtr fin = nullptr;
@@ -120,26 +123,31 @@ StmtPtr Parser::parseStatement() {
         return stmt;
     }
 
-    // asm("string") or asm("string" : : "constraint"(expr), ... : "clobber", ...)
+    // asm("string") or asm("string" : "=r"(out), ... : "constraint"(expr), ... : "clobber", ...)
     if (check(TokenType::ASM)) {
         Token asmTok = advance();
         consume(TokenType::LPAREN, "Expected '(' after asm");
         std::string asmStr = consume(TokenType::STRING_LIT, "Expected asm string").value;
 
+        std::vector<std::pair<std::string, ExprPtr>> outputs;
         std::vector<std::pair<std::string, ExprPtr>> inputs;
         std::vector<std::string> clobbers;
+        auto operands = [&](std::vector<std::pair<std::string, ExprPtr>>& list) {
+            while (!check(TokenType::RPAREN) && !check(TokenType::COLON) && !is_at_end()) {
+                std::string constraint = consume(TokenType::STRING_LIT,
+                    "Expected constraint string").value;
+                consume(TokenType::LPAREN, "Expected '(' after constraint");
+                ExprPtr expr = parseExpression();
+                consume(TokenType::RPAREN, "Expected ')'");
+                list.push_back({constraint, expr});
+                if (!match(TokenType::COMMA)) break;
+            }
+        };
 
-        if (match(TokenType::COLON)) {        // outputs (we skip — not yet supported)
+        if (match(TokenType::COLON)) {        // outputs
+            operands(outputs);
             if (match(TokenType::COLON)) {    // inputs
-                while (!check(TokenType::RPAREN) && !check(TokenType::COLON) && !is_at_end()) {
-                    std::string constraint = consume(TokenType::STRING_LIT,
-                        "Expected constraint string").value;
-                    consume(TokenType::LPAREN, "Expected '(' after constraint");
-                    ExprPtr expr = parseExpression();
-                    consume(TokenType::RPAREN, "Expected ')'");
-                    inputs.push_back({constraint, expr});
-                    if (!match(TokenType::COMMA)) break;
-                }
+                operands(inputs);
                 if (match(TokenType::COLON)) { // clobbers
                     while (!check(TokenType::RPAREN) && !is_at_end()) {
                         clobbers.push_back(consume(TokenType::STRING_LIT,
@@ -152,74 +160,96 @@ StmtPtr Parser::parseStatement() {
 
         consume(TokenType::RPAREN, "Expected ')'");
         consume(TokenType::SEMICOLON, "Expected ';' after asm");
-        auto stmt = std::make_shared<AsmStmt>(asmStr, inputs, clobbers);
+        auto stmt = std::make_shared<AsmStmt>(asmStr, outputs, inputs, clobbers);
         stmt->line = asmTok.line; stmt->col = asmTok.column;
         return stmt;
     }
     return parseExpressionStatement();
 }
 
+// A block item: a local declaration, or else a statement.
+BlockItem Parser::parseBlockItem() {
+    // `a * b;` with `a` a variable in scope is an expression (C: a variable name is not
+    // a type there), not a declaration of `b` as a pointer to `a`.
+    bool localTimes = check(TokenType::IDENT) && peek_ahead(1).type == TokenType::STAR &&
+                      isLocalVar(peek().value);
+    // Check if this looks like a declaration
+    if (!localTimes && (check(TokenType::CONST) ||
+        check(TokenType::VOLATILE) ||
+        check(TokenType::STATIC) ||
+        check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
+        check(TokenType::FN) ||         // `fn(int)->int f = ...` (fn only names a type)
+        check(TokenType::LET) ||
+        check(TokenType::STAR) || check(TokenType::IDENT) ||
+        isPrimitiveTypeToken(peek().type))) {
+
+        size_t savePos = current;
+        try {
+            DeclPtr decl = parseDeclaration();
+            if (decl) {
+                if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
+                return decl;
+            }
+        } catch (const NestingError&) {
+            throw;
+        } catch (...) {
+            // Only an identifier or a leading '*' is ambiguous (it can also
+            // begin an expression statement); fall back for those. A leading
+            // type keyword / const / volatile / let is unambiguously a
+            // declaration, so its error is real: surface it instead of
+            // masking it with a misleading expression-parse error (keeps the
+            // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
+            TokenType startTok = tokens[savePos].type;
+            if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
+            rewindTo(savePos);
+        }
+    }
+    return parseStatement();
+}
+
 StmtPtr Parser::parseBlockStatement() {
-    consume(TokenType::LBRACE, "Expected '{'");
+    Token lbTok = consume(TokenType::LBRACE, "Expected '{'");
     std::vector<BlockItem> items;
+    LocalScope scope(*this);
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
-        // Check if this looks like a declaration
-        if (check(TokenType::CONST) ||
-            check(TokenType::VOLATILE) ||
-            check(TokenType::STATIC) ||
-            check(TokenType::QUESTION) ||   // `?*T q = ...` nullable-pointer local
-            check(TokenType::LET) ||
-            check(TokenType::STAR) || check(TokenType::IDENT) ||
-            isPrimitiveTypeToken(peek().type)) {
-
-            size_t savePos = current;
-            try {
-                DeclPtr decl = parseDeclaration();
-                if (decl) {
-                    items.push_back(decl);
-                    continue;
-                }
-            } catch (...) {
-                // Only an identifier or a leading '*' is ambiguous (it can also
-                // begin an expression statement); fall back for those. A leading
-                // type keyword / const / volatile / let is unambiguously a
-                // declaration, so its error is real — surface it instead of
-                // masking it with a misleading expression-parse error (keeps the
-                // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
-                TokenType startTok = tokens[savePos].type;
-                if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-                current = savePos;
-            }
-        }
-
-        // Otherwise parse as statement
-        StmtPtr stmt = parseStatement();
-        items.push_back(stmt);
+        // A #pragma in a body updates parser state (pack / link) and emits nothing.
+        if (check(TokenType::PRAGMA)) { Token pt = advance(); applyPragma(pt); continue; }
+        items.push_back(parseBlockItem());
     }
 
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<BlockStmt>(items);
+    return withPos(std::make_shared<BlockStmt>(items), lbTok);
 }
 
+// An `else if` chain is parsed with a loop: each `else if` becomes the else branch of
+// the one before. Every link still counts as a nesting level (the chain is nested in
+// the AST, and passes that do not flatten it recurse once per link).
 StmtPtr Parser::parseIfStatement() {
-    consume(TokenType::IF, "Expected 'if'");
-    consume(TokenType::LPAREN, "Expected '('");
-    ExprPtr condition = parseExpression();
-    consume(TokenType::RPAREN, "Expected ')'");
-
-    StmtPtr thenBranch = parseStatement();
-    StmtPtr elseBranch = nullptr;
-
-    if (match(TokenType::ELSE)) {
-        elseBranch = parseStatement();
+    struct RestoreNesting {
+        Parser& p;
+        int saved;
+        ~RestoreNesting() { p.nesting = saved; }
+    } restore{*this, nesting};
+    std::shared_ptr<IfStmt> head, tail;
+    for (;;) {
+        Token ifTok = consume(TokenType::IF, "Expected 'if'");
+        consume(TokenType::LPAREN, "Expected '('");
+        ExprPtr condition = parseExpression();
+        consume(TokenType::RPAREN, "Expected ')'");
+        StmtPtr thenBranch = parseStatement();
+        auto node = withPos(std::make_shared<IfStmt>(condition, thenBranch, nullptr), ifTok);
+        if (tail) tail->elseBranch = node; else head = node;
+        tail = node;
+        if (!match(TokenType::ELSE)) break;
+        if (!check(TokenType::IF)) { tail->elseBranch = parseStatement(); break; }
+        enterNesting();
     }
-
-    return std::make_shared<IfStmt>(condition, thenBranch, elseBranch);
+    return head;
 }
 
 StmtPtr Parser::parseForStatement() {
-    consume(TokenType::FOR, "Expected 'for'");
+    Token forTok = consume(TokenType::FOR, "Expected 'for'");
     consume(TokenType::LPAREN, "Expected '('");
 
     // for (x in iterable) — element-wise iteration
@@ -228,8 +258,16 @@ StmtPtr Parser::parseForStatement() {
         consume(TokenType::IN, "Expected 'in'");
         ExprPtr first = parseExpression();
         // for (i in A..B) — half-open numeric range [A, B). Desugar at parse time
-        // into a counted `for (int i = A; i < B; i = i + 1)`, so it reuses all the
-        // for-loop machinery (codegen, the async transform, break/continue).
+        // into a counted `for (T i = A, __end_i = B; i < __end_i; i = i + 1)`, so it
+        // reuses all the for-loop machinery (codegen, the async transform,
+        // break/continue). The bound B is evaluated ONCE, before the first iteration.
+        // The bound's name is fresh against every name in the loop, so a user
+        // `__end_i` read in the body (or in B) still means the user's variable.
+        // T is the bounds' common integer type; the decls are spelled `int` here
+        // and the type checker retypes them (VarDecl::rangeBound). Both bounds are read
+        // in the enclosing scope: a B that names the loop variable (`for (i in 0..i)`)
+        // means the OUTER `i`, so then the bound is declared first, before the new `i`
+        // (A already sees the outer one: a local is bound after its initializer).
         if (match(TokenType::RANGE)) {
             ExprPtr end = parseExpression();
             consume(TokenType::RPAREN, "Expected ')'");
@@ -237,8 +275,20 @@ StmtPtr Parser::parseForStatement() {
             auto iv = [&]() { return withPos(std::make_shared<IdentExpr>(nameTok.value), nameTok); };
             auto idecl = std::make_shared<VarDecl>(nameTok.value, "int", first);
             idecl->line = nameTok.line; idecl->col = nameTok.column;
-            StmtPtr init = std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl) });
-            ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<", end);
+            idecl->rangeBound = true;
+            std::set<std::string> used{nameTok.value};
+            astwalk::collectNames(first.get(), used);
+            astwalk::collectNames(end.get(), used);
+            astwalk::collectNames(body.get(), used);
+            std::string endName = astwalk::freshName("__end_" + nameTok.value, used);
+            auto edecl = std::make_shared<VarDecl>(endName, "int", end);
+            edecl->line = nameTok.line; edecl->col = nameTok.column;
+            edecl->rangeBound = true;
+            StmtPtr init = astwalk::referencesName(end.get(), nameTok.value)
+                ? std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(edecl), DeclPtr(idecl) })
+                : std::make_shared<BlockStmt>(std::vector<BlockItem>{ DeclPtr(idecl), DeclPtr(edecl) });
+            ExprPtr cond = std::make_shared<BinaryExpr>(iv(), "<",
+                               withPos(std::make_shared<IdentExpr>(endName), nameTok));
             ExprPtr one  = std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "1");
             ExprPtr step = std::make_shared<BinaryExpr>(iv(), "=",
                                std::make_shared<BinaryExpr>(iv(), "+", one));
@@ -259,13 +309,16 @@ StmtPtr Parser::parseForStatement() {
         size_t savePos = current;
         try {
             DeclPtr decl = parseDeclaration();
+            if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
             init = std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
+        } catch (const NestingError&) {
+            throw;
         } catch (...) {
             // Unambiguous decl starts (type keyword/const/volatile/let) surface
             // their real error; only IDENT/'*' fall back to an expression.
             TokenType startTok = tokens[savePos].type;
             if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-            current = savePos;
+            rewindTo(savePos);
             init = parseExpressionStatement();
         }
     } else {
@@ -286,29 +339,29 @@ StmtPtr Parser::parseForStatement() {
 
     StmtPtr body = parseStatement();
 
-    return std::make_shared<ForStmt>(init, condition, step, body);
+    return withPos(std::make_shared<ForStmt>(init, condition, step, body), forTok);
 }
 
 StmtPtr Parser::parseWhileStatement() {
-    consume(TokenType::WHILE, "Expected 'while'");
+    Token wTok = consume(TokenType::WHILE, "Expected 'while'");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr condition = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
 
     StmtPtr body = parseStatement();
 
-    return std::make_shared<WhileStmt>(condition, body);
+    return withPos(std::make_shared<WhileStmt>(condition, body), wTok);
 }
 
 StmtPtr Parser::parseDoWhileStatement() {
-    consume(TokenType::DO, "Expected 'do'");
+    Token dTok = consume(TokenType::DO, "Expected 'do'");
     StmtPtr body = parseStatement();
     consume(TokenType::WHILE, "Expected 'while' after do-body");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr condition = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::SEMICOLON, "Expected ';' after do-while");
-    return std::make_shared<DoWhileStmt>(body, condition);
+    return withPos(std::make_shared<DoWhileStmt>(body, condition), dTok);
 }
 
 StmtPtr Parser::parseReturnStatement() {
@@ -346,9 +399,10 @@ StmtPtr Parser::parseContinueStatement() {
 }
 
 StmtPtr Parser::parseExpressionStatement() {
+    Token startTok = peek();
     ExprPtr expr = parseExpression();
     consume(TokenType::SEMICOLON, "Expected ';'");
-    return std::make_shared<ExprStmt>(expr);
+    return withPos(std::make_shared<ExprStmt>(expr), startTok);
 }
 
 // ============================================================================
@@ -398,13 +452,14 @@ StmtPtr Parser::parseMatchStatement() {
 }
 
 StmtPtr Parser::parseSwitchStatement() {
-    consume(TokenType::SWITCH, "Expected 'switch'");
+    Token swTok = consume(TokenType::SWITCH, "Expected 'switch'");
     consume(TokenType::LPAREN, "Expected '('");
     ExprPtr subject = parseExpression();
     consume(TokenType::RPAREN, "Expected ')'");
     consume(TokenType::LBRACE, "Expected '{'");
 
     std::vector<SwitchStmt::Case> cases;
+    LocalScope scope(*this);           // a case's declaration reaches the end of the switch
     while (!check(TokenType::RBRACE) && !is_at_end()) {
         SwitchStmt::Case c;
         if (match(TokenType::CASE)) {
@@ -419,10 +474,10 @@ StmtPtr Parser::parseSwitchStatement() {
         // Collect statements until the next case/default/}
         while (!check(TokenType::CASE) && !check(TokenType::DEFAULT) &&
                !check(TokenType::RBRACE) && !is_at_end()) {
-            c.stmts.push_back(parseStatement());
+            c.stmts.push_back(parseBlockItem());
         }
         cases.push_back(std::move(c));
     }
     consume(TokenType::RBRACE, "Expected '}'");
-    return std::make_shared<SwitchStmt>(subject, std::move(cases));
+    return withPos(std::make_shared<SwitchStmt>(subject, std::move(cases)), swTok);
 }
