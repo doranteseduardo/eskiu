@@ -390,8 +390,9 @@ pre.code-block {
 <a href="#sec-18-5" class="toc-sec">18.5 The UART driver</a>
 <a href="#sec-18-6" class="toc-sec">18.6 The bump allocator</a>
 <a href="#sec-18-7" class="toc-sec">18.7 kernel_main</a>
-<a href="#sec-18-8" class="toc-sec">18.8 Building and running</a>
-<a href="#sec-18-9" class="toc-sec">18.9 What this demonstrates</a>
+<a href="#sec-18-8" class="toc-sec">18.8 Exceptions, interrupts and tasks</a>
+<a href="#sec-18-9" class="toc-sec">18.9 Building and running</a>
+<a href="#sec-18-10" class="toc-sec">18.10 What this demonstrates</a>
 <a href="#chapter-19" class="toc-ch">Chapter 19</a>
 <a href="#sec-19-1" class="toc-sec">19.1 The ownership principle</a>
 <a href="#sec-19-2" class="toc-sec">19.2 Struct ownership</a>
@@ -2282,7 +2283,7 @@ pre.code-block {
 <pre class="code-block"> void esk_free(*uint8 ptr) { /* bump: free is a no-op */ }</pre>
 <div class="chapter-start" id="chapter-18"><span class="chapter-label">Chapter 18</span>
 <h1 class="chapter-title">Bare-metal Programming</h1><hr class="chapter-rule"></div>
-<p>Bare-metal means the program runs directly on the hardware, with no operating system, libc, or runtime beneath it. The CPU starts at a known address and executes whatever is there. You set up the stack. You initialise the serial port. You write every byte of output yourself. This chapter walks through the Eskiu kernel that ships in the repository: a real ARM64 kernel that boots in QEMU, prints to the serial console, and allocates heap memory, without a single line of C.</p>
+<p>Bare-metal means the program runs directly on the hardware, with no operating system, libc, or runtime beneath it. The CPU starts at a known address and executes whatever is there. You set up the stack. You initialise the serial port. You write every byte of output yourself. This chapter walks through the Eskiu kernel that ships in the repository: a real ARM64 kernel that boots in QEMU, prints to the serial console, allocates heap memory, handles exceptions and timer interrupts, switches between tasks, and ends in a small shell, without a single line of C.</p>
 <h2 class="section" id="sec-18-1">18.1 Why bare-metal matters</h2>
 <p>Most systems languages claim to support bare-metal. Eskiu does not claim it; it ships a working kernel. The fact that the same language that decodes AES-256-CBC ciphertext also boots on raw ARM64 hardware is not a coincidence. It is a consequence of three design decisions: no implicit runtime, a redirectable <code>alloc</code>/<code>free</code> (from <code>&lt;mem&gt;</code>, switched by <code>#ifdef __ESKIU_FREESTANDING__</code>), and inline assembly as a first-class statement.</p>
 <h2 class="section" id="sec-18-2">18.2 What changes in freestanding mode</h2>
@@ -2304,7 +2305,7 @@ pre.code-block {
 <pre class="code-block"> The UART lives at 0x09000000, a memory-mapped I/O address separate from DRAM. Writing a byte
  there transmits it on the serial port.</pre>
 <h2 class="section" id="sec-18-4">18.4 The boot sequence</h2>
-<p>The CPU starts executing at _start in boot.s, the only assembly in the entire project. It sets up the stack pointer, then calls kernel_main. Everything after that is Eskiu:</p>
+<p>The CPU starts executing at _start in boot.s. It sets up the stack pointer, then calls kernel_main. The only other assembly is the exception vector table in vectors.s (section 18.8). Everything else is Eskiu:</p>
 <pre class="code-block"> // boot.s: ARM64 entry point
  .global _start
  .section .text.boot, &quot;ax&quot;
@@ -2397,7 +2398,7 @@ pre.code-block {
        Timer(int64),             // counter frequency in Hz
        Allocated(int64, int64),  // bytes, address
        OutOfMemory(int64),       // bytes requested
-       Uptime(int64),            // microseconds
+       BootTime(int64),          // microseconds
        Halt,
  }
 
@@ -2407,7 +2408,7 @@ pre.code-block {
             Timer(hz)          -&gt; { uart_puts(&quot;Timer:      &quot;); uart_putdec(hz); uart_puts(&quot; Hz&quot;); }
             Allocated(n, addr) -&gt; { uart_puts(&quot;alloc(&quot;); uart_putdec(n); uart_puts(&quot;): &quot;); uart_puthex(addr); }
             OutOfMemory(n)     -&gt; { uart_puts(&quot;alloc(&quot;); uart_putdec(n); uart_puts(&quot;): out of memory&quot;); }
-            Uptime(us)         -&gt; { uart_puts(&quot;Uptime:     &quot;); uart_putdec(us); uart_puts(&quot; us&quot;); }
+            BootTime(us)       -&gt; { uart_puts(&quot;Boot time:  &quot;); uart_putdec(us); uart_puts(&quot; us&quot;); }
             Halt               -&gt; uart_puts(&quot;Powering off.&quot;);
        }
        uart_puts(&quot;\r\n&quot;);
@@ -2429,6 +2430,7 @@ pre.code-block {
  void kernel_main() {
        zero_bss();
        heap_init();
+       trap_init();              // point VBAR_EL1 at the vector table
        const int64 start = cpu_timer_count();
 
        defer {                   // however kernel_main ends, power off afterwards
@@ -2439,17 +2441,67 @@ pre.code-block {
        banner();
        report(Booted(cpu_current_el()));
        report(Timer(cpu_timer_freq()));
+       breakpoint_demo();        // brk #42, recovered (section 18.8)
+       timer_demo();             // GIC + 100 Hz tick
        // ... prints the UART base and the heap bounds ...
 
        alloc_test(64);
        alloc_test(4096);
        alloc_test(4 * 1024 * 1024);   // more than the heap holds
 
-       const int64 ticks = cpu_timer_count() - start;
-       report(Uptime(ticks * 1000000 / cpu_timer_freq()));
+       const int64 elapsed = cpu_timer_count() - start;
+       report(BootTime(elapsed * 1000000 / cpu_timer_freq()));
+
+       tasks_demo();             // cooperative, then preempted tasks
+       shell();                  // returns on `poweroff`
  }</pre>
-<p>The <code>defer</code> block runs when kernel_main reaches its end, so the last thing the kernel does is switch the machine off and QEMU exits.</p>
-<h2 class="section" id="sec-18-8">18.8 Building and running</h2>
+<p>The <code>defer</code> block runs when kernel_main reaches its end, after the shell&#x27;s <code>poweroff</code> command, so the last thing the kernel does is switch the machine off and QEMU exits.</p>
+<h2 class="section" id="sec-18-8">18.8 Exceptions, interrupts and tasks</h2>
+<p>vectors.s holds the EL1 vector table. Each entry saves x0 to x30, ELR_EL1 and SPSR_EL1 on the current stack, calls an Eskiu handler with a pointer to that frame, and restores the frame the handler returns before <code>eret</code>. The synchronous handler reads ESR_EL1 into a bitfield struct and dispatches on the exception class:</p>
+<pre class="code-block"> // trap.esk
+ struct Esr {
+       uint64 iss : 25;   // instruction-specific syndrome
+       uint64 il  : 1;    // 1 when the trapped instruction is 32 bits
+       uint64 ec  : 6;    // exception class
+       uint64     : 32;
+ }
+
+ *TrapFrame trap_sync(*TrapFrame f) {
+       Esr esr = read_esr();
+       ExceptionClass ec = esr.ec;
+       match ec {
+            Svc -&gt; return schedule(f);      // yield()
+            Brk -&gt; {
+                 report_exception(f, esr);
+                 return recover(f);         // f.elr += 4
+            }
+            // ... a data abort recovers only when the shell asked for it ...
+            _ -&gt; {
+                 report_exception(f, esr);
+                 panic(&quot;unhandled exception&quot;);
+            }
+       }
+       return f;
+ }</pre>
+<p>gic.esk sets up the GICv2 distributor and CPU interface, and timer.esk programs the EL1 virtual timer (interrupt 27) to fire 100 times a second. The IRQ handler acknowledges the interrupt, counts the tick, moves the timer&#x27;s compare value one interval on, and signals end of interrupt.</p>
+<p>The same frame is how tasks switch. Each task has its own stack, and its saved context is the TrapFrame on it. <code>yield()</code> is <code>svc #0</code>: the handler stores the current frame, picks the next ready task and returns that task&#x27;s frame, so the exception return resumes a different task. Once kernel_main sets <code>preempt</code>, the timer interrupt does the same on every tick, so a task that never yields still loses the CPU. Tasks are closures, and task_spawn takes them as <code>escaping</code> so their environment lives on the heap:</p>
+<pre class="code-block"> // workers.esk
+ fn()-&gt;void counter(string name, int64 rounds) {
+       return void() {
+            for (i in 1..rounds + 1) {
+                 // ... prints &quot;name: round i of rounds&quot; ...
+                 yield();
+            }
+       };
+ }
+
+ // kernel.esk
+ int64 ping = task_spawn(&quot;ping&quot;, counter(&quot;ping&quot;, 3));
+ int64 pong = task_spawn(&quot;pong&quot;, counter(&quot;pong&quot;, 3));
+ task_join(ping);
+ task_join(pong);</pre>
+<p>Finally kernel_main runs shell.esk. It reads a line from the UART with echo and Backspace, parses it into a sum type <code>Command</code> (<code>Help</code>, <code>Mem</code>, <code>Uptime</code>, <code>Regs</code>, <code>Echo(string)</code>, <code>Tasks</code>, <code>Fault</code>, <code>Poweroff</code>, ...) and runs it with <code>match</code>. While it waits for a key the core sleeps in <code>wfi</code> until the next interrupt.</p>
+<h2 class="section" id="sec-18-9">18.9 Building and running</h2>
 <p>The Makefile handles the full build pipeline:</p>
 <pre class="code-block"> # Prerequisites (macOS)
  brew install lld qemu
@@ -2462,32 +2514,49 @@ pre.code-block {
 
  # Boot headless and check the output
  make check</pre>
-<p>Under the hood, make runs three commands:</p>
-<pre class="code-block"> # 1. Compile Eskiu to an ARM64 object (no libc)
- eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding -o kernel.o
+<p>Under the hood, make runs these commands:</p>
+<pre class="code-block"> # 1. Compile Eskiu to an ARM64 object (no libc, no FP/SIMD registers)
+ eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding \
+        --mattr=-fp-armv8,-neon -o kernel-O0.o
 
- # 2. Assemble the boot stub
+ # 2. Assemble the boot stub and the vector table
  clang --target=aarch64-unknown-none-elf -c boot.s -o boot.o
+ clang --target=aarch64-unknown-none-elf -c vectors.s -o vectors.o
 
  # 3. Link into a bare-metal ELF, no standard libraries
- ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o</pre>
-<p>QEMU loads the ELF, sets the program counter to 0x40000000, and starts executing. Expected output on the serial console (after the banner):</p>
+ ld.lld -T linker.ld -nostdlib -static -o kernel-O0.elf boot.o vectors.o kernel-O0.o</pre>
+<p>Without FP/SIMD code the exception entry only has to save the general registers.</p>
+<p>QEMU loads the ELF, sets the program counter to 0x40000000, and starts executing. Part of the output on the serial console, with a few shell commands typed at the end:</p>
 <pre class="code-block"> Running at: EL1
  Timer:      62500000 Hz
- UART base:  0x0000000009000000
- Heap:       0x0000000040300000 - 0x0000000040400000
+ Testing a breakpoint (brk #42):
+ Exception:  breakpoint (EC 0x3C, IL 1, ISS 0x2A)
+   ELR_EL1:  0x0000000040002CA8
+   Recovered: resuming at the next instruction.
+ Back from the breakpoint.
 
- alloc(64): 0x0000000040300000
- alloc(4096): 0x0000000040300040
- alloc(4194304): out of memory
- Heap used:  4160 bytes
+ Tick:       100 Hz on IRQ 27
+ 10 ticks:   102 ms
+ ...
+ ping: round 1 of 3
+ pong: round 1 of 3
+ ...
+ Preempted:  main is back after 1 tick(s), spin is ready
 
- Uptime:     1964 us
+ Type `help` for the commands.
+ eskiu&gt; tasks
+ ID  NAME  STATE    SWITCHES
+  0  main  running  5
+  1  ping  done     4
+  2  pong  done     4
+  3  spin  ready    1
+ spin has counted to 1109443
+ eskiu&gt; poweroff
  Powering off.</pre>
-<p>make check boots the same kernel with -nographic, gives it a timeout in case it hangs, and fails unless QEMU exits cleanly and the expected lines are present.</p>
-<h2 class="section" id="sec-18-9">18.9 What this demonstrates</h2>
-<p>The kernel combines features from across this book: multi-file imports (Ch13), inline assembly with inputs and outputs (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.9), bitfields, pointer casting (Ch6.3), <code>extern</code> globals, <code>const</code>, <code>defer</code>, a sum type with <code>match</code>, and the freestanding allocator hook backed by a standard library allocator.</p>
-<p>The kernel is about 240 lines of Eskiu in four files (<code>kernel.esk</code>, <code>uart.esk</code>, <code>cpu.esk</code>, <code>alloc.esk</code>) and a 13-line assembly stub. The assembly sets up the stack. Everything else (clearing .bss, the UART driver, the heap, the output, powering off) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
+<p>make check boots an -O0 and an -O2 build with -nographic, feeds a fixed shell session into the serial input, gives QEMU a timeout in case it hangs, and fails unless QEMU exits cleanly and the expected lines are present.</p>
+<h2 class="section" id="sec-18-10">18.10 What this demonstrates</h2>
+<p>The kernel combines features from across this book: multi-file imports (Ch13), inline assembly with inputs and outputs (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.9), bitfields, pointer casting (Ch6.3), <code>extern</code> globals, <code>const</code>, <code>defer</code>, enums and sum types with <code>match</code>, closures passed as <code>escaping</code> parameters, and the freestanding allocator hook backed by a standard library allocator.</p>
+<p>The kernel is about 940 lines of Eskiu in ten files and about 140 lines of assembly in two (<code>boot.s</code> and <code>vectors.s</code>). The assembly sets up the stack, saves and restores registers around exceptions, and returns with <code>eret</code>. Everything else (the drivers, the exception handlers, the scheduler, the shell) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
 <div class="chapter-start" id="chapter-19"><span class="chapter-label">Chapter 19</span>
 <h1 class="chapter-title">Ownership and Resources</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no garbage collector. No reference counter silently frees memory when you stop using it. You are responsible for every allocation, and that responsibility must be explicit in your code.</p>
