@@ -8,6 +8,7 @@ import <mem>;
 import "uart.esk";
 import "cpu.esk";
 import "alloc.esk";
+import "trap.esk";
 
 // Bounds of .bss, defined by linker.ld.
 extern uint8 __bss_start;
@@ -75,6 +76,7 @@ void banner() {
 void kernel_main() {
     zero_bss();
     heap_init();
+    trap_init();
     const int64 start = cpu_timer_count();
 
     // However kernel_main ends, the machine is switched off afterwards.

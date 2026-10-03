@@ -18,13 +18,14 @@ LLD     ?= ld.lld
 QEMU    ?= qemu-system-aarch64
 TIMEOUT ?= 30
 
-ESKIU_FLAGS = --target $(TARGET) --freestanding
+# No FP/SIMD code: the trap frame in vectors.s saves only the general registers.
+ESKIU_FLAGS = --target $(TARGET) --freestanding --mattr=-fp-armv8,-neon
 AS_FLAGS    = --target=$(TARGET)
 LD_FLAGS    = -T linker.ld -nostdlib -static
 QEMU_FLAGS  = -M virt -cpu cortex-a57 -nographic -kernel kernel.elf
 
-OBJS = boot.o kernel.o
-SRCS = kernel.esk uart.esk cpu.esk alloc.esk
+OBJS = boot.o vectors.o kernel.o
+SRCS = kernel.esk uart.esk cpu.esk alloc.esk trap.esk
 
 .PHONY: all run check clean setup check-deps
 
@@ -37,7 +38,7 @@ check-deps:
 setup:
 	brew install lld qemu
 
-boot.o: boot.s
+%.o: %.s
 	$(CLANG) $(AS_FLAGS) -c $< -o $@
 
 kernel.o: $(SRCS)

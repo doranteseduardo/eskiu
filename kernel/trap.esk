@@ -1,0 +1,137 @@
+// trap.esk: CPU exceptions at EL1
+//
+// vectors.s saves the interrupted registers as a TrapFrame and calls the handlers
+// below. A handler returns the frame to resume; changing `elr` in it changes where
+// execution continues.
+
+// The layout vectors.s writes: x0-x30, then ELR_EL1 and SPSR_EL1.
+struct TrapFrame {
+    int64[31] x;
+    int64 elr;
+    int64 spsr;
+    int64 pad;     // keeps the frame a multiple of 16 bytes
+}
+
+// ESR_EL1, the exception syndrome register, lowest bit first.
+struct Esr {
+    uint64 iss : 25;   // instruction-specific syndrome
+    uint64 il  : 1;    // 1 when the trapped instruction is 32 bits
+    uint64 ec  : 6;    // exception class
+    uint64     : 32;
+}
+
+// The exception classes this kernel tells apart (ESR_EL1.EC).
+enum ExceptionClass {
+    Unknown    = 0x00,
+    Svc        = 0x15,
+    InstrAbort = 0x21,
+    PcAlign    = 0x22,
+    DataAbort  = 0x25,
+    SpAlign    = 0x26,
+    Brk        = 0x3C,
+}
+
+extern uint8 exception_vectors;
+
+// Set by code that causes a data abort on purpose (the shell's `fault`).
+bool fault_expected;
+
+void trap_init() {
+    *uint8 table = &exception_vectors;
+    asm("msr VBAR_EL1, $0\n\tisb" :: "r"(table));
+}
+
+Esr read_esr() {
+    int64 raw = 0;
+    asm("mrs $0, ESR_EL1" : "=r"(raw));
+    return *(*Esr)&raw;
+}
+
+int64 read_far() {
+    int64 v = 0;
+    asm("mrs $0, FAR_EL1" : "=r"(v));
+    return v;
+}
+
+string exception_name(ExceptionClass ec) {
+    match ec {
+        Unknown    -> return "unknown instruction";
+        Svc        -> return "supervisor call";
+        InstrAbort -> return "instruction abort";
+        PcAlign    -> return "PC alignment fault";
+        DataAbort  -> return "data abort";
+        SpAlign    -> return "SP alignment fault";
+        Brk        -> return "breakpoint";
+    }
+}
+
+void report_exception(*TrapFrame f, Esr esr) {
+    uart_puts("Exception:  ");
+    uart_puts(exception_name(esr.ec));
+    uart_puts(" (EC ");
+    uart_puthex_digits(esr.ec, 2);
+    uart_puts(", IL ");
+    uart_putdec(esr.il);
+    uart_puts(", ISS ");
+    uart_puthex_digits(esr.iss, 1);
+    uart_puts(")\r\n");
+    uart_puts("  ELR_EL1:  ");
+    uart_puthex(f.elr);
+    uart_puts("\r\n");
+}
+
+// The faulting address. FAR_EL1 is only meaningful for aborts.
+void report_far() {
+    uart_puts("  FAR_EL1:  ");
+    uart_puthex(read_far());
+    uart_puts("\r\n");
+}
+
+void panic(string why) {
+    uart_puts("Kernel panic: ");
+    uart_puts(why);
+    uart_puts(". Halting.\r\n");
+    cpu_power_off();
+}
+
+// Steps over the faulting instruction (4 bytes, since IL is 1 for A64).
+*TrapFrame recover(*TrapFrame f) {
+    f.elr += 4;
+    uart_puts("  Recovered: resuming at the next instruction.\r\n");
+    return f;
+}
+
+*TrapFrame trap_sync(*TrapFrame f) {
+    Esr esr = read_esr();
+    ExceptionClass ec = esr.ec;
+    match ec {
+        Brk -> {
+            report_exception(f, esr);
+            return recover(f);
+        }
+        DataAbort -> {
+            report_exception(f, esr);
+            report_far();
+            if (!fault_expected) {
+                panic("unexpected data abort");
+            }
+            fault_expected = false;
+            return recover(f);
+        }
+        _ -> {
+            report_exception(f, esr);
+            panic("unhandled exception");
+        }
+    }
+    return f;
+}
+
+// Any vector slot the kernel does not expect: an FIQ, an SError, or anything from a
+// lower exception level.
+void trap_unexpected(*TrapFrame f, int64 slot) {
+    uart_puts("Unexpected exception in vector slot ");
+    uart_putdec(slot);
+    uart_puts("\r\n");
+    report_exception(f, read_esr());
+    panic("unexpected exception");
+}

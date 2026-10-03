@@ -41,8 +41,16 @@ void uart_puts(string s) {
 }
 
 void uart_puthex(int64 n) {
+    uart_puthex_digits(n, 16);
+}
+
+// At least `digits` hex digits, more if n needs them.
+void uart_puthex_digits(int64 n, int digits) {
     uart_puts("0x");
-    int shift = 60;
+    while (digits < 16 && (n >> (digits * 4)) != 0) {
+        digits++;
+    }
+    int shift = (digits - 1) * 4;
     while (shift >= 0) {
         int nibble = (int)((n >> shift) & 0xF);
         uart_putc(nibble < 10 ? nibble + '0' : nibble - 10 + 'A');
