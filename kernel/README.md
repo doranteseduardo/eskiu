@@ -16,11 +16,17 @@ linker.ld    Memory layout (code at 0x40000000, stack at 0x40200000)
 
 ## Prerequisites
 
+A built `eskiuc` (the Makefile uses `../build/eskiuc`), clang (to assemble `boot.s`),
+`ld.lld`, and QEMU. On macOS:
+
 ```bash
 brew install lld qemu
 ```
 
-Or use the Makefile target:
+The Makefile uses `clang` from `PATH`; override it with `make CLANG=/path/to/clang`
+(and the compiler with `ESKIUC=...`).
+
+Or use the Makefile target (installs lld and qemu):
 
 ```bash
 make setup
@@ -67,12 +73,12 @@ Press `Ctrl-A X` to exit QEMU.
 ## How it is compiled
 
 ```bash
-# Each Eskiu file is cross-compiled to an ELF arm64 object
+# kernel.esk imports uart.esk and alloc.esk; all three compile into one ELF arm64 object
 eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding -o kernel.o
 
 # boot.s is assembled with Clang
 clang --target=aarch64-unknown-none-elf -c boot.s -o boot.o
 
 # Objects are linked into a bare-metal ELF with lld
-ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o ...
+ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o
 ```
