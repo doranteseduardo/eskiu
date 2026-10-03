@@ -87,6 +87,17 @@ run_test() { # name expected-output < program
     echo '}'
 } | run_test parens_10k 7
 
+# 10000 binary expressions nested on the right (each typed once, in both compilers).
+{
+    echo 'extern int printf(string fmt, ...);'
+    echo 'int main() {'
+    echo '    int a = 1;'
+    printf '    int x = '; rep 'a + (' 10000; printf 'a'; rep ')' 10000; echo ';'
+    echo '    printf("%d\n", x);'
+    echo '    return 0;'
+    echo '}'
+} | run_test nested_binary_10k 10001
+
 # 10000 nested blocks, and 10000 nested ifs.
 {
     echo 'extern int printf(string fmt, ...);'
