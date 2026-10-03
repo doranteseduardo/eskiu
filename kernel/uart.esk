@@ -1,22 +1,41 @@
-// uart.esk — PL011 UART driver for QEMU -M virt (arm64)
+// uart.esk: PL011 UART driver for QEMU -M virt (arm64)
 //
-// UART base address on QEMU virt: 0x09000000
-// Data register (UARTDR):  base + 0x00  — write a byte to transmit
-// Flag register (UARTFR):  base + 0x18  — bit 5 (TXFF): TX FIFO full
+// The registers are memory-mapped at 0x09000000. Every access goes through a
+// `volatile` pointer, so the compiler emits each load and store exactly once and in
+// program order, which is what a device register needs.
 //
-// We write directly to UARTDR without polling — QEMU's TX FIFO never
-// fills for simple output.
+//   UARTDR  base + 0x00  data register: writing a byte transmits it
+//   UARTFR  base + 0x18  flag register: TXFF (bit 5) is set while the TX FIFO is full
 
-int64 UART_DR = 0x09000000;
+const int64 UART0_BASE = 0x09000000;
+const int64 UART_DR    = UART0_BASE + 0x00;
+const int64 UART_FR    = UART0_BASE + 0x18;
+
+// UARTFR as a bitfield struct, lowest bit first.
+struct UartFlags {
+    uint32 cts  : 1;
+    uint32 dsr  : 1;
+    uint32 dcd  : 1;
+    uint32 busy : 1;
+    uint32 rxfe : 1;
+    uint32 txff : 1;
+    uint32 rxff : 1;
+    uint32 txfe : 1;
+    uint32 ri   : 1;
+    uint32      : 23;
+}
 
 void uart_putc(int c) {
-    asm("strb ${0:w}, [$1]" :: "r"(c), "r"(UART_DR) : "memory");
+    volatile let fr: *UartFlags = (*UartFlags)UART_FR;
+    volatile let dr: *uint32 = (*uint32)UART_DR;
+    while (fr.txff) {}        // wait for room in the TX FIFO
+    *dr = (uint32)c;
 }
 
 void uart_puts(string s) {
     int i = 0;
     while (s[i] != 0) {
-        uart_putc((int) s[i]);
+        uart_putc((int)s[i]);
         i++;
     }
 }
@@ -26,7 +45,21 @@ void uart_puthex(int64 n) {
     int shift = 60;
     while (shift >= 0) {
         int nibble = (int)((n >> shift) & 0xF);
-        uart_putc(nibble < 10 ? nibble + 48 : nibble - 10 + 65);
-        shift = shift - 4;
+        uart_putc(nibble < 10 ? nibble + '0' : nibble - 10 + 'A');
+        shift -= 4;
+    }
+}
+
+void uart_putdec(int64 n) {
+    char[20] digits;
+    int len = 0;
+    do {
+        digits[len] = (char)('0' + (int)(n % 10));
+        n /= 10;
+        len++;
+    } while (n > 0);
+    while (len > 0) {
+        len--;
+        uart_putc((int)digits[len]);
     }
 }
