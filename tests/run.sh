@@ -301,13 +301,13 @@ else
     bad "codegen/net-timeval-width" "timeval layout or optlen wrong for armv7 or x86-64"
 fi
 
-# An await the async lowering cannot place is an error located at the await (a defer
-# body).
-aw_out="$("$ESKIUC" "$here/run_cmd/await_in_defer.esk" -o "$work/await_in_defer" 2>&1)"
-if [[ "$aw_out" == *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"* ]]; then
-    ok "cli/await-in-defer-located"
+# An await the async lowering cannot place is an error located at the await (an asm
+# input).
+aw_out="$("$ESKIUC" "$here/run_cmd/await_unplaced.esk" -o "$work/await_unplaced" 2>&1)"
+if [[ "$aw_out" == *"await_unplaced.esk:8:20: async function 'worker': 'await' is not supported here"* ]]; then
+    ok "cli/await-unplaced-located"
 else
-    bad "cli/await-in-defer-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
+    bad "cli/await-unplaced-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
 
 # A successful compile prints nothing to stdout (no output-file echo).

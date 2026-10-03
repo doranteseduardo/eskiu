@@ -153,11 +153,10 @@ void collectAwaits(Expr* e, std::vector<AwaitExpr*>& out) {
     if (auto* a = dynamic_cast<AwaitExpr*>(e)) out.push_back(a);
     astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { collectAwaits(c.get(), out); });
 }
-// With `deferOnly`, only those inside a defer body.
-void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out, bool deferOnly = false) {
+void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out) {
     if (!s) return;
-    auto E = [&](const ExprPtr& e) { if (!deferOnly) collectAwaits(e.get(), out); };
-    auto S = [&](const StmtPtr& st) { collectAwaits(st.get(), out, deferOnly); };
+    auto E = [&](const ExprPtr& e) { collectAwaits(e.get(), out); };
+    auto S = [&](const StmtPtr& st) { collectAwaits(st.get(), out); };
     if (auto* b = dynamic_cast<BlockStmt*>(s)) {
         for (auto& it : b->items) {
             if (std::holds_alternative<StmtPtr>(it)) { S(std::get<StmtPtr>(it)); continue; }
@@ -183,8 +182,13 @@ void collectAwaits(Stmt* s, std::vector<AwaitExpr*>& out, bool deferOnly = false
     else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
     else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
     else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
-    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { collectAwaits(d->body.get(), out); }
+    else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
     else if (auto* es = dynamic_cast<ExprStmt*>(s))     { E(es->expr); }
+    else if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s)) { E(tj->tid); }
+    else if (auto* as = dynamic_cast<AsmStmt*>(s)) {
+        for (auto& o : as->outputs) E(o.second);
+        for (auto& in : as->inputs) E(in.second);
+    }
 }
 
 // Whether evaluating `e` may have a side effect: a call (a user operator counts), an
@@ -904,11 +908,17 @@ void AsyncTransform::run(Program* program) {
                     nc.body = desugarStmt(c.body);
                     cs.push_back(nc);
                 }
-                auto nt = std::make_shared<TryStmt>(desugarStmt(t->body), cs, t->finally);
+                auto nt = std::make_shared<TryStmt>(desugarStmt(t->body), cs, desugarStmt(t->finally));
                 nt->line = t->line; nt->col = t->col;
                 return nt;
             }
-            return s;   // a defer (an await there is an error below), break/continue, asm, ...
+            if (auto* d = dynamic_cast<DeferStmt*>(s.get())) {
+                if (!stmtHasAwait(d->body)) return s;
+                auto nd = std::make_shared<DeferStmt>(desugarStmt(d->body), d->isErr);
+                nd->line = d->line; nd->col = d->col;
+                return nd;
+            }
+            return s;   // break/continue, asm, ...
         };
         std::vector<BlockItem> items = desugarItems(block->items);
 
@@ -966,10 +976,7 @@ void AsyncTransform::run(Program* program) {
         {
             // Every await is now the initializer of a let, except where it can't be placed.
             auto body = blockOf(items);
-            std::vector<AwaitExpr*> inDefer, all;
-            collectAwaits(body.get(), inDefer, /*deferOnly=*/true);
-            if (!inDefer.empty())
-                throw locError(inDefer.front(), "'await' is not supported inside a defer");
+            std::vector<AwaitExpr*> all;
             collectAwaits(body.get(), all);
             for (auto* aw : all)
                 if (!awIdx.count(aw))
@@ -989,13 +996,26 @@ void AsyncTransform::run(Program* program) {
         // here, and a `break`/`continue` becomes a transition to them.
         std::vector<int> brkTargets, contTargets;
         // `defer` in a state-split block: the block no longer exists as a real scope, so
-        // its defer bodies (already rewritten) are kept here, one frame per split block
-        // (innermost last), and emitted LIFO at each exit: the block's fall-through end,
-        // a `return` (every frame), and a `break`/`continue` (the frames above the
-        // target's depth, kept parallel to brkTargets/contTargets). errdefer only runs on
-        // a `?` error exit, which async lowering does not produce, so it is dropped. A
-        // split `try`'s `finally` is a frame of its own (below its body's frames).
-        std::vector<std::vector<StmtPtr>> deferFrames;
+        // its defer bodies are kept here, one frame per split block (innermost last), and
+        // emitted LIFO at each exit: the block's fall-through end, a `return` (every
+        // frame), and a `break`/`continue` (the frames above the target's depth, kept
+        // parallel to brkTargets/contTargets). errdefer only runs on a `?` error exit,
+        // which async lowering does not produce, so it is dropped. A split `try`'s
+        // `finally` is a frame of its own (below its body's frames). A body without an
+        // await is kept rewritten (rewritePlain); one that awaits is kept as written and
+        // lowered into states at each exit (runFrames).
+        using Frames = std::vector<std::vector<StmtPtr>>;
+        Frames deferFrames;
+        // Whether a frame entry in frames[from, to) awaits.
+        auto cleanupAwaits = [&](const Frames& frs, size_t from, size_t to) {
+            for (size_t f = from; f < to && f < frs.size(); ++f)
+                for (auto& b : frs[f]) if (stmtHasAwait(b)) return true;
+            return false;
+        };
+        // Lowering the cleanup a cancelled future runs: nobody can drop the frame again,
+        // so its awaits record no drop sites.
+        bool cancelCleanup = false;
+        std::vector<char> stateCancel;
         std::vector<size_t> brkDeferDepth, contDeferDepth;
 
         // A `try` split into states: the states of its body form one region, those of its
@@ -1014,14 +1034,15 @@ void AsyncTransform::run(Program* program) {
         auto newStateIn = [&](int region, size_t depth) -> int {
             states.push_back({});
             stateRegion.push_back(region);
+            stateCancel.push_back(cancelCleanup);
             stateFrames.emplace_back(deferFrames.begin(),
                 deferFrames.begin() + (long)std::min(depth, deferFrames.size()));
             return (int)states.size() - 1;
         };
         auto newState = [&]() -> int { return newStateIn(curRegion, deferFrames.size()); };
-        // Each await a future can be dropped at, with the defers and finally blocks pending
-        // there (innermost first): a cancelled future runs them once, in its on_drop.
-        std::vector<std::pair<int, std::vector<StmtPtr>>> dropSites;
+        // Each await a future can be dropped at, with the defer frames pending there: a
+        // cancelled future runs them once, from its on_drop.
+        std::vector<std::pair<int, Frames>> dropSites;
 
         auto enterLoop = [&](int brk, int cont) {
             brkTargets.push_back(brk); contTargets.push_back(cont);
@@ -1032,6 +1053,9 @@ void AsyncTransform::run(Program* program) {
             brkDeferDepth.pop_back(); contDeferDepth.pop_back();
         };
         auto emitDefers = [&](std::vector<BlockItem>& st, size_t downTo) {
+            if (cleanupAwaits(deferFrames, downTo, deferFrames.size()))
+                throw std::runtime_error("async function '" + name + "': internal error: an awaiting "
+                    "cleanup emitted in place");
             for (size_t f = deferFrames.size(); f-- > downTo;)
                 for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
                     st.push_back(*it);
@@ -1088,8 +1112,12 @@ void AsyncTransform::run(Program* program) {
             return false;
         };
 
+        // Releases the exceptions captured for an awaiting cleanup that never rethrew them
+        // (filled in once every capture is known), run when the frame is finished.
+        auto excFree = std::make_shared<BlockStmt>(std::vector<BlockItem>{});
         // Publish the completion (the value is already in fr.ret.value), then return.
         auto publish = [&](std::vector<BlockItem>& st) {
+            st.push_back(StmtPtr(excFree));
             ExprPtr swap = std::make_shared<CallExpr>(ident("atomic_swap"),
                 std::vector<ExprPtr>{ std::make_shared<UnaryExpr>("&",
                     std::make_shared<MemberExpr>(fr(frn.ret), "state")), intlit(2) });
@@ -1107,26 +1135,52 @@ void AsyncTransform::run(Program* program) {
             emitDefers(st, 0);
             publish(st);
         };
+        std::function<int(const StmtPtr&, int)> lowerStmt;
+        // Run the pending defer frames above `downTo`, innermost first, from state `st`. A
+        // frame below a region's base runs in a state of the enclosing region (so an
+        // exception a `finally` throws is not caught by its own try's handlers), and a
+        // cleanup that awaits is lowered into states of its own, with the cleanups under
+        // it still pending. Returns the state where control continues (-1: never).
+        auto runFrames = [&](int st, size_t downTo) -> int {
+            int reg = stateRegion[st];
+            for (size_t f = deferFrames.size(); f-- > downTo;) {
+                while (reg != -1 && f < regions[reg].base) {
+                    int p = regions[reg].parent;
+                    int s2 = newStateIn(p, f);
+                    goTo(st, s2);
+                    st = s2; reg = p;
+                }
+                const std::vector<StmtPtr> frame = deferFrames[f];
+                for (size_t k = frame.size(); k-- > 0;) {
+                    if (!stmtHasAwait(frame[k])) { states[st].push_back(frame[k]); continue; }
+                    Frames saved = deferFrames;
+                    int savedRegion = curRegion;
+                    deferFrames.resize(f + 1);
+                    deferFrames[f].resize(k);
+                    curRegion = reg;
+                    int n = newState();
+                    goTo(st, n);
+                    int e = lowerStmt(frame[k], n);
+                    deferFrames = std::move(saved);
+                    curRegion = savedRegion;
+                    if (e == -1) return -1;
+                    st = e;
+                }
+            }
+            return st;
+        };
         // Leave state `st` for the enclosing depth `downTo`: run the pending defer frames
-        // above it, innermost first (a split try's `finally` is one), each in a state of
-        // the region it belongs to, so an exception a `finally` throws is not caught by
-        // its own try's handlers; then jump to `target`, or (`complete`) publish the
+        // above it (runFrames), then jump to `target`, or (`complete`) publish the
         // completion outside every region.
         auto emitExit = [&](int st, size_t downTo, int target, bool complete) {
-            int reg = stateRegion[st];
-            auto leave = [&](size_t depth) {
-                int p = regions[reg].parent;
-                int s2 = newStateIn(p, depth);
-                goTo(st, s2);
-                st = s2; reg = p;
-            };
-            for (size_t f = deferFrames.size(); f-- > downTo;) {
-                while (reg != -1 && f < regions[reg].base) leave(f);
-                for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
-                    states[st].push_back(*it);
-            }
+            st = runFrames(st, downTo);
+            if (st == -1) return;
             if (!complete) { goTo(st, target); return; }
-            while (reg != -1) leave(downTo);
+            for (int reg = stateRegion[st]; reg != -1; reg = regions[reg].parent) {
+                int s2 = newStateIn(regions[reg].parent, downTo);
+                goTo(st, s2);
+                st = s2;
+            }
             publish(states[st]);
         };
 
@@ -1236,7 +1290,6 @@ void AsyncTransform::run(Program* program) {
         // Lower a statement that CONTAINS an await into the state graph; lowerSeq
         // threads a list. Each returns the state where control continues.
         std::function<int(const std::vector<BlockItem>&, int)> lowerSeq;
-        std::function<int(const StmtPtr&, int)> lowerStmt;
         auto lowerItem = [&](BlockItem& it, int cur) -> int {
             if (std::holds_alternative<DeclPtr>(it)) {
                 auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
@@ -1257,11 +1310,9 @@ void AsyncTransform::run(Program* program) {
                         std::make_shared<BlockStmt>(pk)));
                     goTo(cur, next);
                     // Dropped while parked here: the pending defers and finally blocks run.
-                    std::vector<StmtPtr> pending;
-                    for (size_t f = deferFrames.size(); f-- > 0;)
-                        for (auto it = deferFrames[f].rbegin(); it != deferFrames[f].rend(); ++it)
-                            pending.push_back(*it);
-                    if (!pending.empty()) dropSites.push_back({cur, pending});
+                    bool pending = false;
+                    for (auto& f : deferFrames) if (!f.empty()) pending = true;
+                    if (pending && !cancelCleanup) dropSites.push_back({cur, deferFrames});
                     // extract into `next`
                     states[next].push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
                     states[next].push_back(assign(fr(vd->name), std::make_shared<MemberExpr>(fr(awf), "value")));
@@ -1290,7 +1341,7 @@ void AsyncTransform::run(Program* program) {
                 if (std::holds_alternative<StmtPtr>(it))
                     if (auto* ds = dynamic_cast<DeferStmt*>(std::get<StmtPtr>(it).get())) {
                         if (!ds->isErr) {
-                            deferFrames.back().push_back(rewritePlain(ds->body));
+                            deferFrames.back().push_back(stmtHasAwait(ds->body) ? ds->body : rewritePlain(ds->body));
                             // In a split try a state's pending defers are fixed: begin a new one.
                             if (stateRegion[cur] != -1) { int n = newStateIn(stateRegion[cur], deferFrames.size()); goTo(cur, n); cur = n; }
                         }
@@ -1299,7 +1350,7 @@ void AsyncTransform::run(Program* program) {
                 BlockItem copy = it; cur = lowerItem(copy, cur);
             }
             bool hadDefers = !deferFrames.back().empty();
-            if (cur != -1) emitDefers(states[cur], deferFrames.size() - 1);   // fall-through exit
+            if (cur != -1) cur = runFrames(cur, deferFrames.size() - 1);   // fall-through exit
             deferFrames.pop_back();
             if (cur != -1 && hadDefers && stateRegion[cur] != -1) {
                 int n = newStateIn(stateRegion[cur], deferFrames.size());
@@ -1332,9 +1383,11 @@ void AsyncTransform::run(Program* program) {
                 return -1;
             }
             // Emit verbatim only if there's no await AND no break/continue that would
-            // escape into the resume loop, and (in a split try) no `return`, whose exit
-            // must leave the try's region; otherwise fall through to structural lowering.
-            if (!stmtHasAwait(s) && !loopEscapes(s) && !(stateRegion[cur] != -1 && stmtHasReturn(s))) {
+            // escape into the resume loop, and (in a split try, or under a cleanup that
+            // awaits) no `return`, whose exit must leave the try's region or run the
+            // cleanup in states; otherwise fall through to structural lowering.
+            if (!stmtHasAwait(s) && !loopEscapes(s) && !((stateRegion[cur] != -1
+                    || cleanupAwaits(deferFrames, 0, deferFrames.size())) && stmtHasReturn(s))) {
                 states[cur].push_back(rewritePlain(s));
                 return stmtTerminates(s) ? -1 : cur;   // -1: control left this state
             }
@@ -1501,10 +1554,10 @@ void AsyncTransform::run(Program* program) {
             if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
                 // The body's states form one region and the handlers' another (see Region);
                 // the `finally` is a defer frame run on every exit, outside both regions.
-                if (t->finally && (stmtHasAwait(t->finally) || loopEscapes(t->finally) || stmtHasReturn(t->finally)))
-                    throw locError(t, "a 'finally' that awaits or leaves by 'break'/'continue' is not "
+                if (t->finally && (loopEscapes(t->finally) || stmtHasReturn(t->finally)))
+                    throw locError(t, "a 'finally' that leaves by 'break'/'continue' is not "
                         "supported in an async function");
-                StmtPtr fin = t->finally ? rewritePlain(t->finally) : nullptr;
+                StmtPtr fin = !t->finally ? nullptr : stmtHasAwait(t->finally) ? t->finally : rewritePlain(t->finally);
                 int after = newState();
                 size_t startDepth = deferFrames.size();
                 if (fin) deferFrames.push_back({fin});
@@ -1549,49 +1602,151 @@ void AsyncTransform::run(Program* program) {
         }
 
         // ── Cancellation: dropped while parked at an await, the future runs the defers
-        //    and finally blocks pending there once, in a state of their own (the on_drop
-        //    closure resumes into it), before the frame is freed.
-        std::vector<std::pair<int, int>> dropStates;   // parked state -> its cleanup state
-        for (auto& ds : dropSites) {
+        //    and finally blocks pending there once, from states of their own (the on_drop
+        //    closure resumes into them). A cleanup that awaits runs detached: on_drop marks
+        //    the frame DETACHED (4), so future_drop leaves the frame alone, and the last
+        //    cleanup state frees it (or, when it ends inside future_drop, lets that free it).
+        struct DropState { int parked, cleanup; bool detached; };
+        std::vector<DropState> dropStates;
+        auto nullOf = [](const std::string& t) { return std::make_shared<CastExpr>(t, intlit(0)); };
+        auto buildDrop = [&](const std::pair<int, Frames>& site) {
+            Frames saved = deferFrames;
+            int savedRegion = curRegion;
+            bool savedCancel = cancelCleanup;
+            deferFrames = site.second;
+            curRegion = -1;
+            cancelCleanup = true;
+            bool detached = cleanupAwaits(deferFrames, 0, deferFrames.size());
             int d = newStateIn(-1, 0);
-            for (auto& p : ds.second) states[d].push_back(p);
-            states[d].push_back(ret(nullptr));
-            dropStates.push_back({ds.first, d});
-        }
+            int e = runFrames(d, 0);
+            if (e != -1) {
+                states[e].push_back(StmtPtr(excFree));
+                if (detached) {
+                    // if (atomic_cas(&fr.ret.state, 4, 6)) return;  free((*void)fr); return;
+                    ExprPtr cas = std::make_shared<CallExpr>(ident("atomic_cas"), std::vector<ExprPtr>{
+                        std::make_shared<UnaryExpr>("&", std::make_shared<MemberExpr>(fr(frn.ret), "state")),
+                        intlit(4), intlit(6) });
+                    states[e].push_back(std::make_shared<IfStmt>(cas, blockOf({ ret(nullptr) })));
+                    states[e].push_back(exprStmt(std::make_shared<CallExpr>(ident("free"),
+                        std::vector<ExprPtr>{ std::make_shared<CastExpr>("*void", ident(frn.ptr)) })));
+                }
+                states[e].push_back(ret(nullptr));
+            }
+            deferFrames = std::move(saved);
+            curRegion = savedRegion;
+            cancelCleanup = savedCancel;
+            dropStates.push_back({site.first, d, detached});
+        };
 
         // ── Each state of a split try runs inside its regions' handlers (see Region),
         //    innermost first. A handler first runs the defers pending in that state inside
-        //    the region, as an exception leaving a block does.
+        //    the region, as an exception leaving a block does. When those cleanups await,
+        //    a typed handler jumps to states that run them before the handler, and the
+        //    unwinding path captures the exception (a catch-all keeping a copy), runs the
+        //    cleanups in states of the enclosing region, then throws the copy again.
         const std::string cxName = astwalk::freshName("__cx", used);
-        for (size_t si = 0; si < states.size(); ++si) {
+        std::map<int, std::string> excFields;   // region -> its captured exception's frame field
+        auto excField = [&](int r) -> std::string {
+            auto it = excFields.find(r);
+            if (it != excFields.end()) return it->second;
+            std::string f = astwalk::freshName("__exc" + std::to_string(r), used);
+            fields.push_back({"*uint8", f});
+            excFields[r] = f;
+            return f;
+        };
+        auto freeExc = [&](const std::string& f) -> StmtPtr {
+            return std::make_shared<IfStmt>(binop(fr(f), "!=", nullOf("*uint8")), blockOf({
+                exprStmt(std::make_shared<CallExpr>(ident("__cxa_free_exception"),
+                    std::vector<ExprPtr>{ std::make_shared<CastExpr>("*void", fr(f)) })),
+                assign(fr(f), nullOf("*uint8")) }));
+        };
+        auto wrapState = [&](size_t si) {
             int r = stateRegion[si];
-            if (r == -1) continue;
-            const auto& frames = stateFrames[si];
+            if (r == -1) return;
+            const Frames frames = stateFrames[si];
+            bool savedCancel = cancelCleanup;
+            cancelCleanup = stateCancel[si];
             size_t top = frames.size();
             StmtPtr x = std::make_shared<BlockStmt>(states[si]);
+            // Lower the cleanups of `frames` above `downTo` from a new state of `region` whose
+            // pending frames are the first `depth`; returns {entry, continuation}. The
+            // continuation is a state whose pending frames are the first `downTo`, so the
+            // cleanups that ran are no longer pending there.
+            auto cleanupStates = [&](int region, size_t depth, size_t downTo) -> std::pair<int, int> {
+                Frames saved = deferFrames;
+                int savedRegion = curRegion;
+                deferFrames.assign(frames.begin(), frames.begin() + (long)top);
+                curRegion = region;
+                int s0 = newStateIn(region, depth);
+                int e = runFrames(s0, downTo);
+                if (e != -1) {
+                    int z = newStateIn(stateRegion[e], downTo);
+                    goTo(e, z);
+                    e = z;
+                }
+                deferFrames = std::move(saved);
+                curRegion = savedRegion;
+                return {s0, e};
+            };
             for (; r != -1; r = regions[r].parent) {
-                const Region& rg = regions[r];
+                const Region rg = regions[r];
+                bool pendAwaits = cleanupAwaits(frames, rg.base, top);
                 std::vector<BlockItem> pend;
-                for (size_t f = top; f-- > rg.base;)
-                    for (auto it = frames[f].rbegin(); it != frames[f].rend(); ++it) pend.push_back(*it);
+                if (!pendAwaits)
+                    for (size_t f = top; f-- > rg.base;)
+                        for (auto it = frames[f].rbegin(); it != frames[f].rend(); ++it) pend.push_back(*it);
                 std::vector<TryStmt::CatchClause> cs;
                 for (auto& c : rg.catches) {
                     std::vector<BlockItem> hb = pend;
                     if (!c.var.empty()) hb.push_back(assign(fr(c.var), ident(cxName)));
-                    hb.push_back(assign(fr(frn.st), intlit(c.state)));
+                    int target = c.state;
+                    if (pendAwaits) {
+                        auto se = cleanupStates(stateRegion[c.state], rg.base, rg.base);
+                        if (se.second != -1) goTo(se.second, c.state);
+                        target = se.first;
+                    }
+                    hb.push_back(assign(fr(frn.st), intlit(target)));
                     cs.push_back({c.type, cxName, std::make_shared<BlockStmt>(hb)});
                 }
-                std::vector<BlockItem> ub = pend;
-                if (rg.fin) ub.push_back(rg.fin);
-                if (!cs.empty() || !ub.empty()) {
-                    auto t = std::make_shared<TryStmt>(x, cs, ub.empty() ? nullptr : StmtPtr(std::make_shared<BlockStmt>(ub)));
+                StmtPtr ub = nullptr;
+                if (cleanupAwaits(frames, rg.startDepth, top)) {
+                    std::string ef = excField(r);
+                    auto se = cleanupStates(rg.parent, rg.startDepth, rg.startDepth);
+                    if (se.second != -1) {
+                        // { *uint8 t = fr.ef; fr.ef = null; <throw t again>; }
+                        int z = se.second;
+                        std::string tn = astwalk::freshName("__rx", used);
+                        auto th = std::make_shared<ThrowStmt>(ident(tn));
+                        th->rethrowCaptured = true;
+                        states[z].push_back(blockOf({ DeclPtr(std::make_shared<VarDecl>(tn, "*uint8", fr(ef))),
+                            assign(fr(ef), nullOf("*uint8")), StmtPtr(th) }));
+                    }
+                    TryStmt::CatchClause cc{"*uint8", cxName, blockOf({ freeExc(ef),
+                        assign(fr(ef), ident(cxName)), assign(fr(frn.st), intlit(se.first)) })};
+                    cc.captureAll = true;
+                    cs.push_back(cc);
+                } else {
+                    std::vector<BlockItem> ubi = pend;
+                    if (rg.fin) ubi.push_back(rg.fin);
+                    if (!ubi.empty()) ub = std::make_shared<BlockStmt>(ubi);
+                }
+                if (!cs.empty() || ub) {
+                    auto t = std::make_shared<TryStmt>(x, cs, ub);
                     t->unwindOnly = true;
                     x = t;
                 }
                 top = rg.startDepth;
             }
             states[si] = { x };
+            cancelCleanup = savedCancel;
+        };
+        // Wrapping and the cancellation states can each produce states the other needs.
+        for (size_t wrapped = 0, dsDone = 0;;) {
+            for (; dsDone < dropSites.size(); ++dsDone) buildDrop(dropSites[dsDone]);
+            if (wrapped == states.size()) break;
+            for (; wrapped < states.size(); ++wrapped) wrapState(wrapped);
         }
+        for (auto& [r, f] : excFields) excFree->items.push_back(freeExc(f));
 
         // ── Lambdas capturing a frame-hoisted local. The resume function has no local of
         //    that name (it lives in `fr.<name>`, and rewrite() stops at a lambda), so each
@@ -1706,13 +1861,18 @@ void AsyncTransform::run(Program* program) {
             dropBody.push_back(std::make_shared<IfStmt>(
                 binop(fr(frn.awaiting), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
                 std::make_shared<BlockStmt>(cascade)));
-            // Then the cleanups pending at the await it is parked at run once.
+            // Then the cleanups pending at the await it is parked at run once; one that
+            // awaits runs detached (the frame is marked DETACHED, 4, first).
             StmtPtr cleanup = nullptr;
             for (auto it = dropStates.rbegin(); it != dropStates.rend(); ++it) {
                 std::vector<BlockItem> go;
-                go.push_back(assign(fr(frn.st), intlit(it->second)));
+                if (it->detached)
+                    go.push_back(exprStmt(std::make_shared<CallExpr>(ident("atomic_store"), std::vector<ExprPtr>{
+                        std::make_shared<UnaryExpr>("&", std::make_shared<MemberExpr>(fr(frn.ret), "state")),
+                        intlit(4) })));
+                go.push_back(assign(fr(frn.st), intlit(it->cleanup)));
                 go.push_back(exprStmt(resumeCall(resumeN, tps)));
-                cleanup = std::make_shared<IfStmt>(binop(fr(frn.st), "==", intlit(it->first)),
+                cleanup = std::make_shared<IfStmt>(binop(fr(frn.st), "==", intlit(it->parked)),
                     std::make_shared<BlockStmt>(go), cleanup);
             }
             if (cleanup) dropBody.push_back(cleanup);

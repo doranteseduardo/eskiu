@@ -1,0 +1,12 @@
+// An await the async lowering can't place (an `asm` input, evaluated inside the asm
+// statement itself) is an error located at that await (tests/run.sh,
+// tests/selfhost/cg_parity.sh): line 8, column 23.
+import <future>;
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+async int worker() {
+    int r = 1;
+    asm("" : : "r"(await rdy<int>(1)));
+    r = await rdy<int>(2);
+    return r;
+}
+int main() { Future<int>* f = worker(); return f.value; }

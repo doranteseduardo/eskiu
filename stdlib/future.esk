@@ -39,6 +39,19 @@ const int PENDING   = 0;
 const int WAITING   = 1;
 const int READY     = 2;
 const int CANCELLED = 3;
+// A coroutine future whose drop-time cleanup suspends (an `await` in a pending defer or
+// finally) outlives future_drop. Its on_drop sets DETACHED before the cleanup starts;
+// future_drop then hands the frame over (ORPHANED) instead of freeing it, and the cleanup
+// frees the frame when it ends. A cleanup that ends while future_drop is still running
+// sets CLEANED, and future_drop frees the frame as usual.
+const int DETACHED  = 4;
+const int ORPHANED  = 5;
+const int CLEANED   = 6;
+
+// Releases an exception object that was allocated but never thrown: the async lowering
+// keeps a copy of an exception while an awaiting finally runs, and frees the copy when
+// the frame ends without throwing it again.
+extern void __cxa_free_exception(*void p);
 
 // A freshly allocated, pending future. waker/on_drop are set later by the
 // awaiter / producer. state starts PENDING (a plain store — not yet shared).
@@ -203,13 +216,17 @@ void free_future_polled<T>(Future<T>* f) {
 // Cancel/drop, type-erased. Swap to CANCELLED; if it was already READY the
 // producer is done and we only free, otherwise on_drop releases external
 // resources (loop registration), cascades, and frees.
+// A coroutine whose cleanup suspended (it set DETACHED) keeps its frame: the cleanup
+// frees it when it ends. Dropping it again while that cleanup runs is a no-op.
 void future_drop(FutureHdr* f) {
+    if (atomic_load(&f.state) >= DETACHED) { return; }   // already dropped, cleanup still running
     int old = atomic_swap(&f.state, CANCELLED);  // -> CANCELLED
     if (old != READY) {                      // not already READY: release resources + cascade
         f.on_drop();                     // (must NOT free f — future_drop owns the free)
     }
     free_closure(f.waker);               // a parked awaiter's resume will never fire now
     free_closure(f.on_drop);             // free the on_drop env (it has returned)
+    if (atomic_cas(&f.state, DETACHED, ORPHANED)) { return; }   // the cleanup frees the frame
     free((*void)f);
 }
 

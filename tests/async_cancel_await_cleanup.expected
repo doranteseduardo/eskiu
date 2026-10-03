@@ -1,0 +1,21 @@
+slow: finally starts
+race: timer won
+race = 1
+slow: finally resumed 0
+after race: done=1
+lifo: defer 3
+lifo dropped: done=1
+lifo: defer 2 resumed 0
+lifo: defer 1
+after lifo: done=3
+sync_cleanup: finally 7
+sync_cleanup dropped: done=1
+lifo: defer 3
+lifo: defer 2 resumed 0
+lifo: defer 1
+dropped twice: done=3
+in_finally: parks
+in_finally: outer defer
+in_finally dropped: done=1
+unwinding: defer resumed 0
+unwinding dropped: done=1

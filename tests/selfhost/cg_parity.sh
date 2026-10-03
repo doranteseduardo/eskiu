@@ -92,10 +92,10 @@ if [ "$#" -eq 0 ]; then
     else echo "FAIL  inline_asm_gcc  (x86-64 GCC register constraints)"; fail=1; fi
     # An await the async lowering can't place is an error located at that await.
     total=$((total + 1))
-    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_defer.esk 2>&1 >/dev/null)"
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_unplaced.esk 2>&1 >/dev/null)"
     case "$aw" in
-        *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"*) echo "ok    await_in_defer  (located error)" ;;
-        *) echo "FAIL  await_in_defer  ($aw)"; fail=1 ;;
+        *"await_unplaced.esk:8:20: async function 'worker': 'await' is not supported here"*) echo "ok    await_unplaced  (located error)" ;;
+        *) echo "FAIL  await_unplaced  ($aw)"; fail=1 ;;
     esac
 fi
 

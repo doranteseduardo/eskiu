@@ -1824,9 +1824,6 @@ void TypeChecker::visit(AwaitExpr* node) {
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     if (!inAsyncFn)
         errorAt(node, "await is only allowed inside an async function");
-    else if (finallyDepth > 0)
-        errorAt(node, "await inside a 'finally' block is not supported in an async function "
-                      "(a cancelled future runs its pending finally without suspending)");
     awaitSeenInFn = true;
     node->operand->accept(this);
     std::string t = getExpressionType(node->operand.get());

@@ -4719,8 +4719,6 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
             sema_error(s, "await is only allowed inside an async function");
-        } else if (s.fin_depth > 0) {
-            sema_error(s, "await inside a 'finally' block is not supported in an async function (a cancelled future runs its pending finally without suspending)");
         }
         s.await_seen = 1;
         sema_expr(s, e.a);

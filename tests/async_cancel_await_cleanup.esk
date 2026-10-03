@@ -1,0 +1,134 @@
+// A future dropped while parked runs its pending defers and finally blocks once; when
+// they await, the cleanup runs detached: it suspends, resumes from the event loop, and
+// frees the frame when it ends. The awaited future is dropped first. Covers a select2
+// loser, a hand drop with LIFO defers, a cleanup whose await is already ready, a second
+// drop while the cleanup runs, a drop inside an awaiting finally on a normal exit, and a
+// drop inside a finally that runs while an exception unwinds (the kept exception is freed).
+import <future>;
+import <timer>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+EventLoop* g;
+int done = 0;
+
+Future<int>* ready(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+
+async int slow(int64 ms) {
+    try {
+        int x = await timer_after(g, ms);
+        printf("slow: woke\n");
+        return x;
+    } finally {
+        printf("slow: finally starts\n");
+        int y = await timer_after(g, (int64)5);
+        printf("slow: finally resumed %d\n", y);
+        done = done + 1;
+    }
+    return -1;
+}
+
+async int race() {
+    Future<int>* a = slow((int64)500);
+    Future<int>* b = timer_after(g, (int64)1);
+    int w = await select2(a, b);
+    if (w == 0) { free_future<int>(a); return 0; }
+    free_future<int>(b);
+    printf("race: timer won\n");
+    return 1;
+}
+
+async int lifo() {
+    defer { printf("lifo: defer 1\n"); done = done + 1; }
+    defer { int t = await timer_after(g, (int64)2); printf("lifo: defer 2 resumed %d\n", t); done = done + 1; }
+    defer { printf("lifo: defer 3\n"); done = done + 1; }
+    int x = await timer_after(g, (int64)500);
+    return x;
+}
+
+async int sync_cleanup() {
+    try {
+        int x = await timer_after(g, (int64)500);
+        return x;
+    } finally {
+        int r = await ready(7);
+        printf("sync_cleanup: finally %d\n", r);
+        done = done + 1;
+    }
+    return 0;
+}
+
+async int in_finally() {
+    defer { printf("in_finally: outer defer\n"); done = done + 1; }
+    try {
+        return 3;
+    } finally {
+        printf("in_finally: parks\n");
+        int t = await timer_after(g, (int64)500);
+        printf("in_finally: never %d\n", t);
+    }
+    return 0;
+}
+
+async int unwinding() {
+    defer { int t = await timer_after(g, (int64)3); printf("unwinding: defer resumed %d\n", t); done = done + 1; }
+    try {
+        try {
+            await ready(0);
+            throw 8;
+        } finally {
+            int t = await timer_after(g, (int64)500);
+            printf("unwinding: never %d\n", t);
+        }
+    } catch (int e) {
+        printf("unwinding: never caught %d\n", e);
+    }
+    return 0;
+}
+
+int run(Future<int>* f) {
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    int v = f.value;
+    free_future_polled<int>(f);
+    return v;
+}
+
+void drain() { run(timer_after(g, (int64)40)); }
+
+int main() {
+    g = el_new(64);
+    printf("race = %d\n", run(race()));
+    drain();
+    printf("after race: done=%d\n", done);
+
+    done = 0;
+    Future<int>* l = lifo();
+    future_drop((FutureHdr*)l);
+    printf("lifo dropped: done=%d\n", done);
+    drain();
+    printf("after lifo: done=%d\n", done);
+
+    done = 0;
+    Future<int>* s = sync_cleanup();
+    future_drop((FutureHdr*)s);
+    printf("sync_cleanup dropped: done=%d\n", done);
+
+    done = 0;
+    Future<int>* t = lifo();
+    future_drop((FutureHdr*)t);
+    future_drop((FutureHdr*)t);
+    drain();
+    printf("dropped twice: done=%d\n", done);
+
+    done = 0;
+    Future<int>* f = in_finally();
+    future_drop((FutureHdr*)f);
+    printf("in_finally dropped: done=%d\n", done);
+
+    done = 0;
+    Future<int>* u = unwinding();
+    future_drop((FutureHdr*)u);
+    drain();
+    printf("unwinding dropped: done=%d\n", done);
+    EventLoop_free(g);
+    return 0;
+}
