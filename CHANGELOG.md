@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.9.3] - unreleased
+## [0.9.3] - 2026-10-02
 
 ### Added
 - **`await` inside `finally` and `defer`** in an async function. The cleanup suspends and
