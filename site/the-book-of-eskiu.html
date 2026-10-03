@@ -2698,9 +2698,8 @@ pre.code-block {
 <p>The constant checks work on the folded value, not only on the literal spelling. A divisor, a shift count, an index or a cast operand that folds to a bad value through a <code>const</code> name, a <code>sizeof</code>, a cast or arithmetic is reported the same way as the literal form, instead of compiling to an undefined result.</p>
 <h2 class="section" id="sec-22-8">22.8 Known issues in 0.9.2</h2>
 <p>A few gaps are still open in this release. None of them miscompiles a valid program:</p>
-<pre class="code-block"> await is rejected inside a finally or a defer (24.1), and in a generic async function
-   in a match arm that binds a payload, after a side-effecting operand in the same
-   expression, and inside a ?: arm; bind the awaited value to a local first.
+<pre class="code-block"> await is rejected inside a finally or a defer (24.1); bind the awaited value to a
+   local first.
  A method that mutates a captured value inside a lambda acts on the closure's copy;
    write through a pointer to share state.
  The type checker does not fold sizeof of a struct with an unnamed : 0 bitfield.
@@ -2888,6 +2887,7 @@ pre.code-block {
  }
  Future&lt;int&gt;* a = twice&lt;int&gt;(21);        // a.value == 42
  Future&lt;double&gt;* b = twice(1.25);        // T inferred as double; b.value == 2.5</pre>
+<p>An await in a generic async function may sit in any position a plain one allows, such as a <code>match</code> arm that binds a payload or an arm of <code>?:</code>.</p>
 <h2 class="section" id="sec-24-2">24.2 The event loop</h2>
 <p>Async tasks need something to run them. The event loop is a reactor that watches file descriptors for readiness and resumes the tasks waiting on them:</p>
 <pre class="code-block"> import &lt;eventloop&gt;;

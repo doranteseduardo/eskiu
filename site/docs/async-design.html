@@ -377,7 +377,12 @@ and the constructor are templates over <code>f</code>'s type parameters (<code>_
 awaited type must be spelled in terms of <code>T</code>. The C++ transform recovers it from the
 type checker's per-instance records (<code>AwaitExpr::instanceTypes</code>: the instance's type
 arguments and the awaited type), choosing a spelling that reproduces every checked
-instance. The self-host pass resolves it from the source directly (<code>al_await_type</code>). A
+instance (<code>generalizeType</code>). The self-host pass resolves it from the source directly
+(<code>al_await_type</code>). The other temporaries are typed the same way in both compilers: the
+type checker records, per checked instance of a generic async function, every
+expression's type (C++ <code>TypeChecker::instanceExprTypeMap</code>, self-host <code>ExprNode.ainst</code>)
+and each <code>match</code> arm's binding types (<code>Arm::instanceBindingTypes</code>, self-host
+<code>arm_inst</code>), and the lowering generalizes them (<code>generalizeType</code> / <code>al_generalize</code>). A
 generic async function that is never instantiated is left as is.</p>
 <h3 id="45-awaits-inside-expressions">4.5 Awaits inside expressions</h3>
 <p>Before the state split, a desugar (<code>hoist</code> / self-host <code>al_hoist</code>) moves every await,
@@ -398,9 +403,7 @@ with an awaiting arm needs its result type the same way. A <code>do</code>/<code
 condition or step awaits becomes a <code>while (true)</code> whose first pass skips the test or
 the step, so <code>continue</code> still runs them. A <code>switch</code>/<code>match</code> subject, a <code>for-in</code> iterable
 and a range bound are hoisted before their statement (evaluated once). In a generic
-async function the per-instance types of those operands are not recorded, so a
-temporary for a side-effecting operand, a <code>?:</code> arm or a match arm's payload binding
-there is a located error.</p>
+async function these types are spelled with the type parameters (§4.4).</p>
 <h3 id="46-match-and-try">4.6 <code>match</code> and <code>try</code></h3>
 <p>A <code>match</code> whose arms await dispatches in the current state: each arm copies its
 payload bindings to frame fields (typed by the checker's stamp, <code>bindingTypes</code> /

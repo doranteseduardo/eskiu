@@ -1097,10 +1097,9 @@ at every exit of that block, as in a plain function).
 
 Rejected with a located error: an `await` inside a `finally` or a `defer` body (both run
 when a cancelled future is dropped, which cannot suspend), labeled `break`/`continue`,
-an `await` in a `sizeof` operand, an `asm` input or a `thread_join`, and in a generic
-async function an await in a `match` arm that binds a payload, or an await after an
-operand with a side effect or inside a `?:` arm (their types differ per instance). Bind
-the value first with `let v = await ...;`.
+an `await` in a `sizeof` operand, an `asm` input or a `thread_join`. Bind the value
+first with `let v = await ...;`. A generic async function accepts an await in the same
+positions as a plain one.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it

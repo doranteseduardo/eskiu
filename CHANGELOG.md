@@ -9,7 +9,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [0.9.3] - unreleased
-
 ### Fixed
 - Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
@@ -20,14 +19,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   now an error; before, the method silently changed the closure's copy. A `const T* self`
   method and a call through a captured pointer are allowed. Tests
   `errors/closure_captured_method_*`, `closure_captured_method_ok`.
+- **`await` in generic async functions.** An await in a `match` arm that binds a
+  payload, after an operand with a side effect in the same expression, or inside a `?:`
+  arm now works in a generic async function, as it does in a plain one. The lowering
+  types the temporaries from the type checker's records for each instance, written in
+  terms of the type parameters. Both compilers.
 
 ### Known issues
 These are open in 0.9.3. None of them miscompiles a valid program.
 
 - An `await` inside a `finally` or a `defer` is rejected: both run without suspending
-  when a cancelled future is dropped. In a generic async function an `await` is also
-  rejected in a `match` arm that binds a payload, after an operand with a side effect in
-  the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
+  when a cancelled future is dropped. Bind the awaited value to a local first.
 - Unnamed bitfields (`uint32 : 3;`, `uint32 : 0;`) are not supported: a field needs a
   name, and a named `: 0` field is an error. 0.9.2 listed this as a `sizeof` folding gap,
   but no valid program can contain such a field.
@@ -1041,6 +1043,7 @@ These are open in 0.9.2. None of them miscompiles a valid program.
   when a cancelled future is dropped. In a generic async function an `await` is also
   rejected in a `match` arm that binds a payload, after an operand with a side effect in
   the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
+  (The generic cases are fixed in 0.9.3.)
 - A method that mutates a captured value inside a lambda acts on the closure's copy
   (captures are by value); write through a pointer to share state.
 - The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so

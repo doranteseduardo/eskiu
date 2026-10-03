@@ -270,7 +270,12 @@ and the constructor are templates over `f`'s type parameters (`__f_frame<T>`,
 awaited type must be spelled in terms of `T`. The C++ transform recovers it from the
 type checker's per-instance records (`AwaitExpr::instanceTypes`: the instance's type
 arguments and the awaited type), choosing a spelling that reproduces every checked
-instance. The self-host pass resolves it from the source directly (`al_await_type`). A
+instance (`generalizeType`). The self-host pass resolves it from the source directly
+(`al_await_type`). The other temporaries are typed the same way in both compilers: the
+type checker records, per checked instance of a generic async function, every
+expression's type (C++ `TypeChecker::instanceExprTypeMap`, self-host `ExprNode.ainst`)
+and each `match` arm's binding types (`Arm::instanceBindingTypes`, self-host
+`arm_inst`), and the lowering generalizes them (`generalizeType` / `al_generalize`). A
 generic async function that is never instantiated is left as is.
 
 ### 4.5 Awaits inside expressions
@@ -296,9 +301,7 @@ with an awaiting arm needs its result type the same way. A `do`/`while` or `for`
 condition or step awaits becomes a `while (true)` whose first pass skips the test or
 the step, so `continue` still runs them. A `switch`/`match` subject, a `for-in` iterable
 and a range bound are hoisted before their statement (evaluated once). In a generic
-async function the per-instance types of those operands are not recorded, so a
-temporary for a side-effecting operand, a `?:` arm or a match arm's payload binding
-there is a located error.
+async function these types are spelled with the type parameters (§4.4).
 
 ### 4.6 `match` and `try`
 

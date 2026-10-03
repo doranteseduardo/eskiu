@@ -1325,10 +1325,9 @@ innermost first, before its frame is freed (a <code>defer</code> in a block spli
 at every exit of that block, as in a plain function).</p>
 <p>Rejected with a located error: an <code>await</code> inside a <code>finally</code> or a <code>defer</code> body (both run
 when a cancelled future is dropped, which cannot suspend), labeled <code>break</code>/<code>continue</code>,
-an <code>await</code> in a <code>sizeof</code> operand, an <code>asm</code> input or a <code>thread_join</code>, and in a generic
-async function an await in a <code>match</code> arm that binds a payload, or an await after an
-operand with a side effect or inside a <code>?:</code> arm (their types differ per instance). Bind
-the value first with <code>let v = await ...;</code>.</p>
+an <code>await</code> in a <code>sizeof</code> operand, an <code>asm</code> input or a <code>thread_join</code>. Bind the value
+first with <code>let v = await ...;</code>. A generic async function accepts an await in the same
+positions as a plain one.</p>
 <p>An <code>async</code> function is declared with the <code>async</code> modifier before the return type. Its
 <em>declared</em> return type is the value it ultimately produces, but a <strong>call</strong> to it
 yields a <code>*Future&lt;T&gt;</code>, a handle to the eventual result, rather than <code>T</code> directly:</p>
