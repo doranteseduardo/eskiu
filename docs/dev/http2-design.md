@@ -1,6 +1,6 @@
 # HTTP/2 architecture
 
-`<http2>` brings HTTP/2 (RFC 7540) to Eskiu over the async `<eventloop>`. HTTP/2 is
+`<http2>` brings HTTP/2 (RFC 7540, as revised by RFC 9113) to Eskiu over the async `<eventloop>`. HTTP/2 is
 a binary, multiplexed protocol: one TCP (TLS) connection carries many concurrent
 request/response *streams*, each a sequence of *frames*, with header compression
 and flow control. The implementation is split across a stack of stdlib modules,
@@ -128,12 +128,13 @@ the `<http2_server>` request/response glue) over the encrypted stream:
   of their deadline whenever OpenSSL asks for `WANT_READ`/`WANT_WRITE`. A socket
   timeout (`SO_RCVTIMEO`) cannot bound them: OpenSSL loops `recv()` inside one
   `SSL_read` until a record is complete, and each trickled byte restarts it.
-- Both drive the same `H2Server` engine as the h2c server.
 - **Async**, many TLS connections on one event-loop thread:
   `http2_tls_serve_async`. A non-blocking SSL pump
   (`tls_accept_async`/`tls_read_async`/`tls_write_all_async`) retries `SSL_*` on
   `WANT_READ`/`WANT_WRITE` and parks on the matching readiness via the reactor's
   `EventLoop_add_read`/`EventLoop_add_write`.
+
+Both drive the same `H2Server` engine as the h2c server.
 
 Verified end-to-end against `curl --http2`: ALPN negotiates h2 and the request is
 served as `HTTP/2 200`, including multiple concurrent connections on the async

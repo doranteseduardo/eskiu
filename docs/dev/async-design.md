@@ -16,7 +16,7 @@ multiple `await` (fast path + suspend over real reactor reads, values threaded
 through frame fields across N+1 states), `return await`, bare `await`, `async
 void`, cancellation, and all control flow around `await` (`if`/`while`/C-style
 `for`/`do`-`while`/`switch`/`match`/`for-in`/`try`-`catch`, with `break`/`continue`),
-with full closure-env ownership, leak-free under `leaks`. An await may sit anywhere in
+with full closure-env ownership, leak-free under the macOS `leaks` tool. An await may sit anywhere in
 an expression: a desugar hoists each one, in evaluation order, into a `let` of its own
 (§4.5). A `defer` in a block split by an await is kept by the transform and emitted at
 each exit of that block (fall-through, `return`, `break`/`continue`); an `await` inside
@@ -36,14 +36,14 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
 
 **Goals**
 
-- `async` function and `await` usable for real network I/O today (the prod projects need
-  it for HTTP): an async TCP read/connect that suspends without blocking a thread.
+- `async` function and `await` usable for real network I/O (the stdlib HTTP servers
+  need it): an async TCP read/connect that suspends without blocking a thread.
 - **Cancellation / drop in v1.** A future can be dropped before it completes;
   doing so releases its resources (loop registrations, memory) and cascades into
   whatever it was awaiting.
 - **Multi-threaded execution with thread-affinity in v1.** A future may be
   completed on one thread while its continuation must resume on another. The
-  motivating case is the future UI framework: background work completes on a worker
+  motivating case is a UI framework: background work completes on a worker
   pool, but the continuation that touches UI state must run on the UI thread. This
   dictates how completion and the waker work, so it is part of the locked contract,
   not a later bolt-on.
@@ -51,8 +51,8 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
   add timers, channels, and `select`/`join` combinators.
 - Reuse the existing compiler: closures (resume/drop continuations), monomorphic
   templates (`Future<T>`), AST-visitor passes. The state-machine split is an
-  **AST→AST transform**: inspectable via `--test-parser`, reuses 100% of existing
-  codegen, no LLVM coroutine intrinsics.
+  **AST→AST transform**: its output is ordinary AST that the type checker re-checks,
+  it reuses existing codegen, and it needs no LLVM coroutine intrinsics.
 - Manual memory, no GC, no hidden refcounting.
 
 **Prerequisite this design pulls in**
@@ -64,8 +64,9 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
 
 **Non-goals (v1: deferred, each forward-compatible)**
 
-- `select` / `join` combinators. Composable later on this shape; the v1 pieces they
-  need, cancellation (to drop losers) and cross-thread completion, are present.
+- `select` / `join` combinators were deferred from v1. They have since shipped
+  (`select2`/`join2`, plus the value-carrying `select2v`/`join2v` in `<futureval>`),
+  built on this shape with no contract change.
 - Cooperative cancellation (a coroutine that observes a cancel request and keeps
   running, e.g. awaiting inside its cleanup). Drop runs the pending `defer`/`finally`
   code synchronously and frees the frame (§7); the forward path is a cancellation
@@ -90,7 +91,7 @@ The shape, an ordinary stdlib template (`stdlib/future.esk`):
 ```eskiu
 struct Future<T> {
     int        state;     // ATOMIC. 0 pending, 1 waiting, 2 ready, 3 cancelled  (§3)
-    fn()->void waker;     // completion path: schedule the awaiter on its home executor
+    fn()->void waker;     // completion path: resume (or schedule) the awaiter
     fn()->void on_drop;   // cancel path: release own resources + cascade
     T          value;     // valid only when state == ready; LAST (§2.1)
 }
@@ -157,11 +158,12 @@ if (old == WAITING) F.waker();               // awaiter parked -> schedule its r
 // old == CANCELLED: dropped first -> producer releases <result> and frees (§3.4 arbitration)
 ```
 
-**The waker does not run the continuation inline.** It *schedules* the awaiter's
-resume on the awaiter's **home executor** (§4 captures that executor in the waker
-closure) and wakes that executor. So completion on a worker thread resumes the
-coroutine on, e.g., the UI thread, and, as a bonus, resume is never a nested call,
-which removes the deep-stack concern entirely.
+**Where the continuation runs.** `future_complete` calls the waker on the
+completing thread, and the waker the transform generates resumes the coroutine
+directly (`fr.st = N; __f_resume(fr);`). Thread affinity is the executor's job: a
+producer that completes a future on another thread hands the resume to the
+awaiter's executor with `Executor_schedule`, which queues it and wakes that
+executor, so the continuation runs on the executor's own thread (§6).
 
 ### 3.3 Drop / cancel (any thread): `future_drop((FutureHdr*)F)`
 
@@ -202,40 +204,42 @@ async int fetch_len(EventLoop* lp, int listen_fd, *uint8 buf) {
 ### 4.1 The frame
 
 One struct per async function: embeds the return future (one allocation), resume state,
-the `awaiting` back-pointer (cascade-drop), the home executor, params, and locals
+the `awaiting` back-pointer (cascade-drop), params, and locals
 **live across an await**:
 
 ```eskiu
-struct __Frame_fetch_len {
+struct __fetch_len_frame {
     Future<int> ret;       // &frame.ret is the returned Future<int>*
     int         st;        // resume state
     FutureHdr*  awaiting;  // inner future currently parked on (null otherwise)
-    Executor*   home;      // where this coroutine's resumes must run (thread-affinity)
     EventLoop*  lp;        // param
     int         listen_fd; // param
     *uint8      buf;       // param
-    int         fd;        // local live across await #2
+    int         fd;        // local hoisted to the frame
 }
 ```
 
-`awaiting`/`home` are *frame* fields, not `Future` fields, free to adjust, no
-contract cost. The frame is **confined to its home executor**: only that executor
-ever calls `__resume_*` on it, so the frame needs no locking. The only cross-thread
-object is the `Future` header, synchronized per §3.
+(Simplified: the transform also hoists await temporaries, and every synthesized
+name is made unique against the function's own identifiers.) `awaiting` is a
+*frame* field, not a `Future` field, free to adjust, no contract cost. Only one
+resume of a frame runs at a time (it is parked between them), so the frame needs no
+locking. The only cross-thread object is the `Future` header, synchronized per §3.
 
 ### 4.2 Constructor + resume
 
 - **Constructor** `Future<int>* fetch_len(EventLoop* lp, int listen_fd, *uint8 buf)`: allocs the
-  frame, stores params, `st=0`, `awaiting=null`, `home = current_executor()`, sets
-  `frame.ret.on_drop = <cascade-drop awaiting, free frame>`, calls
-  `__resume_fetch_len(frame)` once, returns `&frame.ret`.
-- **Resume** `void __resume_fetch_len(__Frame_fetch_len* f)`:
+  frame, stores params, `st=0`, `awaiting=null`, sets
+  `frame.ret.on_drop = <cascade-drop awaiting, run pending cleanup>`, calls
+  `__fetch_len_resume(frame)` once, returns `&frame.ret`.
+- **Resume** `void __fetch_len_resume(__fetch_len_frame* f)`, shown as a `switch` for
+  readability (the transform emits a state graph, `while (true) { if (st == N) {...} ... }`,
+  so loops and branches that contain awaits can jump between states):
 
 ```
 switch (f.st) {
 case 0:
   Future<int>* g = net_accept_async(f.lp, f.listen_fd);
-  f.waker_of_g = <closure capturing f, f.home: schedule "f.st=1; __resume(f)" on f.home>;
+  f.waker_of_g = <closure capturing f: "f.st=1; __fetch_len_resume(f)">;
   // park via §3.1 against g; if g already ready, fall through with g.value
   ... if parked: f.awaiting=(FutureHdr*)g; f.st=1; return;
   f.fd = g.value; f.awaiting=null; free_future(g);
@@ -250,7 +254,7 @@ case 1:
 }
 ```
 
-The continuations are existing closures capturing `f` and `f.home` by value: no new
+The continuations are existing closures capturing `f` by value: no new
 machinery. (The §3.1 park sequence is emitted inline at each await; shown abbreviated.)
 
 ### 4.3 Fast path
@@ -331,16 +335,16 @@ a `finally` is rejected (§7).
 |---|---|---|---|
 | Socket readable (leaf) | loop callback reads, §3.2 | `on_drop`=`EventLoop_del`+free | no |
 | Another `async` function | resume §3.2 | `on_drop` cascades `awaiting`, frees frame | no |
-| Timer `await sleep(ms)` | loop timeout, §3.2 | `on_drop` cancels timer+free | no |
-| `await thread_join(t)` / worker pool | worker completes on its thread; waker schedules resume on home executor (§3.2) | `on_drop` detach+free | no |
-| `await chan.recv()` | sender §3.2 | `on_drop` unlinks+free | no |
+| Timer `await timer_after(lp, ms)` | loop timeout, §3.2 | `on_drop` cancels timer (`EventLoop_del_timer`)+free | no |
+| Worker thread / pool | worker completes on its thread; the resume is scheduled on the awaiter's executor (§6) | `on_drop` detach+free | no |
+| `await Chan_recv(ch)` | sender §3.2 | `on_drop` unlinks+free | no |
 | **UI: bg work → UI-thread continuation** | worker §3.2; waker enqueues on UI executor | parent `on_drop` | no |
-| `select`/`join` (later) | first child §3.2 | parent drops losers | no |
+| `select2`/`join2` | first (or last) child §3.2 | parent drops losers | no |
 
 - **No `error` field**: fallible async returns `Future<Result<T,E>>`; error rides
   in `value`, composes with `?`.
 - **No `waker_ctx`/`dropctx`/`executor` field in `Future`**: closures capture by
-  value, so the resume thunk and the home executor live in the waker's env.
+  value, so the resume thunk (and any executor it targets) live in the waker's env.
 - **No lock field**: the atomic `state` handshake (§3) replaces a per-future lock.
 
 ### 5.1 `Future<void>`
@@ -353,20 +357,19 @@ a `finally` is rejected (§7).
 ## 6. Executors, the event loop, and thread-affinity
 
 An **Executor** is a thread plus a thread-safe ready-queue and a wakeup mechanism
-(self-pipe / `eventfd` registered with that thread's `<eventloop>`, or a condvar).
-`current_executor()` returns the one running the calling code.
+(a self-pipe registered with that thread's `<eventloop>`): `executor_new(lp)`,
+`Executor_schedule(ex, waker)`, `Executor_run`, `Executor_stop`, `Executor_free`.
 
-- A coroutine's `home` executor is captured at construction; its waker enqueues the
-  resume onto `home`'s ready-queue and wakes `home`. The executor's run loop pops
-  ready entries and calls `__resume_*`.
+- `Executor_schedule` may be called from any thread: it enqueues a waker on the
+  executor's ready-queue and wakes its loop. The executor's run loop pops ready
+  entries and calls them on its own thread, so a resume scheduled there runs there.
 - **I/O wake source.** `<eventloop>` is one source of completions: when an fd is
-  ready, its leaf future completes (§3.2), scheduling the awaiter's resume on the
-  awaiter's home executor, which may differ from the loop's thread.
-- **UI framework shape.** The UI thread runs an executor; `spawn` background work on
-  a worker-pool executor; the worker completes the future and the waker marshals the
-  continuation back to the UI executor. This is the JS-main-thread / Swift-MainActor
-  / Kotlin-dispatcher model, and it needs *no `Future` change*: only that the waker
-  schedules onto `home`.
+  ready, its leaf future completes (§3.2) on the loop's thread and calls the
+  awaiter's waker there.
+- **UI framework shape.** The UI thread runs an executor; background work runs on
+  a worker thread; the worker completes the future and the continuation is marshalled
+  back to the UI executor with `Executor_schedule`. This is the JS-main-thread /
+  Swift-MainActor / Kotlin-dispatcher model, and it needs *no `Future` change*.
 
 Cross-thread enqueue + wakeup and the ready-queue are **executor machinery, free to
 evolve** (single-thread, fixed pool, later work-stealing). What is locked is only
@@ -382,9 +385,9 @@ resume on the right thread.
 > a terminal state picks the single winner (§3.4); the other path only frees.
 
 One allocation per async call (frame + embedded return future), one per leaf future.
-A future created but never awaited or dropped is a *preventable* bug, not an accepted
-leak: the transform inserts `future_drop` on scope-exit paths where a `Future` local
-was created and not consumed.
+A future created but never awaited, handed to a combinator or `spawn`, or dropped
+leaks: the caller owns it and must release it (`future_drop`, or `spawn` for a
+detached task). The transform does not insert an implicit drop.
 
 **Cascade.** Dropping a suspended coroutine drops `frame.awaiting` first, recursively,
 then frees the frame: a whole await-chain torn down by dropping its head. The
@@ -414,10 +417,9 @@ threaded value, no contract change), a deliberate later feature.
 - `await E`: `E : Future<T>*`, `await E : T`. Legal **only inside an `async` function**
   (the top level drives a future by hand, see below). New keywords: `async`, `await`.
 - Calling an `async` function without `await` yields `Future<T>*` (start now, await later,
-  or hand to a combinator). If neither awaited nor handed off, the transform drops it
-  on scope exit (§7).
-- `future_drop(f)` is the explicit cancel entry; the transform also inserts it
-  implicitly (§7).
+  or hand to a combinator or `spawn`). The caller owns a future it neither awaits nor
+  hands off and must drop it (§7).
+- `future_drop(f)` is the explicit cancel entry.
 - At the top level a future is driven by hand: `future_poll(f, waker)` installs a
   waker that calls `EventLoop_stop`, `EventLoop_run(lp)` runs the loop until then (skip it when
   `future_poll` returns 1, the future is already ready), and the caller reads
@@ -440,16 +442,18 @@ The async stack decomposes into independently testable layers:
   non-blocking socket read via `<eventloop>`, is cleanly cancelled, and resumes on
   a different thread than it completed on (cross-thread completion: a worker thread
   completes; the resume is scheduled on a different executor).
-- **Executor** (`<executor>`): ready-queue + self-pipe/`eventfd` wakeup over
-  `<eventloop>`; `current_executor()`, `spawn`.
+- **Executor** (`<executor>`): ready-queue + self-pipe wakeup over
+  `<eventloop>`; `executor_new`, `Executor_schedule`, `Executor_run`. (`spawn` lives in
+  `<future>`.)
 - **Leaf futures** (`<net_async>`): `net_accept_async`/`net_read_async`/
   `net_write_async` (plus the readiness-only `net_readable_async`/`net_writable_async`)
   with a real `on_drop`.
 - **Lexer/parser**: the `async` modifier, the `await` expression, and their tokens.
 - **Type checker**: async return → `Future<T>*`; `await` typing; "await only in
-  async"; tracking of unconsumed `Future` locals for the drop pass.
-- **AST transform** (`sema/async_transform.cpp`): the state-machine split (§4) plus
-  implicit `future_drop` (§7). The bulk of the work; inspectable via `--test-parser`.
+  async". It runs again on the transformed program, so the lowering's output is
+  type-checked like user code.
+- **AST transform** (`sema/async_transform.cpp`): the state-machine split (§4) and
+  the drop-time cleanup states (§7). The bulk of the work.
 - **Codegen**. No async-specific path: the transform emits structs/switch/closures/
   casts/atomics that codegen already handles.
 
@@ -472,18 +476,19 @@ async function in existence):**
   acquire/release ordering and the single-winner terminal swap (§3).
 - The completion, drop, and arbitration protocols (§3) and the finalized-once
   invariant (§7).
-- Completion goes through `waker()`, and `waker` lands the resume on the awaiter's
-  home executor (the contract that makes thread-affinity work).
+- Completion goes through `waker()`; a cross-thread completion lands the resume on
+  the awaiter's executor through `Executor_schedule` (the contract that makes
+  thread-affinity work).
 
 **Free to change later (touches only stdlib / the executor / the transform's
 internals: no recompile of user async code):**
 
 - Await *sources* (timers, joins, channels): new leaf futures obeying §3.
-- Frame layout (`awaiting`, `home`, state numbering, spilled locals).
+- Frame layout (`awaiting`, state numbering, spilled locals).
 - Executor internals: thread count, ready-queue, wakeup mechanism, work-stealing.
-- `select`/`join` combinators (built on drop + completion).
+- Combinators (`select2`/`join2` and any later ones, built on drop + completion).
 - A cooperative cancellation token for cleanup-on-cancel.
 
-`value`-last, the atomic four-state handshake, `on_drop`, and the home-executor
-waker contract form the locked set: the ABI every async function and every leaf
+`value`-last, the atomic four-state handshake, `on_drop`, and the waker contract
+form the locked set: the ABI every async function and every leaf
 future is generated against.

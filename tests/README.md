@@ -65,11 +65,11 @@ when you add a test.
 | `inline_asm` | `asm(...)` simple + extended compiles, links, runs |
 | `variadic` | user-defined variadic fn: `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
 | `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
-| `http2_conn` | `<http2>` stage 2 codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
+| `http2_conn` | `<http2>` connection codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
 | `http2_handshake` | `<http2>` async server opening handshake over a socketpair (preface + SETTINGS exchange + ACK) |
 | `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode, Huffman: RFC vectors |
-| `http2_stream` | `<http2>` stage 4: stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
-| `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
+| `http2_stream` | `<http2>` stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
+| `http2_server` | `<http2_server>` the h2c server end-to-end over a socketpair (request → handler → response) |
 | `http2_chunking` | response bodies > 16384 split into MAX_FRAME_SIZE DATA frames (last has END_STREAM) |
 | `async_elseif` | async `if/else-if/else` with `await` in branches + terminating `else` (transform regression) |
 | `async_locals_forms` | in an async fn: a `static` local keeps one cell across calls, `for-in` over a slice, `try`/`catch`, an array-literal local, `match` on a local ADT, bindings named like a hoisted local |
@@ -769,6 +769,20 @@ covered by exact-match `run` tests, so a regression would fail `run.sh`.
    declaration) failed with `Undefined variable or function`. Codegen now declares
    all prototypes in a pre-pass before emitting bodies, enabling call-before-define
    and mutual recursion. Guarded by `forward_decl.esk`.
+
+## Other test scripts
+
+Besides `run.sh`, these run in CI:
+
+- `tests/opt_differential.sh`: every `tests/*.esk` must give the same exit code and
+  stdout at `-O0` and `-O2`.
+- `tests/safe_mode.sh`: `--safe` bounds checks trap on an out-of-range index and are off
+  by default.
+- `tests/nullable.sh`: the `?*T` checks and narrowing.
+- `tests/type_zoo/snapshot.sh check`: the golden-IR oracle (see `docs/dev/debugging.md`).
+- `tests/selfhost/*.sh`: parity between the self-hosted compiler and the C++ one
+  (lexer, parser, preprocessor, type checker, codegen, C ABI, driver) and the bootstrap
+  fixpoint; see `docs/dev/self-hosting.md`.
 
 ## Fuzzers
 

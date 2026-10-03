@@ -9,7 +9,7 @@ This section covers the internals of the compiler: its full compilation pipeline
 ```bash
 # Prerequisites: clang++ (C++17), LLVM dev headers, cmake
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j$(nproc)
+cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"
 
 # Run the four test modes against the canonical hello.esk
 ./build/eskiuc examples/hello.esk --test-lexer
@@ -26,7 +26,7 @@ cmake --build build -j$(nproc)
 clang hello.o -o hello
 ```
 
-Each test mode exits 0 on success and prints a human-readable dump to stdout. A non-zero exit indicates a hard compiler error; diagnostic messages go to stderr with the format `file.esk:line:col: message`.
+Each test mode exits 0 on success and prints a human-readable dump to stdout. A non-zero exit indicates a hard compiler error; diagnostic messages go to stderr with the format `error: file.esk:line:col: message`.
 
 ---
 
@@ -55,7 +55,7 @@ All compiler phases and editor tooling are complete and tested end-to-end. The l
 
 As of v0.3.0 the compiler is also **self-hosted**: the whole pipeline is reimplemented in Eskiu under `selfhost/`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see [`self-hosting.md`](self-hosting.md)). The Eskiu-written compiler is behaviorally equivalent to the C++ one over the whole corpus (CI-gated) and dual-built as `eskiuc-esk`, with the C++ binary staying the shipped artifact. Release history is in the [changelog](../../CHANGELOG.md); the roadmap is in [`phases.md`](phases.md).
 
-The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`). See `phases.md` for the roadmap.
+The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`).
 
 ---
 
@@ -68,7 +68,7 @@ The VS Code extension provides real-time error squiggles, hover type info, and g
 | AST            | `ast/ast.h`             | All node types; visitor interface used by every downstream pass                         |
 | Type checker   | `sema/type_checker.cpp` + `typecheck_{decl,stmt,expr,type}.cpp`; the `ty::Type` IR in `sema/type.{h,cpp}` | Scope resolution, type inference, struct registry, interface satisfaction, signatures; the **single type resolver** that produces a per-expression `ty::Type` table that codegen consumes |
 | Async transform | `sema/async_transform.cpp` | Rewrites each `async fn` into a frame struct + resume function + `*Future<T>` constructor (ordinary AST that normal codegen handles) |
-| Code generator | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp`, `codegen.h` (no single `codegen/codegen.cpp`) | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, and monomorphic template instantiation; consumes the type checker's resolved type table |
+| Code generator | `codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt,cabi}.cpp`, `codegen.h` (no single `codegen/codegen.cpp`) | Walks the AST via visitor, emits LLVM IR using `llvm::IRBuilder<>`; handles GEP, vtable dispatch, monomorphic template instantiation, and C ABI lowering for `extern` aggregates; consumes the type checker's resolved type table |
 | Entry point    | `main.cpp` + `main_support.cpp` | `main.cpp`: CLI dispatch, routing `--test-*` flags to the right pass and driving object emission. `main_support.cpp`: the surrounding machinery, stdlib-path resolution (from the executable's own path), linking objects into an executable, `eskiuc run` (compile to a temp binary, exec, clean up), and `eskiuc fmt` (the source formatter) |
 
 **Pipeline.** lexer → parser → type checker → async transform → **type checker RE-RUN on the transformed AST (the single resolver, producing a per-expression `ty::Type` table)** → codegen (consumes that table; `getTypeFromString` dispatches on `ty::Type::parse`, the one grammar interpreter; codegen does not re-derive expression types).

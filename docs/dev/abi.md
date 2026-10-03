@@ -20,7 +20,7 @@ declarations. There is no separate Eskiu calling convention.
 | `uint`, `uint32` | `i32` | unsigned | |
 | `uint8` / `uint16` / `uint64` | `i8` / `i16` / `i64` | unsigned | |
 | `bool` | `i1` | n/a | |
-| `char` | `i8` | unsigned | |
+| `char` | `i8` | unsigned | as a value; at an `extern` boundary its extension follows the target's C `char` (see *Narrow integers*) |
 | `float` | `float` | n/a | IEEE-754 single |
 | `double` | `double` | n/a | IEEE-754 double |
 | `string` | `ptr` | n/a | pointer to a NUL-terminated byte buffer |
@@ -29,8 +29,8 @@ declarations. There is no separate Eskiu calling convention.
 Signedness is not part of the LLVM type (both `int` and `uint` are `i32`); it
 is carried by the operations. Integer **widening** chooses the extension by the
 *source* type: `uint*`, `char` and `bool` zero-extend; signed integers
-sign-extend. Narrowing truncates. `int`↔float uses signed conversions
-(`sitofp`/`fptosi`).
+sign-extend. Narrowing truncates. Integer↔float conversions follow the integer's
+signedness (`sitofp`/`fptosi` for signed, `uitofp`/`fptoui` for unsigned).
 
 ---
 
@@ -280,9 +280,14 @@ mangling: in the instance type, spaces are removed and `<`, `>`, `,` become `_`.
 | `Pair<int, float>` | `Pair_int_float` |
 | `Option<string>` | `Option_string` |
 
-Struct methods are emitted as `Struct_method`; interface vtable entries as
-`Interface_method`. Non-template top-level functions keep their source names
-(Eskiu does not overload, so no signature mangling is needed). `extern` and
+A pointer type argument mangles its star as `_P` and an array dimension as `_AN`
+(`List<int[3]*>` is `List_int_A3_P`). Struct methods are emitted as
+`Struct_method`; an interface's vtable for a struct is the private constant
+`Interface_vtable_Struct`, whose entries point at the `Struct_method` functions.
+Non-template top-level functions keep their source names: Eskiu has no function
+overloading, so no signature mangling is needed. The one exception is an operator
+overload, which compiles to a function named after the operator and its operand
+types (`operator +(V3 a, V3 b)` is `__op_add_V3_V3`). `extern` and
 `intrinsic` declarations use their exact C symbol names: that is how Eskiu
 calls into C.
 

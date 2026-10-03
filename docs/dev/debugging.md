@@ -8,17 +8,17 @@ How to diagnose issues in the lexer, parser, type checker, and code generator.
 |---|---|---|---|
 | `--test-lexer` | Tokenizes source, stops after lexing | One token per line with type, lexeme, line, and column | Diagnosing unrecognized tokens, bad keyword handling, or unexpected token splits |
 | `--test-parser` | Tokenizes + parses, stops before type checking | Indented AST via the ASTVisitor/ASTPrinter pass | Diagnosing missing nodes, wrong nesting, or silently skipped declarations |
-| `--test-typechecker` | Tokenizes + parses + type checks | Errors prefixed with `file:line:col`, or "Type checking succeeded!" | Diagnosing undefined variables, type mismatches, struct field errors |
+| `--test-typechecker` | Tokenizes + parses + type checks | Errors as `error: file:line:col: message`, or "Type checking succeeded!" | Diagnosing undefined variables, type mismatches, struct field errors |
 | `--test-codegen` | Full pipeline except linking | LLVM IR text via `module->print()` | Diagnosing wrong IR types, missing terminators, LLVM verification failures |
 
-Each mode exits 0 on success; diagnostics go to stderr as `file.esk:line:col: message`. Pick the earliest mode whose output is already wrong: a defect at the lexer level is much easier to read in `--test-lexer` than in the final IR.
+Each mode exits 0 on success; diagnostics go to stderr as `error: file.esk:line:col: message`. Pick the earliest mode whose output is already wrong: a defect at the lexer level is much easier to read in `--test-lexer` than in the final IR.
 
 ## Golden-IR Snapshot Oracle
 
 `tests/type_zoo/snapshot.sh` is the codegen-regression guard. The type zoo is a corpus of programs that exercise the breadth of the type grammar; the script emits each program's LLVM IR and compares it against the checked-in baseline under `tests/type_zoo/golden/`.
 
-- **Check** (the CI / default mode): regenerate the IR for every zoo program and diff it against `tests/type_zoo/golden/`. Any difference fails the run. That diff *is* the diagnosis: it shows exactly which construct now lowers differently.
-- **Capture** (after an intentional codegen change): regenerate and overwrite the golden files, then review the diff before committing so an unintended change can't slip in disguised as an intended one.
+- **Check** (`tests/type_zoo/snapshot.sh check`, the CI mode; rebuild `eskiuc` first): regenerate the IR for every zoo program and diff it against `tests/type_zoo/golden/`. Any difference fails the run. That diff *is* the diagnosis: it shows exactly which construct now lowers differently.
+- **Capture** (`tests/type_zoo/snapshot.sh capture`, after an intentional codegen change): regenerate and overwrite the golden files, then review the diff before committing so an unintended change can't slip in disguised as an intended one.
 
 Use this whenever you touch codegen, the `ty::Type` IR, or anything in `sema/` that feeds the resolved type table: a behavior-preserving refactor must produce byte-identical golden IR.
 
@@ -32,7 +32,7 @@ Some generators carry their own **expected stdout** instead of relying on the O0
 
 The O0/O2 differential cannot see a bug that both levels share, or one that the C++ and self-hosted compilers share. The **C oracle** (`--oracle N`, `tests/fuzz/c_oracle.py`) covers that case: it generates programs in a C-translatable subset, emits each one as C as well, and compares the output of both Eskiu compilers with what `clang -O0 -fwrapv` prints. `--oracle-repro SEED:INDEX` prints one program in both languages and `--oracle-reduce SEED:INDEX` shrinks a finding. For errors rather than miscompiles, `tests/fuzz/neg_fuzz.py` injects one error into a generated program and flags a compiler that accepts it, crashes, or reports it on the wrong line. `tests/README.md` has the command lines.
 
-The corpus-wide counterpart is `tests/opt_differential.sh` (v0.3.1): it compiles every `tests/*.esk` with `eskiuc -O0` and with `eskiuc -O2` (the `-O0`/`-O1`/`-O2`/`-O3` flag runs the LLVM middle-end before code generation) and fails on any exit/stdout divergence. Reach for it when diagnosing a bug that only appears under optimization: run it, then re-run the one failing program at each level and diff `--test-codegen` output. It caught the v0.3.1 float-closure return-type miscompile.
+The corpus-wide counterpart is `tests/opt_differential.sh`: it compiles every `tests/*.esk` with `eskiuc -O0` and with `eskiuc -O2` (the `-O0`/`-O1`/`-O2`/`-O3` flag runs the LLVM middle-end before code generation) and fails on any exit/stdout divergence. Reach for it when diagnosing a bug that only appears under optimization: run it, then re-run the one failing program at each level and diff `--test-codegen` output. It caught a float-closure return-type miscompile in 0.3.1.
 
 ## Resolver Consistency: `ESKIU_RESOLVER_DEBUG`
 
@@ -70,4 +70,4 @@ This gives a defined diagnosis path for codegen bugs:
 
 - If `--hover-at` (the resolver's table) shows the right type but the IR is wrong, the defect is in codegen's lowering of a correctly-resolved type.
 - If the table itself shows the wrong type, the defect is in the type checker / `ty::Type` resolution.
-- An **O0-vs-O2** divergence (fuzzer) or a **table-vs-codegen** mismatch (hover type correct, IR wrong) both point at codegen consuming the table incorrectly rather than at the resolver. Because there is now a single resolver, "the two evaluators disagreed" is no longer a possible cause, narrowing the search.
+- An **O0-vs-O2** divergence (fuzzer) or a **table-vs-codegen** mismatch (hover type correct, IR wrong) both point at codegen consuming the table incorrectly rather than at the resolver. Because there is a single resolver, "the two evaluators disagreed" is ruled out wherever the table has an entry (and `ESKIU_RESOLVER_DEBUG` checks the fallback), narrowing the search.

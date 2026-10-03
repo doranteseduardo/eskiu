@@ -10,8 +10,11 @@
 | `--mattr`   | LLVM feature string, `-mattr` syntax (e.g. `+vfp2`).                              |
 | `--reloc`   | Relocation model: `pic` (default), `static`, or `dynamic-no-pic`.                |
 
-The registered backends are AArch64, x86-64, and 32-bit ARM. `eskiuc` only produces the
-object file; link it with a cross toolchain that targets the same platform.
+The registered backends are AArch64, x86 (x86-64 and 32-bit i686), and 32-bit ARM. For a
+cross target, emit an object file (`-c`, or an output ending in `.o`) and link it with a
+cross toolchain for the same platform. An executable output makes `eskiuc` link through
+`$CC` (else `cc`, `clang` or `gcc`), which only works for another target when `CC` points
+at a C driver for it.
 
 ## Platform macros
 
@@ -78,9 +81,9 @@ Eskiu object against hard-float libctru.
 Eskiu declarations compile to C-ABI symbols, so a `main.c` can call an Eskiu function by
 declaring it `extern`. In the other direction, a struct passed to or returned from an
 `extern` C function by value follows the target's C calling convention (AArch64, x86-64
-System V, Windows x64 and 32-bit ARM, including the hard-float HFA rules); see
-`docs/dev/abi.md`. The self-hosted compiler does not yet forward `--mcpu`/`--mattr`/
-`--reloc`, so 3DS builds use the reference `eskiuc`.
+System V, Windows x64, 32-bit ARM including the hard-float HFA rules, and 32-bit x86); see
+[`abi.md`](abi.md). The self-hosted compiler forwards `--mcpu` but not `--mattr`/`--reloc`,
+so 3DS builds use the C++ `eskiuc`.
 
 ## Example: Windows (x86-64)
 
@@ -117,7 +120,7 @@ The OS-level stdlib modules carry Windows backends: `<sysheap>` maps pages with
 `VirtualAlloc`/`VirtualFree` (no `mmap`), `<time>` uses the Win32 clocks (`GetTickCount64`,
 `GetSystemTimeAsFileTime`, `Sleep`), `<threading>` links against winpthreads, and `<net>`
 (blocking TCP: listen/accept/connect/send/recv) uses the Winsock backend (`WSAStartup` +
-`closesocket`, link `-lws2_32`). A blocking, thread-per-connection server works on Windows
+`closesocket`; `ws2_32` is linked automatically through the module's `#pragma link`). A blocking, thread-per-connection server works on Windows
 with these. Each has an end-to-end check on a native Windows runner in
 `.github/workflows/windows.yml`.
 

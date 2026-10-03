@@ -37,7 +37,7 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [interfaces.esk](interfaces.esk) | structural interfaces (no `implements` keyword): any struct with the methods satisfies them | (none) |
 | [generics.esk](generics.esk) | templates: the generic `List<T>`, template functions and structs | (none) |
 | [closures.esk](closures.esk) | lambdas, higher-order functions, and capturing variables from the enclosing scope | (none) |
-| [exceptions.esk](exceptions.esk) | `try`/`catch`/`finally`/`throw` (build with `-lc++` on macOS, `-lstdc++` on Linux) | (none) |
+| [exceptions.esk](exceptions.esk) | `try`/`catch`/`finally`/`throw` (the C++ runtime is linked automatically) | (none) |
 | [allocators.esk](allocators.esk) | managing memory without libc `malloc`: an `<alloc>` Arena over a static buffer, and a `<sysheap>` mmap-backed `FirstFit` heap | `<alloc>` `<sysheap>` |
 | [result.esk](result.esk) | `Result<T, E>` error-as-value with `Ok`/`Err` | `<result>` |
 | [strings.esk](strings.esk) | the mutable `String` builder: append, trim, prefix/suffix tests, int formatting | `<string>` |
@@ -77,7 +77,7 @@ producing an object file:
 |------|---------------|
 | `--test-lexer` | Token stream produced by the lexer |
 | `--test-parser` | Parsed AST |
-| `--test-typechecker` | Type-checker output and any errors (`file.esk:line:col: message`) |
+| `--test-typechecker` | Type-checker output and any errors (`error: file.esk:line:col: message`) |
 | `--test-codegen` | Generated LLVM IR |
 
 ```bash

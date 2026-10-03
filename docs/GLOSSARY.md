@@ -34,7 +34,7 @@ An expression (`await E`) that suspends the enclosing `async` function until the
 Maximal sequence of LLVM IR instructions with no branches except at the end. Every function body is a graph of basic blocks. Control-flow constructs (if, while, for) cause the code generator to create new basic blocks and wire them with branch instructions. See also: IRBuilder.
 
 **binary operator**
-An operator that takes exactly two operands. Eskiu supports arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical (`&&`, `||`) binary operators. Precedence rules determine evaluation order when operators appear without parentheses. See also: unary operator, precedence.
+An operator that takes exactly two operands. Eskiu supports arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise and shift (`&`, `|`, `^`, `<<`, `>>`), comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical (`&&`, `||`) binary operators. Precedence rules determine evaluation order when operators appear without parentheses. See also: unary operator, precedence.
 
 **bitfield**
 A struct integer field declared with a bit width (`uint32 mode : 3;`), occupying only that many bits. Bitfields are laid out the way the target's C compiler lays them out (SysV/AAPCS rules on Linux, macOS and bare-metal ARM, MS rules on Windows); reads mask and shift the field out (signed fields sign-extend) and writes are read-modify-write. The address of a bitfield cannot be taken. See also: packed struct, struct.
@@ -60,7 +60,7 @@ An async message queue between tasks (`Chan<T>` in `<channel>`). `Chan_recv` ret
 A function value that captures variables from its enclosing scope. Represented as a two-word fat pointer `{fn_ptr, env_ptr}`: a non-capturing closure has a null environment, while a capturing one packages its captured variables into an environment struct. The type annotation is `fn(T,...)->R` in both cases. See also: escaping, fat pointer, lambda.
 
 **codegen**
-Short form of "code generation." Refers to the code-generation pass of the Eskiu compiler, implemented across `codegen/codegen_*.cpp` (module, type, scope, decl, stmt, expr, call, closure, adt), which walks the AST and emits LLVM IR instructions via `IRBuilder`. Also used informally to describe any pass that produces output code. See also: IRBuilder, LLVM IR.
+Short form of "code generation." Refers to the code-generation pass of the Eskiu compiler, implemented across `codegen/codegen_*.cpp` (module, type, scope, decl, stmt, expr, call, closure, adt, cabi), which walks the AST and emits LLVM IR instructions via `IRBuilder`. Also used informally to describe any pass that produces output code. See also: IRBuilder, LLVM IR.
 
 **coroutine**
 A function whose execution can suspend and later resume. Each Eskiu `async` function is lowered to a coroutine: a frame struct holding its live state plus a resume function that advances an explicit state machine across `await` points. See also: async, await, Future.
@@ -82,7 +82,7 @@ A declaration of named constants. A plain `enum` defines integer constants (the 
 A parameter qualifier (`escaping fn(int)->void cb`) marking a function-pointer parameter that the callee retains beyond the call: by storing, returning, or forwarding it. An escaping closure's environment is heap-allocated (released with `free_closure`) so it outlives the creating frame; a non-escaping closure keeps its environment on the stack. Using a non-`escaping` parameter beyond a direct call is a compile error. See also: closure, fat pointer.
 
 **event loop / reactor**
-A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS) or epoll (Linux). Implemented as `EventLoop` in `<eventloop>`, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.
+A single thread that watches many file descriptors and dispatches a callback when one becomes ready, via kqueue (macOS), epoll (Linux) or `WSAPoll` (Windows). Implemented as `EventLoop` in `<eventloop>`, it is the readiness reactor underpinning async I/O, the HTTP stack, and the timer wheel. See also: executor, Future, async.
 
 **executor**
 A thread that owns an event loop plus a thread-safe ready-queue of wakers (`Executor` in `<executor>`). Completion may occur on any thread; `Executor_schedule` enqueues a waker and wakes the loop through a self-pipe so the waker (a coroutine resume) always runs on the executor's own thread. See also: event loop / reactor, coroutine, Future.
@@ -96,7 +96,7 @@ AST node representing a declaration of a function whose implementation lives in 
 ## F
 
 **fat pointer**
-A two-word value carrying a data pointer alongside a second pointer. Eskiu uses fat pointers in two places: a closure / function-pointer value is `{fn_ptr, env_ptr}`, and an interface value is `{data_ptr, vtable_ptr}`. The representation is transparent to user code. See also: closure, interface, vtable.
+A two-word value carrying a data pointer alongside a second word. Eskiu uses fat pointers in three places: a closure / function-pointer value is `{fn_ptr, env_ptr}`, an interface value is `{data_ptr, vtable_ptr}`, and a slice is `{data_ptr, length}`. The representation is transparent to user code. See also: closure, interface, vtable.
 
 **flow control**
 In HTTP/2, the credit-based mechanism that bounds how much DATA a sender may transmit before the receiver grants more window via WINDOW_UPDATE frames, applied per stream and per connection. The `<http2>` `H2Stream` tracks the send window and the server emits DATA in flow-controlled, bounded frames. See also: HTTP/2, stream multiplexing.
@@ -146,7 +146,7 @@ LLVM C++ API class (`llvm::IRBuilder<>`) that provides a cursor-based interface 
 An anonymous function expression, written `int(int n) { return n * n; }` and typed `fn(T,...)->R`. A lambda that references variables from its enclosing scope is a closure; escape analysis decides whether its captured environment lives on the stack (non-escaping) or the heap (escaping). At runtime both compile to a two-word fat pointer `{fn_ptr, env_ptr}`. See also: closure, escaping, fat pointer.
 
 **lexer**
-Phase 1 of the Eskiu compiler, implemented in `lexer/`. Reads the raw source text character by character and produces a flat sequence of tokens annotated with type, value, line, and column. The lexer handles whitespace, comments, string literals, numeric literals, keywords, and punctuation. See also: token, TokenType, parser.
+The first phase of the Eskiu compiler, implemented in `lexer/`. Reads the raw source text character by character and produces a flat sequence of tokens annotated with type, value, line, and column. The lexer handles whitespace, comments, string literals, numeric literals, keywords, and punctuation. See also: token, TokenType, parser.
 
 **literal**
 A compile-time constant value written directly in source code. Eskiu literal kinds: integer literals (`42`), floating-point literals (`3.14`), string literals (`"hello"`), boolean literals (`true`, `false`), and character literals (`'a'`). Represented in the AST as `LiteralExpr`. See also: expression.
@@ -163,7 +163,7 @@ An expression that refers to a storage location and can appear on the left side 
 A control construct that destructures an algebraic-enum value by variant, binding each variant's payload fields in its arm. A `match` must be exhaustive (every variant has an arm or a `_` default catches the rest) and no variant may appear twice; the type checker enforces both. See also: algebraic data type, enum, tagged union.
 
 **module**
-The top-level LLVM IR container (`llvm::Module`) that holds all function definitions, global variables, and external declarations produced for a single compilation unit. The code generator creates one module per `.esk` file. The module is printed as LLVM IR text when `--test-codegen` is passed.
+The top-level LLVM IR container (`llvm::Module`) that holds all function definitions, global variables, and external declarations produced for a single compilation unit. The code generator creates one module per compilation: all input files and their imports are merged into one program first. The module is printed as LLVM IR text when `--test-codegen` is passed.
 
 **monomorphization**
 The compilation strategy by which a generic definition is specialized into a separate concrete copy for each distinct set of type arguments it is instantiated with. Eskiu templates and generic enums are monomorphic: instead of boxing or runtime dispatch, the compiler emits one stamped-out version per instantiation, each with a mangled name. See also: template / generic, monomorphic.
@@ -190,16 +190,16 @@ LLVM pointer type in LLVM 15+ (`ptr`) that carries no element-type information; 
 A struct laid out with no inter-field padding, so fields sit back-to-back. Marked with the `packed` qualifier or `#pragma pack(1)`; `#pragma pack(N)` for `N > 1` instead caps each field's alignment at `N`. Used to match an exact on-the-wire or on-disk byte layout, or a C struct declared `__attribute__((packed))`. The chosen layout is reflected by `sizeof` and every field access. See also: bitfield, struct.
 
 **parser**
-Phase 2 of the Eskiu compiler, implemented in `parser/`. Consumes the token stream produced by the lexer and builds the AST using recursive descent. Handles declarations, statements, and expressions with explicit precedence climbing. See also: recursive descent, AST, precedence.
+The phase of the Eskiu compiler after the lexer, implemented in `parser/`. Consumes the token stream produced by the lexer and builds the AST using recursive descent. Handles declarations, statements, and expressions with explicit precedence climbing. See also: recursive descent, AST, precedence.
 
 **phase**
-A numbered stage in the Eskiu compiler roadmap, used to organize development: the build/CLI, lexer, parser, code generator, and type checker, followed by structs/interfaces/templates, the heap and explicit-allocator model, and the standard library (including `Result<T,E>` and the async runtime). The term is also used informally within a phase to label sub-milestones. See also: codegen, type checker, semantic analysis.
+A stage of the compiler pipeline: preprocessing and lexing, parsing, type checking, the async transform, and code generation. Each phase is a separate pass over the program (see `docs/dev/architecture.md`). See also: codegen, type checker, semantic analysis.
 
 **pointer type**
 A type that holds the memory address of a value of another type. Eskiu accepts both leading-star notation (`*T`) and trailing-star notation (`T*`) in source code; both are normalized to the same internal representation. Pointer arithmetic and dereferencing are supported; pointer safety is the programmer's responsibility. See also: opaque pointer, GEP, lvalue.
 
 **precedence**
-The binding strength of an operator relative to others. Higher-precedence operators bind their operands before lower-precedence ones. Eskiu follows C operator precedence: multiplicative (`*`, `/`, `%`) before additive (`+`, `-`), which is before relational, then equality, then logical-and, then logical-or. The parser implements precedence via recursive descent helper functions. See also: binary operator, parser.
+The binding strength of an operator relative to others. Higher-precedence operators bind their operands before lower-precedence ones. Eskiu follows C operator precedence: multiplicative (`*`, `/`, `%`) before additive (`+`, `-`), which is before relational, then equality, then logical-and, then logical-or. Bitwise and shift operators sit between them as in C. The parser implements precedence by precedence climbing (`parseBinary`), with assignment and the ternary in their own recursive-descent functions. See also: binary operator, parser.
 
 **program**
 A complete Eskiu source file (`.esk`) that defines or declares all entities needed for compilation. At the AST level a program is a `Program` node containing a list of top-level declarations. See also: declaration, module.
@@ -207,7 +207,7 @@ A complete Eskiu source file (`.esk`) that defines or declares all entities need
 ## R
 
 **recursive descent**
-Parsing strategy in which each grammar rule is implemented as a mutually recursive function. Eskiu's parser is a hand-written recursive-descent parser; `parseDecl`, `parseStmt`, and `parseExpr` call each other according to the grammar's structure. See also: parser.
+Parsing strategy in which each grammar rule is implemented as a mutually recursive function. Eskiu's parser is a hand-written recursive-descent parser; `parseDeclaration`, `parseStatement`, and `parseExpression` call each other according to the grammar's structure. See also: parser.
 
 **rvalue**
 An expression whose value can be read but that does not itself designate a storage location. Literals, arithmetic results, and function-call results are rvalues in Eskiu. The code generator evaluates rvalues with `load` instructions (when reading a variable) or directly as IR values (for computed results). See also: lvalue.
@@ -224,7 +224,7 @@ The region of source code in which a declared name is visible. Eskiu uses lexica
 A compiler written in the language it compiles. The whole Eskiu compiler (lexer, preprocessor, parser, type checker, and code generator) is reimplemented in Eskiu under `selfhost/`, validated for parity against the production C++ `eskiuc` and against itself through a 3-stage bootstrap fixpoint. Shipped in v0.3.0; the code generator is feature-complete against the C++ corpus. See also: bootstrap fixpoint, codegen.
 
 **semantic analysis**
-The compiler phase (Phase 4) that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.
+The compiler phase that validates program meaning beyond syntactic correctness. In Eskiu this is the type checker: it verifies type compatibility, resolves identifiers, checks struct-field existence, validates function call arities and types, and enforces return-type consistency. See also: type checker, scope.
 
 **slice (`T[]`)**
 A fat pointer (data pointer + length) that views a contiguous run of `T` without owning it. Built by slicing a fixed array with a half-open range (`a[lo..hi]`); it supports `s[i]`, `s.len`, and `for (x in s)`. Because the length travels with the slice, a function taking `T[]` needs no separate count argument. Lowers to `{ ptr, i64 }`. See also: fat pointer, array, safe mode.
@@ -233,7 +233,7 @@ A fat pointer (data pointer + length) that views a contiguous run of `T` without
 The calling convention for returning a struct too large to fit in registers: the caller passes a hidden pointer to a result slot, the LLVM function itself returns `void`, and the body writes the result through that pointer. The code generator applies sret automatically to large aggregate return types. See also: codegen, struct.
 
 **statement**
-A language construct that performs an action but does not itself produce a value. Eskiu statement kinds: `BlockStmt`, `IfStmt`, `ForStmt`, `WhileStmt`, `ReturnStmt`, `BreakStmt`, `ExprStmt`. Statements are sequenced inside `BlockStmt`. See also: expression, declaration.
+A language construct that performs an action but does not itself produce a value. Eskiu statement kinds include `BlockStmt`, `IfStmt`, `ForStmt`, `ForInStmt`, `WhileStmt`, `DoWhileStmt`, `SwitchStmt`, `MatchStmt`, `ReturnStmt`, `BreakStmt`, `ContinueStmt`, `TryStmt`, `DeferStmt`, and `ExprStmt`. Statements are sequenced inside `BlockStmt`. See also: expression, declaration.
 
 **stream multiplexing**
 In HTTP/2, the interleaving of many concurrent request/response exchanges (streams), each with its own id, over a single connection. The `<http2_server>` routes interleaved frames to per-stream slots, each completing when its END_STREAM arrives. See also: HTTP/2 frame, flow control.
@@ -262,13 +262,13 @@ Transport Layer Security, the encryption layer HTTP/2 typically runs over in bro
 The smallest meaningful unit produced by the lexer. Each token carries a `TokenType`, its raw lexeme string, and a source location (line, column). Examples: keyword `int`, identifier `result`, punctuation `{`, integer literal `42`, string literal `"hello"`. See also: TokenType, lexer.
 
 **TokenType**
-Enumeration of all token categories recognized by the Eskiu lexer. Includes keywords (`INT`, `RETURN`, `IF`, `WHILE`, ...), literals (`INT_LIT`, `FLOAT_LIT`, `STRING_LIT`, `CHAR_LIT`), identifiers (`IDENT`), operators, punctuation, and `EOF_TOKEN`. Used in the parser's `expect()` and `match()` helpers to drive grammar rules. See also: token, lexer.
+Enumeration of all token categories recognized by the Eskiu lexer. Includes keywords (`INT`, `RETURN`, `IF`, `WHILE`, ...), literals (`INT_LIT`, `FLOAT_LIT`, `STRING_LIT`, `CHAR_LIT`), identifiers (`IDENT`), operators, punctuation, and `EOF_TOKEN`. Used in the parser's `check()`, `match()` and `consume()` helpers to drive grammar rules. See also: token, lexer.
 
 **`ty::Type` IR**
-The compiler's structured, in-memory representation of types (`sema/type.{h,cpp}`), replacing earlier reliance on raw type-name strings. Each `ty::Type` describes a type by kind (primitive, pointer, struct, interface, generic instantiation, function, and so on) and its components, so the type checker compares and resolves types by structure rather than by string matching. Introduced in v0.2.3; since v0.2.4 it is the single resolver, with type unification performed against it. See also: type checker, type unification, type normalization.
+The compiler's structured, in-memory representation of types (`sema/type.{h,cpp}`), replacing earlier reliance on raw type-name strings. Each `ty::Type` describes a type by kind (primitive, pointer, struct, interface, generic instantiation, function, and so on) and its components, so the type checker compares and resolves types by structure rather than by string matching. Introduced in v0.2.3; since v0.2.4 the type checker, working over it, is the single type resolver. See also: type checker, type unification, type normalization.
 
 **type checker**
-The compiler component (Phase 4) that traverses the AST, infers or verifies the type of every expression, validates declarations, and reports semantic errors. It maintains the symbol table and struct registry. The implementation is split across `sema/type_checker.cpp` and `sema/typecheck_{decl,stmt,expr,type}.cpp`, and it operates over a structured `ty::Type` IR (`sema/type.{h,cpp}`); since v0.2.4 the type checker is the single resolver via type unification. See also: semantic analysis, type inference, symbol table, ty::Type IR, type unification.
+The compiler component that traverses the AST, infers or verifies the type of every expression, validates declarations, and reports semantic errors. It maintains the symbol table and struct registry. The implementation is split across `sema/type_checker.cpp` and `sema/typecheck_{decl,stmt,expr,type}.cpp`, and it operates over a structured `ty::Type` IR (`sema/type.{h,cpp}`); since v0.2.4 the type checker is the single resolver via type unification. See also: semantic analysis, type inference, symbol table, ty::Type IR, type unification.
 
 **type coercion**
 Implicit or explicit conversion of a value from one type to another. Eskiu requires explicit casts for most conversions (e.g., `(int)myFloat`). The type checker identifies cases where implicit promotion is safe (e.g., widening integer types in expressions) and emits the appropriate LLVM extension or truncation instructions. See also: type inference, CastExpr.
@@ -277,7 +277,7 @@ Implicit or explicit conversion of a value from one type to another. Eskiu requi
 The compiler's ability to deduce the type of an expression or variable from context without an explicit annotation. Eskiu performs limited local type inference (for example, the right-hand side of a declaration can constrain the variable's type) but does not perform full Hindley-Milner inference. Explicit type annotations are generally required. See also: type checker, VarDecl.
 
 **type normalization**
-The process of canonicalizing type names to a single internal representation before comparison or storage. Eskiu maps source-level aliases to canonical forms (e.g., `int` -> `i32`, `uint8` -> `u8`, `*T` and `T*` both -> pointer-to-T) so that the type checker and code generator operate on a consistent set of type descriptors. See also: type checker, pointer type.
+The process of canonicalizing type names to a single internal representation before comparison or storage. In Eskiu the type checker's `normalizeType` expands type aliases to their targets, tags struct and interface names (`Point` becomes `struct:Point`), instantiates and mangles generic types (`Result<int,string>` becomes `struct:Result_int_string`), and treats `*T` and `T*` as the same pointer type, so the type checker and code generator operate on a consistent set of type descriptors. See also: type checker, pointer type.
 
 **type unification**
 The process of reconciling two `ty::Type` values into a single consistent type: for example matching a call argument against a parameter, or inferring a generic type parameter from the types supplied at a call site. Introduced in v0.2.4, unification makes the type checker the single authority on type resolution, so code generation no longer re-derives types from name strings. See also: ty::Type IR, type checker, type inference.
@@ -285,7 +285,7 @@ The process of reconciling two `ty::Type` values into a single consistent type: 
 ## U
 
 **unary operator**
-An operator that takes a single operand. Eskiu unary operators: `-` (arithmetic negation), `!` (logical not), `*` (pointer dereference), `&` (address-of). Represented in the AST as `UnaryExpr`. See also: binary operator.
+An operator that takes a single operand. Eskiu unary operators: `-` (arithmetic negation), `!` (logical not), `~` (bitwise not), `*` (pointer dereference), `&` (address-of), represented in the AST as `UnaryExpr`, plus prefix and postfix `++`/`--` (`IncDecExpr`). See also: binary operator.
 
 ## V
 
