@@ -46,7 +46,7 @@ public:
 
     // Optional target triple override (empty = native)
     std::string targetTriple;
-    // Optional target CPU override (empty = "generic" when cross, host CPU when native).
+    // Optional target CPU override (empty = the target baseline: "apple-m1" on arm64 Apple, else "generic").
     // e.g. "mpcore" for the 3DS ARM11 (armv6k + VFPv2).
     std::string targetCPU;
     // Optional target feature string (LLVM -mattr syntax, e.g. "+vfp2").
