@@ -168,6 +168,10 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   arm now works in a generic async function, as it does in a plain one. The lowering
   types the temporaries from the type checker's records for each instance, written in
   terms of the type parameters. Both compilers.</li>
+<li><strong>Self-hosted compiler on deeply nested binary expressions.</strong> Code generation for
+  <code>a + (a + (...))</code> thousands of levels deep took time quadratic in the depth; the type
+  checker and the code generator now type each node once, so it is linear (depth 4000:
+  26 s before, 0.06 s now). The emitted IR is unchanged.</li>
 </ul>
 <h2 id="092-2026-09-29">[0.9.2] - 2026-09-29</h2>
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
@@ -1210,7 +1214,7 @@ input. What is still open is listed under Known issues.</p>
   constant-expression checks do not see it (codegen gets its size right).</li>
 <li>The self-hosted compiler generates code for deeply nested binary expressions
   (<code>a + (a + (...))</code>, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear.</li>
+  compiler is linear. (Fixed in 0.9.3.)</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_2">Fixed</h3>

@@ -24,6 +24,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   arm now works in a generic async function, as it does in a plain one. The lowering
   types the temporaries from the type checker's records for each instance, written in
   terms of the type parameters. Both compilers.
+- **Self-hosted compiler on deeply nested binary expressions.** Code generation for
+  `a + (a + (...))` thousands of levels deep took time quadratic in the depth; the type
+  checker and the code generator now type each node once, so it is linear (depth 4000:
+  26 s before, 0.06 s now). The emitted IR is unchanged.
 
 ### Known issues
 These are open in 0.9.3. None of them miscompiles a valid program.
@@ -1050,7 +1054,7 @@ These are open in 0.9.2. None of them miscompiles a valid program.
   constant-expression checks do not see it (codegen gets its size right).
 - The self-hosted compiler generates code for deeply nested binary expressions
   (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear.
+  compiler is linear. (Fixed in 0.9.3.)
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
