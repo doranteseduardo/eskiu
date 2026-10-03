@@ -1,0 +1,169 @@
+// shell.esk: a command shell on the UART
+//
+// Reads a line with echo and backspace, parses it into a Command and runs it with a
+// `match`. Typed input ends with '\r' (a terminal in raw mode) and piped input with
+// '\n'; both end a line.
+
+enum Command {
+    Help,
+    Mem,
+    Uptime,
+    Regs,
+    Echo(string),
+    Fault,
+    Poweroff,
+    Empty,
+    NotFound(string),
+}
+
+const int LINE_MAX = 128;
+char[128] line;
+
+bool str_eq(string a, string b) {
+    int i = 0;
+    while (a[i] != 0 && a[i] == b[i]) {
+        i++;
+    }
+    return a[i] == b[i];
+}
+
+// Reads into `line` until Enter and returns its length.
+int read_line() {
+    int len = 0;
+    while (true) {
+        int c = uart_getc();
+        if (c == '\r' || c == '\n') {
+            break;
+        }
+        if (c == 0x7F || c == '\b') {
+            if (len > 0) {
+                len--;
+                uart_puts("\b \b");   // step back, blank the character, step back
+            }
+        } else if (c >= ' ' && len < LINE_MAX - 1) {
+            line[len] = (char)c;
+            len++;
+            uart_putc(c);
+        }
+    }
+    line[len] = 0;
+    uart_puts("\r\n");
+    return len;
+}
+
+// Splits `line` at the first space: the word names the command, the rest is its
+// argument.
+Command parse(int len) {
+    int i = 0;
+    while (i < len && line[i] == ' ') {
+        i++;
+    }
+    string word = (string)&line[i];
+    while (i < len && line[i] != ' ') {
+        i++;
+    }
+    string rest = (string)&line[len];
+    if (i < len) {
+        line[i] = 0;
+        rest = (string)&line[i + 1];
+    }
+
+    if (word[0] == 0)               { return Empty; }
+    if (str_eq(word, "help"))       { return Help; }
+    if (str_eq(word, "mem"))        { return Mem; }
+    if (str_eq(word, "uptime"))     { return Uptime; }
+    if (str_eq(word, "regs"))       { return Regs; }
+    if (str_eq(word, "echo"))       { return Echo(rest); }
+    if (str_eq(word, "fault"))      { return Fault; }
+    if (str_eq(word, "poweroff"))   { return Poweroff; }
+    return NotFound(word);
+}
+
+void show_help() {
+    uart_puts("Commands:\r\n");
+    uart_puts("  help        this list\r\n");
+    uart_puts("  mem         heap usage\r\n");
+    uart_puts("  uptime      time since the timer started\r\n");
+    uart_puts("  regs        a few system registers\r\n");
+    uart_puts("  echo TEXT   print TEXT\r\n");
+    uart_puts("  fault       read an unmapped address and recover\r\n");
+    uart_puts("  poweroff    switch the machine off\r\n");
+}
+
+void show_mem() {
+    uart_puts("Heap:       ");
+    uart_putdec(heap_used());
+    uart_puts(" bytes used, ");
+    uart_putdec(heap_size() - heap_used());
+    uart_puts(" bytes free\r\n");
+}
+
+void show_uptime() {
+    int64 ms = uptime_ms();
+    uart_puts("Uptime:     ");
+    uart_putdec(ms / 1000);
+    uart_putc('.');
+    uart_putc((int)('0' + (ms / 100) % 10));
+    uart_putc((int)('0' + (ms / 10) % 10));
+    uart_puts(" s (");
+    uart_putdec(ticks);
+    uart_puts(" ticks)\r\n");
+}
+
+void show_regs() {
+    int64 vbar = 0;
+    asm("mrs $0, VBAR_EL1" : "=r"(vbar));
+    uart_puts("CurrentEL:  ");
+    uart_putdec(cpu_current_el());
+    uart_puts("\r\nCNTFRQ_EL0: ");
+    uart_putdec(cpu_timer_freq());
+    uart_puts(" Hz\r\nCNTVCT_EL0: ");
+    uart_puthex(cpu_timer_count());
+    uart_puts("\r\nVBAR_EL1:   ");
+    uart_puthex(vbar);
+    uart_puts("\r\n");
+}
+
+// Nothing is mapped at this address on QEMU virt, so a load from it is a
+// synchronous external abort. trap_sync recovers because fault_expected is set.
+const int64 UNMAPPED = 0x0C000000;
+
+void cause_fault() {
+    uart_puts("Reading ");
+    uart_puthex(UNMAPPED);
+    uart_puts("\r\n");
+    volatile let p: *uint32 = (*uint32)UNMAPPED;
+    fault_expected = true;
+    uint32 v = *p;
+    uart_puts("Survived the fault.\r\n");
+}
+
+// Runs one command; false means the shell should exit.
+bool run(Command cmd) {
+    match cmd {
+        Help        -> show_help();
+        Mem         -> show_mem();
+        Uptime      -> show_uptime();
+        Regs        -> show_regs();
+        Echo(text)  -> { uart_puts(text); uart_puts("\r\n"); }
+        Fault       -> cause_fault();
+        Poweroff    -> return false;
+        Empty       -> {}
+        NotFound(w) -> {
+            uart_puts("Unknown command: ");
+            uart_puts(w);
+            uart_puts(" (try help)\r\n");
+        }
+    }
+    return true;
+}
+
+void shell() {
+    uart_puts("Type `help` for the commands.\r\n");
+    while (true) {
+        uart_puts("eskiu> ");
+        if (!run(parse(read_line()))) {
+            return;
+        }
+    }
+}
