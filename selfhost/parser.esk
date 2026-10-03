@@ -2259,6 +2259,17 @@ string i64_to_str(int64 n) {
     return d;
 }
 
+// An unnamed bitfield after its type `ty`: `: N;` (N = 0 allowed), kept in d.pad_*.
+void parse_unnamed_bitfield(Parser* p, *DeclNode d, string ty) {
+    p_adv(p);
+    int64 w = str_to_i64(tok_text(p.src, p_expect_tok(p, INT_LIT, "Expected bit width after ':' in bitfield")));
+    if (w > (int64)1048576) { w = (int64)1048576; }
+    p_expect(p, SEMICOLON, "Expected ';' after field");
+    List_push<string>(&d.pad_tys, ty);
+    List_push<int>(&d.pad_bits, (int)w);
+    List_push<int>(&d.pad_at, List_len<Param>(&d.params));
+}
+
 *DeclNode parse_struct(Parser* p) {
     *DeclNode d = new_decl(DK_STRUCT);
     d.name = tok_text(p.src, p_expect_ident(p, "Expected struct name"));
@@ -2271,6 +2282,7 @@ string i64_to_str(int64 n) {
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         if (p_at(p) == PRAGMA) { p_take_pragma(p); continue; }
         string mty = parse_type(p);
+        if (p_at(p) == COLON) { parse_unnamed_bitfield(p, d, mty); continue; }
         check_name_not_keyword(p);         // a field/method name can't be a reserved word (e.g. `in`)
         Token mnm = p_expect_ident(p, "Expected member name");              // member name
         if (p_at(p) == LPAREN) {
@@ -2317,6 +2329,7 @@ string i64_to_str(int64 n) {
     while (p_at(p) != RBRACE && p_at(p) != EOF_TOKEN) {
         let pm: Param;
         pm.ty = parse_type(p);
+        if (p_at(p) == COLON) { parse_unnamed_bitfield(p, d, pm.ty); continue; }
         pm.name = tok_text(p.src, p_expect_ident(p, "Expected field name"));
         p_expect(p, SEMICOLON, "Expected ';'");
         List_push<Param>(&d.params, pm);

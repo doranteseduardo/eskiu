@@ -1,0 +1,3 @@
+// EXPECT-ERROR: Expected bit width after ':' in bitfield
+struct S { uint8 a : 3; uint32 : -1; }
+int main() { return 0; }

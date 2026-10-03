@@ -96,6 +96,29 @@ int ast_has_prefix(string s, string pfx) {
     while (pfx[i] != 0) { if (s[i] != pfx[i]) { return 0; } i = i + 1; }
     return 1;
 }
+int ast_has_sub(string s, string sub) {
+    int i = 0;
+    while (s[i] != 0) { if (ast_has_prefix((string)((*uint8)s + i), sub) == 1) { return 1; } i = i + 1; }
+    return 0;
+}
+// The unnamed-bitfield layout facts of a target (C++ unnamedBitfieldsAlign and
+// Triple::isWindowsMSVCEnvironment): al[0] = 1 when an unnamed bitfield raises the
+// alignment of its struct or union (AAPCS: 32-bit ARM and AArch64, outside Darwin and
+// Windows), msvc[0] = 1 for a Windows target that is not mingw. "" is the build host.
+void ast_target_bf(string triple, int* al, int* msvc) {
+    al[0] = 0; msvc[0] = 0;
+    if (triple == null || triple[0] == 0) {
+#if (defined(__aarch64__) || defined(__arm__)) && !defined(__APPLE__) && !defined(_WIN32)
+        al[0] = 1;
+#endif
+        return;
+    }
+    int win = ast_has_sub(triple, "windows") | ast_has_sub(triple, "win32") | ast_has_sub(triple, "mingw");
+    int apple = ast_has_sub(triple, "apple") | ast_has_sub(triple, "darwin") | ast_has_sub(triple, "macos") | ast_has_sub(triple, "ios");
+    int arm = ast_has_prefix(triple, "aarch64") | ast_has_prefix(triple, "arm") | ast_has_prefix(triple, "thumb");
+    if (arm == 1 && win == 0 && apple == 0) { al[0] = 1; }
+    if (win == 1 && ast_has_sub(triple, "gnu") == 0 && ast_has_sub(triple, "mingw") == 0 && ast_has_sub(triple, "cygnus") == 0) { msvc[0] = 1; }
+}
 // Type spelling → symbol-safe fragment: a `struct:`/`union:`/`enum:`/`interface:` prefix
 // (how sema spells a nominal type) is dropped, `*`->`p_`, `[`->`_A`, `]`->`_`, other
 // non-ident chars dropped.
@@ -324,6 +347,9 @@ struct DeclNode {
     List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
     List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none, -1 = `: 0`)
+    List<string> pad_tys;          // struct/union unnamed bitfields `T : N;` (layout only, not members):
+    List<int> pad_bits;            //   type, width (0 = `: 0`) and the index of the named field it
+    List<int> pad_at;              //   precedes (mirrors StructDecl::pads)
     List<*ExprNode> enum_vals;     // enum: member value expressions (parallel to params; null = a
                                    // literal or the previous + 1), folded by sema into params' ty
     int is_async;                  // function declared `async` (1) or not (0)
@@ -339,6 +365,30 @@ struct DeclNode {
     string file;                   // top-level decl: the source file it came from (diagnostics)
     int line;                      // source position for diagnostics (0 = unknown)
     int col;
+}
+
+// The fields of struct or union `d` in declaration order with its unnamed bitfields among
+// them, for the layout code (C++ layoutFields): parallel lists of the field (an unnamed
+// bitfield has name ""), its bitfield width (0 = none; an unnamed `: 0` is 0 too) and
+// whether it is named.
+void ast_layout_fields(*DeclNode d, List<Param>* fs, List<int>* bits, List<int>* named) {
+    List_init<Param>(fs, 8); List_init<int>(bits, 8); List_init<int>(named, 8);
+    int nf = List_len<Param>(&d.params);
+    int np = List_len<string>(&d.pad_tys);
+    int p = 0;
+    int i = 0;
+    while (i <= nf) {
+        while (p < np && List_get<int>(&d.pad_at, p) <= i) {
+            let pp: Param; pp.ty = List_get<string>(&d.pad_tys, p); pp.name = "";
+            List_push<Param>(fs, pp); List_push<int>(bits, List_get<int>(&d.pad_bits, p)); List_push<int>(named, 0);
+            p = p + 1;
+        }
+        if (i < nf) {
+            int bw = 0; if (i < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, i); }
+            List_push<Param>(fs, List_get<Param>(&d.params, i)); List_push<int>(bits, bw); List_push<int>(named, 1);
+        }
+        i = i + 1;
+    }
 }
 
 // Position of the token the parser consumed last; each node the parser allocates is
@@ -822,14 +872,19 @@ void print_decl(*DeclNode dn, int d) {
         printf("StructDecl: %s\n", dn.name);
         print_type_params(dn, d + 1);
         pline(d + 1, "Fields:");
+        List<Param> lfs; List<int> lbits; List<int> lnamed;
+        ast_layout_fields(dn, &lfs, &lbits, &lnamed);
         int fi = 0;
-        int nf = List_len<Param>(&dn.params);
+        int nf = List_len<Param>(&lfs);
         while (fi < nf) {
-            Param pm = List_get<Param>(&dn.params, fi);
+            Param pm = List_get<Param>(&lfs, fi);
+            int bw = List_get<int>(&lbits, fi);
             pind(d + 2);
-            printf("%s %s", pm.ty, pm.name);
-            int bw = List_get<int>(&dn.field_bits, fi);
-            if (bw > 0) { printf(" : %d", bw); }     // bitfield width
+            if (List_get<int>(&lnamed, fi) == 0) { printf("%s : %d", pm.ty, bw); }   // unnamed bitfield
+            else {
+                printf("%s %s", pm.ty, pm.name);
+                if (bw > 0) { printf(" : %d", bw); }     // bitfield width
+            }
             printf("\n");
             fi = fi + 1;
         }
@@ -847,7 +902,16 @@ void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_UNION) {
         pind(d);
         printf("UnionDecl: %s\n", dn.name);
-        print_params(dn, d + 1);
+        List<Param> ufs; List<int> ubits; List<int> unamed;
+        ast_layout_fields(dn, &ufs, &ubits, &unamed);
+        int ui = 0;
+        while (ui < List_len<Param>(&ufs)) {
+            Param up = List_get<Param>(&ufs, ui);
+            pind(d + 1);
+            if (List_get<int>(&unamed, ui) == 0) { printf("%s : %d\n", up.ty, List_get<int>(&ubits, ui)); }
+            else { printf("%s %s\n", up.ty, up.name); }
+            ui = ui + 1;
+        }
         return;
     }
     if (dn.kind == DK_INTERFACE) {

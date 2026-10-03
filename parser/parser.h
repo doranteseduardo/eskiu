@@ -164,6 +164,7 @@ private:
     DeclPtr parseFunctionDecl();
     std::string parseOperatorToken();   // reads the op after `operator` → "+", "[]", "u-", ...
     DeclPtr parseStructDecl();
+    StructDecl::Pad parseUnnamedBitfield(const std::string& type, size_t before);
     DeclPtr parseExternDecl();
     DeclPtr parseIntrinsicDecl();
 

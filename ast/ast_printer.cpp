@@ -96,9 +96,9 @@ void ASTPrinter::visit(StructDecl* node) {
     printTypeParams(node->typeParams, node->constraints);
     println("Fields:");
     indentLevel++;
-    for (auto& field : node->fields) {
-        std::string line = field.type + " " + field.name;
-        if (field.bitWidth > 0) line += " : " + std::to_string(field.bitWidth);
+    for (auto& field : layoutFields(node->fields, node->pads)) {
+        std::string line = field.unnamed ? field.type : field.type + " " + field.name;
+        if (field.bitWidth > 0 || field.unnamed) line += " : " + std::to_string(field.bitWidth);
         println(line);
     }
     indentLevel--;
@@ -595,8 +595,8 @@ void ASTPrinter::visit(AwaitExpr* node) {
 void ASTPrinter::visit(UnionDecl* node) {
     println("UnionDecl: " + node->name);
     indentLevel++;
-    for (const auto& f : node->fields)
-        println(f.type + " " + f.name);
+    for (const auto& f : layoutFields(node->fields, node->pads))
+        println(f.unnamed ? f.type + " : " + std::to_string(f.bitWidth) : f.type + " " + f.name);
     indentLevel--;
 }
 
