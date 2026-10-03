@@ -10,6 +10,7 @@ enum Command {
     Uptime,
     Regs,
     Echo(string),
+    Tasks,
     Fault,
     Poweroff,
     Empty,
@@ -74,6 +75,7 @@ Command parse(int len) {
     if (str_eq(word, "uptime"))     { return Uptime; }
     if (str_eq(word, "regs"))       { return Regs; }
     if (str_eq(word, "echo"))       { return Echo(rest); }
+    if (str_eq(word, "tasks"))      { return Tasks; }
     if (str_eq(word, "fault"))      { return Fault; }
     if (str_eq(word, "poweroff"))   { return Poweroff; }
     return NotFound(word);
@@ -86,6 +88,7 @@ void show_help() {
     uart_puts("  uptime      time since the timer started\r\n");
     uart_puts("  regs        a few system registers\r\n");
     uart_puts("  echo TEXT   print TEXT\r\n");
+    uart_puts("  tasks       the scheduler's tasks\r\n");
     uart_puts("  fault       read an unmapped address and recover\r\n");
     uart_puts("  poweroff    switch the machine off\r\n");
 }
@@ -124,6 +127,34 @@ void show_regs() {
     uart_puts("\r\n");
 }
 
+void put_padded(string s, int width) {
+    int n = 0;
+    while (s[n] != 0) {
+        n++;
+    }
+    uart_puts(s);
+    while (n < width) {
+        uart_putc(' ');
+        n++;
+    }
+}
+
+void show_tasks() {
+    uart_puts("ID  NAME  STATE    SWITCHES\r\n");
+    for (i in 0..task_count) {
+        uart_puts(" ");
+        uart_putdec(i);
+        uart_puts("  ");
+        put_padded(tasks[i].name, 6);
+        put_padded(state_name(tasks[i].state), 9);
+        uart_putdec(tasks[i].switches);
+        uart_puts("\r\n");
+    }
+    uart_puts("spin has counted to ");
+    uart_putdec(spins);
+    uart_puts("\r\n");
+}
+
 // Nothing is mapped at this address on QEMU virt, so a load from it is a
 // synchronous external abort. trap_sync recovers because fault_expected is set.
 const int64 UNMAPPED = 0x0C000000;
@@ -146,6 +177,7 @@ bool run(Command cmd) {
         Uptime      -> show_uptime();
         Regs        -> show_regs();
         Echo(text)  -> { uart_puts(text); uart_puts("\r\n"); }
+        Tasks       -> show_tasks();
         Fault       -> cause_fault();
         Poweroff    -> return false;
         Empty       -> {}

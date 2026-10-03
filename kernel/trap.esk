@@ -105,6 +105,7 @@ void panic(string why) {
     Esr esr = read_esr();
     ExceptionClass ec = esr.ec;
     match ec {
+        Svc -> return schedule(f);      // yield()
         Brk -> {
             report_exception(f, esr);
             return recover(f);
@@ -140,6 +141,9 @@ void panic(string why) {
         uart_puts("\r\n");
     }
     gic_eoi(iar);
+    if (preempt) {
+        return schedule(f);
+    }
     return f;
 }
 

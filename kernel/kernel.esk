@@ -10,7 +10,9 @@ import "cpu.esk";
 import "alloc.esk";
 import "gic.esk";
 import "timer.esk";
+import "sched.esk";
 import "trap.esk";
+import "workers.esk";
 import "shell.esk";
 
 // Bounds of .bss, defined by linker.ld.
@@ -76,25 +78,13 @@ void banner() {
     uart_puts("\r\n");
 }
 
-void kernel_main() {
-    zero_bss();
-    heap_init();
-    trap_init();
-    const int64 start = cpu_timer_count();
-
-    // However kernel_main ends, the machine is switched off afterwards.
-    defer {
-        report(Halt);
-        cpu_power_off();
-    }
-
-    banner();
-    report(Booted(cpu_current_el()));
-    report(Timer(cpu_timer_freq()));
+void breakpoint_demo() {
     uart_puts("Testing a breakpoint (brk #42):\r\n");
     asm("brk #42");
     uart_puts("Back from the breakpoint.\r\n\r\n");
+}
 
+void timer_demo() {
     gic_init();
     timer_init();
     cpu_irq_enable();
@@ -110,6 +100,47 @@ void kernel_main() {
     uart_puts("10 ticks:   ");
     uart_putdec((cpu_timer_count() - t0) * 1000 / cpu_timer_freq());
     uart_puts(" ms\r\n\r\n");
+}
+
+void tasks_demo() {
+    sched_init();
+
+    // Cooperative: each worker yields after every line, so the lines alternate.
+    int64 ping = task_spawn("ping", counter("ping", 3));
+    int64 pong = task_spawn("pong", counter("pong", 3));
+    task_join(ping);
+    task_join(pong);
+
+    // Preemptive: spin never yields, so main runs again only because a timer tick
+    // switched tasks.
+    int64 busy = task_spawn("spin", spin);
+    preempt = true;
+    const int64 before = ticks;
+    yield();
+    uart_puts("Preempted:  main is back after ");
+    uart_putdec(ticks - before);
+    uart_puts(" tick(s), spin is ");
+    uart_puts(state_name(tasks[busy].state));
+    uart_puts("\r\n\r\n");
+}
+
+void kernel_main() {
+    zero_bss();
+    heap_init();
+    trap_init();
+    const int64 start = cpu_timer_count();
+
+    // However kernel_main ends, the machine is switched off afterwards.
+    defer {
+        report(Halt);
+        cpu_power_off();
+    }
+
+    banner();
+    report(Booted(cpu_current_el()));
+    report(Timer(cpu_timer_freq()));
+    breakpoint_demo();
+    timer_demo();
 
     uart_puts("UART base:  ");
     uart_puthex(UART0_BASE);
@@ -130,5 +161,6 @@ void kernel_main() {
     const int64 elapsed = cpu_timer_count() - start;
     report(BootTime(elapsed * 1000000 / cpu_timer_freq()));
 
+    tasks_demo();
     shell();     // returns on `poweroff`
 }

@@ -31,7 +31,8 @@ QEMU_FLAGS  = -M virt,gic-version=2 -cpu cortex-a57 -nographic -kernel $(ELF)
 KOBJ = kernel-O$(OPT).o
 ELF  = kernel-O$(OPT).elf
 OBJS = boot.o vectors.o $(KOBJ)
-SRCS = kernel.esk uart.esk cpu.esk alloc.esk trap.esk gic.esk timer.esk shell.esk
+SRCS = kernel.esk uart.esk cpu.esk alloc.esk trap.esk gic.esk timer.esk sched.esk \
+       workers.esk shell.esk
 
 .PHONY: all run check check-one clean setup check-deps
 

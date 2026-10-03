@@ -14,7 +14,7 @@ in=$(mktemp)
 trap 'rm -f "$out" "$in"' EXIT
 
 # \177 is DEL, what the Backspace key sends: "echx<DEL>o fixed" is "echo fixed".
-printf 'help\nmem\nuptime\nregs\necho hello, kernel\nechx\177o fixed\nfault\nbogus\npoweroff\n' > "$in"
+printf 'help\nmem\nuptime\nregs\ntasks\necho hello, kernel\nechx\177o fixed\nfault\nbogus\npoweroff\n' > "$in"
 
 # A watchdog instead of timeout(1), which macOS does not ship.
 # shellcheck disable=SC2086
@@ -53,16 +53,27 @@ alloc\(4096\): 0x0000000040300040
 alloc\(4194304\): out of memory
 Heap used:  4160 bytes
 Boot time:  [0-9]+ us
+ping: round 1 of 3
+pong: round 1 of 3
+ping: round 3 of 3
+pong: round 3 of 3
+Preempted:  main is back after [0-9]+ tick\(s\), spin is ready
 eskiu> help
   poweroff    switch the machine off
 eskiu> mem
-Heap:       4160 bytes used, 1044416 bytes free
+Heap:       [0-9]+ bytes used, [0-9]+ bytes free
 eskiu> uptime
 Uptime:     [0-9]+\.[0-9]{2} s \([0-9]+ ticks\)
 eskiu> regs
 CurrentEL:  1
 CNTFRQ_EL0: [0-9]+ Hz
 VBAR_EL1:   0x00000000400[0-9A-F]{3}00
+eskiu> tasks
+ 0  main  running  [0-9]+
+ 1  ping  done     [0-9]+
+ 2  pong  done     [0-9]+
+ 3  spin  (ready|done) +[0-9]+
+spin has counted to [0-9]+
 eskiu> echo hello, kernel
 hello, kernel
 fixed
