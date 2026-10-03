@@ -2304,7 +2304,7 @@ pre.code-block {
 <pre class="code-block"> The UART lives at 0x09000000, a memory-mapped I/O address separate from DRAM. Writing a byte
  there transmits it on the serial port.</pre>
 <h2 class="section" id="sec-18-4">18.4 The boot sequence</h2>
-<p>The CPU starts executing at _start in boot.s, the only assembly in the entire project. It does two things: sets up the stack pointer, then calls kernel_main. Everything after that is Eskiu:</p>
+<p>The CPU starts executing at _start in boot.s, the only assembly in the entire project. It sets up the stack pointer, then calls kernel_main. Everything after that is Eskiu:</p>
 <pre class="code-block"> // boot.s: ARM64 entry point
  .global _start
  .section .text.boot, &quot;ax&quot;
@@ -2313,100 +2313,181 @@ pre.code-block {
        mov sp, x0             // set stack pointer
        bl   kernel_main       // jump to Eskiu
  .hang:
-       b    .hang             // should never return</pre>
+       wfi                    // should never return
+       b    .hang</pre>
 <p>The linker script places .text.boot first, so _start lands at 0x40000000, exactly where QEMU starts executing.</p>
-<h2 class="section" id="sec-18-5">18.5 The UART driver</h2>
-<p>With no OS and no libc, printing to the screen means writing bytes directly to the hardware register at 0x09000000. The PL011 UART on QEMU&#x27;s virt machine transmits whatever byte you write there. This is the complete driver, 20 lines of Eskiu:</p>
-<pre class="code-block"> // uart.esk
- int64 UART_DR = 0x09000000;</pre>
-<pre class="code-block"> void uart_putc(int c) {
-       asm(&quot;strb ${0:w}, [$1]&quot; :: &quot;r&quot;(c), &quot;r&quot;(UART_DR) : &quot;memory&quot;);
+<p>The first thing kernel_main does is clear .bss, where globals without an initializer live. The linker script defines <code>__bss_start</code> and <code>__bss_end</code>, and Eskiu declares them as <code>extern</code> globals and uses their addresses:</p>
+<pre class="code-block"> extern uint8 __bss_start;
+ extern uint8 __bss_end;
+
+ void zero_bss() {
+       *uint8 p = &amp;__bss_start;
+       while (p &lt; &amp;__bss_end) {
+            *p = 0;
+            p++;
+       }
  }</pre>
-<pre class="code-block"> void uart_puts(string s) {
+<h2 class="section" id="sec-18-5">18.5 The UART driver</h2>
+<p>With no OS and no libc, printing means writing bytes to the PL011 UART&#x27;s registers at 0x09000000. The data register is at offset 0, and the flag register at offset 0x18 has a TXFF bit that is set while the transmit FIFO is full. The driver describes the flag register as a bitfield struct and reaches both registers through <code>volatile</code> pointers (section 6.9), so every load and store is emitted exactly once and in order:</p>
+<pre class="code-block"> // uart.esk
+ const int64 UART0_BASE = 0x09000000;
+ const int64 UART_DR    = UART0_BASE + 0x00;
+ const int64 UART_FR    = UART0_BASE + 0x18;
+
+ struct UartFlags {
+       uint32 cts  : 1;
+       uint32 dsr  : 1;
+       uint32 dcd  : 1;
+       uint32 busy : 1;
+       uint32 rxfe : 1;
+       uint32 txff : 1;
+       uint32 rxff : 1;
+       uint32 txfe : 1;
+       uint32 ri   : 1;
+       uint32      : 23;
+ }
+
+ void uart_putc(int c) {
+       volatile let fr: *UartFlags = (*UartFlags)UART_FR;
+       volatile let dr: *uint32 = (*uint32)UART_DR;
+       while (fr.txff) {}        // wait for room in the TX FIFO
+       *dr = (uint32)c;
+ }
+
+ void uart_puts(string s) {
        int i = 0;
        while (s[i] != 0) {
-            uart_putc((int) s[i]);
-            i = i + 1;
+            uart_putc((int)s[i]);
+            i++;
        }
  }</pre>
-<pre class="code-block"> void uart_puthex(int64 n) {
-       uart_puts(&quot;0x&quot;);
-       int shift = 60;
-       while (shift &gt;= 0) {
-            int nibble = (int)((n &gt;&gt; shift) &amp; 0xF);
-            if (nibble &lt; 10) { uart_putc(nibble + 48); }
-            else              { uart_putc(nibble - 10 + 65); }
-            shift = shift - 4;
-       }
- }</pre>
-<p>uart_putc uses inline asm to execute strb (store byte) directly to the UART data register. The &quot;memory&quot; clobber prevents the compiler from reordering or eliminating the store. uart_puts walks the <code>string</code> one character at a time until it hits the <code>null</code> terminator. <code>String</code> indexing (s[i]) returns a <code>char</code>, the same feature used in Chapter 2.</p>
-<h2 class="section" id="sec-18-6">18.6 The bump allocator</h2>
-<p>With --freestanding, every <code>alloc</code>&lt;T&gt;(N) call in your program becomes a call to esk_alloc. You provide the implementation. The kernel uses the simplest possible allocator, a bump allocator that advances a pointer through a 1 MB heap:</p>
+<p>Reading <code>fr.txff</code> is a volatile 32-bit load of the register followed by a shift and mask. uart_puts walks the <code>string</code> one character at a time until it hits the terminating zero byte. The driver also has uart_puthex and uart_putdec for numbers.</p>
+<h2 class="section" id="sec-18-6">18.6 The heap</h2>
+<p>With --freestanding, every <code>alloc</code>&lt;T&gt;(N) call in your program becomes a call to esk_alloc. The kernel implements it with the <code>Bump</code> allocator from the standard library&#x27;s <code>&lt;alloc&gt;</code>, which hands out 8-byte aligned pieces of a buffer. The buffer is the 1 MB region the linker script reserves between <code>__heap_start</code> and <code>__heap_end</code>:</p>
 <pre class="code-block"> // alloc.esk
- int64 _heap_ptr = 0x40300000;     // heap start
- int64 _heap_end = 0x40400000;     // heap end (1 MB)</pre>
-<pre class="code-block"> *uint8 esk_alloc(int64 size) {
-       if (_heap_ptr + size &gt; _heap_end) { return null; }
-       int64 ptr = _heap_ptr;
-       _heap_ptr = _heap_ptr + size;
-       // esk_alloc must return zeroed memory (alloc&lt;T&gt;'s contract):
-       *uint8 p = (*uint8) ptr;
-       int64 i = 0;
-       while (i &lt; size) { p[i] = 0; i = i + 1; }
-       return p;
- }</pre>
-<pre class="code-block"> void esk_free(*uint8 ptr) {
-       // Bump allocator, free is a no-op.
-       // A real kernel would use a slab or buddy allocator here.
- }</pre>
-<p>Allocation is a pointer advance and a bounds check. Deallocation is a no-op: memory is never reclaimed. This is appropriate for a demo kernel. A production kernel would replace these two functions with a slab allocator or buddy system; the rest of the kernel code stays exactly the same.</p>
+ import &lt;alloc&gt;;
+
+ extern uint8 __heap_start;
+ extern uint8 __heap_end;
+
+ Bump heap;   // in .bss, cleared by zero_bss
+
+ void heap_init() {
+       Bump_init(&amp;heap, &amp;__heap_start, &amp;__heap_end - &amp;__heap_start);
+ }
+
+ *void esk_alloc(int64 size) {
+       *uint8 p = (*uint8)Bump_alloc(&amp;heap, size);
+       if (p == null) {
+            return null;
+       }
+       for (i in 0..size) {      // alloc&lt;T&gt; returns zeroed memory
+            p[i] = 0;
+       }
+       return (*void)p;
+ }
+
+ void esk_free(*void p) {}       // a bump allocator frees everything at once</pre>
+<p>Allocation is an alignment, a bounds check and a pointer advance. Deallocation is a no-op. A production kernel would replace these two functions with a slab allocator or a buddy system; the rest of the kernel code stays the same.</p>
 <h2 class="section" id="sec-18-7">18.7 kernel_main</h2>
-<p>With the UART and allocator in place, kernel_main can print, allocate, and halt, all in Eskiu:</p>
+<p>cpu.esk reads system registers with inline-asm output operands (section 16.2b), for example <code>asm(&quot;mrs $0, CNTFRQ_EL0&quot; : &quot;=r&quot;(v));</code>, and powers the machine off with the PSCI SYSTEM_OFF call (<code>hvc #0</code>), which QEMU implements. kernel.esk describes what it reports as a sum type and prints it with <code>match</code>:</p>
 <pre class="code-block"> // kernel.esk
- import &quot;uart.esk&quot;;
- import &quot;alloc.esk&quot;;</pre>
-<pre class="code-block"> void kernel_main() {
-       uart_puts(&quot;Eskiu v0.1 kernel\r\n&quot;);
-       uart_puts(&quot;Running on QEMU -M virt (ARM64)\r\n&quot;);</pre>
-<pre class="code-block">       uart_puts(&quot;UART base:   &quot;); uart_puthex(0x09000000); uart_puts(&quot;\r\n&quot;);
-       uart_puts(&quot;Heap start: &quot;); uart_puthex(0x40300000); uart_puts(&quot;\r\n&quot;);</pre>
-<pre class="code-block">       *uint8 buf = alloc&lt;uint8&gt;(64);
+ enum Event {
+       Booted(int64),            // exception level
+       Timer(int64),             // counter frequency in Hz
+       Allocated(int64, int64),  // bytes, address
+       OutOfMemory(int64),       // bytes requested
+       Uptime(int64),            // microseconds
+       Halt,
+ }
+
+ void report(Event e) {
+       match e {
+            Booted(el)         -&gt; { uart_puts(&quot;Running at: EL&quot;); uart_putdec(el); }
+            Timer(hz)          -&gt; { uart_puts(&quot;Timer:      &quot;); uart_putdec(hz); uart_puts(&quot; Hz&quot;); }
+            Allocated(n, addr) -&gt; { uart_puts(&quot;alloc(&quot;); uart_putdec(n); uart_puts(&quot;): &quot;); uart_puthex(addr); }
+            OutOfMemory(n)     -&gt; { uart_puts(&quot;alloc(&quot;); uart_putdec(n); uart_puts(&quot;): out of memory&quot;); }
+            Uptime(us)         -&gt; { uart_puts(&quot;Uptime:     &quot;); uart_putdec(us); uart_puts(&quot; us&quot;); }
+            Halt               -&gt; uart_puts(&quot;Powering off.&quot;);
+       }
+       uart_puts(&quot;\r\n&quot;);
+ }
+
+ void alloc_test(int64 n) {
+       *uint8 buf = alloc&lt;uint8&gt;(n);
        if (buf == null) {
-            uart_puts(&quot;alloc failed\r\n&quot;);
-       } else {
-            uart_puts(&quot;alloc(64):   &quot;); uart_puthex((int64) buf); uart_puts(&quot; ok\r\n&quot;);
-            free(buf);
-       }</pre>
-<pre class="code-block">       uart_puts(&quot;\r\nKernel halted.\r\n&quot;);
-       while (1) { asm(&quot;wfi&quot;); }     // wait for interrupt, idle loop
+            report(OutOfMemory(n));
+            return;
+       }
+       defer free(buf);
+       for (i in 0..n) {
+            buf[i] = (uint8)i;
+       }
+       report(Allocated(n, (int64)buf));
+ }
+
+ void kernel_main() {
+       zero_bss();
+       heap_init();
+       const int64 start = cpu_timer_count();
+
+       defer {                   // however kernel_main ends, power off afterwards
+            report(Halt);
+            cpu_power_off();
+       }
+
+       banner();
+       report(Booted(cpu_current_el()));
+       report(Timer(cpu_timer_freq()));
+       // ... prints the UART base and the heap bounds ...
+
+       alloc_test(64);
+       alloc_test(4096);
+       alloc_test(4 * 1024 * 1024);   // more than the heap holds
+
+       const int64 ticks = cpu_timer_count() - start;
+       report(Uptime(ticks * 1000000 / cpu_timer_freq()));
  }</pre>
-<p>The while(1) { asm(&quot;wfi&quot;); } at the end is the idle loop. wfi (wait for interrupt) is an ARM64 instruction that suspends the CPU until an interrupt arrives. Without it, the CPU would spin at full speed consuming power. With it, QEMU&#x27;s CPU simulation goes idle.</p>
+<p>The <code>defer</code> block runs when kernel_main reaches its end, so the last thing the kernel does is switch the machine off and QEMU exits.</p>
 <h2 class="section" id="sec-18-8">18.8 Building and running</h2>
 <p>The Makefile handles the full build pipeline:</p>
 <pre class="code-block"> # Prerequisites (macOS)
- brew install lld qemu</pre>
-<pre class="code-block"> # Build
- cd kernel &amp;&amp; make</pre>
-<pre class="code-block"> # Run in QEMU
- make run</pre>
+ brew install lld qemu
+
+ # Build
+ cd kernel &amp;&amp; make
+
+ # Run in QEMU
+ make run
+
+ # Boot headless and check the output
+ make check</pre>
 <p>Under the hood, make runs three commands:</p>
-<pre class="code-block"> # 1. Compile Eskiu to ARM64 object (no libc)
- eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding -o kernel.o</pre>
-<pre class="code-block"> # 2. Assemble the boot stub
- clang --target=aarch64-unknown-none-elf -c boot.s -o boot.o</pre>
-<pre class="code-block"> # 3. Link into a bare-metal ELF, no standard libraries
+<pre class="code-block"> # 1. Compile Eskiu to an ARM64 object (no libc)
+ eskiuc kernel.esk --target aarch64-unknown-none-elf --freestanding -o kernel.o
+
+ # 2. Assemble the boot stub
+ clang --target=aarch64-unknown-none-elf -c boot.s -o boot.o
+
+ # 3. Link into a bare-metal ELF, no standard libraries
  ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o</pre>
-<p>QEMU loads the ELF, sets the program counter to 0x40000000, and starts executing. Expected output on the serial console:</p>
-<pre class="code-block"> Eskiu v0.1 kernel
- Running on QEMU -M virt (ARM64)</pre>
-<pre class="code-block"> UART base:     0x0000000009000000
- Heap start: 0x0000000040300000
- alloc(64):     0x0000000040300000 ok</pre>
-<pre class="code-block"> Kernel halted.</pre>
-<p>Press Ctrl-A X to exit QEMU.</p>
+<p>QEMU loads the ELF, sets the program counter to 0x40000000, and starts executing. Expected output on the serial console (after the banner):</p>
+<pre class="code-block"> Running at: EL1
+ Timer:      62500000 Hz
+ UART base:  0x0000000009000000
+ Heap:       0x0000000040300000 - 0x0000000040400000
+
+ alloc(64): 0x0000000040300000
+ alloc(4096): 0x0000000040300040
+ alloc(4194304): out of memory
+ Heap used:  4160 bytes
+
+ Uptime:     1964 us
+ Powering off.</pre>
+<p>make check boots the same kernel with -nographic, gives it a timeout in case it hangs, and fails unless QEMU exits cleanly and the expected lines are present.</p>
 <h2 class="section" id="sec-18-9">18.9 What this demonstrates</h2>
-<p>The kernel uses seven features from this book in combination: multi-file imports (Ch13), inline assembly (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.9), pointer casting (Ch6.3), <code>string</code> indexing (Ch2.2), and the freestanding allocator hook. None of these features exist in isolation; bare-metal programming is where they compose.</p>
-<p>The kernel is about 110 lines of Eskiu in three files (<code>kernel.esk</code>, <code>uart.esk</code>, <code>alloc.esk</code>) and a 12-line assembly stub. The assembly sets up the stack. Everything else (the UART driver, the allocator, the output, the idle loop) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
+<p>The kernel combines features from across this book: multi-file imports (Ch13), inline assembly with inputs and outputs (Ch16), cross-compilation (Ch17), <code>volatile</code> and MMIO (Ch6.9), bitfields, pointer casting (Ch6.3), <code>extern</code> globals, <code>const</code>, <code>defer</code>, a sum type with <code>match</code>, and the freestanding allocator hook backed by a standard library allocator.</p>
+<p>The kernel is about 240 lines of Eskiu in four files (<code>kernel.esk</code>, <code>uart.esk</code>, <code>cpu.esk</code>, <code>alloc.esk</code>) and a 13-line assembly stub. The assembly sets up the stack. Everything else (clearing .bss, the UART driver, the heap, the output, powering off) is plain Eskiu code that compiles to the same LLVM IR as any other Eskiu program.</p>
 <div class="chapter-start" id="chapter-19"><span class="chapter-label">Chapter 19</span>
 <h1 class="chapter-title">Ownership and Resources</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no garbage collector. No reference counter silently frees memory when you stop using it. You are responsible for every allocation, and that responsibility must be explicit in your code.</p>
