@@ -21,27 +21,97 @@
 
 ---
 
-Eskiu compiles to native code through LLVM, with explicit memory, direct C interop, and no garbage collector. Yet `eskiuc run file.esk` and a `#!/usr/bin/env eskiuc run` shebang execute a `.esk` file directly, like a Python or Ruby script. The same language reaches from a bare-metal ARM64 kernel to an HTTP/2 server with TLS, in C-style syntax with bounded generics, structural interfaces, sum types with `match`, operator overloading, `async`/`await`, and opt-in memory safety (`defer`, slices, checked nullable pointers). It builds and runs on Linux, macOS, and Windows.
+Eskiu is a systems language with C's control over memory and calling conventions, and a
+quicker feel for everyday work. It compiles to native code through LLVM and calls C
+libraries directly, and `eskiuc run file.esk` (or a `#!/usr/bin/env eskiuc run` shebang)
+runs a source file the way you would run a Python or Ruby script.
 
-The compiler is **self-hosted**: the whole pipeline (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (`selfhost/`) and reproduces its own output through a 3-stage bootstrap fixpoint, with its code generator feature-complete against the reference C++ compiler.
+- **C-style and C-compatible.** C syntax and integer rules, structs, unions, bitfields and
+  `extern` declarations laid out and called the way the target's C compiler does it.
+- **More than C.** Generics, structural interfaces, sum types with exhaustive `match`,
+  closures, operator overloading and `async`/`await`.
+- **Explicit memory with guard rails.** No garbage collector: `alloc`/`free`, allocators,
+  `defer`, slices, checked nullable pointers and an opt-in bounds-checked build (`--safe`).
+- **A batteries-included stdlib.** Collections, strings, JSON, regex, an async runtime and
+  HTTP/1.1, HTTP/2 and TLS servers.
+- **Self-hosted.** The compiler is also written in Eskiu (`selfhost/`) and builds itself.
 
-Eskiu is the systems language of [ReactVision](https://reactvision.xyz): its [ViroReact](https://eskiu-lang.org/case-study-reactvision.html) renderer migrated AR/VR rendering modules from C++ for roughly 85% less memory, and a [Nintendo 3DS](https://eskiu-lang.org/case-study-3ds.html) runs an on-device AR demo with its logic in Eskiu on the ARM11.
+It runs on macOS, Linux and Windows, cross-compiles to 32-bit ARM and x86, and runs bare
+metal: the screenshot below is an Eskiu kernel booting in QEMU with no libc.
 
 <p align="center">
   <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="320">
 </p>
 
+## Example
+
+```eskiu
+import <mem>;
+extern int printf(string fmt, ...);
+
+enum Shape {
+    Circle(float),
+    Rect(float, float)
+}
+
+float area(Shape s) {
+    match s {
+        Circle(r)  -> { return 3.14159 * r * r; }
+        Rect(w, h) -> { return w * h; }
+    }
+    return 0.0;
+}
+
+int apply(fn(int)->int f, int x) { return f(x); }
+
+int main() {
+    *Shape shapes = alloc<Shape>(2);
+    defer free(shapes);                          // runs on every exit path
+    shapes[0] = Circle(1.0);
+    shapes[1] = Rect(2.0, 3.0);
+    for (i in 0..2) {
+        printf("area %d = %.2f\n", i, area(shapes[i]));
+    }
+
+    int k = 10;
+    printf("%d\n", apply(int(int x) { return x + k; }, 5));   // closure capturing k
+    return 0;
+}
+```
+
+```
+$ eskiuc run shapes.esk
+area 0 = 3.14
+area 1 = 6.00
+15
+```
+
+## Status
+
+Eskiu is pre-1.0. The language is stable enough for real work, and it is used at
+[ReactVision](https://reactvision.xyz): the [ViroReact](https://eskiu-lang.org/case-study-reactvision.html)
+renderer moved AR/VR rendering modules from C++ to Eskiu for about 85% less memory, and a
+[Nintendo 3DS](https://eskiu-lang.org/case-study-3ds.html) runs an on-device AR demo with its
+logic in Eskiu. Until 1.0, a minor release can still reject code an earlier one accepted
+when that code relied on a bug; each release's notes list those changes. Next on the
+[roadmap](docs/dev/phases.md) is a package manager.
+
 ## Install
 
-On macOS or Linux, install the latest release with one command:
+On macOS or Linux:
 
 ```bash
 curl -fsSL https://eskiu-lang.org/install.sh | sh
+eskiuc --version
 ```
 
-It downloads the prebuilt binary for your platform, verifies its checksum, and installs it.
-Prebuilt binaries (macOS arm64, Linux x86-64 and arm64, Windows x86-64) are on the
-[releases page](https://github.com/doranteseduardo/eskiu/releases). Or build from source:
+The script picks the prebuilt binary for your platform (macOS arm64, Linux x86-64 or arm64),
+verifies its checksum and installs it. The Windows x86-64 build and the tarballs are on the
+[releases page](https://github.com/doranteseduardo/eskiu/releases). `eskiuc` links programs
+with your system C toolchain (`cc`, `clang` or `gcc`), so have one installed.
+
+To build from source you need LLVM 21 or newer (22 recommended), CMake 3.20+ and a C++17
+compiler:
 
 ```bash
 git clone https://github.com/doranteseduardo/eskiu && cd eskiu
@@ -49,52 +119,25 @@ cmake -S . -B build && cmake --build build
 ./build/eskiuc examples/hello.esk -o hello && ./hello
 ```
 
-## Example
-
-```eskiu
-extern int printf(string fmt, ...);
-
-interface Drawable { void draw(); }
-
-struct Circle {
-    float radius;
-    void draw() { printf("Circle(r=%f)\n", self.radius); }
-}
-
-void render(Drawable d) { d.draw(); }
-
-int apply(fn(int)->int f, int x) { return f(x); }
-
-int main() {
-    let c: Circle = Circle { radius: 5.0 };
-    render(&c);                                     // Circle(r=5.000000)
-
-    let square: fn(int)->int = int(int n) { return n * n; };
-    printf("%d\n", apply(square, 6));               // 36
-
-    return 0;
-}
-```
-
-## Building from source
-
-Building the compiler needs:
-
-- LLVM 21+ (tested with LLVM 22 and 23)
-- C++17 compiler
-- CMake 3.20+
-- A C toolchain (`cc`/`clang`/`gcc`)
-
-A released `eskiuc` needs only the C toolchain, which it calls to link executables (not needed for `--freestanding` or `-c`).
-
 ## Documentation
 
 | | |
 |---|---|
-| [QUICKSTART.md](QUICKSTART.md) | Build and run your first program in 5 minutes |
-| [docs/lang/getting-started.md](docs/lang/getting-started.md) | Language tutorial |
-| [docs/lang/spec.md](docs/lang/spec.md) | Full language reference |
-| [docs/dev/phases.md](docs/dev/phases.md) | Roadmap |
+| [Quickstart](QUICKSTART.md) | Install and run your first programs |
+| [Tutorial](docs/lang/getting-started.md) | The language, step by step |
+| [The Book of Eskiu](https://eskiu-lang.org/the-book-of-eskiu.html) | A longer guide, from basics to async and C interop |
+| [Language reference](docs/lang/spec.md) | Every construct and the standard library |
+| [Examples](examples/) | Small programs, from hello world to an HTTP/2 server |
+| [Compiler internals](docs/dev/index.md) | Architecture, ABI notes and design decisions |
+| [Changelog](CHANGELOG.md) | Every release and what changed |
+
+## Contributing
+
+Bug reports are welcome; please include the program and the `eskiuc --version` output.
+Open an issue before working on a new language feature or a design change. Scoped fixes can
+go straight to a pull request. [docs/dev/contributing.md](docs/dev/contributing.md) covers
+the build, the test suite and the two compilers that every language change has to keep in
+step.
 
 ## License
 
