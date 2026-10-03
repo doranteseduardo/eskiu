@@ -118,6 +118,7 @@ when you add a test.
 | `lambdas` | anonymous functions, `fn(T)->R`, higher-order functions |
 | `closures` | capturing & non-capturing lambdas through higher-order functions |
 | `closure_escape` | escape analysis: non-escaping closure on the stack, escaping one heap + `free_closure` |
+| `closure_local_env` | a lambda bound to a local that is only called (also in a loop, nested, or captured by an argument lambda) keeps its env on the stack; a copied local, or one captured by an escaping lambda, stays on the heap |
 | `generic_closure` | a capturing closure inside a **generic** function body; the `T`-typed capture's env field is substituted per instantiation (`box<int>` / `box<int64>`) |
 | `import_cast` | a cast to a type imported from another file (`(FutureHdr*)p`) parses as a cast |
 | `closure_global` | a module global read inside a closure reads the global (not a stale copy) |
@@ -186,6 +187,7 @@ when you add a test.
 | `adt_layout` | ADT enum payload sizing: array fields, nested enums and generic instances must get enough payload slots, and a struct holding an enum by value must be sized... |
 | `alloc_overflow` | Bump/Arena/Pool/FirstFit and the <sysheap> Heap reject huge or negative sizes instead of wrapping the size arithmetic, and a FirstFit buffer smaller than one region header holds nothing (no write past it). |
 | `async_dowhile_defer` | do/while, defer and capturing lambdas inside async functions, around awaits. |
+| `async_closure_env` | a lambda bound to a local of an async function is freed by the frame: on completion, on rebinding (a loop, a conditional or repeated binding), after an exception is caught, and on a drop with no cleanup, a defer, or an awaiting (detached) cleanup; generic too. An argument lambda keeps a stack env. Leak-free under `leaks --atExit` |
 | `async_expr_rewrite` | Frame-hoisted locals used after an await inside every expression form: ++/--, a ternary, an array index, a struct literal, a slice, and a cast. |
 | `async_local_named_fr` | A user local named `fr` in an async function must not collide with the transform's internal frame pointer. |
 | `base64_strict` | base64_decode rejects impossible lengths and misplaced padding (it used to decode "Z" and "Z=g=" to something) while still accepting padded, unpadded, and... |

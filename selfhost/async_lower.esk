@@ -2063,6 +2063,149 @@ void al_scan_locals(*AlCtx c, *StmtNode s) {
     }
 }
 
+// ── Closure locals owning their env (mirrors the C++ OwnedClosureScan) ──────────
+// Every local is a frame field, so a lambda bound to one gets a heap env (it must survive
+// a suspension). A local qualifies when each of its bindings is a lambda literal (its
+// initializer, or a statement `f = <lambda>`), at least one exists, and every other use
+// is a call `f(...)` outside any lambda (a lambda that names it would copy the env
+// pointer). Names are unique here (the renamer ran first).
+struct AlOwn { List<string> names; List<int> uses; List<int> allowed; List<int> binds; List<int> bad; }
+int al_own_idx(AlOwn* o, string nm) {
+    int i = 0;
+    while (i < List_len<string>(&o.names)) { if (str_eq(List_get<string>(&o.names, i), nm) == 1) { return i; } i = i + 1; }
+    List_push<string>(&o.names, nm);
+    List_push<int>(&o.uses, 0); List_push<int>(&o.allowed, 0); List_push<int>(&o.binds, 0); List_push<int>(&o.bad, 0);
+    return i;
+}
+void al_own_bump(List<int>* l, int i) { List_set<int>(l, i, List_get<int>(l, i) + 1); }
+void al_own_stmt(AlOwn* o, *StmtNode s, int in_lam);
+void al_own_expr(AlOwn* o, *ExprNode e, int in_lam) {
+    if (e == null) { return; }
+    if (e.kind == EK_IDENT) { al_own_bump(&o.uses, al_own_idx(o, e.sval)); return; }
+    if (e.kind == EK_LAMBDA) { al_own_stmt(o, e.stmt, 1); return; }
+    if (e.kind == EK_CALL && in_lam == 0 && e.a != null && e.a.kind == EK_IDENT) { al_own_bump(&o.allowed, al_own_idx(o, e.a.sval)); }
+    List<*ExprNode> ch; List_init<*ExprNode>(&ch, 4); al_children(e, &ch);
+    int i = 0; while (i < List_len<*ExprNode>(&ch)) { al_own_expr(o, List_get<*ExprNode>(&ch, i), in_lam); i = i + 1; }
+}
+void al_own_decl(AlOwn* o, *StmtNode vd, int in_lam, int for_init) {
+    if (in_lam == 0) {
+        int i = al_own_idx(o, vd.name);
+        if (for_init == 1 || (vd.expr != null && vd.expr.kind != EK_LAMBDA)) { List_set<int>(&o.bad, i, 1); }
+        else if (vd.expr != null) { al_own_bump(&o.binds, i); }
+    }
+    al_own_expr(o, vd.expr, in_lam);
+}
+void al_own_items(AlOwn* o, List<*StmtNode>* items, int in_lam, int for_init) {
+    int i = 0;
+    while (i < List_len<*StmtNode>(items)) {
+        *StmtNode it = List_get<*StmtNode>(items, i); i = i + 1;
+        if (it.kind == SK_VARDECL) { al_own_decl(o, it, in_lam, for_init); } else { al_own_stmt(o, it, in_lam); }
+    }
+}
+void al_own_stmt(AlOwn* o, *StmtNode s, int in_lam) {
+    if (s == null) { return; }
+    int k = s.kind;
+    if (k == SK_VARDECL) { al_own_decl(o, s, in_lam, 0); return; }
+    if (k == SK_BLOCK || k == SK_CASE) {
+        if (k == SK_CASE) { al_own_expr(o, s.expr, in_lam); }
+        al_own_items(o, &s.items, in_lam, 0);
+        return;
+    }
+    if (k == SK_EXPR) {
+        *ExprNode a = s.expr;
+        if (in_lam == 0 && a != null && a.kind == EK_BINARY && str_eq(a.sval, "=") == 1 && a.a != null
+            && a.a.kind == EK_IDENT && a.b != null && a.b.kind == EK_LAMBDA) {
+            int i = al_own_idx(o, a.a.sval);
+            al_own_bump(&o.allowed, i); al_own_bump(&o.binds, i);
+        }
+        al_own_expr(o, a, in_lam);
+        return;
+    }
+    if (k == SK_FOR) {
+        if (s.s1 != null && s.s1.kind == SK_BLOCK) { al_own_items(o, &s.s1.items, in_lam, 1); }
+        else if (s.s1 != null && s.s1.kind == SK_VARDECL) { al_own_decl(o, s.s1, in_lam, 1); }
+        else { al_own_stmt(o, s.s1, in_lam); }
+        al_own_expr(o, s.expr, in_lam); al_own_expr(o, s.expr2, in_lam);
+        al_own_stmt(o, s.s2, in_lam);
+        return;
+    }
+    if (k == SK_ASM) {
+        int ai = 0; while (ai < List_len<*StmtNode>(&s.items)) { al_own_expr(o, List_get<*StmtNode>(&s.items, ai).expr, in_lam); ai = ai + 1; }
+        return;
+    }
+    // if / while / do-while / for-in / switch / match / arm / try / catch / defer / return /
+    // throw / thread_join: the subject or condition, then the bodies.
+    al_own_expr(o, s.expr, in_lam);
+    al_own_stmt(o, s.s1, in_lam);
+    al_own_stmt(o, s.s2, in_lam);
+    if (k == SK_SWITCH || k == SK_MATCH || k == SK_TRY) {
+        int i = 0; while (i < List_len<*StmtNode>(&s.items)) { al_own_stmt(o, List_get<*StmtNode>(&s.items, i), in_lam); i = i + 1; }
+    }
+}
+void al_owned_closures(List<*StmtNode>* body, List<string>* out) {
+    let o: AlOwn;
+    List_init<string>(&o.names, 8); List_init<int>(&o.uses, 8); List_init<int>(&o.allowed, 8);
+    List_init<int>(&o.binds, 8); List_init<int>(&o.bad, 8);
+    al_own_items(&o, body, 0, 0);
+    int i = 0;
+    while (i < List_len<string>(&o.names)) {
+        if (List_get<int>(&o.binds, i) > 0 && List_get<int>(&o.bad, i) == 0
+            && List_get<int>(&o.uses, i) == List_get<int>(&o.allowed, i)) {
+            List_push<string>(out, List_get<string>(&o.names, i));
+        }
+        i = i + 1;
+    }
+}
+// Before each binding of an owned closure local, free the env it holds (the field is zero
+// before the first one, and free(null) is a no-op): a loop rebinding it each pass keeps one
+// env alive.
+*StmtNode al_free_closure_of(*ExprNode target) {
+    *ExprNode fe = ast_new_expr();
+    fe.kind = EK_FREECLOSURE; fe.a = target;
+    return al_exprstmt(fe);
+}
+void al_free_rebind_items(List<*StmtNode>* items, List<string>* owned);
+*StmtNode al_free_rebind(*StmtNode s, List<string>* owned) {
+    if (s == null) { return s; }
+    int k = s.kind;
+    if (k == SK_BLOCK || k == SK_CASE) { al_free_rebind_items(&s.items, owned); return s; }
+    if (k == SK_EXPR) {
+        *ExprNode a = s.expr;
+        if (a != null && a.kind == EK_BINARY && str_eq(a.sval, "=") == 1 && a.a != null && a.a.kind == EK_IDENT
+            && al_in(owned, a.a.sval) == 1 && a.b != null && a.b.kind == EK_LAMBDA) {
+            List<*StmtNode> two; List_init<*StmtNode>(&two, 2);
+            List_push<*StmtNode>(&two, al_free_closure_of(mk_ident(a.a.sval)));
+            List_push<*StmtNode>(&two, s);
+            return al_block(&two);
+        }
+        return s;
+    }
+    if (k == SK_FOR) { s.s2 = al_free_rebind(s.s2, owned); return s; }
+    if (k == SK_IF || k == SK_WHILE || k == SK_DOWHILE || k == SK_FORIN || k == SK_ARM || k == SK_CATCH
+        || k == SK_TRY || k == SK_DEFER) {
+        s.s1 = al_free_rebind(s.s1, owned);
+        s.s2 = al_free_rebind(s.s2, owned);
+    }
+    if (k == SK_SWITCH || k == SK_MATCH || k == SK_TRY) {
+        int i = 0;
+        while (i < List_len<*StmtNode>(&s.items)) { List_set<*StmtNode>(&s.items, i, al_free_rebind(List_get<*StmtNode>(&s.items, i), owned)); i = i + 1; }
+    }
+    return s;
+}
+void al_free_rebind_items(List<*StmtNode>* items, List<string>* owned) {
+    List<*StmtNode> out; List_init<*StmtNode>(&out, List_len<*StmtNode>(items) + 2);
+    int i = 0;
+    while (i < List_len<*StmtNode>(items)) {
+        *StmtNode it = List_get<*StmtNode>(items, i); i = i + 1;
+        if (it.kind == SK_VARDECL) {
+            if (it.expr != null && al_in(owned, it.name) == 1) { List_push<*StmtNode>(&out, al_free_closure_of(mk_ident(it.name))); }
+            List_push<*StmtNode>(&out, it);
+        } else { List_push<*StmtNode>(&out, al_free_rebind(it, owned)); }
+    }
+    List_init<*StmtNode>(items, List_len<*StmtNode>(&out));
+    i = 0; while (i < List_len<*StmtNode>(&out)) { List_push<*StmtNode>(items, List_get<*StmtNode>(&out, i)); i = i + 1; }
+}
+
 // ── Lambdas capturing a frame-hoisted local ────────────────────────────────────
 // The resume function has no local of that name (it lives in `fr.<name>`, and al_rewrite
 // stops at a lambda), so each statement whose own expressions create such a lambda is
@@ -2398,6 +2541,11 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
         if (ua != null) { al_error_at(&c, ua.line, ua.col, "'await' is not supported here (a 'sizeof' operand, an 'asm' input or a 'thread_join'); bind the value to a local first"); }
         bi = bi + 1;
     }
+    // Closure locals owning their env: each binding frees the env bound before it, and the
+    // frame's end frees the last one (al_exc_free).
+    List<string> owned; List_init<string>(&owned, 2);
+    al_owned_closures(&dbody, &owned);
+    if (List_len<string>(&owned) > 0) { al_free_rebind_items(&dbody, &owned); }
 
     int entry = al_newst(&c);                  // state 0
     int exit = al_lower_seq(&c, &dbody, entry);
@@ -2414,6 +2562,8 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     }
     int xi = 0;
     while (xi < List_len<string>(&c.exc_name)) { List_push<*StmtNode>(&al_exc_free.items, al_free_exc(List_get<string>(&c.exc_name, xi))); xi = xi + 1; }
+    xi = 0;
+    while (xi < List_len<string>(&owned)) { List_push<*StmtNode>(&al_exc_free.items, al_free_closure_of(al_fr(List_get<string>(&owned, xi)))); xi = xi + 1; }
     int wi = 0;                                // lambdas capturing hoisted locals
     while (wi < List_len<List<*StmtNode>>(&c.states)) {
         List<*StmtNode> stl = List_get<List<*StmtNode>>(&c.states, wi);
@@ -2498,7 +2648,9 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     List_push<*StmtNode>(&drop, al_exprstmt(al_call("future_drop", &da)));
     List<*StmtNode> body; List_init<*StmtNode>(&body, 1);
     List_push<*StmtNode>(&body, al_if(mk_bin("!=", al_fr(al_fawt), mk_cast("*FutureHdr", al_int(0))), al_block(&drop), null));
+    // Parked where no cleanup is pending, the frame's end runs from here.
     *StmtNode cleanup = null;
+    if (List_len<*StmtNode>(&al_exc_free.items) > 0) { cleanup = al_exc_free; }
     int di = List_len<int>(&c.drop_from) - 1;
     while (di >= 0) {
         List<*StmtNode> go; List_init<*StmtNode>(&go, 3);

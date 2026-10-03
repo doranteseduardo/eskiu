@@ -1,0 +1,16 @@
+local 11
+in_loop 9
+cond_init 8
+rebind 460
+arg 30
+pick 10
+throws 12
+escapes 0
+saved 3
+captured 13
+plain_blocks 314
+twice 49
+split_try 70
+dropped_plain
+dropped_defer: defer 3
+dropped_detached: defer 3

@@ -313,6 +313,127 @@ ExprPtr resumeWaker(const std::string& resumeName, int state, const std::string&
     return lam;
 }
 
+// Closure locals of an async body that own the env of the lambda bound to them. Every
+// local is a frame field, so a lambda bound to one gets a heap env (it must survive a
+// suspension). A local qualifies when each of its bindings is a lambda literal (its
+// initializer, or a statement `f = <lambda>`), at least one exists, and every other use
+// is a call `f(...)` outside any lambda (a lambda that names it would copy the env
+// pointer). Names are unique here (ShadowRenamer ran first).
+struct OwnedClosureScan {
+    std::map<std::string, int> uses, allowed, bindings;
+    std::set<std::string> bad;
+    void expr(Expr* e, bool inLambda) {
+        if (!e) return;
+        if (auto* id = dynamic_cast<IdentExpr*>(e)) { uses[id->name]++; return; }
+        if (auto* lam = dynamic_cast<LambdaExpr*>(e)) { stmt(lam->body.get(), true); return; }
+        if (auto* c = dynamic_cast<CallExpr*>(e); c && !inLambda)
+            if (auto* id = dynamic_cast<IdentExpr*>(c->callee.get())) allowed[id->name]++;
+        astwalk::forEachChildExprFlat(e, [&](ExprPtr& c) { expr(c.get(), inLambda); });
+    }
+    void decl(VarDecl* vd, bool inLambda, bool forInit) {
+        if (!inLambda) {
+            if (forInit || (vd->initializer && !dynamic_cast<LambdaExpr*>(vd->initializer.get())))
+                bad.insert(vd->name);
+            else if (vd->initializer) bindings[vd->name]++;
+        }
+        expr(vd->initializer.get(), inLambda);
+    }
+    void items(const std::vector<BlockItem>& its, bool inLambda, bool forInit = false) {
+        for (auto& it : its) {
+            if (std::holds_alternative<StmtPtr>(it)) { stmt(std::get<StmtPtr>(it).get(), inLambda); continue; }
+            if (auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get())) decl(vd, inLambda, forInit);
+        }
+    }
+    void stmt(Stmt* s, bool inLambda) {
+        if (!s) return;
+        auto E = [&](const ExprPtr& e) { expr(e.get(), inLambda); };
+        auto S = [&](const StmtPtr& st) { stmt(st.get(), inLambda); };
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) items(b->items, inLambda);
+        else if (auto* es = dynamic_cast<ExprStmt*>(s)) {
+            auto* a = dynamic_cast<BinaryExpr*>(es->expr.get());
+            if (a && a->op == "=" && !inLambda && dynamic_cast<LambdaExpr*>(a->right.get()))
+                if (auto* id = dynamic_cast<IdentExpr*>(a->left.get())) { allowed[id->name]++; bindings[id->name]++; }
+            E(es->expr);
+        }
+        else if (auto* i = dynamic_cast<IfStmt*>(s)) { E(i->condition); S(i->thenBranch); S(i->elseBranch); }
+        else if (auto* f = dynamic_cast<ForStmt*>(s)) {
+            if (auto* ib = dynamic_cast<BlockStmt*>(f->init.get())) items(ib->items, inLambda, true);
+            else S(f->init);
+            E(f->condition); E(f->step); S(f->body);
+        }
+        else if (auto* fi = dynamic_cast<ForInStmt*>(s))    { E(fi->iterable); S(fi->body); }
+        else if (auto* w = dynamic_cast<WhileStmt*>(s))     { E(w->condition); S(w->body); }
+        else if (auto* dw = dynamic_cast<DoWhileStmt*>(s))  { S(dw->body); E(dw->condition); }
+        else if (auto* r = dynamic_cast<ReturnStmt*>(s))    { E(r->value); }
+        else if (auto* sw = dynamic_cast<SwitchStmt*>(s)) {
+            E(sw->subject);
+            for (auto& c : sw->cases) { E(c.value); items(c.stmts, inLambda); }
+        }
+        else if (auto* m = dynamic_cast<MatchStmt*>(s))     { E(m->subject); for (auto& a : m->arms) S(a.body); }
+        else if (auto* th = dynamic_cast<ThrowStmt*>(s))    { E(th->value); }
+        else if (auto* t = dynamic_cast<TryStmt*>(s))       { S(t->body); for (auto& c : t->catches) S(c.body); S(t->finally); }
+        else if (auto* d = dynamic_cast<DeferStmt*>(s))     { S(d->body); }
+        else if (auto* tj = dynamic_cast<ThreadJoinStmt*>(s)) { E(tj->tid); }
+        else if (auto* as = dynamic_cast<AsmStmt*>(s)) {
+            for (auto& o : as->outputs) E(o.second);
+            for (auto& in : as->inputs) E(in.second);
+        }
+    }
+    std::set<std::string> owned() const {
+        std::set<std::string> out;
+        for (const auto& [n, k] : bindings) {
+            auto u = uses.find(n), a = allowed.find(n);
+            int nu = u == uses.end() ? 0 : u->second, na = a == allowed.end() ? 0 : a->second;
+            if (k > 0 && !bad.count(n) && nu == na) out.insert(n);
+        }
+        return out;
+    }
+};
+
+// Before each binding of an owned closure local, free the env it holds (the field is
+// zero before the first one, and free(null) is a no-op): a loop rebinding it each pass
+// keeps one env alive.
+StmtPtr freeClosureOf(const std::string& n) {
+    return exprStmt(std::make_shared<FreeClosureExpr>(ident(n)));
+}
+void freeBeforeRebind(std::vector<BlockItem>& its, const std::set<std::string>& owned);
+StmtPtr freeBeforeRebind(const StmtPtr& s, const std::set<std::string>& owned) {
+    if (!s) return s;
+    auto S = [&](StmtPtr& st) { st = freeBeforeRebind(st, owned); };
+    if (auto* b = dynamic_cast<BlockStmt*>(s.get())) freeBeforeRebind(b->items, owned);
+    else if (auto* es = dynamic_cast<ExprStmt*>(s.get())) {
+        auto* a = dynamic_cast<BinaryExpr*>(es->expr.get());
+        auto* id = a && a->op == "=" ? dynamic_cast<IdentExpr*>(a->left.get()) : nullptr;
+        if (id && owned.count(id->name) && dynamic_cast<LambdaExpr*>(a->right.get()))
+            return std::make_shared<BlockStmt>(std::vector<BlockItem>{ freeClosureOf(id->name), s });
+    }
+    else if (auto* i = dynamic_cast<IfStmt*>(s.get())) { S(i->thenBranch); S(i->elseBranch); }
+    else if (auto* f = dynamic_cast<ForStmt*>(s.get())) S(f->body);
+    else if (auto* fi = dynamic_cast<ForInStmt*>(s.get())) S(fi->body);
+    else if (auto* w = dynamic_cast<WhileStmt*>(s.get())) S(w->body);
+    else if (auto* dw = dynamic_cast<DoWhileStmt*>(s.get())) S(dw->body);
+    else if (auto* sw = dynamic_cast<SwitchStmt*>(s.get())) { for (auto& c : sw->cases) freeBeforeRebind(c.stmts, owned); }
+    else if (auto* m = dynamic_cast<MatchStmt*>(s.get())) { for (auto& a : m->arms) S(a.body); }
+    else if (auto* t = dynamic_cast<TryStmt*>(s.get())) {
+        S(t->body);
+        for (auto& c : t->catches) S(c.body);
+        S(t->finally);
+    }
+    else if (auto* d = dynamic_cast<DeferStmt*>(s.get())) S(d->body);
+    return s;
+}
+void freeBeforeRebind(std::vector<BlockItem>& its, const std::set<std::string>& owned) {
+    std::vector<BlockItem> out;
+    for (auto& it : its) {
+        if (std::holds_alternative<DeclPtr>(it)) {
+            auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
+            if (vd && vd->initializer && owned.count(vd->name)) out.push_back(freeClosureOf(vd->name));
+        } else it = BlockItem(freeBeforeRebind(std::get<StmtPtr>(it), owned));
+        out.push_back(it);
+    }
+    its = std::move(out);
+}
+
 // Every local of an async function becomes a frame field keyed by its name, so two
 // declarations of one name (a nested-block `let x` shadowing an outer `x`, or two
 // sibling blocks that each declare `x`) would collapse into one field. Before
@@ -985,6 +1106,16 @@ void AsyncTransform::run(Program* program) {
         }
         if (awaits.empty())
             throw std::runtime_error("async function '" + name + "': expected at least one `await`");
+
+        // ── Closure locals owning their env (OwnedClosureScan): each binding frees the
+        //    env bound before it, and the frame's end frees the last one (excFree).
+        std::set<std::string> ownedClosures;
+        {
+            OwnedClosureScan oc;
+            oc.items(items, false);
+            ownedClosures = oc.owned();
+            if (!ownedClosures.empty()) freeBeforeRebind(items, ownedClosures);
+        }
 
         // ── State graph ──────────────────────────────────────────────────────
         std::vector<std::vector<BlockItem>> states;
@@ -1747,6 +1878,8 @@ void AsyncTransform::run(Program* program) {
             for (; wrapped < states.size(); ++wrapped) wrapState(wrapped);
         }
         for (auto& [r, f] : excFields) excFree->items.push_back(freeExc(f));
+        for (const auto& n : ownedClosures)
+            excFree->items.push_back(exprStmt(std::make_shared<FreeClosureExpr>(fr(n))));
 
         // ── Lambdas capturing a frame-hoisted local. The resume function has no local of
         //    that name (it lives in `fr.<name>`, and rewrite() stops at a lambda), so each
@@ -1863,7 +1996,8 @@ void AsyncTransform::run(Program* program) {
                 std::make_shared<BlockStmt>(cascade)));
             // Then the cleanups pending at the await it is parked at run once; one that
             // awaits runs detached (the frame is marked DETACHED, 4, first).
-            StmtPtr cleanup = nullptr;
+            // Parked where no cleanup is pending, the frame's end runs from here.
+            StmtPtr cleanup = excFree->items.empty() ? nullptr : StmtPtr(excFree);
             for (auto it = dropStates.rbegin(); it != dropStates.rend(); ++it) {
                 std::vector<BlockItem> go;
                 if (it->detached)
