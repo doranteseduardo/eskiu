@@ -28,8 +28,9 @@ These are open in 0.9.3. None of them miscompiles a valid program.
   when a cancelled future is dropped. In a generic async function an `await` is also
   rejected in a `match` arm that binds a payload, after an operand with a side effect in
   the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
-- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so
-  constant-expression checks do not see it (codegen gets its size right).
+- Unnamed bitfields (`uint32 : 3;`, `uint32 : 0;`) are not supported: a field needs a
+  name, and a named `: 0` field is an error. 0.9.2 listed this as a `sizeof` folding gap,
+  but no valid program can contain such a field.
 - The self-hosted compiler generates code for deeply nested binary expressions
   (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
   compiler is linear.
