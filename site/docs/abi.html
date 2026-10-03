@@ -451,7 +451,8 @@ top-level function used as a value is wrapped by a thunk <code>__fnptr_&lt;name&
 keeps its env on the stack (zero cost). An <strong>escaping</strong> closure (returned,
 stored, or passed to an <code>escaping</code> parameter) heap-allocates the env;
 <code>free_closure(f)</code> releases it. The choice is fixed at compile time by escape
-analysis.</p>
+analysis. A closure local of an <code>async</code> function lives in the coroutine frame, so
+its env is on the heap; the frame frees it (see <code>async-design.md</code> §7).</p>
 <p><strong>Interfaces.</strong> An interface value is <code>{ data, vtable }</code>: a pointer to the
 underlying struct plus a pointer to a per-(interface, struct) vtable constant.
 The vtable is an array of function pointers, one per interface method in

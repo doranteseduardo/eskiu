@@ -183,12 +183,25 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>A bitfield typed by a generic struct's type parameter (<code>struct F&lt;T&gt; { T a : 3; }</code>) is
+  checked with each instance's type argument: <code>F&lt;uint8&gt;</code> works in the self-hosted compiler
+  too (it rejected the declaration), and <code>F&lt;float&gt;</code> is an error in the C++ compiler too (it
+  accepted it). Tests <code>bitfield_generic</code>, <code>errors/bitfield_generic_float</code>.</li>
 <li>An <code>int64</code>/<code>uint64</code> bitfield on 32-bit x86 Linux and Darwin (where <code>int64</code> is aligned to
   4) follows clang's layout: it may start at any 4-byte boundary as long as it fits in 8
   bytes from there, and it takes no more storage than the bytes it spans. Before, it was
   placed as if aligned to 8 (<code>struct { uint64 f : 22; }</code> was 8 bytes instead of 4). Both
   compilers; <code>tests/run.sh</code> checks the sizes of <code>tests/run_cmd/bitfield_targets.esk</code>
   against clang's for six targets.</li>
+<li><strong>Closure environments leaked.</strong> A capturing lambda bound to a local of an async
+  function lost its environment (16 bytes or more per call): the local lives in the
+  coroutine frame, so the environment is on the heap, and nothing freed it. The frame now
+  frees it when the function completes or is cancelled, and when the local is bound again
+  (for example once per loop pass). Outside async functions, a lambda bound to a local
+  that is only called now keeps its environment on the stack as documented (it was on the
+  heap and never freed), and the self-hosted compiler also keeps a lambda passed to a
+  non-<code>escaping</code> parameter on the stack (it allocated every capturing lambda on the heap).
+  Both compilers. Tests <code>async_closure_env</code>, <code>closure_local_env</code>.</li>
 <li>Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints <code>a</code>, <code>b</code>, <code>c</code>, <code>d</code>, <code>S</code> and <code>D</code>, with their modifiers (<code>=a</code>, <code>+a</code>, <code>=&amp;d</code>)
   and in combined constraints (<code>Nd</code>). They are translated to LLVM's <code>{ax}</code> form as clang

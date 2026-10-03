@@ -1221,6 +1221,7 @@ add(5);   // 15: 'base' was captured by value
 <ul>
 <li>A <strong>non-escaping</strong> closure (one that is only called, or passed to a parameter that is not marked <code>escaping</code>) has its environment allocated on the <strong>stack</strong>. This costs nothing and needs no cleanup (the common <code>map</code>/<code>filter</code>/callback-invoked-in-place case).</li>
 <li>An <strong>escaping</strong> closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an <code>escaping</code> parameter) has its environment allocated on the <strong>heap</strong>, so it remains valid after the creating function returns. Release it with <code>free_closure(f)</code> (a no-op for non-capturing closures, whose env is null; <code>f</code> must be a closure value).</li>
+<li>In an <code>async</code> function a closure bound to a local lives in the coroutine frame across suspensions, so its environment is on the heap. When the local is only bound to lambdas and otherwise only called, the frame owns it: binding the local again frees the previous environment, and the last one is freed when the async function completes or is cancelled. A local used any other way keeps the escaping rule above.</li>
 </ul>
 <p>A parameter that retains the closure beyond the call (stores it, returns it, hands it to another <code>escaping</code> parameter) must be declared <code>escaping</code>:</p>
 <pre><code class="language-eskiu">// stores cb beyond the call -&gt; the parameter is `escaping`

@@ -40,6 +40,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   placed as if aligned to 8 (`struct { uint64 f : 22; }` was 8 bytes instead of 4). Both
   compilers; `tests/run.sh` checks the sizes of `tests/run_cmd/bitfield_targets.esk`
   against clang's for six targets.
+- **Closure environments leaked.** A capturing lambda bound to a local of an async
+  function lost its environment (16 bytes or more per call): the local lives in the
+  coroutine frame, so the environment is on the heap, and nothing freed it. The frame now
+  frees it when the function completes or is cancelled, and when the local is bound again
+  (for example once per loop pass). Outside async functions, a lambda bound to a local
+  that is only called now keeps its environment on the stack as documented (it was on the
+  heap and never freed), and the self-hosted compiler also keeps a lambda passed to a
+  non-`escaping` parameter on the stack (it allocated every capturing lambda on the heap).
+  Both compilers. Tests `async_closure_env`, `closure_local_env`.
 - Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
   and in combined constraints (`Nd`). They are translated to LLVM's `{ax}` form as clang

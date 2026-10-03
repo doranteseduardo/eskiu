@@ -252,7 +252,8 @@ A **non-escaping** closure (only called or passed to a non-`escaping` parameter)
 keeps its env on the stack (zero cost). An **escaping** closure (returned,
 stored, or passed to an `escaping` parameter) heap-allocates the env;
 `free_closure(f)` releases it. The choice is fixed at compile time by escape
-analysis.
+analysis. A closure local of an `async` function lives in the coroutine frame, so
+its env is on the heap; the frame frees it (see `async-design.md` §7).
 
 **Interfaces.** An interface value is `{ data, vtable }`: a pointer to the
 underlying struct plus a pointer to a per-(interface, struct) vtable constant.

@@ -406,6 +406,20 @@ A future created but never awaited, handed to a combinator or `spawn`, or droppe
 leaks: the caller owns it and must release it (`future_drop`, or `spawn` for a
 detached task). The transform does not insert an implicit drop.
 
+**Closure locals.** Every local is a frame field, so a lambda bound to a local gets a heap
+env: the closure must survive a suspension. The frame owns that env when the local is only
+ever bound to lambda literals (its initializer, or a statement `f = <lambda>`) and is
+otherwise only called, never named inside another lambda (`OwnedClosureScan` /
+`al_owned_closures`). Each binding first frees the env the field held (the field starts
+zeroed, and `free_closure` of a null env does nothing), so a loop that binds it on every
+pass keeps one env alive. The last one is freed when the frame finishes, by the block that
+also releases unthrown exception copies (`excFree` / `al_exc_free`): it runs before the
+completion is published, at the end of a cancellation's cleanup (detached or not), and
+from `on_drop` when the future is parked where no cleanup is pending. A closure local used
+any other way (copied, passed on, captured) keeps the escaping rule: whoever ends up
+holding it frees it with `free_closure`. A lambda passed straight to a non-`escaping`
+parameter of a plain function keeps a stack env, since the call ends within one resume.
+
 **Cascade.** Dropping a suspended coroutine drops `frame.awaiting` first, recursively,
 then frees the frame: a whole await-chain torn down by dropping its head. The
 combinators take part: an unresolved `select2`/`join2` (and `select2v`/`join2v`) has an

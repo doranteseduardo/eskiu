@@ -956,6 +956,7 @@ Under the hood, `fn(T)->R` is a two-word fat pointer `{fn_ptr, env_ptr}`. When a
 
 - A **non-escaping** closure (one that is only called, or passed to a parameter that is not marked `escaping`) has its environment allocated on the **stack**. This costs nothing and needs no cleanup (the common `map`/`filter`/callback-invoked-in-place case).
 - An **escaping** closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an `escaping` parameter) has its environment allocated on the **heap**, so it remains valid after the creating function returns. Release it with `free_closure(f)` (a no-op for non-capturing closures, whose env is null; `f` must be a closure value).
+- In an `async` function a closure bound to a local lives in the coroutine frame across suspensions, so its environment is on the heap. When the local is only bound to lambdas and otherwise only called, the frame owns it: binding the local again frees the previous environment, and the last one is freed when the async function completes or is cancelled. A local used any other way keeps the escaping rule above.
 
 A parameter that retains the closure beyond the call (stores it, returns it, hands it to another `escaping` parameter) must be declared `escaping`:
 
