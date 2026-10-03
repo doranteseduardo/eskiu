@@ -239,8 +239,8 @@ Eskiu object against hard-float libctru.</p>
 declaring it <code>extern</code>. In the other direction, a struct passed to or returned from an
 <code>extern</code> C function by value follows the target's C calling convention (AArch64, x86-64
 System V, Windows x64, 32-bit ARM including the hard-float HFA rules, and 32-bit x86); see
-<a href="abi.html"><code>abi.md</code></a>. The self-hosted compiler forwards <code>--mcpu</code> but not <code>--mattr</code>/<code>--reloc</code>,
-so 3DS builds use the C++ <code>eskiuc</code>.</p>
+<a href="abi.html"><code>abi.md</code></a>. The self-hosted compiler passes <code>--mcpu</code>, <code>--mattr</code> and <code>--reloc</code> on to
+clang, which assembles its IR, so it builds for these targets too.</p>
 <h2 id="example-windows-x86-64">Example: Windows (x86-64)</h2>
 <p>The x86 backend emits COFF objects for a Windows triple with no extra flags; LLVM lowers
 the Microsoft x64 calling convention (first integer arguments in <code>rcx</code>/<code>rdx</code>/<code>r8</code>/<code>r9</code>)

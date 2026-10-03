@@ -86,7 +86,7 @@ void push_words(List<string>* args, string cmd) {
 }
 
 // Options that take a value (`-o out`, `--target T`, or `--target=T`). The self-host
-// driver implements -o/--target/--mcpu/--link-arg/-l/-L; the rest are C++-only.
+// driver implements -o/--target/--mcpu/--mattr/--reloc/--link-arg/-l/-L; the rest are C++-only.
 int is_value_opt(string o) {
     if (cg_streq(o, "-o") == 1 || cg_streq(o, "-l") == 1 || cg_streq(o, "-L") == 1) { return 1; }
     if (cg_streq(o, "-O") == 1) { return 1; }                          // `-O 2`, like `-O2`
@@ -294,6 +294,8 @@ int esk_main(int argc, string* argv) {
     int freestanding = 0;    // --freestanding: no libc; object only (link it yourself)
     string triple = "";      // --target TRIPLE (passed to clang; picks the OS macro)
     string mcpu = "";        // --mcpu CPU
+    string mattr = "";       // --mattr +f,-g: target features, passed to clang
+    string reloc = "";       // --reloc MODEL: relocation model, passed to clang
     string optflag = "";     // -O0..-O3 (clang optimizes the emitted IR)
     List<string> linkx;      // -l / -L / --link-arg, forwarded to the link
     List_init<string>(&linkx, 4);
@@ -343,6 +345,15 @@ int esk_main(int argc, string* argv) {
         if (cg_streq(opt, "-o") == 1) { outfile = val; }
         else if (cg_streq(opt, "--target") == 1 || cg_streq(opt, "-target") == 1) { triple = val; }
         else if (cg_streq(opt, "--mcpu") == 1 || cg_streq(opt, "-mcpu") == 1) { mcpu = val; }
+        else if (cg_streq(opt, "--mattr") == 1 || cg_streq(opt, "-mattr") == 1) { mattr = val; }
+        else if (cg_streq(opt, "--reloc") == 1 || cg_streq(opt, "-reloc") == 1) {
+            if (cg_streq(val, "static") == 0 && cg_streq(val, "pic") == 0 && cg_streq(val, "dynamic-no-pic") == 0
+                && cg_streq(val, "ropi") == 0 && cg_streq(val, "rwpi") == 0 && cg_streq(val, "ropi-rwpi") == 0) {
+                eprint("error: invalid --reloc '"); eprint(val); eprint("' (use static, pic, dynamic-no-pic, ropi, rwpi or ropi-rwpi)\n");
+                return 1;
+            }
+            reloc = val;
+        }
         else if (cg_streq(opt, "--link-arg") == 1 || cg_streq(opt, "-link-arg") == 1) { List_push<string>(&linkx, val); }
         else if (cg_streq(opt, "-l") == 1) { List_push<string>(&linkx, cg_cat("-l", val)); List_push<string>(&linked, val); }
         else if (cg_streq(opt, "-L") == 1) { List_push<string>(&linkx, cg_cat("-L", val)); }
@@ -539,6 +550,7 @@ int esk_main(int argc, string* argv) {
     cg_init(&g);
     cg_set_target(&g, triple);         // the C ABI (and pointer size) follow --target
     g.safe = safe;                     // --safe → emit runtime bounds checks
+    g.freestanding = freestanding;     // closure envs on esk_alloc/esk_free
     cg_program(&g, prog);
     // No -o writes the object <input>.o, like the C++ driver (it links only with -o).
     if (outfile == null && runmode == 0 && cg_streq(mode, "--test-codegen") == 0) {
@@ -592,6 +604,25 @@ int esk_main(int argc, string* argv) {
     List_push<string>(&cargs, "-Wno-override-module");
     if (triple[0] != 0) { List_push<string>(&cargs, "-target"); List_push<string>(&cargs, triple); }
     if (mcpu[0] != 0) { List_push<string>(&cargs, cg_cat("-mcpu=", mcpu)); }
+    // --mattr: each comma-separated feature goes to clang's backend (clang ignores -m
+    // flags for a .ll input, but -target-feature reaches it).
+    int mi = 0;
+    while (mattr[mi] != 0) {
+        int me = mi;
+        while (mattr[me] != 0 && (int)mattr[me] != 44) { me = me + 1; }
+        if (me > mi) {
+            List_push<string>(&cargs, "-Xclang"); List_push<string>(&cargs, "-target-feature");
+            List_push<string>(&cargs, "-Xclang"); List_push<string>(&cargs, str_after(str_prefix(mattr, me), mi));
+        }
+        mi = me;
+        if (mattr[mi] != 0) { mi = mi + 1; }
+    }
+    if (cg_streq(reloc, "static") == 1) { List_push<string>(&cargs, "-fno-pic"); }
+    else if (cg_streq(reloc, "pic") == 1) { List_push<string>(&cargs, "-fPIC"); }
+    else if (cg_streq(reloc, "dynamic-no-pic") == 1) { List_push<string>(&cargs, "-mdynamic-no-pic"); }
+    else if (cg_streq(reloc, "ropi") == 1) { List_push<string>(&cargs, "-fropi"); }
+    else if (cg_streq(reloc, "rwpi") == 1) { List_push<string>(&cargs, "-frwpi"); }
+    else if (cg_streq(reloc, "ropi-rwpi") == 1) { List_push<string>(&cargs, "-fropi"); List_push<string>(&cargs, "-frwpi"); }
     if (optflag[0] != 0) { List_push<string>(&cargs, optflag); }
     if (want_obj == 1) { List_push<string>(&cargs, "-c"); }
     List_push<string>(&cargs, tmp);

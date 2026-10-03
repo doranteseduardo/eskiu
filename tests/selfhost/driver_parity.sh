@@ -235,10 +235,22 @@ for drv in "$BIN" "$ESKMAIN"; do
     rm -f "$WORK/fs.o"
     ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/freestanding_no_builtins.esk --freestanding \
         --target aarch64-unknown-none-elf -O2 -c -o "$WORK/fs.o" >/dev/null 2>&1 || fsok=0
-    { [ -s "$WORK/fs.o" ] && ! grep -aqE 'memset|memcpy|memmove' "$WORK/fs.o"; } || fsok=0
+    { [ -s "$WORK/fs.o" ] && ! grep -aqE 'memset|memcpy|memmove|malloc' "$WORK/fs.o"; } || fsok=0
 done
 if [ "$fsok" -eq 1 ]; then echo "ok    freestanding-no-builtins"
 else echo "FAIL  freestanding-no-builtins  (an object references memset/memcpy)"; fail=1; fi
+
+# --mattr reaches the backend in both drivers: without FP, a double multiply is a call.
+total=$((total + 1))
+maok=1
+for drv in "$BIN" "$ESKMAIN"; do
+    rm -f "$WORK/ma.o"
+    ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/mattr_softfloat.esk --freestanding --target aarch64-unknown-none-elf \
+        --mattr=-fp-armv8,-neon -O2 -c -o "$WORK/ma.o" >/dev/null 2>&1 || maok=0
+    { [ -s "$WORK/ma.o" ] && grep -aq '__muldf3' "$WORK/ma.o"; } || maok=0
+done
+if [ "$maok" -eq 1 ]; then echo "ok    mattr-softfloat"
+else echo "FAIL  mattr-softfloat  (--mattr did not reach the backend)"; fail=1; fi
 
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "driver parity: $total/$total programs match"; else echo "driver parity: MISMATCH"; fi

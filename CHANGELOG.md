@@ -16,6 +16,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. `make check` types a shell session into it and boots both an `-O0` and an `-O2` build.
 
 ### Fixed
+- Under `--freestanding`, the environment of an escaping closure is allocated with the
+  program's `esk_alloc` and `free_closure` releases it with `esk_free`, the pair `<mem>`
+  uses there; before, they called libc's `malloc` and `free`. Both compilers.
+- The self-hosted driver accepts `--mattr` and `--reloc` (it rejected them) and passes them
+  to clang, so it builds for targets like the Nintendo 3DS or a soft-float kernel.
 - `--freestanding` builds never call `memset`, `memcpy` or other C library functions the
   program did not call itself: as with clang `-ffreestanding`, every function is marked
   `"no-builtins"` and the optimizer assumes no C library, so a byte loop stays a loop at
