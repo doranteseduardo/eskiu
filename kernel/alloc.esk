@@ -38,3 +38,9 @@ int64 heap_size() {
 
 // A bump allocator releases everything at once (Bump_reset), so one free is a no-op.
 void esk_free(*void p) {}
+
+// The compiler allocates the environment of an escaping closure with `malloc`, even
+// under --freestanding, so the kernel provides one.
+*void malloc(int64 size) {
+    return esk_alloc(size);
+}

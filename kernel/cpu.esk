@@ -30,6 +30,17 @@ void cpu_irq_disable() {
     asm("msr daifset, #2" ::: "memory");
 }
 
+// Masks IRQs and returns the previous DAIF, for cpu_irq_restore.
+int64 cpu_irq_save() {
+    int64 daif = 0;
+    asm("mrs $0, DAIF\n\tmsr daifset, #2" : "=r"(daif) : : "memory");
+    return daif;
+}
+
+void cpu_irq_restore(int64 daif) {
+    asm("msr DAIF, $0" :: "r"(daif) : "memory");
+}
+
 void cpu_wait() {
     asm("wfi" ::: "memory");
 }

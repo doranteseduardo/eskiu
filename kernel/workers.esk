@@ -1,0 +1,29 @@
+// workers.esk: the tasks kernel_main starts
+
+// A task that prints `rounds` lines and yields after each. The closure captures
+// `name` and `rounds`; task_spawn takes it as `escaping`, so its environment lives
+// on the heap.
+fn()->void counter(string name, int64 rounds) {
+    return void() {
+        for (i in 1..rounds + 1) {
+            uart_puts(name);
+            uart_puts(": round ");
+            uart_putdec(i);
+            uart_puts(" of ");
+            uart_putdec(rounds);
+            uart_puts("\r\n");
+            yield();
+        }
+    };
+}
+
+// Busy for a few seconds and never yields: only the timer can take the CPU back.
+const int64 SPIN_SECONDS = 3;
+volatile int64 spins;
+
+void spin() {
+    const int64 until = ticks + SPIN_SECONDS * TICK_HZ;
+    while (ticks < until) {
+        spins++;
+    }
+}
