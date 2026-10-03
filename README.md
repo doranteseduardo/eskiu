@@ -92,7 +92,7 @@ Installing a release needs no toolchain, but building the compiler does:
 | [QUICKSTART.md](QUICKSTART.md) | Build and run your first program in 5 minutes |
 | [docs/lang/getting-started.md](docs/lang/getting-started.md) | Language tutorial |
 | [docs/lang/spec.md](docs/lang/spec.md) | Full language reference |
-| [docs/dev/phases.md](docs/dev/phases.md) | Feature status and roadmap |
+| [docs/dev/phases.md](docs/dev/phases.md) | Roadmap |
 
 ## Licence
 

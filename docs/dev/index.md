@@ -36,7 +36,7 @@ Each test mode exits 0 on success and prints a human-readable dump to stdout. A 
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | [`architecture.md`](architecture.md)   | Pipeline stages, AST node hierarchy, visitor pattern, type mappings (Eskiu → LLVM)             |
 | [`abi.md`](abi.md)            | Type lowering, calling convention (sret, varargs), fat pointers, name mangling: the C-ABI contract |
-| [`phases.md`](phases.md)         | Current language status, feature table, and roadmap (v0.1 → v0.2.x hardening → v0.3.x self-hosting → v0.4 correctness → v0.5 basic-C → v0.6 memory-safety → v1.0)  |
+| [`phases.md`](phases.md)         | Where the project stands, release history, and the road to 1.0 |
 | [`self-hosting.md`](self-hosting.md) | How the compiler is written in Eskiu (`selfhost/`) and how parity/bootstrap keep it honest |
 | [`cross-compile.md`](cross-compile.md) | Cross-compiling with `--target`/`--mcpu`/`--mattr`/`--reloc`; hard-float ARM + 3DS `.3dsx`, and Windows x86-64 COFF/PE |
 | [`contributing.md`](contributing.md)   | Branch workflow, code style, commit conventions, testing checklist                             |
@@ -55,7 +55,7 @@ All compiler phases and editor tooling are complete and tested end-to-end. The l
 
 As of v0.3.0 the compiler is also **self-hosted**: the whole pipeline is reimplemented in Eskiu under `selfhost/`, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see [`self-hosting.md`](self-hosting.md)). The self-hosting **promotion** is now complete (`selfhost/PROMOTION_PLAN.md`): the Eskiu-written compiler is behaviorally equivalent to the C++ one over the whole corpus (CI-gated) and dual-built as `eskiuc-esk`, with the C++ binary staying the shipped artifact. Release history is in the [changelog](../../CHANGELOG.md); the feature table and roadmap are in [`phases.md`](phases.md).
 
-The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`). See `phases.md` for the full feature table and roadmap.
+The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (`--hover-at`, `--definition-at`). See `phases.md` for the roadmap.
 
 ---
 
