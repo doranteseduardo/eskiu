@@ -4,8 +4,9 @@
 // `volatile` pointer, so the compiler emits each load and store exactly once and in
 // program order, which is what a device register needs.
 //
-//   UARTDR  base + 0x00  data register: writing a byte transmits it
-//   UARTFR  base + 0x18  flag register: TXFF (bit 5) is set while the TX FIFO is full
+//   UARTDR  base + 0x00  data register: writing transmits a byte, reading receives one
+//   UARTFR  base + 0x18  flag register: TXFF (bit 5) is set while the TX FIFO is full,
+//                        RXFE (bit 4) while there is nothing to read
 
 const int64 UART0_BASE = 0x09000000;
 const int64 UART_DR    = UART0_BASE + 0x00;
@@ -30,6 +31,20 @@ void uart_putc(int c) {
     volatile let dr: *uint32 = (*uint32)UART_DR;
     while (fr.txff) {}        // wait for room in the TX FIFO
     *dr = (uint32)c;
+}
+
+bool uart_has_input() {
+    volatile let fr: *UartFlags = (*UartFlags)UART_FR;
+    return !fr.rxfe;
+}
+
+// Waits for a byte. The core sleeps between interrupts rather than spinning.
+int uart_getc() {
+    volatile let dr: *uint32 = (*uint32)UART_DR;
+    while (!uart_has_input()) {
+        cpu_wait();
+    }
+    return (int)(*dr & 0xFF);
 }
 
 void uart_puts(string s) {

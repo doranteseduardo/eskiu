@@ -19,6 +19,10 @@ int64 heap_used() {
     return heap.off;
 }
 
+int64 heap_size() {
+    return heap.cap;
+}
+
 // <mem>'s contract is zeroed memory. A byte loop rather than memset, since no C
 // library is linked.
 *void esk_alloc(int64 size) {
