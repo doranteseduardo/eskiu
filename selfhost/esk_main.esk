@@ -231,6 +231,41 @@ int run_fmt(List<string>* files, int check) {
     return 0;
 }
 
+// --freestanding: mark every function "no-builtins", as clang -ffreestanding does, so the
+// optimizer never turns a loop into a call to memset/memcpy that no libc provides. clang
+// ignores -fno-builtin for a .ll input, so the attribute goes on each `define` line,
+// before its personality clause or the opening brace.
+string ir_no_builtins(string ir) {
+    let out: String;
+    String_init(&out, 8192);
+    int i = 0;
+    while (ir[i] != 0) {
+        int e = i;
+        while (ir[e] != 0 && ir[e] != 10) { e = e + 1; }
+        int at = -1;
+        if (e - i > 7 && ir[i] == 100 && ir[i+1] == 101 && ir[i+2] == 102 && ir[i+3] == 105
+            && ir[i+4] == 110 && ir[i+5] == 101 && ir[i+6] == 32 && ir[e-1] == 123) {      // "define " ... "{"
+            int k = i;
+            while (k + 13 <= e && at < 0) {                                              // " personality "
+                if (ir[k] == 32 && ir[k+1] == 112 && ir[k+2] == 101 && ir[k+3] == 114 && ir[k+4] == 115
+                    && ir[k+5] == 111 && ir[k+6] == 110 && ir[k+7] == 97 && ir[k+8] == 108
+                    && ir[k+9] == 105 && ir[k+10] == 116 && ir[k+11] == 121 && ir[k+12] == 32) { at = k; }
+                k = k + 1;
+            }
+            if (at < 0) { at = e - 2; }                                                   // " {"
+        }
+        int j = i;
+        while (j < e) {
+            if (j == at) { String_append(&out, " \"no-builtins\""); }
+            String_push(&out, ir[j]);
+            j = j + 1;
+        }
+        if (ir[e] == 10) { String_push(&out, (char)10); e = e + 1; }
+        i = e;
+    }
+    return (string)String_cstr(&out);
+}
+
 int esk_main(int argc, string* argv) {
     // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
     // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
@@ -511,6 +546,10 @@ int esk_main(int argc, string* argv) {
     }
     if (cg_streq(mode, "--test-codegen") == 1) {
         // --test-codegen: emit the .ll to stdout (the bootstrap harness pipes it to clang).
+        if (freestanding == 1) {
+            printf("%s\n%s", ir_no_builtins((string)String_cstr(&g.globals)), ir_no_builtins((string)String_cstr(&g.out)));
+            return 0;
+        }
         printf("%s", (string)String_cstr(&g.globals));   // declares + string constants
         printf("\n");
         printf("%s", (string)String_cstr(&g.out));        // function definitions
@@ -524,8 +563,12 @@ int esk_main(int argc, string* argv) {
     String_append(&ir, (string)String_cstr(&g.globals));
     String_append(&ir, "\n");
     String_append(&ir, (string)String_cstr(&g.out));
+    string irtext = (string)String_cstr(&ir);
+    if (freestanding == 1) { irtext = ir_no_builtins(irtext); }
     string tmp = temp_ll_path();
-    if (tmp == null || fs_write_all(tmp, (*uint8)String_cstr(&ir), String_len(&ir)) == 0) {
+    int64 irlen = 0;
+    while (irtext[irlen] != 0) { irlen = irlen + 1; }
+    if (tmp == null || fs_write_all(tmp, (*uint8)irtext, irlen) == 0) {
         eprint("error: cannot write temporary IR\n");
         return 1;
     }

@@ -228,6 +228,18 @@ for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc 
 done
 libcheck "no-default-libs" --no-default-libs tests/exceptions.esk
 
+# --freestanding -O2: neither driver may turn a byte loop into a memset/memcpy call.
+total=$((total + 1))
+fsok=1
+for drv in "$BIN" "$ESKMAIN"; do
+    rm -f "$WORK/fs.o"
+    ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/freestanding_no_builtins.esk --freestanding \
+        --target aarch64-unknown-none-elf -O2 -c -o "$WORK/fs.o" >/dev/null 2>&1 || fsok=0
+    { [ -s "$WORK/fs.o" ] && ! grep -aqE 'memset|memcpy|memmove' "$WORK/fs.o"; } || fsok=0
+done
+if [ "$fsok" -eq 1 ]; then echo "ok    freestanding-no-builtins"
+else echo "FAIL  freestanding-no-builtins  (an object references memset/memcpy)"; fail=1; fi
+
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "driver parity: $total/$total programs match"; else echo "driver parity: MISMATCH"; fi
 exit "$fail"

@@ -268,6 +268,7 @@ static int testCodegen(const std::string& filename) {
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
         if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
+        codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.optLevel = OptLevel;
         llvm::Module* module = codegen.generateCode(program);
@@ -494,6 +495,7 @@ static int compilerMain(int argc, char** argv) {
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
         if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
+        codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.asan = Asan;
         codegen.ubsan = Ubsan;

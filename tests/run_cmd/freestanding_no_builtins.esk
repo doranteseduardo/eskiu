@@ -1,0 +1,11 @@
+// Under --freestanding there is no libc: at -O2 this zeroing loop must stay a loop, not
+// become a call to memset (clang -ffreestanding marks functions "no-builtins").
+void zero(*uint8 p, int64 n) {
+    int64 i = 0;
+    while (i < n) { p[i] = 0; i = i + 1; }
+}
+
+void copy(*uint8 d, *uint8 s, int64 n) {
+    int64 i = 0;
+    while (i < n) { d[i] = s[i]; i = i + 1; }
+}

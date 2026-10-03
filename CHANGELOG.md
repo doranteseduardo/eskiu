@@ -14,6 +14,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 - The bare-metal ARM64 kernel in `kernel/` uses current Eskiu: a `volatile` PL011 driver, `.bss` cleared through `extern` linker symbols, the stdlib `Bump` heap, system registers read with inline-asm outputs, and a PSCI power off at the end. `make -C kernel check` boots it in QEMU and checks its output, and CI runs it on Linux.
 
+### Fixed
+- `--freestanding` builds never call `memset`, `memcpy` or other C library functions the
+  program did not call itself: as with clang `-ffreestanding`, every function is marked
+  `"no-builtins"` and the optimizer assumes no C library, so a byte loop stays a loop at
+  `-O2` instead of becoming a call that fails to link without libc. Both compilers.
+
 ---
 
 ## [0.9.3] - 2026-10-02

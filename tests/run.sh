@@ -389,6 +389,16 @@ else
     bad "cli/file-macro-escape" "__FILE__ for '$qdir/f.esk' is not the path"
 fi
 
+# --freestanding at -O2 keeps byte loops as loops: no memset/memcpy call that no libc
+# provides. The same loops in a hosted build may become those calls.
+fs_obj="$work/fs_nb.o"
+if "$ESKIUC" "$here/run_cmd/freestanding_no_builtins.esk" --freestanding --target aarch64-unknown-none-elf \
+       -O2 -c -o "$fs_obj" >/dev/null 2>&1 && [[ -s "$fs_obj" ]] && ! grep -aqE 'memset|memcpy|memmove' "$fs_obj"; then
+    ok "codegen/freestanding-no-builtins"
+else
+    bad "codegen/freestanding-no-builtins" "a freestanding -O2 object references memset/memcpy"
+fi
+
 # An output named .obj is an object file (Windows spelling), not an executable to link.
 printf 'int main() { return 0; }\n' > "$work/obj.esk"
 if "$ESKIUC" "$work/obj.esk" -o "$work/obj.obj" >/dev/null 2>&1 && [[ -s "$work/obj.obj" ]] \
