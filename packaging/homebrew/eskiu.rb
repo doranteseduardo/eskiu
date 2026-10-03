@@ -5,24 +5,24 @@
 class Eskiu < Formula
   desc "Self-hosting systems language with a C-style surface and an LLVM backend"
   homepage "https://eskiu-lang.org"
-  version "0.9.2"
+  version "0.9.3"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.2/eskiuc-macos-arm64.tar.gz"
-      sha256 "2a8a5c128b0b9a0a5fe22d74cf5e9ab474959226c70937692cfc11bf90b07cc5"
+      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.3/eskiuc-macos-arm64.tar.gz"
+      sha256 "8eb0216c7aca4d347388227479e5f1e36e1fc03e4fe88592536b4e84d266c6d0"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.2/eskiuc-linux-x86_64.tar.gz"
-      sha256 "46316ce1553489045aec1cf9fbc432f551cda4850b90d200a7b4c73bc835e8ec"
+      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.3/eskiuc-linux-x86_64.tar.gz"
+      sha256 "b5216cc8118a6caf06ec540b8663c2aa94efeb4a99158a74b05928f8e0d304a1"
     end
     on_arm do
-      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.2/eskiuc-linux-arm64.tar.gz"
-      sha256 "0df564e04c9f36631a6e3c2da7cb033b67db3ddfdc7f235076d729b1a16f44cd"
+      url "https://github.com/doranteseduardo/eskiu/releases/download/v0.9.3/eskiuc-linux-arm64.tar.gz"
+      sha256 "0ced81adde0215673eb98852f327137598aa6c44f84a285e24a93af2643860bc"
     end
   end
 
