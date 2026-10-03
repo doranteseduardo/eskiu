@@ -116,5 +116,6 @@ clang --target=aarch64-unknown-none-elf -c boot.s -o boot.o
 ld.lld -T linker.ld -nostdlib -static -o kernel.elf boot.o kernel.o
 ```
 
-The kernel is built at the default `-O0`. At `-O2` LLVM turns the byte-clearing loops
-into `memset` calls, which this libc-free link does not provide.
+`make` builds at `-O0`; `make OPT=2` builds at `-O2`, and `make check` boots both.
+The kernel is compiled with `--mattr=-fp-armv8,-neon` so that no FP/SIMD register is
+used: the exception entry code then only has to save the general registers.

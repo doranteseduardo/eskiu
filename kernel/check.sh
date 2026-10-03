@@ -5,7 +5,7 @@
 # catches a hang.
 
 QEMU=${QEMU:-qemu-system-aarch64}
-QEMU_FLAGS=${QEMU_FLAGS:-"-M virt,gic-version=2 -cpu cortex-a57 -nographic -kernel kernel.elf"}
+QEMU_FLAGS=${QEMU_FLAGS:-"-M virt,gic-version=2 -cpu cortex-a57 -nographic -kernel kernel-O0.elf"}
 TIMEOUT=${TIMEOUT:-30}
 
 out=$(mktemp)
