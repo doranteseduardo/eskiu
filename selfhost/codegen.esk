@@ -5275,9 +5275,9 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
 
     if (e.kind == EK_LAMBDA) {
         // Free-variable analysis: capture the enclosing locals the body references (not its
-        // own params). The env is stack-allocated here (valid for non-escaping closures —
-        // the common apply/map case; an escaping closure's env would dangle). Build a fat
-        // pointer { @lambdaN, env } and queue the body for emission.
+        // own params). The env is on the stack when sema proved the closure does not outlive
+        // the call, else on the heap. Build a fat pointer { @lambdaN, env } and queue the body
+        // for emission.
         string lname = cg_cat("__lambda", cg_itoa(g.lam_seq));
         g.lam_seq = g.lam_seq + 1;
         List<string> pp; List_init<string>(&pp, 4); cg_paren_list(e.sval, &pp);
@@ -5313,16 +5313,23 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         int nc = List_len<string>(&capn);
         if (nc > 0) {
             string envty = cg_env_lltype(g, &capt);
-            // Heap-allocate the env: a closure may escape (be stored/returned and called after
-            // this frame returns — e.g. an event-loop callback), so the env must outlive the
-            // frame. (Sound default; non-escaping closures leak the env — acceptable for now.)
-            g.uses_heap_env = 1;
-            string szg = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, szg); cg_emit(g, " = getelementptr "); cg_emit(g, envty); cg_emit(g, ", ptr null, i32 1\n");
-            string szi = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, szi); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, szg); cg_emit(g, " to i64\n");
-            env = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @malloc(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
+            if (e.stack_env == 1) {
+                // Sema proved the closure does not outlive this call (an argument to a
+                // non-escaping param, or a local that is only called): the env is a stack slot.
+                env = cg_entry_alloca(g, envty);
+            } else {
+                // Heap-allocate the env: the closure may escape (be stored/returned and called
+                // after this frame returns, e.g. an event-loop callback), so the env must outlive
+                // the frame. Its owner frees it with free_closure (an async frame frees its
+                // closure locals itself).
+                g.uses_heap_env = 1;
+                string szg = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, szg); cg_emit(g, " = getelementptr "); cg_emit(g, envty); cg_emit(g, ", ptr null, i32 1\n");
+                string szi = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, szi); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, szg); cg_emit(g, " to i64\n");
+                env = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @malloc(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
+            }
             int j = 0;
             while (j < nc) {
                 CgLocal l = cg_find_local(g, List_get<string>(&capn, j));

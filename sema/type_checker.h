@@ -321,6 +321,11 @@ private:
     // Lambdas bound to a local (`let w = lambda`) and the locals used beyond a call.
     std::map<LambdaExpr*, std::string> lambdaLocal;
     std::set<std::string> lambdaLocals, escapedLambdaLocals;
+    // (lambda, lambda-bound local it captures): the local escapes if the lambda outlives the call.
+    std::vector<std::pair<LambdaExpr*, std::string>> localCaptures;
+    // Lambdas bound to a local of an async body: the local becomes a frame field, so the
+    // env must outlive a suspension (heap; the async lowering frees it with the frame).
+    std::set<LambdaExpr*> asyncLocalLambdas;
     std::string calleeContext;
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;

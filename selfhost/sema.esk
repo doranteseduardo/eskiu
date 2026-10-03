@@ -86,6 +86,13 @@ struct Sema {
     List<string> wlocals_esc;    // those used beyond a direct call
     List<string> cap_param;      // a watched param captured by a lambda bound to a local ...
     List<string> cap_local;      // ... and that local: the param escapes if the local does
+    int lam_arg_stack;           // the lambda about to be checked is an argument to a non-escaping param of a non-async fn
+    List<*ExprNode> lam_nodes;   // per enclosing lambda: its node
+    List<*ExprNode> wlam;        // lambdas bound to a local (parallel: the local, 1 if in an async body)
+    List<string> wlam_name;
+    List<int> wlam_async;
+    List<*ExprNode> lcap_lam;    // a lambda capturing a lambda-bound local ...
+    List<string> lcap_name;      // ... and that local: the local escapes if the lambda outlives the call
     List<string> narrowed;  // `?*T` vars proven non-null in the current branch (`if (x != null)`)
     List<string> loop_lbls; // enclosing loop labels ("" for unlabeled), for labeled break/continue
     int sw_depth;           // enclosing switches (a bare `break` may exit one)
@@ -483,6 +490,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.loop_lbls, 4);
     List_init<int>(&s.lam_bounds, 4);
     List_init<int>(&s.lam_esc, 4);
+    List_init<*ExprNode>(&s.lam_nodes, 4);
     List_init<string>(&s.lam_local_of, 4);
     s.lam_local = "";
     s.callee_ctx = "";
@@ -4624,6 +4632,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             && sema_in_list(&s.wlocals_esc, e.sval) == 0) {
             List_push<string>(&s.wlocals_esc, e.sval);
         }
+        if (sema_in_list(&s.wlocals, e.sval) == 1) { sema_note_local_capture(s, e.sval); }
         return;
     }
     if (k == EK_SIZEOF && e.a != null) {   // sizeof(expr): checked, never evaluated
@@ -5541,6 +5550,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 int lesc = 0;
                 if (i < List_len<int>(&cfd.param_escaping)) { lesc = List_get<int>(&cfd.param_escaping, i); }
                 if (lesc == 0 && s.in_inst == 0) { s.lam_arg_nonesc = 1; }
+                if (lesc == 0 && s.in_inst == 0 && cfd.is_async == 0) { s.lam_arg_stack = 1; }
             }
             if (fwd == 1) {
                 string pk = s.callee_ctx;
@@ -5692,6 +5702,65 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     }
 }
 
+// A lambda-bound local `name` read inside enclosing lambdas: each lambda it is outer to
+// captures it (mirrors the C++ localCaptures).
+void sema_note_local_capture(Sema* s, string name) {
+    int si = sema_sym_index(s, name);
+    if (si < 0) { return; }
+    int sd = List_get<Sym>(&s.syms, si).depth;
+    int j = 0;
+    while (j < List_len<int>(&s.lam_bounds)) {
+        if (sd <= List_get<int>(&s.lam_bounds, j)) {
+            List_push<*ExprNode>(&s.lcap_lam, List_get<*ExprNode>(&s.lam_nodes, j));
+            List_push<string>(&s.lcap_name, name);
+        }
+        j = j + 1;
+    }
+}
+
+// Does lambda `l` outlive its creating call? Not when its env is already on the stack, nor
+// when it is bound to a local only called outside an async body.
+int sema_lam_outlives(Sema* s, *ExprNode l) {
+    if (l.stack_env == 1) { return 0; }
+    int i = 0;
+    while (i < List_len<*ExprNode>(&s.wlam)) {
+        if (List_get<*ExprNode>(&s.wlam, i) == l) {
+            if (List_get<int>(&s.wlam_async, i) == 1) { return 1; }
+            return sema_in_list(&s.wlocals_esc, List_get<string>(&s.wlam_name, i));
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// At the end of a function: a lambda bound to a local that is only called gets its env on
+// the stack. The local escapes when it is used beyond a call or captured by a lambda that
+// outlives the call. A local of an async body keeps a heap env: it lives in the frame
+// across suspensions, and the async lowering frees it with the frame.
+void sema_stack_envs(Sema* s) {
+    int changed = 1;
+    while (changed == 1) {
+        changed = 0;
+        int i = 0;
+        while (i < List_len<string>(&s.lcap_name)) {
+            string nm = List_get<string>(&s.lcap_name, i);
+            if (sema_in_list(&s.wlocals_esc, nm) == 0 && sema_lam_outlives(s, List_get<*ExprNode>(&s.lcap_lam, i)) == 1) {
+                List_push<string>(&s.wlocals_esc, nm);
+                changed = 1;
+            }
+            i = i + 1;
+        }
+    }
+    int k = 0;
+    while (k < List_len<*ExprNode>(&s.wlam)) {
+        if (List_get<int>(&s.wlam_async, k) == 0 && sema_in_list(&s.wlocals_esc, List_get<string>(&s.wlam_name, k)) == 0) {
+            *ExprNode wl = List_get<*ExprNode>(&s.wlam, k);
+            wl.stack_env = 1;
+        }
+        k = k + 1;
+    }
+}
+
 // Is `name` (an outer variable) captured by an enclosing lambda that outlives the call?
 int sema_captured_by_escaping(Sema* s, string name) {
     int si = sema_sym_index(s, name);
@@ -5739,6 +5808,11 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_push<int>(&s.lam_bounds, s.depth);
     if (s.lam_arg_nonesc == 1) { List_push<int>(&s.lam_esc, 0); } else { List_push<int>(&s.lam_esc, 1); }
     s.lam_arg_nonesc = 0;
+    // An argument to a non-escaping param of a (non-async) function does not outlive the
+    // call: its env goes on the stack.
+    if (s.lam_arg_stack == 1) { e.stack_env = 1; }
+    s.lam_arg_stack = 0;
+    List_push<*ExprNode>(&s.lam_nodes, e);
     List_push<string>(&s.lam_local_of, s.lam_local);
     s.lam_local = "";
     sema_push(s);
@@ -5760,6 +5834,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     sema_pop(s);
     List_remove<int>(&s.lam_bounds, List_len<int>(&s.lam_bounds) - 1);
     List_remove<int>(&s.lam_esc, List_len<int>(&s.lam_esc) - 1);
+    List_remove<*ExprNode>(&s.lam_nodes, List_len<*ExprNode>(&s.lam_nodes) - 1);
     List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
     s.cur_ret = saved_ret; s.cur_ret_raw = saved_ret_raw; s.in_async = saved_async; s.await_seen = saved_seen;
     s.fin_depth = saved_fin;
@@ -6089,7 +6164,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         s.lam_ret = "";
         s.lam_local = "";
-        if (lam_bound == 1) { List_push<string>(&s.wlocals, st.name); }
+        if (lam_bound == 1) {
+            List_push<string>(&s.wlocals, st.name);
+            List_push<*ExprNode>(&s.wlam, st.expr); List_push<string>(&s.wlam_name, st.name);
+            List_push<int>(&s.wlam_async, s.in_async);
+        }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
         int bad_range = 0;
@@ -7499,6 +7578,9 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.wlocals, 4);
     List_init<string>(&s.wlocals_esc, 4);
+    List_init<*ExprNode>(&s.wlam, 4); List_init<string>(&s.wlam_name, 4); List_init<int>(&s.wlam_async, 4);
+    List_init<*ExprNode>(&s.lcap_lam, 4); List_init<string>(&s.lcap_name, 4);
+    s.lam_arg_stack = 0;
     List_init<string>(&s.cap_param, 4);
     List_init<string>(&s.cap_local, 4);
     List_init<string>(&s.narrowed, 4);
@@ -7552,6 +7634,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: async function '%s' has no `await`\n", s.filename, s.line, s.col, f.name);
     }
+    sema_stack_envs(s);
     int ci = 0;
     while (ci < List_len<string>(&s.cap_param)) {
         if (sema_in_list(&s.wlocals_esc, List_get<string>(&s.cap_local, ci)) == 1

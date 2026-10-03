@@ -1776,6 +1776,7 @@ void TypeChecker::visit(LambdaExpr* node) {
             if (!paramNames.count(name)) {
                 node->captures.push_back({name, type});
                 if (nonEscapingFnParams.count(name)) watchedCaptures.push_back({node, name});
+                if (lambdaLocals.count(name)) localCaptures.push_back({node, name});
             }
         }
     }
