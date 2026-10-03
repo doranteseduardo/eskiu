@@ -2,7 +2,7 @@
 
 Authoritative status reference for Eskiu compiler contributors.
 
-Last updated: 2026-07-04.
+Last updated: 2026-10-02 (v0.9.2).
 
 ---
 
@@ -12,7 +12,7 @@ Eskiu addresses a specific problem: compute-intensive services currently require
 
 The project follows two phases:
 
-**Phase 1: Systems foundation.** A language that covers everything C does: native performance, explicit memory, direct C library access. Validated against real production code. Complete.
+**Phase 1: Systems foundation.** A language that covers everything C does: native performance, explicit memory, direct C library access. Validated on real workloads (a bare-metal kernel, a module inside a C++ rendering engine, a Nintendo 3DS build). Complete.
 
 **Phase 2: Domain specialisation.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language, without giving up general systems capability.
 
@@ -83,7 +83,7 @@ The project follows two phases:
 | Package manager | ❌ |
 | Self-hosting: lexer/parser/preprocessor/sema/codegen all in Eskiu; 3-stage bootstrap fixpoint, codegen feature-complete (v0.3.0, `selfhost/`) | ✅ |
 | Optimization levels: `-O0`/`-O1`/`-O2`/`-O3`; `-O1`+ run the LLVM middle-end before codegen (v0.3.1) | ✅ |
-| `*T[N]` = array of pointers (v0.3.1); no pointer-to-array spelling | ✅ |
+| `*T[N]` = array of pointers (v0.3.1); `&arr` is the pointer to array `T[N]*` (v0.9.2) | ✅ |
 | Incompatible `fn`-type assignments rejected; libc `size_t` externs use `int64` (v0.3.1) | ✅ |
 | `-O0`-vs-`-O2` behavioral differential CI gate (`tests/opt_differential.sh`) (v0.3.1) | ✅ |
 
@@ -91,16 +91,10 @@ The project follows two phases:
 
 ## Foundation milestone: COMPLETE
 
-Compiler foundation proved on a real production workload: a cryptographic pipeline (AES-256-CBC + RSA-8192 decryption, QR extraction, structured output) running entirely in Eskiu.
-
-| Stage | Eskiu | Reference C |
-|-------|-------|-------------|
-| QR extraction | 71.7 ms | 185.5 ms |
-| Crypto (AES+RSA) | 2.8 ms | 2.9 ms |
-| Output decode | < 1 ms | 0.5 ms |
-| **Total** | **74.4 ms** | **188.9 ms** |
-
-2.5× faster than the reference C implementation.
+The compiler foundation was proved on real workloads: an ARM64 kernel that boots in QEMU
+with no libc (`kernel/`), a memory-tight module inside the ViroCore C++ rendering engine,
+and a cross-compiled Nintendo 3DS build verified on device (see the case studies on the
+site). The compiler itself, written in Eskiu, is the largest program in the language.
 
 ---
 
@@ -258,7 +252,7 @@ feature edges) across the C++ and self-hosted compilers, plus a tighter type sys
 - [x] Type strictness: floating-point→integer needs an explicit cast (integer/float-width narrowing stays implicit, C-style); out-of-range integer literal, division/remainder by a literal zero, and a proven-out-of-bounds constant array index are errors.
 - [x] Flow analysis: reading an uninitialized scalar local, returning the address of a local (dangling), a function redefinition, and falling off the end of a non-void function are errors.
 - [x] Self-hosted back-end fixes: `!`/`~` (were no-ops); hex/octal + `>2^63` literals; named-const array dims; exception propagation through catch-less `finally` and cross-function rethrow; async `for-in` over a generic `List<T>`.
-- [ ] Self-host sema parity for the new checks (comparison typing, narrowing, flow analysis): deferred to the promotion track (`selfhost/PROMOTION_PLAN.md`). The shipped C++ compiler carries all checks.
+- [x] Self-host sema parity for the new checks (comparison typing, narrowing, flow analysis): landed with the promotion; since v0.9.2 the self-host matches C++ on invalid programs, with the same `line:col`.
 
 ### v0.5.0: Basic-C surface completion (SHIPPED)
 
@@ -284,13 +278,23 @@ practical stdlib modules. Each landed as granular per-layer commits.
 - [x] `errdefer`: the error-only variant, runs only when the function exits through a propagated `?`. Both compilers.
 - [x] Slice type `T[]` (fat pointer `{ptr, i64}`): `a[lo..hi]` construction over an array, `s[i]` read/write aliasing the backing store, `s.len`, and slice `for-in` (C++ only; self-host has no collection `for-in` yet). Remaining slices: slice-of-slice, returning slices across functions, string interop.
 - [x] `must_use` function qualifier: the compiler rejects a call whose result is discarded; `stdlib` `alloc` is marked `must_use` so a forgotten allocation is a compile error. Both compilers.
-- [x] `--safe` build mode (C++ only): opt-in runtime bounds check on array and slice indexing, trapping on violation; off by default so release builds pay nothing. Self-host mirror on the promotion track.
-- [x] Checked nullable pointer `?*T` (C++ only): bare `*T` stays C-nullable, `?*T` cannot be dereferenced/indexed/membered until proven non-null; `if (q != null)` narrows it; `*T` widens to `?*T` but not the reverse. Lowered as a bare pointer (zero runtime cost). Self-host mirror on the promotion track.
+- [x] `--safe` build mode: opt-in runtime bounds check on array and slice indexing, trapping on violation; off by default so release builds pay nothing. Both compilers (`safe_parity.sh`).
+- [x] Checked nullable pointer `?*T` (C++ only): bare `*T` stays C-nullable, `?*T` cannot be dereferenced/indexed/membered until proven non-null; `if (q != null)` narrows it; `*T` widens to `?*T` but not the reverse. Lowered as a bare pointer (zero runtime cost). Both compilers (`nullable_parity.sh`).
 - [x] Stdlib: `<random>` (xoshiro256\*\* PRNG), `<regex>` (Thompson-NFA / Pike VM with capture groups, linear-time), `<sort>` (generic heapsort + binary search), `<url>` (RFC 3986 percent-encoding + query parsing), `<uuid>` (RFC 4122 v4), and a UTC civil calendar in `<time>` (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, ISO 8601 formatting).
+
+### v0.7.0 to v0.9.2 (SHIPPED)
+
+Per-release detail is in `CHANGELOG.md`; the summary is in the roadmap table of `AGENTS.md`.
+
+- [x] v0.7.0: 32-bit ARM backend (`--mcpu`/`--mattr`/`--reloc`, hard-float ABI, Nintendo 3DS verified on device), Windows x86-64 COFF, `extern` C globals.
+- [x] v0.8.0: Windows parity (native runner, full stdlib and both networking stacks), operator overloading, `match` exhaustiveness on payload-less enums.
+- [x] v0.9.0: labeled `break`/`continue`; global array initializers keep their values.
+- [x] v0.9.1: latent-bug campaign (constant folding, C signed/unsigned rules, `--safe` slice bounds, async await typing).
+- [x] v0.9.2: full-project audit (about 500 fixes, three fuzzers with CI gates), C rules for integers and initializers, first-class interface values, `await` in any position, the C ABI on every target (incl. 32-bit x86), `#pragma link`, prebuilt Windows binaries.
 
 ### v1.0: Production-ready
 
-- [~] `eskiuc` compiles itself (self-hosting): **3-stage bootstrap fixpoint reached.**
+- [x] `eskiuc` compiles itself (self-hosting): **3-stage bootstrap fixpoint reached.**
   The unified driver `selfhost/esk_main.esk` (pp→parse→sema→codegen) is built by the C++
   eskiuc (cc0), then by cc0 (cc1), then by cc1 (cc2); cc1 ≡ cc2 emit identical IR for the
   compiler's own source, a true self-hosting fixpoint (`cg_bootstrap.sh`, CI). The
@@ -320,13 +324,13 @@ practical stdlib modules. Each landed as granular per-layer commits.
 
 ## Platform support (future track, not scheduled)
 
-Eskiu runs natively on **macOS arm64** and **Linux x86-64**, and as of **v0.7.0**
-cross-compiles to **32-bit ARM** (hard-float `armv6k` for the Nintendo 3DS, verified on
-device) and emits **Windows x86-64** COFF objects (see
-[`cross-compile.md`](cross-compile.md)). Broadening the *host* toolchain to Windows, and
-reaching Android and iOS, is a separate long-horizon track, independent of the version
-milestones above. The LLVM backends already cover these targets, so the real work is
-linking, per-platform stdlib branches, and toolchain/distribution integration, not codegen.
+Eskiu runs natively on **macOS arm64**, **Linux x86-64 and arm64**, and **Windows x86-64**
+(MinGW), with prebuilt release binaries for all four. It cross-compiles to **32-bit ARM**
+(hard-float `armv6k` for the Nintendo 3DS, verified on device; see
+[`cross-compile.md`](cross-compile.md)) and **32-bit x86** (`i686`). Reaching Android and iOS is a separate
+long-horizon track, independent of the version milestones above. The LLVM backends already
+cover these targets, so the real work is linking, per-platform stdlib branches, and
+toolchain/distribution integration, not codegen.
 
 **Cross-cutting (shared by all platforms)**
 - [x] COFF object emission for Windows targets (shipped v0.7.0; Mach-O and ELF already worked)
