@@ -35,6 +35,10 @@ fi
 expected='Eskiu bare-metal kernel
 Running at: EL1
 Timer:      [0-9]+ Hz
+Exception:  breakpoint \(EC 0x3C, IL 1, ISS 0x2A\)
+  ELR_EL1:  0x[0-9A-F]{16}
+  Recovered: resuming at the next instruction\.
+Back from the breakpoint\.
 UART base:  0x0000000009000000
 Heap:       0x0000000040300000 - 0x0000000040400000
 alloc\(64\): 0x0000000040300000

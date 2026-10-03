@@ -88,6 +88,9 @@ void kernel_main() {
     banner();
     report(Booted(cpu_current_el()));
     report(Timer(cpu_timer_freq()));
+    uart_puts("Testing a breakpoint (brk #42):\r\n");
+    asm("brk #42");
+    uart_puts("Back from the breakpoint.\r\n\r\n");
 
     uart_puts("UART base:  ");
     uart_puthex(UART0_BASE);
