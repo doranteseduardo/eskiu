@@ -13,6 +13,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ### Changed
 
 - The bare-metal ARM64 kernel in `kernel/` uses current Eskiu: a `volatile` PL011 driver, `.bss` cleared through `extern` linker symbols, the stdlib `Bump` heap, system registers read with inline-asm outputs, and a PSCI power off at the end. `make -C kernel check` boots it in QEMU and checks its output, and CI runs it on Linux.
+- The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. `make check` types a shell session into it and boots both an `-O0` and an `-O2` build.
 
 ### Fixed
 - `--freestanding` builds never call `memset`, `memcpy` or other C library functions the
