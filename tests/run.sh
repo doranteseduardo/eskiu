@@ -368,6 +368,23 @@ else
     bad "cli/file-macro-escape" "__FILE__ for '$qdir/f.esk' is not the path"
 fi
 
+# An output named .obj is an object file (Windows spelling), not an executable to link.
+printf 'int main() { return 0; }\n' > "$work/obj.esk"
+if "$ESKIUC" "$work/obj.esk" -o "$work/obj.obj" >/dev/null 2>&1 && [[ -s "$work/obj.obj" ]] \
+   && ! "$work/obj.obj" >/dev/null 2>&1; then
+    ok "cli/obj-output"
+else
+    bad "cli/obj-output" "-o x.obj did not write an object file"
+fi
+
+# The native macOS triple carries the macOS product version, so the linker does not
+# warn that the object targets a newer macOS than the one it links for.
+if [[ "$(uname -s)" == Darwin ]]; then
+    mac_out=$("$ESKIUC" "$work/obj.esk" -o "$work/objexe" 2>&1)
+    if [[ "$mac_out" != *"built for newer"* ]]; then ok "cli/macos-version"
+    else bad "cli/macos-version" "$mac_out"; fi
+fi
+
 # `--help` documents the subcommands and lists only Eskiu's options (the LLVM
 # backend's internal flags are hidden).
 help_out="$("$ESKIUC" --help 2>&1)"

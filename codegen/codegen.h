@@ -55,8 +55,6 @@ public:
     // The 3DS .3dsx loader applies static relocations and has no dynamic loader to
     // populate a GOT, so 3dsx targets must use "static".
     std::string relocModel;
-    // Freestanding mode: alloc/free use esk_alloc/esk_free instead of malloc/free
-    bool freestanding = false;
     // Safe mode (--safe): insert runtime safety checks (slice bounds). Off by default,
     // so release builds carry no overhead. On a violation the check calls @llvm.trap.
     bool safe = false;

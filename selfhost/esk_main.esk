@@ -536,13 +536,15 @@ int esk_main(int argc, string* argv) {
     push_words(&cargs, cc);
     if (san == 1) { List_push<string>(&cargs, "-fsanitize=address"); }
     else if (san == 2) { List_push<string>(&cargs, "-fsanitize=undefined"); }
-    // Object only when asked (-c, a .o output, --freestanding), else link. The IR
+    // Object only when asked (-c, a .o or .obj output, --freestanding), else link. The IR
     // carries no target triple, so clang's -Woverride-module note is expected noise.
     int olen = 0;
     while (outfile[olen] != 0) { olen = olen + 1; }
     int want_obj = compile_only;
     if (freestanding == 1) { want_obj = 1; }
     if (olen >= 2 && (int)outfile[olen - 2] == 46 && (int)outfile[olen - 1] == 111) { want_obj = 1; }
+    if (olen >= 4 && (int)outfile[olen - 4] == 46 && (int)outfile[olen - 3] == 111
+        && (int)outfile[olen - 2] == 98 && (int)outfile[olen - 1] == 106) { want_obj = 1; }
     if (runmode == 1) { want_obj = 0; }
     List_push<string>(&cargs, "-Wno-override-module");
     if (triple[0] != 0) { List_push<string>(&cargs, "-target"); List_push<string>(&cargs, triple); }
