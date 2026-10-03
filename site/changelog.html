@@ -173,6 +173,13 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   <code>async_finally_await</code>, <code>async_cancel_await_cleanup</code>; <code>errors/await_in_finally</code> and
   <code>run_cmd/await_in_defer</code> are gone, and <code>run_cmd/await_unplaced</code> checks the located error
   for an <code>await</code> in an <code>asm</code> input (the C++ compiler reported it as an internal error).</li>
+<li><strong>Unnamed bitfields</strong>, as in C. <code>T : N;</code> reserves N bits laid out like a named bitfield
+  of type T, and <code>T : 0;</code> moves the next bitfield to a new unit of T. They are allowed in
+  structs and unions, are not members (a positional struct literal skips them and their
+  bits are zero), and follow the target's C layout, including the alignment rules that
+  differ between SysV, AAPCS and Windows. <code>sizeof</code> folds them in the type checker, and a
+  struct holding one crosses the C ABI as clang passes it. Both compilers. Tests
+  <code>bitfield_unnamed</code>, <code>bitfield_unnamed_c</code> (+ <code>.c</code>), <code>errors/bitfield_unnamed_*</code>.</li>
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
@@ -212,13 +219,6 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li>The playground image downloads the release from GitHub and checks it against
   <code>SHA256SUMS</code>, instead of a copy of the compiler committed under <code>playground/dist</code>.</li>
 <li><code>kernel/Makefile</code> uses <code>clang</code> from <code>PATH</code>.</li>
-</ul>
-<h3 id="known-issues">Known issues</h3>
-<p>These are open in 0.9.3. None of them miscompiles a valid program.</p>
-<ul>
-<li>Unnamed bitfields (<code>uint32 : 3;</code>, <code>uint32 : 0;</code>) are not supported: a field needs a
-  name, and a named <code>: 0</code> field is an error. 0.9.2 listed this as a <code>sizeof</code> folding gap,
-  but no valid program can contain such a field.</li>
 </ul>
 <h2 id="092-2026-09-29">[0.9.2] - 2026-09-29</h2>
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
@@ -1247,7 +1247,7 @@ input. What is still open is listed under Known issues.</p>
 <li>An inline asm operand naming a local or parameter of an <code>async</code> function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test <code>asm_async_locals</code>.</li>
 <li>A method call on a non-struct value (<code>x.foo()</code> with <code>x</code> an <code>int</code>) reports one error, <code>undefined method 'foo' on type 'int'</code>, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).</li>
 </ul>
-<h3 id="known-issues_1">Known issues</h3>
+<h3 id="known-issues">Known issues</h3>
 <p>These are open in 0.9.2. None of them miscompiles a valid program.</p>
 <ul>
 <li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending

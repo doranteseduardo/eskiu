@@ -288,9 +288,10 @@ param           = 'escaping'? type IDENT
 
 struct-decl     = 'packed'? 'struct' IDENT type-params? '{' struct-member* '}'
 struct-member   = type IDENT (':' INT_LIT)? ';'                 // field, optional bitfield width
+                | type ':' INT_LIT ';'                          // unnamed bitfield (width may be 0)
                 | type IDENT '(' param-list? ')' block          // method
 
-union-decl      = 'union' IDENT '{' ( type IDENT ';' )* '}'
+union-decl      = 'union' IDENT '{' ( type IDENT ';' | type ':' INT_LIT ';' )* '}'
 
 interface-decl  = 'interface' IDENT '{' ( type IDENT '(' param-list? ')' ';' )* '}'
 

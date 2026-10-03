@@ -287,6 +287,8 @@ when you add a test.
 | `union_layout` | A union takes the alignment of its most-aligned member, so it lands at the C offset inside a struct and the struct is padded like C (u at 8, size 24). |
 | `async_name_collisions` | Locals and parameters named like the async transform's synthesized names (`__fr`, `st`, `ret`, `awaiting`, the await temporaries, the resume function) do not collide with them. |
 | `async_range_wide` | An await inside a range loop over `int64` bounds keeps the hoisted loop variable `int64`. |
+| `bitfield_unnamed` | unnamed bitfields `T : N` and `T : 0` in structs, a generic struct and a union: positional literals skip them, their bits stay zero, `sizeof` folds |
+| `bitfield_unnamed_c` | unnamed bitfields follow the target's C layout and C ABI (C side: `bitfield_unnamed_c.c`): sizes, alignments, fields written on either side, by-value args and results |
 | `bitfield_c_layout` | Bitfields follow the target's C layout (C side: `bitfield_c_layout.c`): mixed declared types share a storage unit when they fit (SysV/AAPCS), packed structs pack bit by bit; C writes, Eskiu reads, and back. |
 | `c_abi_callback` | An Eskiu function passed to C as `(*void)f` that takes or returns a struct by value is reached through a C-ABI thunk (C side: `c_abi_callback.c`). |
 | `c_abi_fnptr` | An `extern` fn-typed parameter is a C function pointer: a top-level function is passed by its C address (through a thunk for by-value structs), `null` as a null pointer, and libc `qsort` takes its comparator that way (C side: `c_abi_fnptr.c`). |
@@ -690,6 +692,11 @@ when you add a test.
 | `errors/free_closure_int` | `free_closure(5)` |
 | `errors/bitfield_adt_enum` | a sum type as a bitfield type |
 | `errors/bitfield_zero_width` | a named zero-width bitfield `int x : 0` |
+| `errors/bitfield_unnamed_too_wide` | an unnamed bitfield wider than its type |
+| `errors/bitfield_unnamed_float` | an unnamed bitfield of a non-integer type (in a union) |
+| `errors/bitfield_unnamed_negative` | a negative unnamed bitfield width is a parse error |
+| `errors/bitfield_unnamed_member` | an unnamed bitfield is no member |
+| `errors/bitfield_unnamed_literal` | a positional literal has no value for an unnamed bitfield |
 | `errors/method_as_field_write` | assigning an inline method as a field (`p.sum = 3`) |
 | `errors/method_as_field_read` | reading an inline method as a field (`int s = p.sum`) |
 | `errors/string_slice_elem` | a string slice into an `int[]` ("cannot convert 'char[]'") |

@@ -416,7 +416,6 @@ pre.code-block {
 <a href="#sec-22-5" class="toc-sec">22.5 Integer overflow</a>
 <a href="#sec-22-6" class="toc-sec">22.6 Memory leak</a>
 <a href="#sec-22-7" class="toc-sec">22.7 Bugs the compiler now catches</a>
-<a href="#sec-22-8" class="toc-sec">22.8 Known issues in 0.9.3</a>
 <a href="#chapter-23" class="toc-ch">Chapter 23</a>
 <a href="#sec-23-1" class="toc-sec">23.1 TCP echo server</a>
 <a href="#sec-23-2" class="toc-sec">23.2 Minimal HTTP server</a>
@@ -1048,7 +1047,7 @@ pre.code-block {
 <p>Struct literals work with bitfields the same as with normal fields:</p>
 <pre class="code-block"> Flags g = Flags { a: 1, b: 7, c: 15 };
  printf(&quot;%d %d %d\n&quot;, g.a, g.b, g.c);        // 1 7 15</pre>
-<p>Increment, decrement and compound assignment work on a bitfield and wrap at its width, so after <code>g.c++</code> the 4-bit field holds 0. A signed field (<code>int8 d : 3</code>) sign-extends when read, including through a type alias. A bitfield must have an integer type, and its width must fit in that type: a <code>float</code> or pointer bitfield, or <code>uint32 x : 40</code>, is an error, and you cannot take a bitfield&#x27;s address. A named bitfield of width zero (<code>int x : 0</code>) and a sum-type bitfield are errors too.</p>
+<p>Increment, decrement and compound assignment work on a bitfield and wrap at its width, so after <code>g.c++</code> the 4-bit field holds 0. A signed field (<code>int8 d : 3</code>) sign-extends when read, including through a type alias. A bitfield must have an integer type, and its width must fit in that type: a <code>float</code> or pointer bitfield, or <code>uint32 x : 40</code>, is an error, and you cannot take a bitfield&#x27;s address. A named bitfield of width zero (<code>int x : 0</code>) and a sum-type bitfield are errors too (width zero is only for an unnamed bitfield, below).</p>
 <p>A bitfield takes part in arithmetic the way clang and GCC treat it. When every value the field can hold fits an <code>int</code>, reading it gives an <code>int</code>, whatever its declared type. So with <code>uint32 u : 3</code> holding 0, <code>u - 1</code> is <code>-1</code>, not 4294967295, and a <code>uint64 a : 20</code> promotes the same way. A postfix <code>f.u++</code> keeps the declared type. An enum bitfield whose enum has no negative member reads back unsigned, so a 2-bit field holding the member value 2 reads as 2 (on Windows, whose layout rules keep it signed, it reads as -2).</p>
 <p>The layout is the one the target&#x27;s C compiler uses, so a struct with bitfields can be shared with C. On Linux, macOS and bare-metal ARM a bitfield shares bytes with its neighbours as long as it fits inside an aligned unit of its own declared type, even when the declared types differ. On Windows a new storage word starts whenever the declared type size changes. The same struct can therefore have different sizes on different targets:</p>
 <pre class="code-block"> struct Mixed {
@@ -1058,6 +1057,18 @@ pre.code-block {
  Mixed m = Mixed { a: 9, w: 1000 };
  printf(&quot;%lld %d %d\n&quot;, sizeof(Mixed), m.a, m.w);   // 4 9 1000 (8 on Windows)</pre>
 <p class="output"><em>Output:</em> 4 9 1000</p>
+<p>A bitfield can also have no name. <code>T : N;</code> reserves N bits of padding, placed exactly where a named bitfield of type T would go, and <code>T : 0;</code> makes the next bitfield start in a new unit of T. These are how C headers describe reserved bits in a register or a wire format, and they keep the same layout here. An unnamed bitfield is not a field you can use: it has no name to read or write, a positional struct literal skips it, and its bits are zero in a literal:</p>
+<pre class="code-block"> struct Ctrl {
+       uint32 enable : 1;
+       uint32        : 7;     // reserved
+       uint32 mode   : 4;
+       uint32        : 0;     // id starts in the next 32-bit unit
+       uint16 id;
+ }
+ Ctrl c = Ctrl { 1, 9, 4660 };                // enable, mode, id
+ printf(&quot;%d %d %d %lld\n&quot;, c.enable, c.mode, c.id, sizeof(Ctrl));   // 1 9 4660 8</pre>
+<p class="output"><em>Output:</em> 1 9 4660 8</p>
+<p>Unions accept unnamed bitfields too; they only make the union bigger. Whether an unnamed bitfield changes a struct&#x27;s alignment depends on the target, as in C: on 32-bit ARM and on AArch64 Linux it aligns the struct to its type, on x86-64 and Apple platforms it does not, and on Windows a <code>: 0</code> only counts right after another bitfield.</p>
 <h2 class="section" id="sec-5-7">5.7 packed struct</h2>
 <p>By default the compiler inserts padding between struct fields to satisfy alignment requirements. A <code>uint8</code> followed by a <code>uint32</code> occupies 8 bytes, not 5, because the compiler adds 3 padding bytes before the <code>uint32</code>. The <code>packed</code> qualifier removes all padding, giving you the exact on-wire layout. This is essential for hardware register maps, network protocols, and interop with C structs declared with __attribute__((<code>packed</code>)):</p>
 <pre class="code-block"> struct Natural {            // default layout
@@ -2696,10 +2707,6 @@ pre.code-block {
  printf(&quot;%d&quot;, v());                      // error: argument 2 has type 'void'
  string t = &quot;a\qb&quot;;                      // error: unknown escape sequence '\q'</pre>
 <p>The constant checks work on the folded value, not only on the literal spelling. A divisor, a shift count, an index or a cast operand that folds to a bad value through a <code>const</code> name, a <code>sizeof</code>, a cast or arithmetic is reported the same way as the literal form, instead of compiling to an undefined result.</p>
-<h2 class="section" id="sec-22-8">22.8 Known issues in 0.9.3</h2>
-<p>A few gaps are still open in this release. None of them miscompiles a valid program:</p>
-<pre class="code-block"> Unnamed bitfields (uint32 : 3;) are not supported: every field needs a name.</pre>
-<p>The list is kept under &quot;Known issues&quot; in the 0.9.3 section of <code>CHANGELOG.md</code>.</p>
 <div class="chapter-start" id="chapter-23"><span class="chapter-label">Chapter 23</span>
 <h1 class="chapter-title">Networking</h1><hr class="chapter-rule"></div>
 <p>Network programming in Eskiu is POSIX sockets via the stdlib module. No framework required for basic use. A TCP server is a file descriptor you accept connections on. A TCP client is a file descriptor you write bytes to.</p>

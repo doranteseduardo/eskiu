@@ -40,6 +40,9 @@ cd eskiu && cmake -S . -B build && cmake --build build
   suspends and resumes like any other await, keeps a `return` value, and rethrows an
   exception that unwinds through the try once the `finally` ends. A future cancelled while
   it waits runs its pending cleanup as a detached task that frees itself when it ends.
+- **Unnamed bitfields.** `uint32 : 3;` reserves three bits and `uint32 : 0;` starts the
+  next bitfield in a new unit, laid out as the target's C compiler does, so C headers with
+  padding bitfields can be ported as they are. They work in structs and unions.
 
 ## Fixed
 
@@ -65,9 +68,5 @@ cd eskiu && cmake -S . -B build && cmake --build build
   `c.inner.inc()`) is now an error as well; before, the method silently changed the
   closure's copy. Declare the method `const T* self` if it only reads, or capture a pointer
   if the lambda should change the original.
-
-## Known issues
-
-- Unnamed bitfields (`uint32 : 3;`) are not supported; every field needs a name.
 
 The full list of changes is in [CHANGELOG.md](CHANGELOG.md).

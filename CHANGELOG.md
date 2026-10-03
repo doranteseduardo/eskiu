@@ -21,6 +21,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `async_finally_await`, `async_cancel_await_cleanup`; `errors/await_in_finally` and
   `run_cmd/await_in_defer` are gone, and `run_cmd/await_unplaced` checks the located error
   for an `await` in an `asm` input (the C++ compiler reported it as an internal error).
+- **Unnamed bitfields**, as in C. `T : N;` reserves N bits laid out like a named bitfield
+  of type T, and `T : 0;` moves the next bitfield to a new unit of T. They are allowed in
+  structs and unions, are not members (a positional struct literal skips them and their
+  bits are zero), and follow the target's C layout, including the alignment rules that
+  differ between SysV, AAPCS and Windows. `sizeof` folds them in the type checker, and a
+  struct holding one crosses the C ABI as clang passes it. Both compilers. Tests
+  `bitfield_unnamed`, `bitfield_unnamed_c` (+ `.c`), `errors/bitfield_unnamed_*`.
 
 ### Fixed
 - Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
@@ -59,12 +66,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `SHA256SUMS`, instead of a copy of the compiler committed under `playground/dist`.
 - `kernel/Makefile` uses `clang` from `PATH`.
 
-### Known issues
-These are open in 0.9.3. None of them miscompiles a valid program.
-
-- Unnamed bitfields (`uint32 : 3;`, `uint32 : 0;`) are not supported: a field needs a
-  name, and a named `: 0` field is an error. 0.9.2 listed this as a `sizeof` folding gap,
-  but no valid program can contain such a field.
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
