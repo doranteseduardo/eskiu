@@ -2,6 +2,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <set>
 #include <functional>
@@ -809,11 +810,25 @@ void TypeChecker::defineFunction(const std::string& name, const std::string& ret
     functionSignatures[name] = {returnType, paramTypes};
 }
 
+// A diagnostic names types as the user writes them: drop the internal `struct:` and
+// `interface:` tags the normalized spellings carry.
+static std::string userSpelling(const std::string& msg) {
+    std::string out;
+    out.reserve(msg.size());
+    for (size_t i = 0; i < msg.size(); i++) {
+        bool boundary = i == 0 || !(std::isalnum((unsigned char)msg[i - 1]) || msg[i - 1] == '_');
+        if (boundary && msg.compare(i, 7, "struct:") == 0) { i += 6; continue; }
+        if (boundary && msg.compare(i, 10, "interface:") == 0) { i += 9; continue; }
+        out += msg[i];
+    }
+    return out;
+}
+
 // Error reporting
 void TypeChecker::error(int line, int col, const std::string& message) {
     hasErrors = true;
     std::stringstream ss;
-    ss << diagFile() << ":" << line << ":" << col << ": " << message;
+    ss << diagFile() << ":" << line << ":" << col << ": " << userSpelling(message);
     if (inInstance) ss << " (in instantiation of " << instContext << ")";
     errors.push_back(ss.str());
 }
@@ -831,7 +846,7 @@ void TypeChecker::warning(int line, int col, const std::string& message) {
     // system headers.
     if (auto* d = dynamic_cast<Decl*>(posCtx); d && d->fromImport) return;
     std::stringstream ss;
-    ss << diagFile() << ":" << line << ":" << col << ": warning: " << message;
+    ss << diagFile() << ":" << line << ":" << col << ": warning: " << userSpelling(message);
     std::cerr << ss.str() << "\n";
 }
 
