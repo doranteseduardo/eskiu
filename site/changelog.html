@@ -160,6 +160,12 @@ a:hover { color: var(--ink); }
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
+<h2 id="unreleased">[Unreleased]</h2>
+<h3 id="changed">Changed</h3>
+<ul>
+<li>The bare-metal ARM64 kernel in <code>kernel/</code> uses current Eskiu: a <code>volatile</code> PL011 driver, <code>.bss</code> cleared through <code>extern</code> linker symbols, the stdlib <code>Bump</code> heap, system registers read with inline-asm outputs, and a PSCI power off at the end. <code>make -C kernel check</code> boots it in QEMU and checks its output, and CI runs it on Linux.</li>
+</ul>
+<hr>
 <h2 id="093-2026-10-02">[0.9.3] - 2026-10-02</h2>
 <h3 id="added">Added</h3>
 <ul>
@@ -228,7 +234,7 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li>Diagnostics name types as written (<code>'Box'</code>, not <code>'struct:Box'</code>), matching the
   self-hosted compiler. <code>--help</code> for <code>-Wall</code> lists the maybe-uninitialized warning.</li>
 </ul>
-<h3 id="changed">Changed</h3>
+<h3 id="changed_1">Changed</h3>
 <ul>
 <li>The roadmap (<code>docs/dev/phases.md</code>), the self-hosting overview and the contributor guide
   are rewritten. Every document was reviewed against the compiler: stale or wrong statements
@@ -1394,7 +1400,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
     reject <code>?*T</code> -&gt; <code>*T</code> without a check; <code>codegen.esk</code> lowers <code>?*T</code> exactly like <code>*T</code>).
   Each is gated in CI (<code>tests/selfhost/safe_parity.sh</code>, <code>tests/selfhost/nullable_parity.sh</code>).</li>
 </ul>
-<h3 id="changed_1">Changed</h3>
+<h3 id="changed_2">Changed</h3>
 <ul>
 <li><strong><code>alloc&lt;T&gt;</code> now zero-initializes.</strong> <code>&lt;mem&gt;</code>'s <code>alloc&lt;T&gt;(n)</code> returns memory that is
   zeroed (hosted mode calls <code>calloc</code> instead of <code>malloc</code>; the <code>--freestanding</code> <code>esk_alloc</code>
@@ -1507,7 +1513,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   C++ and self-hosted code generators (the self-host also gained direct calls through a
   global closure variable).</li>
 </ul>
-<h3 id="changed_2">Changed</h3>
+<h3 id="changed_3">Changed</h3>
 <ul>
 <li>Documentation accuracy pass (from an internal audit): corrected AST node counts and
   added the <code>defer</code> cleanup-stack to the internals docs, regenerated the real
@@ -1686,7 +1692,7 @@ promotion track.</p>
   zero under the C++ back-end, crashing under the self-host). The definite-return check
   now runs on template bodies too.</li>
 </ul>
-<h3 id="changed_3">Changed</h3>
+<h3 id="changed_4">Changed</h3>
 <ul>
 <li><strong>Assigning a floating-point value to an integer needs an explicit cast.</strong> <code>int x =
   3.9;</code> (or any <code>float</code>/<code>double</code> into an integer) is rejected, because it silently drops
@@ -1764,7 +1770,7 @@ promotion track.</p>
   warning. Lambda literals in a <code>let x: fn(...)-&gt;R = ...</code> still coerce (their return type
   is malleable); only non-adaptable fn <em>values</em> are rejected. Test <code>errors/fn_return_mismatch</code>.</li>
 </ul>
-<h3 id="changed_4">Changed</h3>
+<h3 id="changed_5">Changed</h3>
 <ul>
 <li><strong>New CI gate: <code>-O0</code>-vs-<code>-O2</code> behavioral differential</strong> (<code>tests/opt_differential.sh</code>).
   Compiles the whole corpus at both levels and fails on any exit/stdout divergence,
@@ -2601,7 +2607,7 @@ thread_join(t);
 <li>No lambdas, threads, or async (Phase 8+)</li>
 </ul>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#093-2026-10-02">[0.9.3] - 2026-10-02</a><a href="#092-2026-09-29">[0.9.2] - 2026-09-29</a><a href="#091-2026-09-09">[0.9.1] - 2026-09-09</a><a href="#090-2026-09-08">[0.9.0] - 2026-09-08</a><a href="#080-2026-08-21">[0.8.0] - 2026-08-21</a><a href="#070">[0.7.0]</a><a href="#062">[0.6.2]</a><a href="#061">[0.6.1]</a><a href="#060">[0.6.0]</a><a href="#050">[0.5.0]</a><a href="#040">[0.4.0]</a><a href="#031">[0.3.1]</a><a href="#030">[0.3.0]</a><a href="#025">[0.2.5]</a><a href="#024">[0.2.4]</a><a href="#023">[0.2.3]</a><a href="#022">[0.2.2]</a><a href="#021">[0.2.1]</a><a href="#020">[0.2.0]</a><a href="#010">[0.1.0]</a><a href="#systems-milestone">Systems milestone</a><a href="#0014-alpha">[0.0.14-alpha]</a><a href="#0013-alpha">[0.0.13-alpha]</a><a href="#0012-alpha">[0.0.12-alpha]</a><a href="#0011-alpha">[0.0.11-alpha]</a><a href="#0010-alpha">[0.0.10-alpha]</a><a href="#009-alpha">[0.0.9-alpha]</a><a href="#008-alpha">[0.0.8-alpha]</a><a href="#007-alpha">[0.0.7-alpha]</a><a href="#006-alpha">[0.0.6-alpha]</a><a href="#005-alpha">[0.0.5-alpha]</a><a href="#004-alpha">[0.0.4-alpha]</a><a href="#003-alpha">[0.0.3-alpha]</a><a href="#002-alpha">[0.0.2-alpha]</a><a href="#001-alpha">[0.0.1-alpha]</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#unreleased">[Unreleased]</a><a href="#093-2026-10-02">[0.9.3] - 2026-10-02</a><a href="#092-2026-09-29">[0.9.2] - 2026-09-29</a><a href="#091-2026-09-09">[0.9.1] - 2026-09-09</a><a href="#090-2026-09-08">[0.9.0] - 2026-09-08</a><a href="#080-2026-08-21">[0.8.0] - 2026-08-21</a><a href="#070">[0.7.0]</a><a href="#062">[0.6.2]</a><a href="#061">[0.6.1]</a><a href="#060">[0.6.0]</a><a href="#050">[0.5.0]</a><a href="#040">[0.4.0]</a><a href="#031">[0.3.1]</a><a href="#030">[0.3.0]</a><a href="#025">[0.2.5]</a><a href="#024">[0.2.4]</a><a href="#023">[0.2.3]</a><a href="#022">[0.2.2]</a><a href="#021">[0.2.1]</a><a href="#020">[0.2.0]</a><a href="#010">[0.1.0]</a><a href="#systems-milestone">Systems milestone</a><a href="#0014-alpha">[0.0.14-alpha]</a><a href="#0013-alpha">[0.0.13-alpha]</a><a href="#0012-alpha">[0.0.12-alpha]</a><a href="#0011-alpha">[0.0.11-alpha]</a><a href="#0010-alpha">[0.0.10-alpha]</a><a href="#009-alpha">[0.0.9-alpha]</a><a href="#008-alpha">[0.0.8-alpha]</a><a href="#007-alpha">[0.0.7-alpha]</a><a href="#006-alpha">[0.0.6-alpha]</a><a href="#005-alpha">[0.0.5-alpha]</a><a href="#004-alpha">[0.0.4-alpha]</a><a href="#003-alpha">[0.0.3-alpha]</a><a href="#002-alpha">[0.0.2-alpha]</a><a href="#001-alpha">[0.0.1-alpha]</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">
