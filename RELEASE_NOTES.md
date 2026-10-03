@@ -34,6 +34,13 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ---
 
+## Added
+
+- **`await` inside `finally` and `defer`.** In an async function a cleanup may await: it
+  suspends and resumes like any other await, keeps a `return` value, and rethrows an
+  exception that unwinds through the try once the `finally` ends. A future cancelled while
+  it waits runs its pending cleanup as a detached task that frees itself when it ends.
+
 ## Fixed
 
 - **Inline asm with GCC register constraints.** On x86-64 and 32-bit x86, `"a"`, `"b"`,
@@ -61,8 +68,6 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 ## Known issues
 
-- An `await` inside a `finally` or a `defer` is rejected: both run without suspending when
-  a cancelled future is dropped.
 - Unnamed bitfields (`uint32 : 3;`) are not supported; every field needs a name.
 
 The full list of changes is in [CHANGELOG.md](CHANGELOG.md).

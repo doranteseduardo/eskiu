@@ -1316,18 +1316,28 @@ once, before the await, and an await in the right operand of <code>&amp;&amp;</c
 <code>?:</code> runs only when that operand is evaluated. A switch subject, a <code>for-in</code> iterable and
 a range bound are evaluated once, before the statement; a loop condition or step is
 evaluated on every pass.</p>
-<p>Inside <code>try</code> an await may sit in the body and in a <code>catch</code> handler. An exception thrown
-before or after a suspension is caught by the handler of the try it is thrown in, and
-the <code>finally</code> runs exactly once on every exit: normal completion, a caught or uncaught
-exception, an early <code>return</code>, <code>break</code> or <code>continue</code>, and cancellation. A future dropped
-while suspended runs the <code>finally</code> blocks and <code>defer</code>s pending at its await once,
-innermost first, before its frame is freed (a <code>defer</code> in a block split by an await runs
-at every exit of that block, as in a plain function).</p>
-<p>Rejected with a located error: an <code>await</code> inside a <code>finally</code> or a <code>defer</code> body (both run
-when a cancelled future is dropped, which cannot suspend), labeled <code>break</code>/<code>continue</code>,
-an <code>await</code> in a <code>sizeof</code> operand, an <code>asm</code> input or a <code>thread_join</code>. Bind the value
-first with <code>let v = await ...;</code>. A generic async function accepts an await in the same
-positions as a plain one.</p>
+<p>Inside <code>try</code> an await may sit in the body, in a <code>catch</code> handler and in the <code>finally</code>. An
+exception thrown before or after a suspension is caught by the handler of the try it is
+thrown in, and the <code>finally</code> runs exactly once on every exit: normal completion, a caught
+or uncaught exception, an early <code>return</code>, <code>break</code> or <code>continue</code>, and cancellation. A
+<code>defer</code> in a block split by an await runs at every exit of that block, as in a plain
+function, and its body may await too. An <code>await</code> in a <code>finally</code> or a <code>defer</code> suspends like
+any other: a <code>return</code> value is kept while the cleanup awaits, several defers still run
+last-registered first, and an exception unwinding through the try is thrown again once
+the <code>finally</code> finishes.</p>
+<p>A future dropped while suspended runs the <code>finally</code> blocks and <code>defer</code>s pending at its
+await once, innermost first, after the future it was awaiting has been dropped. When that
+cleanup awaits, it runs detached, like a task given to <code>spawn</code>: <code>future_drop</code> returns while
+the cleanup is suspended, the event loop resumes it, and its frame is freed when it ends.
+Nobody reads the result of a dropped future, and dropping it again while its cleanup runs
+does nothing. An exception that escapes such a cleanup propagates to whatever resumed it,
+as one escaping a spawned task does, so keep the event loop running until the cleanup is
+done.</p>
+<p>Rejected with a located error: labeled <code>break</code>/<code>continue</code>, an <code>await</code> in a <code>sizeof</code>
+operand, an <code>asm</code> input or a <code>thread_join</code>, and a <code>finally</code> that leaves by <code>break</code> or
+<code>continue</code> (a <code>return</code> or <code>?</code> there is a type error). Bind the value first with
+<code>let v = await ...;</code>. A generic async function accepts an await in the same positions as
+a plain one.</p>
 <p>An <code>async</code> function is declared with the <code>async</code> modifier before the return type. Its
 <em>declared</em> return type is the value it ultimately produces, but a <strong>call</strong> to it
 yields a <code>*Future&lt;T&gt;</code>, a handle to the eventual result, rather than <code>T</code> directly:</p>

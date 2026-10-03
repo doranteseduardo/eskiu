@@ -10,6 +10,18 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [0.9.3] - unreleased
 
+### Added
+- **`await` inside `finally` and `defer`** in an async function. The cleanup suspends and
+  resumes like any other await: on fall-through, an early `return` (the value is kept),
+  `break`/`continue`, a caught exception, or an exception unwinding through the try, which
+  is thrown again once the `finally` ends. Several defers still run last-registered first.
+  A future dropped while parked runs its pending cleanup detached, as with `spawn`: the
+  awaited future is dropped first, the cleanup may suspend, and the frame frees itself when
+  the cleanup ends; dropping it again meanwhile does nothing. Both compilers. Tests
+  `async_finally_await`, `async_cancel_await_cleanup`; `errors/await_in_finally` and
+  `run_cmd/await_in_defer` are gone, and `run_cmd/await_unplaced` checks the located error
+  for an `await` in an `asm` input (the C++ compiler reported it as an internal error).
+
 ### Fixed
 - Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
@@ -50,8 +62,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ### Known issues
 These are open in 0.9.3. None of them miscompiles a valid program.
 
-- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
-  when a cancelled future is dropped.
 - Unnamed bitfields (`uint32 : 3;`, `uint32 : 0;`) are not supported: a field needs a
   name, and a named `: 0` field is an error. 0.9.2 listed this as a `sizeof` folding gap,
   but no valid program can contain such a field.

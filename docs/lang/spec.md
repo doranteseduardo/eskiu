@@ -1087,19 +1087,30 @@ once, before the await, and an await in the right operand of `&&`/`||` or in an 
 a range bound are evaluated once, before the statement; a loop condition or step is
 evaluated on every pass.
 
-Inside `try` an await may sit in the body and in a `catch` handler. An exception thrown
-before or after a suspension is caught by the handler of the try it is thrown in, and
-the `finally` runs exactly once on every exit: normal completion, a caught or uncaught
-exception, an early `return`, `break` or `continue`, and cancellation. A future dropped
-while suspended runs the `finally` blocks and `defer`s pending at its await once,
-innermost first, before its frame is freed (a `defer` in a block split by an await runs
-at every exit of that block, as in a plain function).
+Inside `try` an await may sit in the body, in a `catch` handler and in the `finally`. An
+exception thrown before or after a suspension is caught by the handler of the try it is
+thrown in, and the `finally` runs exactly once on every exit: normal completion, a caught
+or uncaught exception, an early `return`, `break` or `continue`, and cancellation. A
+`defer` in a block split by an await runs at every exit of that block, as in a plain
+function, and its body may await too. An `await` in a `finally` or a `defer` suspends like
+any other: a `return` value is kept while the cleanup awaits, several defers still run
+last-registered first, and an exception unwinding through the try is thrown again once
+the `finally` finishes.
 
-Rejected with a located error: an `await` inside a `finally` or a `defer` body (both run
-when a cancelled future is dropped, which cannot suspend), labeled `break`/`continue`,
-an `await` in a `sizeof` operand, an `asm` input or a `thread_join`. Bind the value
-first with `let v = await ...;`. A generic async function accepts an await in the same
-positions as a plain one.
+A future dropped while suspended runs the `finally` blocks and `defer`s pending at its
+await once, innermost first, after the future it was awaiting has been dropped. When that
+cleanup awaits, it runs detached, like a task given to `spawn`: `future_drop` returns while
+the cleanup is suspended, the event loop resumes it, and its frame is freed when it ends.
+Nobody reads the result of a dropped future, and dropping it again while its cleanup runs
+does nothing. An exception that escapes such a cleanup propagates to whatever resumed it,
+as one escaping a spawned task does, so keep the event loop running until the cleanup is
+done.
+
+Rejected with a located error: labeled `break`/`continue`, an `await` in a `sizeof`
+operand, an `asm` input or a `thread_join`, and a `finally` that leaves by `break` or
+`continue` (a `return` or `?` there is a type error). Bind the value first with
+`let v = await ...;`. A generic async function accepts an await in the same positions as
+a plain one.
 
 An `async` function is declared with the `async` modifier before the return type. Its
 *declared* return type is the value it ultimately produces, but a **call** to it

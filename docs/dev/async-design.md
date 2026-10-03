@@ -19,8 +19,8 @@ void`, cancellation, and all control flow around `await` (`if`/`while`/C-style
 with full closure-env ownership, leak-free under the macOS `leaks` tool. An await may sit anywhere in
 an expression: a desugar hoists each one, in evaluation order, into a `let` of its own
 (§4.5). A `defer` in a block split by an await is kept by the transform and emitted at
-each exit of that block (fall-through, `return`, `break`/`continue`); an `await` inside
-a defer body or a `finally` is rejected. A lambda that
+each exit of that block (fall-through, `return`, `break`/`continue`); a defer body or a
+`finally` may await, and is then lowered into states at each exit (§4.6, §7). A lambda that
 captures a frame-hoisted local gets a block-local copy (`T x = __fr.x;`, `__fr` being the frame pointer) at its
 creation point, so the capture is still a by-value snapshot. Combinators (`spawn`/`select2`/`join2`,
 generic + cast-free) and a `<timer>` leaf future for deadline-based timeouts build
@@ -68,9 +68,8 @@ monomorphic templates, the `<eventloop>` reactor, and `<threading>`.
   (`select2`/`join2`, plus the value-carrying `select2v`/`join2v` in `<futureval>`),
   built on this shape with no contract change.
 - Cooperative cancellation (a coroutine that observes a cancel request and keeps
-  running, e.g. awaiting inside its cleanup). Drop runs the pending `defer`/`finally`
-  code synchronously and frees the frame (§7); the forward path is a cancellation
-  token, no contract change.
+  running its normal code). Drop runs only the pending `defer`/`finally` code (§7),
+  which may await; the forward path is a cancellation token, no contract change.
 - Work-stealing / load-balancing across executors. The executor abstraction allows
   it later; v1 uses fixed thread affinity.
 
@@ -176,7 +175,9 @@ else { F.on_drop(); }                        // PENDING/WAITING: release + casca
 - A **leaf** future's `on_drop` deregisters its fd/timer from the loop, frees itself.
 - A **coroutine** future's `on_drop` cascades: `if (frame.awaiting) future_drop(frame.awaiting);`,
   runs the `defer`/`finally` code pending at the await it is parked at (§7), and the
-  frame is freed. The coroutine does not continue past the await.
+  frame is freed. The coroutine does not continue past the await. When that cleanup
+  awaits, `on_drop` first sets `state` to `DETACHED` (4) and the frame outlives
+  `future_drop` (§7.1).
 
 ### 3.4 Arbitration (the one invariant)
 
@@ -327,8 +328,21 @@ no catch matched. On the other exits the user's `finally` is kept like a `defer`
 outside the try's regions (an exception it throws is not caught by its own handlers),
 and publishes a completion outside every region. Each state of a region keeps a fixed
 set of pending defers (a `defer` registered inside one starts a new state), so the
-handler runs exactly the defers pending where the exception was thrown. An await inside
-a `finally` is rejected (§7).
+handler runs exactly the defers pending where the exception was thrown.
+
+A `finally` or a defer body that awaits is kept as written (not rewritten in place) and
+lowered into states of its own at each exit (`runFrames` / `al_run_frames`), with the
+cleanups under it still pending, so an await there suspends like any other and a
+cancellation while parked in it runs the rest. On the exceptional path, when the pending
+cleanups of a region await, the synthesized try gets a capturing catch-all instead of the
+unwind-only `finally` (`CatchClause::captureAll`, self-host SK_CATCH `is_err = 1`): it
+copies the exception object into a fresh unthrown one (`__cxa_allocate_exception` of the
+size stored at offset 0 of every Eskiu exception, then a byte copy), keeps it in a frame
+field of that region, and jumps to states of the enclosing region that run the cleanups
+and throw the copy again (`ThrowStmt::rethrowCaptured`, SK_THROW `is_err = 1`). A typed
+handler whose pending defers await jumps to states that run them before the handler. A
+copy that is never thrown again (a cleanup that throws, or a frame dropped while the
+cleanup runs) is released with `__cxa_free_exception` when the frame finishes.
 
 ---
 
@@ -402,12 +416,39 @@ cancelled awaiter never leaves an input whose completion would wake freed memory
 await, but the `defer`s and `finally` blocks pending at that await run exactly once,
 innermost first, before the frame is freed (matches a scope exit by unwinding: Rust
 async-drop runs destructors the same way). The transform records, per await, the
-cleanup code pending there and emits it as a state of its own; `on_drop` cascades to
-the awaited future, then sets the resume state to that cleanup state and calls the
-resume function once. Because that runs inside `future_drop`, which cannot suspend, an
-`await` inside a `defer` or a `finally` is rejected. A coroutine that must keep running
-after a cancel request uses a cooperative **cancellation token** it checks (a normal
-threaded value, no contract change), a deliberate later feature.
+defer frames pending there and lowers them into cleanup states of their own; `on_drop`
+cascades to the awaited future, then sets the resume state to that cleanup and calls the
+resume function once. A coroutine that must keep running its normal code after a cancel
+request uses a cooperative **cancellation token** it checks (a normal threaded value, no
+contract change), a deliberate later feature.
+
+### 7.1 A cleanup that awaits
+
+A pending `finally` or defer may await (as Python's asyncio lets a `finally` await during
+cancellation). The cleanup then runs **detached**: the dropper's reference is gone and
+nobody reads the result, so the frame becomes a task that owns itself until the cleanup
+ends. The hand-off uses three more values of `state`, reached only on this path and only
+by a coroutine future, so leaf futures and the four-state handshake are unchanged:
+
+```
+on_drop:        future_drop(awaiting); atomic_store(&ret.state, DETACHED /*4*/);
+                st = <cleanup>; resume();            // may park on the cleanup's own awaits
+future_drop:    ... f.on_drop(); free_closure(waker); free_closure(on_drop);
+                if (CAS(&f.state, DETACHED -> ORPHANED /*5*/)) return;   // the cleanup owns f
+                free(f);
+cleanup end:    if (CAS(&ret.state, DETACHED -> CLEANED /*6*/)) return;  // still inside future_drop
+                free(frame);                          // ORPHANED: the frame frees itself
+```
+
+The awaited future is dropped first (the cascade), then the cleanup starts. A cleanup
+whose awaits are all ready finishes inside `future_drop` (`CLEANED`) and is freed there
+as before; one that suspends is freed by its last state. `future_drop` returns at once
+for a state of 4 or more, so dropping the future again while its cleanup runs is a no-op.
+A coroutine's own normal path never runs after a drop, so no completion can follow it.
+An exception that escapes a detached cleanup propagates to whatever resumed it (the event
+loop, or the `future_drop` caller before the first suspension), the same as one escaping
+a task given to `spawn`. The cleanup's awaits record no drop sites of their own: nobody
+holds the future any more.
 
 ---
 
@@ -476,7 +517,9 @@ async function in existence):**
   on_drop; T value; }`, `value` **last** so the header is type-erasable (§2.1).
 - `FutureHdr` aliases the first three fields.
 - `state` is **atomic**, four values `PENDING/WAITING/READY/CANCELLED`, with
-  acquire/release ordering and the single-winner terminal swap (§3).
+  acquire/release ordering and the single-winner terminal swap (§3). A coroutine future
+  dropped with an awaiting cleanup also passes through `DETACHED/ORPHANED/CLEANED`
+  (4, 5, 6) after it is cancelled (§7.1); no other future ever holds them.
 - The completion, drop, and arbitration protocols (§3) and the finalized-once
   invariant (§7).
 - Completion goes through `waker()`; a cross-thread completion lands the resume on
