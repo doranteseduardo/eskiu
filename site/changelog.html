@@ -1566,7 +1566,7 @@ promotion track.</p>
   was a generic container, so <code>for (v in xs)</code> over a <code>List&lt;double&gt;</code>/<code>List&lt;int64&gt;</code>
   truncated each element (and emitted invalid IR for <code>List&lt;Struct&gt;</code>). The desugar now
   resolves the element type by substituting the container's type argument, matching the
-  C++ back-end. (Residual R1 in <code>PROMOTION_PLAN.md</code>.)</li>
+  C++ back-end.</li>
 <li><strong>Self-hosted back-end: exceptions were mishandled.</strong> A catch-less <code>try</code>/<code>finally</code>
   swallowed an in-flight exception (running cleanup but then continuing as if caught), and
   a <code>throw</code> from inside a catch handler that had to cross a function boundary was lost
@@ -1695,8 +1695,7 @@ promotion track.</p>
   preprocesses the top-level file (matching how the C++ <code>--test-parser</code> folds
   preprocessing into the lexer), so <code>parse_parity.sh --full</code> no longer excludes
   files whose import closure touches the preprocessor (<code>#ifdef</code>/<code>#define</code>/<code>__FILE__</code>/
-  <code>__LINE__</code>/shebang). A prerequisite for promoting the Eskiu-written compiler
-  (see <code>selfhost/PROMOTION_PLAN.md</code>, R2).</li>
+  <code>__LINE__</code>/shebang). A prerequisite for promoting the Eskiu-written compiler.</li>
 </ul>
 <hr>
 <h2 id="030">[0.3.0]</h2>
@@ -1733,7 +1732,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   <code>match</code>, a type name, ...) as a variable, parameter, or field name now reports
   <code>expected a name, found keyword 'fn'</code> at the cause, instead of a misleading downstream
   error (<code>Expected ';'</code>, <code>Expected expression</code>). This was the most recurring self-host
-  papercut. The self-hosted parser mirror is tracked in <code>selfhost/PROMOTION_PLAN.md</code> (R3).</li>
+  papercut. The self-hosted parser mirror followed later.</li>
 <li><strong><code>String_free</code> clears <code>data</code>.</strong> It sets <code>self.data = null</code> after <code>free</code>, so a reused or
   doubly-freed <code>String</code> can no longer hand a dangling pointer to <code>free</code>.</li>
 <li><strong><code>String</code> length/capacity are now <code>int64</code>.</strong> <code>%String</code> went from <code>{ ptr, i32, i32 }</code> to
@@ -1770,7 +1769,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   error can never contaminate the <code>.ll</code> text on stdout. cg_parity 55/55, cg_selfhost 68/68,
   bootstrap fixpoint. (NOTE: a later systematic feature sweep, pushing the C++ test corpus
   through the parity oracle, showed self-host codegen is NOT yet feature-complete; ~8
-  root-cause gaps remain, tracked in <code>selfhost/BACKEND_PLAN.md</code>. The bootstrap only exercises
+  root-cause gaps remained, closed in later releases. The bootstrap only exercises
   the subset the compiler's own source uses, so it missed them.)</li>
 <li><strong>Self-hosted codegen: more of the language.</strong> Beyond the bootstrap subset, the
   self-hosted code generator (<code>selfhost/codegen.esk</code>) now also lowers: <strong>floating point</strong>

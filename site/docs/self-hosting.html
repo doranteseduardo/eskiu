@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Self-hosting · Eskiu docs</title>
-  <meta name="description" content="How the Eskiu compiler is written in Eskiu, and how that&#x27;s kept honest. Shipped in" />
+  <meta name="description" content="Eskiu has two implementations of its compiler. The released eskiuc is written in C++17" />
   <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/self-hosting.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
@@ -155,115 +155,72 @@ a:hover { color: var(--ink); }
     <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html" aria-current="page">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></aside>
     <main class="content">
       <details class="side-m"><summary>Compiler internals · Self-hosting</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html" aria-current="page">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
-<h1 id="eskiu-self-hosting">Eskiu Self-Hosting</h1>
-<p>How the Eskiu compiler is written in Eskiu, and how that's kept honest. Shipped in
-<strong>v0.3.0</strong>.</p>
-<hr>
-<h2 id="what-self-hosting-means-here">What "self-hosting" means here</h2>
-<p>The production compiler is <code>eskiuc</code>, written in C++17. Alongside it, the entire compiler
-pipeline is <strong>reimplemented in Eskiu</strong> under <code>selfhost/</code>:</p>
-<pre><code>lexer.esk → preprocessor.esk → parser.esk → sema.esk → async_lower.esk → codegen.esk
+<h1 id="self-hosting">Self-Hosting</h1>
+<p>Eskiu has two implementations of its compiler. The released <code>eskiuc</code> is written in C++17
+and links LLVM. The second, under <code>selfhost/</code>, is written in Eskiu: it covers the same
+pipeline and command line, writes LLVM IR as text, and calls <code>clang</code> to assemble and link
+it. CMake builds it as <code>eskiuc-esk</code>. See <a href="https://github.com/doranteseduardo/eskiu/blob/main/selfhost/README.md"><code>selfhost/README.md</code></a>
+for its layout.</p>
+<pre><code>preprocessor → lexer → parser → sema → async lowering → codegen (LLVM IR text) → clang
 </code></pre>
-<p>with drivers <code>lex_main</code>, <code>pp_main</code>, <code>parse_main</code>, <code>tc_main</code>, <code>cg_main</code>, and the unified
-<code>esk_main</code> (preprocess → parse → type-check → generate). On the promotion track (see
-<code>selfhost/PROMOTION_PLAN.md</code>) <code>esk_main</code> has grown into the full user-facing CLI: it
-dispatches every <code>--test-*</code> debug mode plus <code>--version</code>, takes multiple input files, and
-with <code>-o</code> assembles the IR and invokes <code>clang</code> to link a native binary (threading
-<code>--asan</code>/<code>--ubsan</code> into the link). Without <code>-o</code> it writes the object <code>FILE.o</code>, like the C++
-driver; <code>--test-codegen</code> prints the IR on stdout (the bootstrap pipes it to clang). It also owns the two subcommands: <code>run script.esk
-[args...]</code> compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
-<code>fmt [--check] file …</code> reindents in place via <code>fmt.esk</code>. It starts clang and the <code>run</code>
-program with <code>fork</code>/<code>execvp</code> (no shell, so any argument is passed through unchanged),
-accepts the C++ driver's flags (<code>--target</code>, <code>--mcpu</code>, <code>--mattr</code>, <code>--reloc</code>, <code>--link-arg</code>,
-<code>-l</code>/<code>-L</code>, <code>-c</code>, <code>-O0</code> to <code>-O3</code>, <code>--freestanding</code>, <code>--safe</code>, the sanitizers; <code>-Wall</code>/<code>-Wextra</code> are accepted and
-ignored, since lint warnings are C++ only), finds <code>stdlib/</code> through <code>$ESKIU_ROOT</code> or the
-install layout, and reports a missing import as an error. The four per-pass parity gates
-drive <em>through</em> <code>esk_main --test-*</code>, and <code>run</code>/<code>fmt</code> have their own parity gates
-(<code>run_parity.sh</code>, <code>fmt_parity.sh</code>). The code generator emits <strong>LLVM IR as text</strong> (no LLVM library is
-linked), which <code>clang</code> then assembles and links. This keeps the self-hosted compiler
-dependency-free and is the standard bootstrap path.</p>
-<p>The endgame (v1.0): <code>eskiuc</code> compiles its own source. v0.3.0 reached the key milestones (a
-3-stage bootstrap fixpoint and feature-completeness against the C++ corpus), and the
-promotion track (<code>selfhost/PROMOTION_PLAN.md</code>) has since finished it: <code>esk_main</code> is the full
-CLI, and the Eskiu-written compiler is now <em>behaviorally equivalent</em> to the C++ one over the
-whole corpus (positive output + negative verdict/diagnostic, CI-gated) and is dual-built by
-CMake as <code>eskiuc-esk</code>. The C++ binary stays the shipped artifact (the self-host links via
-clang, so shipping it would add a runtime clang requirement); it is the bootstrap seed and
-the differential oracle.</p>
-<h2 id="validation-parity-oracles-not-faith">Validation: parity oracles, not faith</h2>
-<p>Each pass is validated against the C++ <code>eskiuc</code>, which is the oracle. The method differs by
-phase, because the available ground truth differs:</p>
+<p>The C++ compiler is the reference. Every change to the language lands in both compilers
+in the same commit, and CI checks that they agree.</p>
+<h2 id="how-agreement-is-checked">How agreement is checked</h2>
+<p>The ground truth differs by pass, so the check does too:</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
 <th>Pass</th>
-<th>Oracle</th>
+<th>Check</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Lexer / Parser / Preprocessor</td>
-<td><strong>Byte-exact</strong> diff against <code>eskiuc --test-{lexer,parser}</code> (preprocessor parity runs <em>through</em> the lexer)</td>
+<td>Preprocessor, lexer, parser</td>
+<td>Byte-exact comparison with <code>eskiuc --test-lexer</code> and <code>--test-parser</code></td>
 </tr>
 <tr>
-<td>Semantic analysis</td>
-<td><strong>Verdict + diagnostic</strong>: same accept/reject as <code>--test-typechecker</code>, every error class caught with the right message</td>
+<td>Type checker</td>
+<td>Same accept or reject verdict as <code>--test-typechecker</code>, with the same message and <code>line:col</code></td>
 </tr>
 <tr>
-<td>Code generation</td>
-<td><strong>Behavioral</strong>: emit <code>.ll</code> → <code>clang</code> → run, compare exit code + stdout to the C++-built binary (LLVM renumbers SSA values and constant-folds, so IR can't be matched byte-for-byte)</td>
+<td>Code generator</td>
+<td>Behavioral: build the program with each compiler, run both, compare exit code and output. LLVM renumbers values and folds constants, so the IR itself is not compared</td>
+</tr>
+<tr>
+<td>C ABI</td>
+<td>The C signatures each compiler lowers for <code>extern</code> structs and callbacks, per target</td>
 </tr>
 </tbody>
 </table></div>
-<p>These run as CI gates: <code>tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh</code>, plus the
-promotion-track gates that exercise the whole driver end to end: <code>cg_bootstrap.sh</code> (the
-3-stage self-host fixpoint), <code>driver_parity.sh</code> / <code>run_parity.sh</code> / <code>fmt_parity.sh</code> (the
-<code>-o</code> / <code>run</code> / <code>fmt</code> CLI paths), and <code>corpus_parity.sh</code> (P3: every positive test compiled by
-the Eskiu-built compiler produces the same exit + stdout as C++). The negative-corpus
-verdict + diagnostic parity is part of <code>tc_parity.sh</code>. <code>cabi_parity.sh</code> compares the C
-signatures the self-host lowers for <code>extern</code> aggregates, callback thunks and fn-pointer
-parameters with the C++ ones, per target (AArch64, x86-64 SysV, Windows x64, ARM32).
-Outside these scripts, the C oracle (<code>tests/fuzz/eskiu_fuzz.py --oracle</code>) and the negative
-corpus fuzzer (<code>tests/fuzz/neg_fuzz.py</code>) run generated programs through both compilers.</p>
+<p>The scripts are in <code>tests/selfhost/</code> and all run in CI. The code-generator check covers
+every runnable program in <code>tests/</code>. The fuzzers in <code>tests/fuzz/</code> also run generated
+programs through both compilers.</p>
 <h2 id="the-bootstrap-fixpoint">The bootstrap fixpoint</h2>
-<p>Beyond per-pass parity, the self-hosted compiler is validated <strong>against itself</strong>:</p>
-<ul>
-<li><strong><code>cg_selfhost.sh</code></strong>: the self-hosted codegen emits valid IR for the <em>entire</em> self-hosted
-  compiler, and <code>cg_main</code> compiled by itself reproduces the C++-built codegen's IR
-  byte-for-byte.</li>
-<li><strong><code>cg_bootstrap.sh</code></strong> runs a 3-stage build: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds
-  <code>cc1</code>, <code>cc1</code> builds <code>cc2</code>; the gate asserts <strong><code>cc1</code> ≡ <code>cc2</code></strong> (identical IR for the
-  compiler's own source). A self-built compiler reproducing its own output is a true
-  bootstrap fixpoint.</li>
-</ul>
-<p>(Binary byte-equality is <em>not</em> asserted; a Mach-O <code>LC_UUID</code> and ad-hoc signature differ even
-for identical input, so the IR fixpoint is the real proof.)</p>
-<h2 id="feature-completeness">Feature-completeness</h2>
-<p>The compiler's own source only exercises a subset of the language, so the bootstrap fixpoint
-alone does <strong>not</strong> prove general feature coverage. To verify it, the full C++ feature corpus
-is pushed through the behavioral codegen oracle. A clean sweep (every program self-host
-compiles to the same behavior as the C++ build) is what earns the "feature-complete" claim.</p>
-<p>As of v0.3.0 the self-hosted code generator covers, beyond the bootstrap subset: floating
-point, <code>switch</code>, ADT enums + <code>match</code> (generic, and payloads wider than one word), closures,
-exceptions (the Itanium ABI), atomics, generics with argument inference, async/await, unions,
-bitfields, interfaces (dynamic dispatch), type aliases, function-as-value decay, packed
-structs (<code>packed</code> / <code>#pragma pack(N)</code>), user-defined variadics + <code>va_list</code>/<code>va_arg</code>, the
-<code>alloc_with</code>/<code>thread_create</code>/<code>thread_join</code>/<code>free_closure</code> builtins, and the <code>?</code> error-
-propagation operator.</p>
-<h2 id="running-the-gates">Running the gates</h2>
+<p>The self-hosted compiler is also checked against itself. <code>cg_bootstrap.sh</code> builds it in
+three stages: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds <code>cc1</code>, and <code>cc1</code> builds <code>cc2</code>.
+The check passes when <code>cc1</code> and <code>cc2</code> produce identical IR for the compiler's own source.
+The binaries themselves are not compared, since a Mach-O file embeds a UUID and signature
+that change between identical builds.</p>
+<p>A fixpoint only exercises the parts of the language the compiler's own source uses. It
+does not show that the rest works, which is why the behavioral check runs over the whole
+test corpus as well.</p>
+<h2 id="running-the-checks">Running the checks</h2>
 <pre><code class="language-bash">tests/selfhost/lex_parity.sh   --full   # lexer
-tests/selfhost/parse_parity.sh --full   # parser
 tests/selfhost/pp_parity.sh    --full   # preprocessor
-tests/selfhost/tc_parity.sh              # semantic analysis
-tests/selfhost/cg_parity.sh              # codegen (behavioral)
-tests/selfhost/cg_selfhost.sh            # self-compilation + emit validity
-tests/selfhost/cg_bootstrap.sh           # 3-stage bootstrap fixpoint
-tests/selfhost/cabi_parity.sh            # C ABI lowering per target
+tests/selfhost/parse_parity.sh --full   # parser
+tests/selfhost/tc_parity.sh             # type checker, valid and invalid programs
+tests/selfhost/cg_parity.sh             # code generator
+tests/selfhost/corpus_parity.sh         # every runnable test through eskiuc-esk
+tests/selfhost/driver_parity.sh         # building with -o
+tests/selfhost/run_parity.sh            # eskiuc-esk run
+tests/selfhost/fmt_parity.sh            # eskiuc-esk fmt
+tests/selfhost/cabi_parity.sh           # C ABI lowering per target
+tests/selfhost/cg_bootstrap.sh          # three-stage fixpoint
 </code></pre>
-<p>All are wired into CI. The sources live in <code>selfhost/</code>; the slice-by-slice development record
-is in <code>selfhost/BACKEND_PLAN.md</code>.</p>
+<p>They take the C++ compiler from <code>ESKIUC</code> (default <code>build/eskiuc</code>) and clang from <code>CLANG</code>.</p>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#what-self-hosting-means-here">What &quot;self-hosting&quot; means here</a><a href="#validation-parity-oracles-not-faith">Validation: parity oracles, not faith</a><a href="#the-bootstrap-fixpoint">The bootstrap fixpoint</a><a href="#feature-completeness">Feature-completeness</a><a href="#running-the-gates">Running the gates</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#how-agreement-is-checked">How agreement is checked</a><a href="#the-bootstrap-fixpoint">The bootstrap fixpoint</a><a href="#running-the-checks">Running the checks</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

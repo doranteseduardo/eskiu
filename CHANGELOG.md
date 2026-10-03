@@ -1375,7 +1375,7 @@ promotion track.
   was a generic container, so `for (v in xs)` over a `List<double>`/`List<int64>`
   truncated each element (and emitted invalid IR for `List<Struct>`). The desugar now
   resolves the element type by substituting the container's type argument, matching the
-  C++ back-end. (Residual R1 in `PROMOTION_PLAN.md`.)
+  C++ back-end.
 - **Self-hosted back-end: exceptions were mishandled.** A catch-less `try`/`finally`
   swallowed an in-flight exception (running cleanup but then continuing as if caught), and
   a `throw` from inside a catch handler that had to cross a function boundary was lost
@@ -1504,8 +1504,7 @@ promotion track.
   preprocesses the top-level file (matching how the C++ `--test-parser` folds
   preprocessing into the lexer), so `parse_parity.sh --full` no longer excludes
   files whose import closure touches the preprocessor (`#ifdef`/`#define`/`__FILE__`/
-  `__LINE__`/shebang). A prerequisite for promoting the Eskiu-written compiler
-  (see `selfhost/PROMOTION_PLAN.md`, R2).
+  `__LINE__`/shebang). A prerequisite for promoting the Eskiu-written compiler.
 
 ---
 
@@ -1542,7 +1541,7 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   `match`, a type name, ...) as a variable, parameter, or field name now reports
   `expected a name, found keyword 'fn'` at the cause, instead of a misleading downstream
   error (`Expected ';'`, `Expected expression`). This was the most recurring self-host
-  papercut. The self-hosted parser mirror is tracked in `selfhost/PROMOTION_PLAN.md` (R3).
+  papercut. The self-hosted parser mirror followed later.
 - **`String_free` clears `data`.** It sets `self.data = null` after `free`, so a reused or
   doubly-freed `String` can no longer hand a dangling pointer to `free`.
 - **`String` length/capacity are now `int64`.** `%String` went from `{ ptr, i32, i32 }` to
@@ -1579,7 +1578,7 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   error can never contaminate the `.ll` text on stdout. cg_parity 55/55, cg_selfhost 68/68,
   bootstrap fixpoint. (NOTE: a later systematic feature sweep, pushing the C++ test corpus
   through the parity oracle, showed self-host codegen is NOT yet feature-complete; ~8
-  root-cause gaps remain, tracked in `selfhost/BACKEND_PLAN.md`. The bootstrap only exercises
+  root-cause gaps remained, closed in later releases. The bootstrap only exercises
   the subset the compiler's own source uses, so it missed them.)
 - **Self-hosted codegen: more of the language.** Beyond the bootstrap subset, the
   self-hosted code generator (`selfhost/codegen.esk`) now also lowers: **floating point**

@@ -72,7 +72,7 @@ Use `examples/` and `tests/` as inputs. Add a `.esk` file for any feature you im
 | `tests/` | Regression tests (`.esk` files), classified by `tests/run.sh`: run (`NAME.expected`), smoke, error (`errors/`, `EXPECT-ERROR:`), lint (`warnings/`, `EXPECT-WARNING:` under `-Wall`). A run/smoke test may have a C companion `NAME.c` that is compiled and linked in; tests link with no `-l` flags. `tests/deep/gen.sh` generates the deep-input tests. `tests/linux_docker.sh` is the pre-release Linux smoke (cross-compile on the host, link and run in `ubuntu:24.04` via Docker). Fuzzers in `tests/fuzz/`: `eskiu_fuzz.py` (mutation + O0/O2 differential; `--oracle` runs the C oracle `c_oracle.py`, outputs compared with clang), `neg_fuzz.py` (one injected error, located rejection by both compilers), `stdlib_fuzz.py` (stdlib parsers under ASan, targets in `tests/fuzz/stdlib/`), shared limits in `fuzz_util.py`; usage in `tests/README.md`. |
 | `examples/` | Working demos. |
 | `kernel/` | Bare-metal ARM64 kernel for QEMU (v0.1 milestone). |
-| `selfhost/` | The compiler reimplemented **in Eskiu**: `lexer`/`parser`/`preprocessor`/`sema`/`codegen` (+`async_lower`) + drivers (`{lex,parse,pp,tc,cg,esk}_main.esk`, each running on the large stack from `bigstack.esk`). Codegen emits LLVM IR as text (no LLVM lib). Validated against the C++ `eskiuc` and against itself (bootstrap fixpoint). Slice-by-slice log + design: `selfhost/BACKEND_PLAN.md`; dogfood finds: `selfhost/NOTES.md`. |
+| `selfhost/` | The compiler reimplemented **in Eskiu**: `lexer`/`parser`/`preprocessor`/`sema`/`codegen` (+`async_lower`) + drivers (`{lex,parse,pp,tc,cg,esk}_main.esk`, each running on the large stack from `bigstack.esk`). Codegen emits LLVM IR as text (no LLVM lib). Validated against the C++ `eskiuc` and against itself (bootstrap fixpoint). Overview: `selfhost/README.md` and `docs/dev/self-hosting.md`. |
 
 ## Current language status
 
@@ -84,7 +84,7 @@ with `match`, and the concurrent stdlib. v0.3.0 reimplemented the whole compiler
 corpus). v0.3.1 added `-O0`/`-O1`/`-O2`/`-O3` optimization levels plus correctness fixes.
 v0.4-v0.7 followed (correctness/type-strictness, basic-C completion, memory safety + stdlib,
 cross-compilation; see the version table). The self-hosting **promotion** has since finished
-(`selfhost/PROMOTION_PLAN.md`): the Eskiu-written compiler is behaviorally equivalent to the
+(`docs/dev/self-hosting.md`): the Eskiu-written compiler is behaviorally equivalent to the
 C++ one over the whole corpus, CI-gated, and dual-built by CMake as `eskiuc-esk`; the C++
 binary stays the shipped artifact (it bundles LLVM; the self-host links via clang).
 
@@ -170,7 +170,7 @@ program self-host-compiles to the same behavior as the C++ build. This was earne
 11 root-cause gaps the sweep exposed (coercion/signedness, integer semantics, type aliases,
 function-as-value decay, generic ADT enums, a parser cast-vs-struct-literal bug, primitive
 constraint dispatch, alloc_with/thread builtins, variadics/`va_*`, packed structs, the `?`
-operator). See `selfhost/BACKEND_PLAN.md` for the slice-by-slice record. **Caution that bit
+operator). **Caution that bit
 us repeatedly: the bootstrap fixpoint only exercises the subset the compiler's own source
 uses; it does NOT prove general feature coverage. To check whether a feature works in the
 self-host, write a parity test and re-run the FULL sweep; never claim "complete" from the
