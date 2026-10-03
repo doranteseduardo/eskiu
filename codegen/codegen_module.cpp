@@ -128,6 +128,11 @@ static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
                                     parseRelocModel(cg.relocModel), std::nullopt, level));
 }
 
+bool unnamedBitfieldsAlign(const llvm::Triple& t) {
+    if (t.isOSWindows() || t.isOSDarwin()) return false;
+    return t.isARM() || t.isThumb() || t.isAArch64();
+}
+
 TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
     initCodegenTargets(/*withAsm=*/false);
     std::string tripleStr = tripleIn.empty() ? nativeTriple() : tripleIn;
@@ -147,6 +152,8 @@ TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
     info.f32Align = al(llvm::Type::getFloatTy(ctx));
     info.f64Align = al(llvm::Type::getDoubleTy(ctx));
     info.msBitfields = triple.isOSWindows();
+    info.msvcEnv = triple.isWindowsMSVCEnvironment();
+    info.unnamedBitfieldsAlign = unnamedBitfieldsAlign(triple);
     return info;
 }
 

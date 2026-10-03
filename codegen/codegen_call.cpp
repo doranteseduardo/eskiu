@@ -76,7 +76,7 @@ void CodeGen::ensureTemplateInstantiated(const std::string& mangled,
     std::vector<StructDecl::Field> fields;
     for (const auto& f : tmpl->fields)
         fields.push_back({substType(f.type, subs), f.name, f.bitWidth});
-    layoutStruct(mangled, fields, tmpl->isPacked, tmpl->packAlign);
+    layoutStruct(mangled, fields, tmpl->pads, tmpl->isPacked, tmpl->packAlign);
 }
 
 std::string CodeGen::instanceSpelling(const std::string& t) {

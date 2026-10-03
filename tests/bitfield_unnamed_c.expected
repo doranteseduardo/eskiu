@@ -1,0 +1,53 @@
+sizeof A ok
+sizeof B ok
+sizeof C ok
+sizeof D ok
+sizeof E ok
+sizeof F ok
+sizeof G ok
+sizeof P ok
+sizeof Q ok
+sizeof U ok
+sizeof V ok
+align A ok
+align B ok
+align C ok
+align D ok
+align E ok
+align F ok
+align G ok
+align P ok
+align Q ok
+align U ok
+align V ok
+A 5 2
+A c 23
+B b B
+B c 120121
+C 21 300 77
+C c 31511001
+D d D
+D c 101069
+E 99 9
+E c 715
+F 1.5 765432
+F c 351048575
+G 3 1
+G c 12
+P p 6 13
+P c 800115
+Q q 5 Q
+Q c 1147082
+byval B 109110
+byval C 17400009
+byval F 50004242
+byval U 201
+byval V 60000
+mk C 3 123 4
+mk F 2.5 98765
+mk U 77
+byval X 15 25 33 15025 4005 66
+byval X 75 56 45 55 35045
+byval X3 X1 1002034
+mk X 10.5 20.5 30 1.5 40.5 7 50
+mk X 60 70.5 80 90.5 100.5 2.5 110.5

@@ -74,6 +74,7 @@ bool TypeChecker::check(Program* program) {
             info.isUnion = true;
             info.packAlign = unionDecl->packAlign;
             for (const auto& f : unionDecl->fields) info.fields.push_back({f.type, f.name});
+            info.pads = unionDecl->pads;
             structs[unionDecl->name] = info;
             continue;
         }
@@ -97,6 +98,7 @@ bool TypeChecker::check(Program* program) {
             StructInfo info;
             info.name = structDecl->name;
             info.fields = structDecl->fields;
+            info.pads = structDecl->pads;
             info.packAlign = structDecl->isPacked ? 1 : structDecl->packAlign;
             structs[structDecl->name] = info;
 
@@ -251,10 +253,12 @@ void TypeChecker::checkTopLevelNames(Program* program) {
     struct Entry { std::string kind; Decl* decl; };
     std::map<std::string, Entry> seen;
     std::map<std::string, std::string> externSigs;   // extern name -> its signature
-    auto sameFields = [](const std::vector<StructDecl::Field>& a, const std::vector<StructDecl::Field>& b) {
+    auto sameFields = [](const StructDecl* x, const StructDecl* y) {
+        auto a = layoutFields(x->fields, x->pads), b = layoutFields(y->fields, y->pads);
         if (a.size() != b.size()) return false;
         for (size_t i = 0; i < a.size(); ++i)
-            if (a[i].type != b[i].type || a[i].name != b[i].name || a[i].bitWidth != b[i].bitWidth) return false;
+            if (a[i].type != b[i].type || a[i].name != b[i].name || a[i].bitWidth != b[i].bitWidth ||
+                a[i].unnamed != b[i].unnamed) return false;
         return true;
     };
     auto sigOf = [&](FunctionDecl* f) {
@@ -299,7 +303,7 @@ void TypeChecker::checkTopLevelNames(Program* program) {
         if (kind == "struct" && prev.kind == "struct") {
             auto* a = static_cast<StructDecl*>(prev.decl);
             auto* b = static_cast<StructDecl*>(d);
-            if (sameFields(a->fields, b->fields) && a->methods.size() == b->methods.size() &&
+            if (sameFields(a, b) && a->methods.size() == b->methods.size() &&
                 a->typeParams == b->typeParams) return;      // the same declaration, merged twice
             errorAtDecl(d, "redefinition of struct '" + name + "' with different fields");
             return;

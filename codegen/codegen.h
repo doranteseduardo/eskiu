@@ -33,6 +33,12 @@ inline llvm::ConstantInt* constIntBits(llvm::Type* ty, uint64_t v) {
     return llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(ty), v);
 }
 
+namespace llvm { class Triple; }
+// Does an unnamed bitfield (`T : N` or `T : 0`) raise the alignment of its struct or
+// union to T's, as on AAPCS (32-bit ARM and AArch64, outside Darwin and Windows)? Elsewhere
+// clang's Itanium layout ignores it for alignment.
+bool unnamedBitfieldsAlign(const llvm::Triple& t);
+
 class CodeGen : public ASTVisitor {
 public:
     CodeGen();
@@ -124,10 +130,19 @@ private:
     // new storage unit when the declared type size changes), else the SysV/AAPCS rules
     // (a bitfield shares the current unit of its declared type if it fits). Fills the
     // physical element types and the per-field slots; `llvmPacked` = emit `<{ }>`.
+    // `fields` is layoutFields(): an unnamed bitfield takes bits but gets no slot.
     void layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
                               unsigned packN, std::vector<llvm::Type*>& phys,
                               std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked,
-                              uint64_t& cAlign);
+                              uint64_t& cAlign,
+                              std::vector<std::pair<uint64_t, uint64_t>>& unnamedData);
+    // Unnamed bitfields of a struct or union type, for the C ABI lowering: the byte ranges
+    // each counts as data for the x86-64 register widths (clang's BitsContainNoUserData:
+    // from its first bit through its declared type's size, within the type; a type with an
+    // unnamed bitfield has an entry), and the types holding one of nonzero width (directly
+    // or in a field), which are never a homogeneous FP aggregate.
+    std::map<llvm::StructType*, std::vector<std::pair<uint64_t, uint64_t>>> unnamedBitData;
+    std::set<llvm::StructType*> notHomogeneous;
     // The C alignment of a struct type LLVM lays out as packed (explicit padding) though
     // C aligns it: a `#pragma pack(N>=2)` struct (min(N, largest field alignment)), a
     // struct or union holding one, a bitfield struct laid out by hand. Only entries
@@ -392,6 +407,7 @@ private:
         llvm::Type* ty = nullptr;
         unsigned align = 0;        // Indirect / ByVal / Sret alignment
         unsigned stackAlign = 0;   // `alignstack` for a stack-passed coerced arg (0 = none)
+        unsigned offset = 0;       // Coerce: the byte offset of `ty` in the aggregate
     };
     struct CAbiSig {
         llvm::FunctionType* logical = nullptr;   // Eskiu-level signature
@@ -401,6 +417,13 @@ private:
     };
     std::map<std::string, CAbiSig> externAbi;    // externs declared with a lowered signature
     CAbiTarget cabiTarget() const;
+    // The unnamed-bitfield data ranges of `ty` placed at `base` (unnamedBitData, through
+    // nested aggregates); an empty range marks one that holds no byte of the type.
+    void cabiUnnamedData(llvm::Type* ty, uint64_t base,
+                         std::vector<std::pair<uint64_t, uint64_t>>& out) const;
+    // A Coerce value to and from the aggregate (cabiReinterpret at CAbiArg::offset).
+    llvm::Value* cabiToCoerced(llvm::Value* v, const CAbiArg& a);
+    llvm::Value* cabiFromCoerced(llvm::Value* c, const CAbiArg& a, llvm::Type* logical);
     void cabiLeaves(llvm::Type* ty, uint64_t base,
                     std::vector<std::pair<uint64_t, llvm::Type*>>& out) const;
     CAbiArg classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget tgt,
@@ -649,7 +672,7 @@ private:
     // Create the LLVM struct type shell for a (non-template) struct. Idempotent.
     void declareStructType(StructDecl* node);
     void layoutStruct(const std::string& name, const std::vector<StructDecl::Field>& fields,
-                      bool isPacked, int packAlign);
+                      const std::vector<StructDecl::Pad>& pads, bool isPacked, int packAlign);
     // Manual layout at the C alignment of each field (cAlignOf), capped at packN for
     // #pragma pack(N>=2) (0 = no cap): used for a pack(N) struct and for one holding a
     // field LLVM would place at another offset. Fills `phys` with field types interleaved

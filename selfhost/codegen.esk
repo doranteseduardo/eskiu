@@ -56,10 +56,14 @@ struct CgBF { string sname; string fname; int fidx; int boff; int bw; int sgn; s
 // offset + LLVM type. A classified param/return: kind 0 direct, 1 coerce (one value of
 // `ty`), 2 expand (two args `ty`, `ty2`), 3 indirect (pointer to a caller copy), 4 byval,
 // 5 sret, 6 expand into the scalars listed in `ty` (`i32, double`, 32-bit x86); `ty` is the aggregate's LLVM type for 3-5, `align` their alignment, `salign`
-// an `alignstack` for a coerced arg (0 = none). A lowered extern: its classification plus
-// the lowered return / fixed-param types (the declared C signature).
+// an `alignstack` for a coerced arg (0 = none), `off` the byte offset of a coerced value in
+// the aggregate (x86-64: an all-padding low eightbyte). A lowered extern: its
+// classification plus the lowered return / fixed-param types (the declared C signature).
 struct CgLeaf { int off; string ty; }
-struct CgAbi { int kind; string ty; string ty2; int align; int salign; }
+struct CgAbi { int kind; string ty; string ty2; int align; int salign; int off; }
+// A byte range [off, end) an unnamed bitfield of struct/union `sname` counts as data for
+// the x86-64 register widths (C++ CodeGen::unnamedBitData; off == end: none in the type).
+struct CgUData { string sname; int off; int end; }
 struct CgCabi { string name; CgAbi ret; List<CgAbi> params; string lowret; string lowfixed; }
 // A queued lambda: its unique name, the AST node (signature in .sval, body in .stmt),
 // and its captured outer variables (parallel name/Eskiu-type lists).
@@ -146,12 +150,17 @@ struct Codegen {
     string bf_vol;           // "volatile " while a bitfield access goes through a volatile root
     List<CgSub> tydefs;      // emitted named LLVM types: name (no '%') → body text ("{ i32, ptr }")
     List<CgSub> caligns;     // C alignment (decimal) of a named type LLVM sees as less aligned
+    List<CgUData> udata;     // unnamed bitfields' data ranges per struct/union (C ABI)
+    List<string> unnamed_tys;   // structs/unions with an unnamed bitfield
+    List<string> nonhomog;   // structs/unions holding a nonzero unnamed bitfield: no HFA (C ABI)
     List<*DeclNode> tydecls; // non-generic struct/union/ADT decls whose type line is emitted on demand
     int abi;                 // target C ABI: 0 none, 1 AArch64 Darwin, 2 AArch64 AAPCS64, 3 x86-64 SysV,
                              // 4 Windows x64, 5 32-bit ARM AAPCS (soft-float), 6 ARM AAPCS-VFP (hard-float)
     int ptrsz;               // pointer size in bytes (4 on 32-bit ARM and x86)
     int i64al;               // ABI alignment of i64 and double (4 on 32-bit x86 SysV, else 8)
     int msbf;                // 1: MS bitfield layout (Windows targets), else SysV/AAPCS
+    int bfal;                // 1: an unnamed bitfield raises its struct's alignment (AAPCS)
+    int msvc;                // 1: MSVC (not mingw): a `: 0` under pack(N) is aligned to at most N
     int wintgt;              // 1: a Windows target (mingw SEH exception personality)
     int bigend;              // 1: a big-endian AArch64 target (aarch64_be)
     int x86ri;               // 32-bit x86: a small aggregate result comes back in registers
@@ -316,6 +325,9 @@ void cg_init(Codegen* g) {
     List_init<*DeclNode>(&g.genums, 4);
     List_init<CgSub>(&g.tydefs, 16);
     List_init<CgSub>(&g.caligns, 4);
+    List_init<CgUData>(&g.udata, 4);
+    List_init<string>(&g.unnamed_tys, 4);
+    List_init<string>(&g.nonhomog, 4);
     List_init<*DeclNode>(&g.tydecls, 16);
     List_init<CgCabi>(&g.cabis, 4);
     List_init<string>(&g.vols, 4);
@@ -345,6 +357,7 @@ void cg_init(Codegen* g) {
     g.msbf = 0;
     g.wintgt = 0;
     g.bigend = 0;
+    ast_target_bf("", &g.bfal, &g.msvc);
 #ifdef _WIN32
     g.msbf = 1;
     g.wintgt = 1;
@@ -386,6 +399,7 @@ void cg_set_target(Codegen* g, string triple) {
     int win = cg_has_sub(triple, "windows") | cg_has_sub(triple, "win32") | cg_has_sub(triple, "mingw");
     g.msbf = win;
     g.wintgt = win;
+    ast_target_bf(triple, &g.bfal, &g.msvc);
     g.bigend = cg_has_prefix(triple, "aarch64_be");
     if (cg_has_prefix(triple, "aarch64") == 1 || cg_has_prefix(triple, "arm64") == 1) {
         g.abi = 2; if (apple == 1) { g.abi = 1; }
@@ -770,6 +784,7 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
         cd.kind = DK_STRUCT; cd.name = mangled;
         cd.is_packed = gd.is_packed; cd.pack_align = gd.pack_align;
         cd.field_bits = gd.field_bits;
+        cd.pad_tys = gd.pad_tys; cd.pad_bits = gd.pad_bits; cd.pad_at = gd.pad_at;
         List_init<Param>(&cd.params, nf);
         int ci = 0;
         while (ci < nf) {
@@ -781,6 +796,7 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
         cg_emit_tydecl(g, cd);
     } else {
         cg_deftype(g, mangled, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
+        cg_note_nonhomog(g, mangled, gd, &s.fetys);
     }
 
     g.cursub = oldsub;                                    // restore
@@ -7064,8 +7080,9 @@ void cg_drain_lambdas(Codegen* g) {
     }
 }
 
-// Does a struct decl have any bitfield member (a `: width` field)?
+// Does a struct decl have any bitfield (a `: width` field, or an unnamed one)?
 int cg_struct_has_bf(*DeclNode d) {
+    if (List_len<string>(&d.pad_tys) > 0) { return 1; }
     int i = 0; int n = List_len<int>(&d.field_bits);
     while (i < n) { if (List_get<int>(&d.field_bits, i) > 0) { return 1; } i = i + 1; }
     return 0;
@@ -7148,24 +7165,40 @@ string cg_bytes_ty(int n) { return cg_cat("[", cg_cat(cg_itoa(n), " x i8]")); }
 // addressed by byte offset (slot.boffs); the emitted `%S = type` only has to reproduce
 // the C size and alignment: each maximal storage unit as an integer of its type, the
 // normal fields outside the units as themselves, and `[n x i8]` for the other bytes.
+// An unnamed bitfield takes its bits like a named one but is no storage (it holds no
+// data); a `: 0` moves the next field to the next boundary of its type's alignment,
+// whatever the packing. Neither raises the struct alignment, except on AAPCS (g.bfal).
 void cg_bf_layout(Codegen* g, *DeclNode d) {
     if (g.msbf == 1) { cg_bf_layout_ms(g, d); return; }
-    int nf = List_len<Param>(&d.params);
+    List<Param> lfs; List<int> lbits; List<int> lnamed;
+    ast_layout_fields(d, &lfs, &lbits, &lnamed);
+    int nf = List_len<Param>(&lfs);
     int contig = 0; int cap = 0;
     if (d.is_packed == 1) { contig = 1; cap = 1; }
     else if (d.pack_align >= 2) { contig = 1; cap = d.pack_align; }
     List<CgSpan> units; List_init<CgSpan>(&units, 8);
     List<CgSpan> normals; List_init<CgSpan>(&normals, 8);
+    List<CgSpan> uds; List_init<CgSpan>(&uds, 4);    // unnamed bitfields' C ABI data bytes
     int bitpos = 0; int salign = 1;
     int i = 0;
     while (i < nf) {
-        Param pm = List_get<Param>(&d.params, i);
-        int bw = List_get<int>(&d.field_bits, i);
+        Param pm = List_get<Param>(&lfs, i);
+        int bw = List_get<int>(&lbits, i);
+        int named = List_get<int>(&lnamed, i);
         string lty = cg_lltype(g, pm.ty);
         int size = cg_size(g, pm.ty);
         int nal = cg_align(g, pm.ty);
+        if (named == 0 && bw == 0) {
+            int za = cg_c_align(g, lty);
+            bitpos = cg_align_up(bitpos, za * 8);
+            if (g.bfal == 1 && za > salign) { salign = za; }
+            let zd: CgSpan; zd.off = bitpos / 8; zd.end = (bitpos + size * 8 + 7) / 8; zd.ty = "";
+            List_push<CgSpan>(&uds, zd);
+            i = i + 1;
+            continue;
+        }
         int al = cg_c_align(g, lty); if (cap > 0 && al > cap) { al = cap; }
-        if (al > salign) { salign = al; }
+        if ((named == 1 || g.bfal == 1) && al > salign) { salign = al; }
         let slot: CgBF; slot.sname = d.name; slot.fname = pm.name; slot.fety = pm.ty;
         slot.fidx = 0; slot.sty = lty; slot.aal = 0; slot.aty = lty; slot.boff = 0; slot.bw = 0; slot.sgn = 0;
         if (bw > 0) {
@@ -7178,7 +7211,7 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
                 int span = (slot.boff + bw + 7) / 8;
                 slot.aty = cg_cat("i", cg_itoa(span * 8)); slot.aal = 1;
                 let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + span; u.ty = "";
-                cg_span_insert(&units, u, 1);
+                if (named == 1) { cg_span_insert(&units, u, 1); }
             } else {
                 int ub = size * 8;
                 if (bitpos / ub != (bitpos + bw - 1) / ub) { bitpos = cg_align_up(bitpos, ub); }
@@ -7187,7 +7220,12 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
                 // A bool bitfield is read and written as its byte (the value is i1).
                 if (cg_streq(lty, "i1") == 1) { slot.aty = "i8"; }
                 let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + size; u.ty = slot.aty;
-                cg_span_insert(&units, u, 1);
+                if (named == 1) { cg_span_insert(&units, u, 1); }
+            }
+            if (named == 0) {
+                int ufirst = slot.boffs * 8 + slot.boff;
+                let ud: CgSpan; ud.off = ufirst / 8; ud.end = (ufirst + size * 8 + 7) / 8; ud.ty = "";
+                List_push<CgSpan>(&uds, ud);
             }
             bitpos = bitpos + bw;
         } else {
@@ -7197,10 +7235,22 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
             List_push<CgSpan>(&normals, nsp);
             bitpos = (off + size) * 8;
         }
-        List_push<CgBF>(&g.bitfields, slot);
+        if (named == 1) { List_push<CgBF>(&g.bitfields, slot); }
         i = i + 1;
     }
     int total = cg_align_up((bitpos + 7) / 8, salign);
+    // The bytes an unnamed bitfield counts as data for the C ABI (clang's
+    // BitsContainNoUserData: from its first bit through its type's size) end at the struct.
+    if (List_len<string>(&d.pad_tys) > 0) { List_push<string>(&g.unnamed_tys, d.name); }
+    i = 0;
+    while (i < List_len<CgSpan>(&uds)) {
+        CgSpan us = List_get<CgSpan>(&uds, i);
+        let ue: CgUData; ue.sname = d.name; ue.off = us.off; ue.end = us.end;
+        if (ue.off > total) { ue.off = total; }
+        if (ue.end > total) { ue.end = total; }
+        List_push<CgUData>(&g.udata, ue);
+        i = i + 1;
+    }
     // Maximal storage units (aligned power-of-two units nest or are disjoint; a packed
     // struct's overlapping byte runs merge).
     List<CgSpan> store; List_init<CgSpan>(&store, 8);
@@ -7263,7 +7313,10 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
         cur = e.end;
         i = i + 1;
     }
-    if (byhand == 1 && cur < total) {
+    // Trailing bytes the natural layout would not add (padding of a packed type, or the
+    // bits of a trailing unnamed bitfield).
+    int natend = cur; if (byhand == 0) { natend = cg_align_up(cur, llal); }
+    if (cur < total && natend < total) {
         if (String_len(&body) > 0) { String_append(&body, ", "); }
         String_append(&body, cg_bytes_ty(total - cur));
     }
@@ -7273,12 +7326,13 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
     cg_set_calign(g, d.name, salign, llal);
 }
 
-// Append element `t` to an MS-layout struct body; returns its LLVM index. Under
-// #pragma pack(N>=2) (packn) it is placed by hand at alignment min(align, N), with a
-// `[k x i8]` filler before it, tracking the byte offset and the struct alignment.
+// Append element `t` to an MS-layout struct body; returns its LLVM index. Laid out by
+// hand (manual) it is placed at alignment min(align, packn) (packn 0: no cap, 1: a packed
+// struct), with a `[k x i8]` filler before it, tracking the byte offset and the struct
+// alignment.
 int cg_ms_elem(Codegen* g, String* body, int* count, int* off, int* salign, int packn, int manual, string t) {
     if (manual == 1) {
-        int a = cg_c_align(g, t); if (packn >= 2 && a > packn) { a = packn; }
+        int a = cg_c_align(g, t); if (packn >= 1 && a > packn) { a = packn; }
         if (a > salign[0]) { salign[0] = a; }
         int at = cg_align_up(off[0], a);
         if (at > off[0]) {
@@ -7299,11 +7353,26 @@ int cg_ms_elem(Codegen* g, String* body, int* count, int* off, int* salign, int 
 // changes or the next field won't fit. A normal field closes the word and gets its own
 // slot. Registers a slot per field (word index + bit offset/width, or a plain index for a
 // normal field) and emits `%S = type { … }` (`<{ … }>` when packed or under pack(N)).
+// An unnamed bitfield takes its bits like a named one. A `: 0` right after a bitfield
+// closes the word and aligns the next field to its type (capped by the packing on MSVC,
+// not on mingw), which needs the layout by hand; anywhere else it is ignored.
 void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
+    if (List_len<string>(&d.pad_tys) > 0) { List_push<string>(&g.unnamed_tys, d.name); }
     String body; String_init(&body, 32);
-    int nf = List_len<Param>(&d.params);
-    int packn = 0; if (d.is_packed == 0) { packn = d.pack_align; }
+    List<Param> lfs; List<int> lbits; List<int> lnamed;
+    ast_layout_fields(d, &lfs, &lbits, &lnamed);
+    int nf = List_len<Param>(&lfs);
+    int packn = 1; if (d.is_packed == 0) { packn = d.pack_align; }
     int manual = 0; if (packn >= 2 || cg_needs_manual(g, d) == 1) { manual = 1; }
+    int after = 0;
+    int zi = 0;
+    while (zi < nf) {
+        int zb = List_get<int>(&lbits, zi);
+        if (List_get<int>(&lnamed, zi) == 0 && zb == 0) { if (after == 1) { manual = 1; } after = 0; }
+        else { after = 0; if (zb > 0) { after = 1; } }
+        zi = zi + 1;
+    }
+    after = 0;
     int llcount = 0;          // number of LLVM fields emitted so far
     int off = 0; int salign = 1;
     int curword = 0 - 1;      // open bitfield word's LLVM index (-1 = none)
@@ -7311,8 +7380,30 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
     int curoff = 0;
     int i = 0;
     while (i < nf) {
-        Param pm = List_get<Param>(&d.params, i);
-        int bw = List_get<int>(&d.field_bits, i);
+        Param pm = List_get<Param>(&lfs, i);
+        int bw = List_get<int>(&lbits, i);
+        int named = List_get<int>(&lnamed, i);
+        if (named == 0 && bw == 0) {
+            if (after == 1) {
+                int za = cg_c_align(g, cg_lltype(g, pm.ty));
+                if (g.msvc == 1) {
+                    if (d.is_packed == 1) { za = 1; }
+                    if (packn >= 2 && za > packn) { za = packn; }
+                }
+                if (za > salign) { salign = za; }
+                int zat = cg_align_up(off, za);
+                if (zat > off) {
+                    if (llcount > 0) { String_append(&body, ", "); }
+                    String_append(&body, cg_bytes_ty(zat - off));
+                    llcount = llcount + 1;
+                }
+                off = zat;
+            }
+            curword = 0 - 1; curbits = 0; curoff = 0; after = 0;
+            i = i + 1;
+            continue;
+        }
+        after = 0; if (bw > 0) { after = 1; }
         let slot: CgBF; slot.sname = d.name; slot.fname = pm.name; slot.fety = pm.ty;
         slot.boffs = 0 - 1; slot.aal = 0;
         if (bw > 0) {
@@ -7332,7 +7423,7 @@ void cg_bf_layout_ms(Codegen* g, *DeclNode d) {
             slot.fidx = cg_ms_elem(g, &body, &llcount, &off, &salign, packn, manual, fty);
             slot.boff = 0; slot.bw = 0; slot.sgn = 0; slot.sty = fty; slot.aty = fty;
         }
-        List_push<CgBF>(&g.bitfields, slot);
+        if (named == 1) { List_push<CgBF>(&g.bitfields, slot); }
         i = i + 1;
     }
     string op = "{ "; string cl = " }";
@@ -7415,26 +7506,66 @@ int cg_prog_defines(*Program prog, string name) {
 // sized to the largest member rounded up to that alignment (all members overlap at
 // offset 0). A bare `[N x i8]` would be 1-aligned and misplace the union in a struct.
 // Anchor choice mirrors the C++ codegen: highest alignment, ties to the larger member.
+// An unnamed bitfield is no member: it only adds its bytes (on MS rules its type's size)
+// and, on AAPCS, its type's alignment (a `: 0` only that, uncapped). On MSVC a `: 0` right
+// after a bitfield adds its type's size.
 void cg_emit_union(Codegen* g, *DeclNode d) {
-    int maxsz = 0; int maxal = 1; string anchor = ""; int anchorsz = 0;
+    int maxsz = 0; int maxal = 1; string anchor = ""; int anchorsz = 0; int anchoral = 1;
     // Under `#pragma pack(N)` each member's alignment is capped at N; when that lowers the
     // union's alignment the body is packed (`<{ }>`) with its C alignment recorded.
     int cap = 0; int natal = 1;
     if (d.is_packed == 1) { cap = 1; } else if (d.pack_align >= 2) { cap = d.pack_align; }
+    List<Param> lfs; List<int> lbits; List<int> lnamed;
+    ast_layout_fields(d, &lfs, &lbits, &lnamed);
+    List<int> usz; List_init<int>(&usz, 2);         // unnamed bitfields' type sizes (C ABI data)
+    int after = 0;
     int fi = 0;
-    while (fi < List_len<Param>(&d.params)) {
-        string ft = List_get<Param>(&d.params, fi).ty;
+    while (fi < List_len<Param>(&lfs)) {
+        string ft = List_get<Param>(&lfs, fi).ty;
         int sz = cg_size(g, ft); int al = cg_c_align(g, cg_lltype(g, ft));
+        int bw = List_get<int>(&lbits, fi);
+        int was = after;
+        after = 0;
+        if (List_get<int>(&lnamed, fi) == 0) {
+            List_push<int>(&usz, sz);
+            if (bw > 0) { after = 1; }
+            if (bw == 0) {
+                if (g.msbf == 0 && g.bfal == 1) {
+                    if (al > maxal) { maxal = al; }
+                    if (al > natal) { natal = al; }
+                }
+                if (was == 1 && g.msvc == 1 && sz > maxsz) { maxsz = sz; }
+            } else {
+                int usz = (bw + 7) / 8; if (g.msbf == 1) { usz = sz; }
+                if (usz > maxsz) { maxsz = usz; }
+                if (g.msbf == 0 && g.bfal == 1) {
+                    if (al > natal) { natal = al; }
+                    if (cap > 0 && al > cap) { al = cap; }
+                    if (al > maxal) { maxal = al; }
+                }
+            }
+            fi = fi + 1;
+            continue;
+        }
         if (al > natal) { natal = al; }
         if (cap > 0 && al > cap) { al = cap; }
         if (sz > maxsz) { maxsz = sz; }
-        if (anchor[0] == 0 || al > maxal || (al == maxal && sz > anchorsz)) {
-            anchor = ft; anchorsz = sz; if (al > maxal) { maxal = al; }
+        if (al > maxal) { maxal = al; }
+        if (anchor[0] == 0 || al > anchoral || (al == anchoral && sz > anchorsz)) {
+            anchor = ft; anchorsz = sz; anchoral = al;
         }
         fi = fi + 1;
     }
     int total = cg_align_up(maxsz, maxal);
     if (total == 0) { total = 1; }
+    if (List_len<string>(&d.pad_tys) > 0) { List_push<string>(&g.unnamed_tys, d.name); }
+    fi = 0;
+    while (fi < List_len<int>(&usz)) {
+        let ue: CgUData; ue.sname = d.name; ue.off = 0; ue.end = List_get<int>(&usz, fi);
+        if (ue.end > total) { ue.end = total; }
+        List_push<CgUData>(&g.udata, ue);
+        fi = fi + 1;
+    }
     String body; String_init(&body, 32);
     if (anchor[0] != 0) { String_append(&body, cg_lltype(g, anchor)); }
     if (total > anchorsz) {
@@ -7448,6 +7579,7 @@ void cg_emit_union(Codegen* g, *DeclNode d) {
     }
     cg_deftype(g, d.name, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
     if (anchor[0] != 0) { cg_set_calign(g, d.name, maxal, cg_align(g, anchor)); }
+    else { cg_set_calign(g, d.name, maxal, 1); }
 }
 
 // The architecture macro to predefine for programs this compiler builds (the host's, as
@@ -7689,6 +7821,83 @@ string cg_abi_hfa(List<CgLeaf>* lv, int size, int asarr) {
     return (string)String_cstr(&t);
 }
 
+int cg_ll_nonhomog(Codegen* g, string lt);       // fwd
+
+// The unnamed-bitfield data ranges of the LLVM type `lt` placed at `base` (g.udata, through
+// nested aggregates; C++ CodeGen::cabiUnnamedData). An empty range marks a type with an
+// unnamed bitfield that holds no byte of it.
+void cg_ll_udata(Codegen* g, string lt0, int base, List<CgSpan>* out) {
+    string lt = cg_trim(lt0);
+    int c = (int)lt[0];
+    if (c == 91) {                                   // `[N x T]`
+        int p = 1; cg_ll_ws(lt, &p); int an = cg_ll_num(lt, &p); cg_ll_ws(lt, &p); cg_ll_kw(lt, &p, "x");
+        string et = cg_trim(cg_sub_str(lt, p, cg_strlen(lt) - 1));
+        int ec = (int)et[0];
+        if (ec != 37 && ec != 91 && ec != 123 && ec != 60) { return; }
+        int esz = cg_ll_size_of(g, et);
+        int k = 0;
+        while (k < an) { cg_ll_udata(g, et, base + k * esz, out); k = k + 1; }
+        return;
+    }
+    if (c == 123 || (c == 60 && (int)lt[1] == 123)) {   // a struct body
+        int pk = 0; int pos = 0;
+        if (c == 60) { pk = 1; pos = 1; }
+        pos = pos + 1;
+        int off = 0;
+        cg_ll_ws(lt, &pos);
+        while (lt[pos] != 0 && (int)lt[pos] != 125) {
+            int p1 = pos; int fal = 1;
+            int fsz = cg_ll_layout(g, lt, &pos, &fal);
+            if (pk == 1) { fal = 1; }
+            off = cg_align_up(off, fal);
+            cg_ll_udata(g, cg_sub_str(lt, p1, pos), base + off, out);
+            off = off + fsz;
+            cg_ll_ws(lt, &pos);
+            if ((int)lt[pos] == 44) { pos = pos + 1; }
+            cg_ll_ws(lt, &pos);
+        }
+        return;
+    }
+    if (c != 37) { return; }
+    string name = cg_sub_str(lt, 1, cg_strlen(lt));
+    if (cg_in_strlist(&g.unnamed_tys, name) == 1) {
+        let mk: CgSpan; mk.off = base; mk.end = base; mk.ty = "";
+        List_push<CgSpan>(out, mk);
+        int ui = 0;
+        while (ui < List_len<CgUData>(&g.udata)) {
+            CgUData u = List_get<CgUData>(&g.udata, ui);
+            if (cg_streq(u.sname, name) == 1) {
+                let us: CgSpan; us.off = base + u.off; us.end = base + u.end; us.ty = "";
+                List_push<CgSpan>(out, us);
+            }
+            ui = ui + 1;
+        }
+    }
+    if (cg_is_union(g, name) == 1) {
+        CgStruct un = cg_find_struct(g, name);
+        int i = 0;
+        while (i < List_len<string>(&un.fetys)) { cg_ll_udata(g, cg_lltype(g, List_get<string>(&un.fetys, i)), base, out); i = i + 1; }
+        return;
+    }
+    string body = cg_tydef_body(g, name);
+    int slots = 0;
+    int bi = 0;
+    while (bi < List_len<CgBF>(&g.bitfields)) {
+        CgBF bs = List_get<CgBF>(&g.bitfields, bi);
+        if (cg_streq(bs.sname, name) == 1) {
+            slots = 1;
+            if (bs.bw == 0) {
+                int fo = bs.boffs;
+                if (fo < 0) { fo = cg_elem_offset(g, body, bs.fidx); }
+                cg_ll_udata(g, cg_lltype(g, bs.fety), base + fo, out);
+            }
+        }
+        bi = bi + 1;
+    }
+    if (slots == 1) { return; }
+    if (body[0] != 0) { cg_ll_udata(g, body, base, out); }
+}
+
 // The type of the first leaf exactly at `off` ("" if none).
 string cg_abi_leaf_at(List<CgLeaf>* lv, int off) {
     int i = 0;
@@ -7697,7 +7906,7 @@ string cg_abi_leaf_at(List<CgLeaf>* lv, int off) {
 }
 
 // The IR type for SysV eightbyte `eb` of an aggregate (clang's GetSSE/INTEGERTypeAtOffset).
-string cg_abi_eb_type(Codegen* g, List<CgLeaf>* lv, int size, int eb, int sse) {
+string cg_abi_eb_type(Codegen* g, List<CgLeaf>* lv, int size, int eb, int sse, List<CgSpan>* ud) {
     int o = eb * 8;
     string t0 = cg_abi_leaf_at(lv, o);
     // A union contributes every member, so its widest member decides (clang lowers a
@@ -7710,6 +7919,14 @@ string cg_abi_eb_type(Codegen* g, List<CgLeaf>* lv, int size, int eb, int sse) {
             int le = l.off + cg_ll_size_of(g, l.ty) - o;
             if (le > ext) { ext = le; }
         }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < List_len<CgSpan>(ud)) {               // unnamed bitfields count as data
+        CgSpan d = List_get<CgSpan>(ud, i);
+        int lo = d.off; if (lo < o) { lo = o; }
+        int hi = d.end; if (hi > o + 8) { hi = o + 8; }
+        if (lo < hi && hi - o > ext) { ext = hi - o; }
         i = i + 1;
     }
     if (sse == 1) {
@@ -7741,6 +7958,15 @@ int cg_x86_fields(Codegen* g, string lt, List<string>* out) {
         CgBF bs = List_get<CgBF>(&g.bitfields, bi);
         if (cg_streq(bs.sname, name) == 1 && bs.bw > 0) { return 0; }
         bi = bi + 1;
+    }
+    if (cg_in_strlist(&g.unnamed_tys, name) == 1) {   // unnamed bitfields: the named fields only
+        bi = 0;
+        while (bi < List_len<CgBF>(&g.bitfields)) {
+            CgBF ns = List_get<CgBF>(&g.bitfields, bi);
+            if (cg_streq(ns.sname, name) == 1) { List_push<string>(out, cg_lltype(g, ns.fety)); }
+            bi = bi + 1;
+        }
+        return 1;
     }
     int al = 1; int p0 = 0;
     cg_ll_layout(g, lt, &p0, &al);                   // ensures the body exists
@@ -7823,7 +8049,7 @@ CgAbi cg_abi_mem(CgAbi r, string lt, int isret, int al, int size, int* fint) {
 // Classify one param/return of Eskiu type `ety` for the host C ABI. `fint`/`fsse` count
 // the free SysV argument registers (consumed as arguments are classified).
 CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
-    let r: CgAbi; r.kind = 0; r.ty = ""; r.ty2 = ""; r.align = 0; r.salign = 0;
+    let r: CgAbi; r.kind = 0; r.ty = ""; r.ty2 = ""; r.align = 0; r.salign = 0; r.off = 0;
     string lt = cg_lltype(g, ety);
     List<CgLeaf> lv; List_init<CgLeaf>(&lv, 8);
     int al = 1; int p = 0;
@@ -7841,9 +8067,13 @@ CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
         return r;
     }
     if (size == 0) { return r; }
+    // A struct or union holding an unnamed bitfield of nonzero width is no homogeneous FP
+    // aggregate (clang: the bitfield is a non-FP member).
+    int homog = 1 - cg_ll_nonhomog(g, lt);
     if (g.abi == 1 || g.abi == 2) {                    // AArch64 AAPCS64
         int asarr = 0; if (isret == 0) { asarr = 1; }
-        string h = cg_abi_hfa(&lv, size, asarr);
+        string h = "";
+        if (homog == 1) { h = cg_abi_hfa(&lv, size, asarr); }
         if (h[0] != 0) {
             r.kind = 1; r.ty = h;
             if (isret == 0 && g.abi == 2) { r.salign = 8; if (al >= 16) { r.salign = 16; } }
@@ -7874,18 +8104,28 @@ CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
             i = i + 1;
         }
         int neb = 1; if (size > 8) { neb = 2; }
+        // Unnamed bitfields are no class but count as data for the integer widths; an
+        // eightbyte holding no named field takes no register: the other one passes alone
+        // (the high one at offset 8), as in clang.
+        List<CgSpan> ud; List_init<CgSpan>(&ud, 2);
+        cg_ll_udata(g, lt, 0, &ud);
+        int skip = 2;
+        if (List_len<CgSpan>(&ud) > 0 && neb == 2 && (c0 == 0) != (c1 == 0)) {
+            skip = 1; if (c0 == 0) { skip = 0; }
+        }
         int nint = 0; int nsse = 0;
-        if (c0 == 2) { nsse = nsse + 1; } else { nint = nint + 1; }
-        if (neb == 2) { if (c1 == 2) { nsse = nsse + 1; } else { nint = nint + 1; } }
+        if (skip != 0) { if (c0 == 2) { nsse = nsse + 1; } else { nint = nint + 1; } }
+        if (neb == 2 && skip != 1) { if (c1 == 2) { nsse = nsse + 1; } else { nint = nint + 1; } }
         if (isret == 0) {
             if (nint > fint[0] || nsse > fsse[0]) { return cg_abi_mem(r, lt, isret, al, size, fint); }
             fint[0] = fint[0] - nint; fsse[0] = fsse[0] - nsse;
         }
         int s0 = 0; if (c0 == 2) { s0 = 1; }
-        string lo = cg_abi_eb_type(g, &lv, size, 0, s0);
-        if (neb == 1) { r.kind = 1; r.ty = lo; return r; }
         int s1 = 0; if (c1 == 2) { s1 = 1; }
-        string hi = cg_abi_eb_type(g, &lv, size, 1, s1);
+        if (skip == 0) { r.kind = 1; r.ty = cg_abi_eb_type(g, &lv, size, 1, s1, &ud); r.off = 8; return r; }
+        string lo = cg_abi_eb_type(g, &lv, size, 0, s0, &ud);
+        if (neb == 1 || skip == 1) { r.kind = 1; r.ty = lo; return r; }
+        string hi = cg_abi_eb_type(g, &lv, size, 1, s1, &ud);
         if (cg_align_up(cg_ll_size_of(g, lo), cg_ll_align_of(g, hi)) != 8) {   // hi must start at 8
             if (cg_streq(lo, "float") == 1) { lo = "double"; } else { lo = "i64"; }
         }
@@ -7900,7 +8140,7 @@ CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
         return r;
     }
     if (g.abi == 5 || g.abi == 6) {                    // 32-bit ARM AAPCS (6: VFP hard-float)
-        if (g.abi == 6) {
+        if (g.abi == 6 && homog == 1) {
             string h = cg_abi_hfa(&lv, size, 0);
             if (h[0] != 0) { r.kind = 1; r.ty = h; return r; }
         }
@@ -7930,9 +8170,11 @@ CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
             }
             r.kind = 5; r.ty = lt; r.align = al; return r;
         }
-        // At most 16 bytes of 32- and 64-bit scalars with no padding: those scalars.
+        // At most 16 bytes of 32- and 64-bit scalars with no padding: those scalars (not a
+        // struct or union with an unnamed bitfield: clang expands no record with a bitfield).
         List<string> fs; List_init<string>(&fs, 4);
-        if (size <= 16 && cg_x86_fields(g, lt, &fs) == 1 && List_len<string>(&fs) > 0) {
+        int unn = cg_in_strlist(&g.unnamed_tys, cg_sub_str(lt, 1, cg_strlen(lt)));
+        if (size <= 16 && unn == 0 && cg_x86_fields(g, lt, &fs) == 1 && List_len<string>(&fs) > 0) {
             int sum = 0; int ok = 1;
             String el; String_init(&el, 32);
             int i = 0;
@@ -7975,7 +8217,7 @@ CgCabi cg_find_cabi(Codegen* g, string name) {
         i = i + 1;
     }
     let none: CgCabi; none.name = ""; none.lowret = ""; none.lowfixed = "";
-    none.ret.kind = 0; none.ret.ty = ""; none.ret.ty2 = ""; none.ret.align = 0; none.ret.salign = 0;
+    none.ret.kind = 0; none.ret.ty = ""; none.ret.ty2 = ""; none.ret.align = 0; none.ret.salign = 0; none.ret.off = 0;
     List_init<CgAbi>(&none.params, 1);
     return none;
 }
@@ -8009,7 +8251,7 @@ string cg_cabi_declare(Codegen* g, *DeclNode d) {
     let c: CgCabi; c.name = d.name;
     List_init<CgAbi>(&c.params, np);
     int fint = 6; int fsse = 8;
-    c.ret.kind = 0; c.ret.ty = ""; c.ret.ty2 = ""; c.ret.align = 0; c.ret.salign = 0;
+    c.ret.kind = 0; c.ret.ty = ""; c.ret.ty2 = ""; c.ret.align = 0; c.ret.salign = 0; c.ret.off = 0;
     string lret = cg_lltype(g, d.ret_type);
     if (cg_streq(lret, "void") == 0) { c.ret = cg_abi_classify(g, d.ret_type, 1, &fint, &fsse); }
     if (c.ret.kind == 5 && fint > 0) { fint = fint - 1; }
@@ -8068,6 +8310,25 @@ string cg_abi_reinterp(Codegen* g, string op, string from, string to) {
     return t;
 }
 
+// A coerced value `op` to / from the aggregate of LLVM type `lt` (cg_abi_reinterp at k.off,
+// through `<{ [off x i8], ty }>`; C++ CodeGen::cabiToCoerced / cabiFromCoerced).
+string cg_abi_to_coerced(Codegen* g, string op, string lt, CgAbi k) {
+    if (k.off == 0) { return cg_abi_reinterp(g, op, lt, k.ty); }
+    string w = cg_cat("<{ [", cg_cat(cg_itoa(k.off), cg_cat(" x i8], ", cg_cat(k.ty, " }>"))));
+    string wv = cg_abi_reinterp(g, op, lt, w);
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = extractvalue "); cg_emit(g, w); cg_emit(g, " "); cg_emit(g, wv); cg_emit(g, ", 1\n");
+    return t;
+}
+string cg_abi_from_coerced(Codegen* g, string op, CgAbi k, string lt) {
+    if (k.off == 0) { return cg_abi_reinterp(g, op, k.ty, lt); }
+    string w = cg_cat("<{ [", cg_cat(cg_itoa(k.off), cg_cat(" x i8], ", cg_cat(k.ty, " }>"))));
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = insertvalue "); cg_emit(g, w); cg_emit(g, " zeroinitializer, ");
+    cg_emit(g, k.ty); cg_emit(g, " "); cg_emit(g, op); cg_emit(g, ", 1\n");
+    return cg_abi_reinterp(g, t, w, lt);
+}
+
 // Call the lowered extern `c` with logical argument values (already coerced to its Eskiu
 // parameter types; variadic extras promoted). `f` is its Eskiu-level signature. Returns
 // the logical result.
@@ -8087,7 +8348,7 @@ CgVal cg_cabi_call(Codegen* g, CgCabi* c, CgFn* f, List<CgVal>* args) {
         if (i < List_len<CgAbi>(&c.params)) {
             CgAbi k = List_get<CgAbi>(&c.params, i);
             if (k.kind == 1) {
-                piece = cg_cat(cg_abi_param_decl(k, a.ty), cg_cat(" ", cg_abi_reinterp(g, a.op, a.ty, k.ty)));
+                piece = cg_cat(cg_abi_param_decl(k, a.ty), cg_cat(" ", cg_abi_to_coerced(g, a.op, a.ty, k)));
             } else if (k.kind == 2) {
                 string pty = cg_cat("{ ", cg_cat(k.ty, cg_cat(", ", cg_cat(k.ty2, " }"))));
                 string pair = cg_abi_reinterp(g, a.op, a.ty, pty);
@@ -8132,7 +8393,7 @@ CgVal cg_cabi_call(Codegen* g, CgCabi* c, CgFn* f, List<CgVal>* args) {
         v.op = r; v.ty = f.retty; return v;
     }
     if (isvoid == 1) { return v; }
-    if (c.ret.kind == 1) { v.op = cg_abi_reinterp(g, t, c.ret.ty, f.retty); v.ty = f.retty; return v; }
+    if (c.ret.kind == 1) { v.op = cg_abi_from_coerced(g, t, c.ret, f.retty); v.ty = f.retty; return v; }
     v.op = t; v.ty = f.retty; return v;
 }
 
@@ -8167,7 +8428,7 @@ void cg_emit_cabi_thunk(Codegen* g, string name) {
     CgFn f = cg_find_fn(g, name);
     int np = List_len<string>(&f.ptys);
     int fint = 6; int fsse = 8;
-    let ra: CgAbi; ra.kind = 0; ra.ty = ""; ra.ty2 = ""; ra.align = 0; ra.salign = 0;
+    let ra: CgAbi; ra.kind = 0; ra.ty = ""; ra.ty2 = ""; ra.align = 0; ra.salign = 0; ra.off = 0;
     if (cg_streq(f.retty, "void") == 0) { ra = cg_abi_classify(g, f.rety, 1, &fint, &fsse); }
     if (ra.kind == 5 && fint > 0) { fint = fint - 1; }
     String hdr; String_init(&hdr, 64);
@@ -8209,7 +8470,7 @@ void cg_emit_cabi_thunk(Codegen* g, string name) {
         string an = cg_cat("%a", cg_itoa(i));
         string lty = List_get<string>(&f.ptys, i);
         string op = an;
-        if (k.kind == 1) { op = cg_abi_reinterp(g, an, k.ty, lty); }
+        if (k.kind == 1) { op = cg_abi_from_coerced(g, an, k, lty); }
         else if (k.kind == 2) {
             string pty = cg_cat("{ ", cg_cat(k.ty, cg_cat(", ", cg_cat(k.ty2, " }"))));
             string p0 = cg_tmp(g);
@@ -8254,7 +8515,7 @@ void cg_emit_cabi_thunk(Codegen* g, string name) {
             cg_emit(g, "  ret void\n");
         } else {
             string rv = r;
-            if (ra.kind == 1) { rv = cg_abi_reinterp(g, r, f.retty, ra.ty); }
+            if (ra.kind == 1) { rv = cg_abi_to_coerced(g, r, f.retty, ra); }
             cg_emit(g, "  ret "); cg_emit(g, lowret); cg_emit(g, " "); cg_emit(g, rv); cg_emit(g, "\n");
         }
     }
@@ -8298,11 +8559,47 @@ void cg_emit_adt_type(Codegen* g, *DeclNode d) {
 // Emit the named type line for a (non-generic) struct / union / ADT enum decl, once.
 // Called in declaration order by pass 1b/1c, and on demand by the layout queries when a
 // type's size is needed before its turn (a union member or payload declared later).
+void cg_emit_tydecl_body(Codegen* g, *DeclNode d);   // fwd
+
+// Is the LLVM type `lt` (an array's element) a struct/union holding a nonzero unnamed
+// bitfield (g.nonhomog)?
+int cg_ll_nonhomog(Codegen* g, string lt) {
+    int p = 0;
+    while ((int)lt[p] == 91) {                       // `[N x T]`
+        p = p + 1; cg_ll_ws(lt, &p); cg_ll_num(lt, &p); cg_ll_ws(lt, &p); cg_ll_kw(lt, &p, "x"); cg_ll_ws(lt, &p);
+    }
+    if ((int)lt[p] != 37) { return 0; }
+    int e = p + 1;
+    while (lt[e] != 0 && (int)lt[e] != 93 && (int)lt[e] != 32 && (int)lt[e] != 44) { e = e + 1; }
+    return cg_in_strlist(&g.nonhomog, cg_sub_str(lt, p + 1, e));
+}
+
+// Note a struct/union whose C ABI is not a homogeneous FP aggregate: it holds an unnamed
+// bitfield of nonzero width, directly or in a field (C++ CodeGen::notHomogeneous).
+void cg_note_nonhomog(Codegen* g, string name, *DeclNode d, List<string>* ftys) {
+    int nh = 0;
+    int i = 0;
+    while (i < List_len<int>(&d.pad_bits)) { if (List_get<int>(&d.pad_bits, i) > 0) { nh = 1; } i = i + 1; }
+    i = 0;
+    while (i < List_len<string>(ftys)) { if (cg_ll_nonhomog(g, cg_lltype(g, List_get<string>(ftys, i))) == 1) { nh = 1; } i = i + 1; }
+    if (nh == 1 && cg_in_strlist(&g.nonhomog, name) == 0) { List_push<string>(&g.nonhomog, name); }
+}
+
 void cg_emit_tydecl(Codegen* g, *DeclNode d) {
     if (cg_tydef_body(g, d.name)[0] != 0) { return; }
     string mark = cg_cat("tyd:", d.name);
     if (cg_seen_inst(g, mark) == 1) { return; }          // in progress (self-containing type)
     List_push<string>(&g.inst_seen, mark);
+    cg_emit_tydecl_body(g, d);
+    if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
+        List<string> ftys; List_init<string>(&ftys, 4);
+        int i = 0;
+        while (i < List_len<Param>(&d.params)) { List_push<string>(&ftys, List_get<Param>(&d.params, i).ty); i = i + 1; }
+        cg_note_nonhomog(g, d.name, d, &ftys);
+    }
+}
+
+void cg_emit_tydecl_body(Codegen* g, *DeclNode d) {
     if (d.kind == DK_UNION) { cg_emit_union(g, d); return; }
     if (d.kind == DK_ENUM) { cg_emit_adt_type(g, d); return; }
     if (cg_struct_has_bf(d) == 1) { cg_bf_layout(g, d); return; }

@@ -23,6 +23,8 @@ struct TargetLayoutInfo {
     unsigned ptrSize = 8, ptrAlign = 8;
     unsigned i16Align = 2, i32Align = 4, i64Align = 8, f32Align = 4, f64Align = 8;
     bool msBitfields = false;   // Windows: bitfields follow the MS layout rules
+    bool msvcEnv = false;       // MSVC (not mingw): a `: 0` under pack(N) is aligned to at most N
+    bool unnamedBitfieldsAlign = false;   // AAPCS: an unnamed bitfield raises the struct alignment
 };
 TargetLayoutInfo targetLayoutInfo(const std::string& triple);
 // Does the floating value v, truncated toward zero, fit the integer type t?
@@ -165,6 +167,7 @@ private:
     struct StructInfo {
         std::string name;
         std::vector<StructDecl::Field> fields;
+        std::vector<StructDecl::Pad> pads;   // unnamed bitfields (layout only)
         bool isUnion = false;
         int packAlign = 0;       // 1 = packed, N = `#pragma pack(N)`, 0 = natural
     };
@@ -420,6 +423,7 @@ private:
     std::set<std::string> unknownTypes;   // names already reported as unknown (no cascades)
     // A bitfield must have an integer type at least `bitWidth` bits wide.
     void checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f);
+    void checkUnnamedBitfields(ASTNode* at, const std::string& owner, const std::vector<StructDecl::Pad>& pads);
     // Reject a struct/union that contains itself by value (no finite layout).
     void checkValueCycles(Program* program);
     // One top-level namespace: duplicate/conflicting functions, globals, types, members.

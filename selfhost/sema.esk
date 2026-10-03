@@ -41,6 +41,8 @@ struct Sema {
     int ptrsz;               // the target's pointer size and int64/double alignment, so
     int i64al;               // sizeof folds to its layout (sema_set_target)
     int msbf;                // 1: bitfields follow the MS (Windows) layout rules
+    int bfal;                // 1: an unnamed bitfield raises its struct's alignment (AAPCS)
+    int msvc;                // 1: MSVC (not mingw): a `: 0` under pack(N) is aligned to at most N
     List<Sym> syms;
     List<string> gaddr;      // names whose address is taken anywhere (a global among them is never narrowed)
     List<FnSig> fns;
@@ -370,6 +372,7 @@ void sema_set_target(Sema* s, string triple) {
     s.ptrsz = 8; s.i64al = 8;
     int win = sema_has_sub(triple, "windows") | sema_has_sub(triple, "win32") | sema_has_sub(triple, "mingw");
     s.msbf = win;
+    ast_target_bf(triple, &s.bfal, &s.msvc);
     if (ast_has_prefix(triple, "aarch64") == 1 || ast_has_prefix(triple, "arm64") == 1
         || ast_has_prefix(triple, "x86_64") == 1 || ast_has_prefix(triple, "amd64") == 1) { return; }
     if (ast_has_prefix(triple, "i386") == 1 || ast_has_prefix(triple, "i486") == 1
@@ -446,6 +449,7 @@ void sema_fold_enum(Sema* s, *DeclNode d, int report) {
 void sema_init(Sema* s, string filename) {
     memset((*void)s, 0, sizeof(Sema));   // every field starts as a valid empty value
     s.ptrsz = 8; s.i64al = 8; s.msbf = 0;
+    ast_target_bf("", &s.bfal, &s.msvc);
 #ifdef _WIN32
     s.msbf = 1;
 #endif
@@ -953,24 +957,30 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
     // (mirrors the C++ constLayout).
     int64 packn = (int64)0;
     if (d.is_packed == 0 && d.pack_align >= 2) { packn = (int64)d.pack_align; }
-    int nf = List_len<Param>(&d.params);
+    List<Param> lfs; List<int> lbits; List<int> lnamed;
+    ast_layout_fields(d, &lfs, &lbits, &lnamed);
+    int nf = List_len<Param>(&lfs);
     int hasbits = 0;
+    if (List_len<string>(&d.pad_tys) > 0) { hasbits = 1; }
     int fi = 0;
     while (fi < nf) {
-        if (fi < List_len<int>(&d.field_bits) && List_get<int>(&d.field_bits, fi) != 0) { hasbits = 1; }
+        if (List_get<int>(&lbits, fi) != 0) { hasbits = 1; }
         fi = fi + 1;
     }
     if (hasbits == 1 && d.kind == DK_UNION) { return (int64)0; }
     int64 off = (int64)0; int64 maxal = (int64)1;
     int64 bitpos = (int64)0;                         // SysV bitfield cursor
     int open = 0; int64 curbits = (int64)0; int64 curoff = (int64)0;   // MS open storage word
+    int after = 0;                                   // MS: the previous field is a bitfield
     fi = 0;
     while (fi < nf) {
-        int bw = 0; if (fi < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, fi); }
+        int bw = List_get<int>(&lbits, fi);
+        int unnamed = 1 - List_get<int>(&lnamed, fi);
         if (bw < 0) { return (int64)0; }
         int64 fal = (int64)1;
-        int64 fsz = sema_const_layout(s, sema_subst_params(List_get<Param>(&d.params, fi).ty, &d.type_params, targs), &fal, depth + 1);
+        int64 fsz = sema_const_layout(s, sema_subst_params(List_get<Param>(&lfs, fi).ty, &d.type_params, targs), &fal, depth + 1);
         if (fsz == (int64)0) { return (int64)0; }
+        int64 nat = fal;
         if (d.is_packed == 1) { fal = (int64)1; }
         if (packn > (int64)0 && fal > packn) { fal = packn; }
         if (hasbits == 0) {
@@ -978,19 +988,31 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
             if (d.kind == DK_UNION) { if (fsz > off) { off = fsz; } }
             else { off = sema_up(off, fal) + fsz; }
         } else if (s.msbf == 1) {                    // MS: each storage word is an element
-            if (bw > 0) {
+            if (unnamed == 1 && bw == 0) {
+                // A `: 0` right after a bitfield closes the word and aligns the next field
+                // to its type (capped by the packing on MSVC only); elsewhere it is ignored.
+                if (after == 1) {
+                    int64 za = nat; if (s.msvc == 1) { za = fal; }
+                    off = sema_up(off, za); if (za > maxal) { maxal = za; }
+                }
+                open = 0; after = 0;
+            } else if (bw > 0) {
                 int64 stb = fsz * (int64)8;
                 if (open == 0 || curbits != stb || curoff + (int64)bw > stb) {
                     off = sema_up(off, fal) + fsz; if (fal > maxal) { maxal = fal; }
                     open = 1; curbits = stb; curoff = (int64)0;
                 }
                 curoff = curoff + (int64)bw;
+                after = 1;
             } else {
-                open = 0;
+                open = 0; after = 0;
                 off = sema_up(off, fal) + fsz; if (fal > maxal) { maxal = fal; }
             }
-        } else {                                     // SysV / AAPCS
-            if (fal > maxal) { maxal = fal; }
+        } else if (unnamed == 1 && bw == 0) {        // SysV / AAPCS `: 0`: next boundary of its type
+            bitpos = sema_up(bitpos, nat * (int64)8);
+            if (s.bfal == 1 && nat > maxal) { maxal = nat; }
+        } else {                                     // SysV / AAPCS (an unnamed one aligns only on AAPCS)
+            if ((unnamed == 0 || s.bfal == 1) && fal > maxal) { maxal = fal; }
             if (bw > 0) {
                 int64 ub = fsz * (int64)8;
                 if (d.is_packed == 0 && packn == (int64)0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
@@ -7065,14 +7087,17 @@ string sema_sig_of(*DeclNode f) {
 
 // Do two struct decls have identical fields (a multi-file merge of one declaration)?
 int sema_same_struct(*DeclNode a, *DeclNode b) {
-    int n = List_len<Param>(&a.params);
-    if (n != List_len<Param>(&b.params)) { return 0; }
+    List<Param> af; List<int> ab; List<int> an; ast_layout_fields(a, &af, &ab, &an);
+    List<Param> bf; List<int> bb; List<int> bn; ast_layout_fields(b, &bf, &bb, &bn);
+    int n = List_len<Param>(&af);
+    if (n != List_len<Param>(&bf)) { return 0; }
     if (List_len<*DeclNode>(&a.methods) != List_len<*DeclNode>(&b.methods)) { return 0; }
     if (List_len<TypeParam>(&a.type_params) != List_len<TypeParam>(&b.type_params)) { return 0; }
     int i = 0;
     while (i < n) {
-        Param x = List_get<Param>(&a.params, i); Param y = List_get<Param>(&b.params, i);
+        Param x = List_get<Param>(&af, i); Param y = List_get<Param>(&bf, i);
         if (sema_streq(x.ty, y.ty) == 0 || sema_streq(x.name, y.name) == 0) { return 0; }
+        if (List_get<int>(&ab, i) != List_get<int>(&bb, i) || List_get<int>(&an, i) != List_get<int>(&bn, i)) { return 0; }
         i = i + 1;
     }
     return 1;
@@ -7259,6 +7284,20 @@ int sema_int_bits(string t) {
     return 0;
 }
 
+// A bitfield's declared type with aliases resolved and a classic enum as `int` (a sum type
+// stays itself: it is not an integer).
+string sema_bitfield_base(Sema* s, string t) {
+    string ft = sema_strip_const(t);
+    int hops = 0;
+    while (hops < 16) {
+        *DeclNode ad = sema_find_tdecl(s, ft);
+        if (ad != null && ad.kind == DK_TYPEALIAS) { ft = sema_strip_const(ad.ret_type); }
+        else { if (sema_is_plain_enum_decl(ad) == 1) { ft = "int"; } hops = 16; }
+        hops = hops + 1;
+    }
+    return ft;
+}
+
 // Struct/union fields: not void; a bitfield needs an integer type at least as wide.
 void sema_check_fields(Sema* s, *DeclNode d) {
     int i = 0; int n = List_len<Param>(&d.params);
@@ -7299,6 +7338,21 @@ void sema_check_fields(Sema* s, *DeclNode d) {
         }
         m = m + 1;
     }
+    int pi = 0;
+    while (pi < List_len<string>(&d.pad_tys)) {               // unnamed bitfields `T : N;`
+        string pty = List_get<string>(&d.pad_tys, pi);
+        int pw = List_get<int>(&d.pad_bits, pi);
+        int ptb = sema_int_bits(sema_bitfield_base(s, pty));
+        if (ptb == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: unnamed bitfield of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, d.name, pty);
+        } else if (pw > ptb) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: unnamed bitfield of '%s' is %d bits wide, more than its type '%s' holds (%d)\n",
+                   s.filename, s.line, s.col, d.name, pw, pty, ptb);
+        }
+        pi = pi + 1;
+    }
     while (i < n) {
         Param f = List_get<Param>(&d.params, i);
         string fterr = sema_void_type_err(s, f.ty);
@@ -7313,15 +7367,7 @@ void sema_check_fields(Sema* s, *DeclNode d) {
             dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' has zero width (only an unnamed bitfield may be zero-width)\n", s.filename, s.line, s.col, f.name, d.name);
         }
         if (bw > 0) {
-            string ft = sema_strip_const(f.ty);
-            int hops = 0;                                   // resolve a type alias / classic enum
-            while (hops < 16) {
-                *DeclNode ad = sema_find_tdecl(s, ft);
-                if (ad != null && ad.kind == DK_TYPEALIAS) { ft = sema_strip_const(ad.ret_type); }
-                else { if (sema_is_plain_enum_decl(ad) == 1) { ft = "int"; } hops = 16; }   // a sum type is not an integer
-                hops = hops + 1;
-            }
-            int tb = sema_int_bits(ft);
+            int tb = sema_int_bits(sema_bitfield_base(s, f.ty));
             if (tb == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, f.name, d.name, f.ty);

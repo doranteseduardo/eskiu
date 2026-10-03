@@ -1,0 +1,170 @@
+// Unnamed bitfields follow the target's C layout (C side: tests/bitfield_unnamed_c.c):
+// `T : N` takes N bits like a named bitfield of type T, `T : 0` moves the next field to
+// a new unit of T, and neither is a member. C writes, Eskiu reads, and the other way
+// around, so every named field must be at the same bits; sizes, alignments and by-value
+// calls must agree too.
+extern int printf(string fmt, ...);
+extern int c_info(int i);
+
+struct A { uint8 a : 3; uint32 : 0; uint8 b : 2; }
+struct B { char c; int : 4; char d; }
+struct C { uint32 x : 5; uint16 : 7; uint32 y : 9; uint64 : 0; uint8 z; }
+struct D { char c; int64 : 0; char d; }
+struct E { uint16 : 9; uint8 v; uint32 : 30; uint8 w : 4; }
+struct F { double d; uint8 : 3; uint32 k : 20; }
+struct G { uint8 a : 2; uint8 : 0; int : 0; uint8 b : 2; }
+packed struct P { char c; int : 0; uint8 a : 3; uint32 : 0; uint8 b : 4; }
+#pragma pack(2)
+struct Q { char c; int : 4; uint16 k : 3; int64 : 0; char e; }
+#pragma pack()
+union U { uint8 b; uint32 : 20; }
+union V { uint16 h; uint8 : 4; int64 : 0; }
+
+struct X1 { double d; uint32 : 20; }
+struct X2 { float f; int : 0; }
+struct X3 { uint64 : 60; uint8 x; }
+struct X4 { float f; uint8 : 4; float g; }
+struct X5 { int a; uint64 : 0; int b; }
+struct X6 { uint8 a; uint16 : 9; }
+struct X7 { double d; int : 0; }
+struct X8 { char c; int : 4; }
+union X9 { float f; int : 9; }
+union X10 { double d; uint64 : 60; }
+struct X11 { float f; uint32 : 32; float g; }
+
+struct WA { char c; A s; }
+struct WB { char c; B s; }
+struct WC { char c; C s; }
+struct WD { char c; D s; }
+struct WE { char c; E s; }
+struct WF { char c; F s; }
+struct WG { char c; G s; }
+struct WP { char c; P s; }
+struct WQ { char c; Q s; }
+struct WU { char c; U s; }
+struct WV { char c; V s; }
+
+extern void c_fill_a(*A p);
+extern void c_fill_b(*B p);
+extern void c_fill_c(*C p);
+extern void c_fill_d(*D p);
+extern void c_fill_e(*E p);
+extern void c_fill_f(*F p);
+extern void c_fill_g(*G p);
+extern void c_fill_p(*P p);
+extern void c_fill_q(*Q p);
+extern int64 c_sum_a(*A p);
+extern int64 c_sum_b(*B p);
+extern int64 c_sum_c(*C p);
+extern int64 c_sum_d(*D p);
+extern int64 c_sum_e(*E p);
+extern int64 c_sum_f(*F p);
+extern int64 c_sum_g(*G p);
+extern int64 c_sum_p(*P p);
+extern int64 c_sum_q(*Q p);
+extern int64 c_byval_b(B b);
+extern int64 c_byval_c(C c);
+extern int64 c_byval_f(F f);
+extern int64 c_byval_u(U u);
+extern int64 c_byval_v(V v);
+extern int64 c_byval_x1(X1 v);
+extern int64 c_byval_x2(X2 v);
+extern int64 c_byval_x3(X3 v);
+extern int64 c_byval_x4(X4 v);
+extern int64 c_byval_x5(X5 v);
+extern int64 c_byval_x6(X6 v);
+extern int64 c_byval_x7(X7 v);
+extern int64 c_byval_x8(X8 v);
+extern int64 c_byval_x9(X9 v);
+extern int64 c_byval_x10(X10 v);
+extern int64 c_byval_x11(X11 v);
+extern int64 c_byval_x3x1(int a, X3 v, X1 w, int b);
+extern X1 c_mk_x1(int k);
+extern X2 c_mk_x2(int k);
+extern X3 c_mk_x3(int k);
+extern X4 c_mk_x4(int k);
+extern X5 c_mk_x5(int k);
+extern X6 c_mk_x6(int k);
+extern X7 c_mk_x7(int k);
+extern X8 c_mk_x8(int k);
+extern X9 c_mk_x9(int k);
+extern X10 c_mk_x10(int k);
+extern X11 c_mk_x11(int k);
+extern C c_mk_c(int k);
+extern F c_mk_f(int k);
+extern U c_mk_u(int k);
+
+void check(string n, int esk, int i) {
+    if (esk == c_info(i)) { printf("%s ok\n", n); } else { printf("%s %d, C %d\n", n, esk, c_info(i)); }
+}
+
+int main() {
+    check("sizeof A", (int)sizeof(A), 0); check("sizeof B", (int)sizeof(B), 1);
+    check("sizeof C", (int)sizeof(C), 2); check("sizeof D", (int)sizeof(D), 3);
+    check("sizeof E", (int)sizeof(E), 4); check("sizeof F", (int)sizeof(F), 5);
+    check("sizeof G", (int)sizeof(G), 6); check("sizeof P", (int)sizeof(P), 7);
+    check("sizeof Q", (int)sizeof(Q), 8); check("sizeof U", (int)sizeof(U), 9);
+    check("sizeof V", (int)sizeof(V), 10);
+    check("align A", (int)(sizeof(WA) - sizeof(A)), 11); check("align B", (int)(sizeof(WB) - sizeof(B)), 12);
+    check("align C", (int)(sizeof(WC) - sizeof(C)), 13); check("align D", (int)(sizeof(WD) - sizeof(D)), 14);
+    check("align E", (int)(sizeof(WE) - sizeof(E)), 15); check("align F", (int)(sizeof(WF) - sizeof(F)), 16);
+    check("align G", (int)(sizeof(WG) - sizeof(G)), 17); check("align P", (int)(sizeof(WP) - sizeof(P)), 18);
+    check("align Q", (int)(sizeof(WQ) - sizeof(Q)), 19); check("align U", (int)(sizeof(WU) - sizeof(U)), 20);
+    check("align V", (int)(sizeof(WV) - sizeof(V)), 21);
+
+    let a: A; c_fill_a(&a);
+    printf("A %d %d\n", (int)a.a, (int)a.b);
+    a.a = 2; a.b = 3; printf("A c %lld\n", c_sum_a(&a));
+    let b: B; c_fill_b(&b);
+    printf("B %c %c\n", b.c, b.d);
+    b.c = 'x'; b.d = 'y'; printf("B c %lld\n", c_sum_b(&b));
+    let c: C; c_fill_c(&c);
+    printf("C %d %d %d\n", (int)c.x, (int)c.y, (int)c.z);
+    c.x = 31; c.y = 511; c.z = 1; printf("C c %lld\n", c_sum_c(&c));
+    let d: D; c_fill_d(&d);
+    printf("D %c %c\n", d.c, d.d);
+    d.c = 'e'; d.d = 'E'; printf("D c %lld\n", c_sum_d(&d));
+    let e: E; c_fill_e(&e);
+    printf("E %d %d\n", (int)e.v, (int)e.w);
+    e.v = 7; e.w = 15; printf("E c %lld\n", c_sum_e(&e));
+    let f: F; c_fill_f(&f);
+    printf("F %.1f %d\n", f.d, (int)f.k);
+    f.d = 3.5; f.k = 1048575; printf("F c %lld\n", c_sum_f(&f));
+    let g: G; c_fill_g(&g);
+    printf("G %d %d\n", (int)g.a, (int)g.b);
+    g.a = 1; g.b = 2; printf("G c %lld\n", c_sum_g(&g));
+    let p: P; c_fill_p(&p);
+    printf("P %c %d %d\n", p.c, (int)p.a, (int)p.b);
+    p.c = 'P'; p.a = 1; p.b = 15; printf("P c %lld\n", c_sum_p(&p));
+    let q: Q; c_fill_q(&q);
+    printf("Q %c %d %c\n", q.c, (int)q.k, q.e);
+    q.c = 'r'; q.k = 7; q.e = 'R'; printf("Q c %lld\n", c_sum_q(&q));
+
+    printf("byval B %lld\n", c_byval_b(B{'m', 'n'}));
+    printf("byval C %lld\n", c_byval_c(C{17, 400, 9}));
+    printf("byval F %lld\n", c_byval_f(F{0.5, 4242}));
+    let u: U; u.b = (uint8)201;
+    printf("byval U %lld\n", c_byval_u(u));
+    let v: V; v.h = (uint16)60000;
+    printf("byval V %lld\n", c_byval_v(v));
+    C mc = c_mk_c(123);
+    printf("mk C %d %d %d\n", (int)mc.x, (int)mc.y, (int)mc.z);
+    F mf = c_mk_f(98765);
+    printf("mk F %.1f %d\n", mf.d, (int)mf.k);
+    U mu = c_mk_u(77);
+    printf("mk U %d\n", (int)mu.b);
+
+    let x9: X9; x9.f = 4.5;
+    let x10: X10; x10.d = 5.5;
+    printf("byval X %lld %lld %lld %lld %lld %lld\n", c_byval_x1(X1{1.5}), c_byval_x2(X2{2.5}),
+           c_byval_x3(X3{33}), c_byval_x4(X4{1.5, 2.5}), c_byval_x5(X5{4, 5}), c_byval_x6(X6{66}));
+    printf("byval X %lld %lld %lld %lld %lld\n", c_byval_x7(X7{7.5}), c_byval_x8(X8{'8'}),
+           c_byval_x9(x9), c_byval_x10(x10), c_byval_x11(X11{3.5, 4.5}));
+    printf("byval X3 X1 %lld\n", c_byval_x3x1(1, X3{2}, X1{3.0}, 4));
+    X1 m1 = c_mk_x1(10); X2 m2 = c_mk_x2(20); X3 m3 = c_mk_x3(30); X4 m4 = c_mk_x4(40);
+    X5 m5 = c_mk_x5(50); X6 m6 = c_mk_x6(60); X7 m7 = c_mk_x7(70); X8 m8 = c_mk_x8(80);
+    X9 m9 = c_mk_x9(90); X10 m10 = c_mk_x10(100); X11 m11 = c_mk_x11(110);
+    printf("mk X %.1f %.1f %d %.1f %.1f %d %d\n", m1.d, m2.f, (int)m3.x, m4.f, m4.g, m5.a, m5.b);
+    printf("mk X %d %.1f %d %.1f %.1f %.1f %.1f\n", (int)m6.a, m7.d, (int)m8.c, m9.f, m10.d, m11.f, m11.g);
+    return 0;
+}

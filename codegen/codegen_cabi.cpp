@@ -107,6 +107,43 @@ void CodeGen::cabiLeaves(llvm::Type* ty, uint64_t base,
     out.push_back({base, ty});
 }
 
+void CodeGen::cabiUnnamedData(llvm::Type* ty, uint64_t base,
+                              std::vector<std::pair<uint64_t, uint64_t>>& out) const {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    if (auto* at = llvm::dyn_cast<llvm::ArrayType>(ty)) {
+        llvm::Type* et = at->getElementType();
+        if (!llvm::isa<llvm::StructType>(et) && !llvm::isa<llvm::ArrayType>(et)) return;
+        uint64_t esz = DL.getTypeAllocSize(et);
+        for (uint64_t i = 0; i < at->getNumElements(); ++i) cabiUnnamedData(et, base + i * esz, out);
+        return;
+    }
+    auto* st = llvm::dyn_cast<llvm::StructType>(ty);
+    if (!st) return;
+    auto dit = unnamedBitData.find(st);
+    if (dit != unnamedBitData.end()) {
+        if (dit->second.empty()) out.push_back({base, base});
+        for (const auto& d : dit->second) out.push_back({base + d.first, base + d.second});
+    }
+    auto uit = unionMemberTypes.find(st);
+    if (uit != unionMemberTypes.end()) {
+        for (llvm::Type* m : uit->second) cabiUnnamedData(m, base, out);
+        return;
+    }
+    auto lit = st->hasName() ? structLayout.find(st->getName().str()) : structLayout.end();
+    auto fit = st->hasName() ? structFields.find(st->getName().str()) : structFields.end();
+    const llvm::StructLayout* sl = DL.getStructLayout(st);
+    if (lit != structLayout.end() && fit != structFields.end() && !lit->second.empty()) {
+        for (const auto& f : fit->second) {
+            const BitfieldSlot& s = lit->second.at(f.name);
+            if (s.isBitfield) continue;
+            cabiUnnamedData(s.storageType, base + (s.byOffset ? s.byteOffset : sl->getElementOffset(s.physIndex)), out);
+        }
+        return;
+    }
+    for (unsigned i = 0; i < st->getNumElements(); ++i)
+        cabiUnnamedData(st->getElementType(i), base + sl->getElementOffset(i), out);
+}
+
 // Homogeneous floating-point aggregate: 1..4 leaves of one FP type, densely packed.
 // Returned as `[N x fp]` (asArray) or the literal struct `{ fp, ... }` clang uses for
 // HFA results and for 32-bit ARM hard-float arguments.
@@ -138,6 +175,12 @@ bool CodeGen::x86Fields(llvm::Type* ty, std::vector<llvm::Type*>& out) const {
     auto lit = st->hasName() ? structLayout.find(st->getName().str()) : structLayout.end();
     if (lit != structLayout.end())
         for (const auto& s : lit->second) if (s.second.isBitfield) return false;
+    // With unnamed bitfields (padding, no field to clang): the named fields only.
+    auto fit = st->hasName() ? structFields.find(st->getName().str()) : structFields.end();
+    if (unnamedBitData.count(st) && lit != structLayout.end() && fit != structFields.end()) {
+        for (const auto& f : fit->second) out.push_back(lit->second.at(f.name).storageType);
+        return true;
+    }
     out.assign(st->element_begin(), st->element_end());
     return true;
 }
@@ -212,9 +255,12 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
         return r;
     };
 
+    // A struct or union holding an unnamed bitfield of nonzero width is no homogeneous
+    // FP aggregate (clang: the bitfield is a non-FP member).
+    bool homogeneous = !notHomogeneous.count(llvm::cast<llvm::StructType>(ty));
     switch (tgt) {
     case CAbiTarget::AArch64: {
-        if (llvm::Type* h = hfaType(leaves, size, DL, !isReturn)) {
+        if (llvm::Type* h = homogeneous ? hfaType(leaves, size, DL, !isReturn) : nullptr) {
             r.kind = CAbiArg::Coerce; r.ty = h;
             // AAPCS64 (not Darwin) keeps a stack-passed HFA in 8-byte-aligned slots.
             if (!isReturn && !llvm::Triple(module->getTargetTriple()).isOSDarwin())
@@ -239,7 +285,7 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
         std::string tt = llvm::Triple(module->getTargetTriple()).str();
         bool hard = tt.size() >= 2 && tt.compare(tt.size() - 2, 2, "hf") == 0;
         if (hard) {
-            if (llvm::Type* h = hfaType(leaves, size, DL, false)) { r.kind = CAbiArg::Coerce; r.ty = h; return r; }
+            if (llvm::Type* h = homogeneous ? hfaType(leaves, size, DL, false) : nullptr) { r.kind = CAbiArg::Coerce; r.ty = h; return r; }
         }
         if (isReturn) {
             if (size <= 4) { r.kind = CAbiArg::Coerce; r.ty = llvm::Type::getInt32Ty(ctx); return r; }
@@ -276,6 +322,14 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
             if (slot == None || c == Int) slot = c;
         }
         unsigned nEb = size > 8 ? 2 : 1;
+        // Unnamed bitfields are no class (NoClass) but count as data for the integer widths
+        // (clang's BitsContainNoUserData). An eightbyte holding no named field takes no
+        // register: the other one passes alone (the high one at offset 8).
+        std::vector<std::pair<uint64_t, uint64_t>> unnamed;
+        cabiUnnamedData(ty, 0, unnamed);
+        unsigned skipEb = 2;
+        if (!unnamed.empty() && nEb == 2 && (cls[0] == None) != (cls[1] == None))
+            skipEb = cls[0] == None ? 0 : 1;
         auto leafAt = [&](uint64_t off) -> llvm::Type* {
             for (const auto& l : leaves) if (l.first == off) return l.second;
             return nullptr;
@@ -288,6 +342,10 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
             for (const auto& l : leaves)
                 if (l.first >= o && l.first < o + 8)
                     end = std::max<uint64_t>(end, l.first + DL.getTypeAllocSize(l.second) - o);
+            for (const auto& d : unnamed) {
+                uint64_t lo = std::max<uint64_t>(d.first, o), hi = std::min<uint64_t>(d.second, o + 8);
+                if (lo < hi) end = std::max<uint64_t>(end, hi - o);
+            }
             return end;
         };
         auto ebType = [&](unsigned eb) -> llvm::Type* {
@@ -309,11 +367,16 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
         };
         unsigned needInt = 0, needSSE = 0;
         for (unsigned eb = 0; eb < nEb; ++eb) {
+            if (eb == skipEb) continue;
             if (cls[eb] == Sse) ++needSSE; else ++needInt;
         }
         if (!isReturn) {
             if (needInt > freeInt || needSSE > freeSSE) return memory();
             freeInt -= needInt; freeSSE -= needSSE;
+        }
+        if (skipEb < 2) {
+            r.kind = CAbiArg::Coerce; r.ty = ebType(1 - skipEb); r.offset = skipEb == 0 ? 8 : 0;
+            return r;
         }
         llvm::Type* lo = ebType(0);
         if (nEb == 1) { r.kind = CAbiArg::Coerce; r.ty = lo; return r; }
@@ -349,8 +412,10 @@ CodeGen::CAbiArg CodeGen::classifyCAbi(llvm::Type* ty, bool isReturn, CAbiTarget
         // An argument of at most 16 bytes made only of 32- and 64-bit scalars with no
         // padding is passed as those scalars (clang's expansion); anything else byval,
         // in a 4-byte-aligned stack slot.
+        // A struct or union with an unnamed bitfield is not expanded (clang expands no
+        // record with a bitfield).
         std::vector<llvm::Type*> fields;
-        if (size <= 16 && x86Fields(ty, fields)) {
+        if (size <= 16 && !unnamedBitData.count(llvm::cast<llvm::StructType>(ty)) && x86Fields(ty, fields)) {
             uint64_t sum = 0;
             bool scalar = !fields.empty();
             for (llvm::Type* f : fields) {
@@ -452,6 +517,20 @@ llvm::Value* CodeGen::cabiReinterpret(llvm::Value* v, llvm::Type* to) {
     return builder->CreateLoad(to, slot);
 }
 
+llvm::Value* CodeGen::cabiToCoerced(llvm::Value* v, const CAbiArg& a) {
+    if (!a.offset) return cabiReinterpret(v, a.ty);
+    llvm::Type* wrap = llvm::StructType::get(*context,
+        {llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), a.offset), a.ty}, /*isPacked=*/true);
+    return builder->CreateExtractValue(cabiReinterpret(v, wrap), {1});
+}
+
+llvm::Value* CodeGen::cabiFromCoerced(llvm::Value* c, const CAbiArg& a, llvm::Type* logical) {
+    if (!a.offset) return cabiReinterpret(c, logical);
+    llvm::Type* wrap = llvm::StructType::get(*context,
+        {llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), a.offset), a.ty}, /*isPacked=*/true);
+    return cabiReinterpret(builder->CreateInsertValue(llvm::Constant::getNullValue(wrap), c, {1}), logical);
+}
+
 llvm::Value* CodeGen::emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
                                    const std::vector<llvm::Value*>& args, bool allowInvoke) {
     std::vector<llvm::Value*> ir;
@@ -466,7 +545,7 @@ llvm::Value* CodeGen::emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
         const CAbiArg& a = sig.params[i];
         switch (a.kind) {
         case CAbiArg::Direct: ir.push_back(v); break;
-        case CAbiArg::Coerce: ir.push_back(cabiReinterpret(v, a.ty)); break;
+        case CAbiArg::Coerce: ir.push_back(cabiToCoerced(v, a)); break;
         case CAbiArg::Expand: {
             llvm::Value* pair = cabiReinterpret(v, a.ty);
             for (unsigned e = 0; e < llvm::cast<llvm::StructType>(a.ty)->getNumElements(); ++e)
@@ -488,7 +567,7 @@ llvm::Value* CodeGen::emitCAbiCall(llvm::Function* fn, const CAbiSig& sig,
         addCAbiAttrs(sig, [&](unsigned i, llvm::Attribute a) { cb->addParamAttr(i, a); });
     llvm::Type* rt = sig.logical->getReturnType();
     if (sig.ret.kind == CAbiArg::Sret) return builder->CreateLoad(rt, sretSlot);
-    if (sig.ret.kind == CAbiArg::Coerce) return cabiReinterpret(call, rt);
+    if (sig.ret.kind == CAbiArg::Coerce) return cabiFromCoerced(call, sig.ret, rt);
     return call;
 }
 
@@ -526,7 +605,7 @@ llvm::Function* CodeGen::cabiCallbackThunk(llvm::Function* target) {
         const CAbiArg& a = sig.params[i];
         switch (a.kind) {
         case CAbiArg::Direct: args.push_back(&*ai++); break;
-        case CAbiArg::Coerce: args.push_back(cabiReinterpret(&*ai++, lps[i])); break;
+        case CAbiArg::Coerce: args.push_back(cabiFromCoerced(&*ai++, a, lps[i])); break;
         case CAbiArg::Expand: {
             auto* st = llvm::cast<llvm::StructType>(a.ty);
             llvm::Value* pair = llvm::UndefValue::get(st);
@@ -553,7 +632,7 @@ llvm::Function* CodeGen::cabiCallbackThunk(llvm::Function* target) {
     } else if (lret->isVoidTy()) {
         builder->CreateRetVoid();
     } else {
-        builder->CreateRet(sig.ret.kind == CAbiArg::Coerce ? cabiReinterpret(r, sig.ret.ty) : r);
+        builder->CreateRet(sig.ret.kind == CAbiArg::Coerce ? cabiToCoerced(r, sig.ret) : r);
     }
     return thunk;
 }

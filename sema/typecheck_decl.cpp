@@ -1229,6 +1229,7 @@ void TypeChecker::visit(StructDecl* node) {
                                     "' cannot have a parameter named 'self': it is the implicit receiver");
             }
     }
+    checkUnnamedBitfields(node, node->name, node->pads);
     // Field types must name known types (a template's fields mention its type params and
     // are checked per instantiation through the instance's type arguments instead).
     if (node->typeParams.empty()) {
@@ -1370,11 +1371,21 @@ void TypeChecker::visit(UnionDecl* node) {
     for (const auto& f : node->fields)
         if (!names.insert(f.name).second)
             errorAt(node, "duplicate field '" + f.name + "' in union '" + node->name + "'");
+    checkUnnamedBitfields(node, node->name, node->pads);
     for (const auto& f : node->fields) {
         validateStructType(normalizeType(f.type), node);
         if (std::string vm = voidTypeError(f.type); !vm.empty())
             errorAt(node, "field '" + f.name + "' of '" + node->name + "' " + vm);
     }
+}
+
+// The bit width of an integer type a bitfield may have (0: not one).
+static int bitfieldTypeWidth(const std::string& normalized) {
+    static const std::map<std::string, int> widths = {
+        {"bool", 1}, {"char", 8}, {"int8", 8}, {"uint8", 8}, {"int16", 16}, {"uint16", 16},
+        {"int", 32}, {"int32", 32}, {"uint", 32}, {"uint32", 32}, {"int64", 64}, {"uint64", 64}};
+    auto w = widths.find(normalized);
+    return w == widths.end() ? 0 : w->second;
 }
 
 void TypeChecker::checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f) {
@@ -1383,16 +1394,24 @@ void TypeChecker::checkBitfield(ASTNode* at, const std::string& owner, const Str
         return;
     }
     if (f.bitWidth == 0) return;
-    std::string t = normalizeType(f.type);
-    static const std::map<std::string, int> widths = {
-        {"bool", 1}, {"char", 8}, {"int8", 8}, {"uint8", 8}, {"int16", 16}, {"uint16", 16},
-        {"int", 32}, {"int32", 32}, {"uint", 32}, {"uint32", 32}, {"int64", 64}, {"uint64", 64}};
-    auto w = widths.find(t);
-    if (w == widths.end()) {
+    int w = bitfieldTypeWidth(normalizeType(f.type));
+    if (w == 0) {
         errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' must have an integer type, got '" + f.type + "'");
         return;
     }
-    if (f.bitWidth > w->second)
+    if (f.bitWidth > w)
         errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' is " + std::to_string(f.bitWidth) +
-                    " bits wide, more than its type '" + f.type + "' holds (" + std::to_string(w->second) + ")");
+                    " bits wide, more than its type '" + f.type + "' holds (" + std::to_string(w) + ")");
+}
+
+void TypeChecker::checkUnnamedBitfields(ASTNode* at, const std::string& owner,
+                                        const std::vector<StructDecl::Pad>& pads) {
+    for (const auto& p : pads) {
+        int w = bitfieldTypeWidth(normalizeType(p.type));
+        if (w == 0)
+            errorAt(at, "unnamed bitfield of '" + owner + "' must have an integer type, got '" + p.type + "'");
+        else if (p.bitWidth > w)
+            errorAt(at, "unnamed bitfield of '" + owner + "' is " + std::to_string(p.bitWidth) +
+                        " bits wide, more than its type '" + p.type + "' holds (" + std::to_string(w) + ")");
+    }
 }
