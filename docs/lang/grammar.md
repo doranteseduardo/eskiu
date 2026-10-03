@@ -1,7 +1,7 @@
 # Eskiu Grammar
 
 A formal grammar for Eskiu, reflecting the actual recursive-descent parser
-(`parser/parser.cpp`) and lexer (`lexer/lexer.cpp`). It is the authoritative
+(`parser/`) and lexer (`lexer/lexer.cpp`). It is the authoritative
 syntax reference; the prose in [spec.md](spec.md) explains semantics.
 
 Notation (EBNF):
@@ -86,11 +86,11 @@ directive =
   | '#else'  |  '#endif'
   | '#pragma' …                          // passed through to the compiler (pack, link)
   | '#error'  text                       // aborts compilation on an active branch
-  | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)
+  | '#!' …                               // shebang on the first line: ignored
 ```
 
-Predefined macros: `__FILE__`, `__LINE__`, a host-OS macro
-(`__APPLE__`/`__linux__`), an architecture macro (`__aarch64__`/`__x86_64__`/`__arm__`),
+Predefined macros: `__FILE__`, `__LINE__`, a target-OS macro
+(`__APPLE__`/`__linux__`/`_WIN32` and `_WIN64`), an architecture macro (`__aarch64__`/`__x86_64__`/`__arm__`),
 and `__ESKIU_FREESTANDING__` under `--freestanding`.
 
 ---
@@ -115,7 +115,11 @@ declaration =
   | type-alias  | extern-decl  | intrinsic-decl | var-decl
 
 function-decl   = ('async' | 'must_use')? type IDENT type-params? '(' param-list? ')' ( block | ';' )
+                | type 'operator' overload-op '(' param-list ')' block   // operator overload
+overload-op     = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>='
+                | '&' | '|' | '^' | '<<' | '>>' | '!' | '~' | '[' ']'
 extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
+                | 'extern' 'const'? type IDENT ';'                       // C global variable
 intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
 
 type-params     = '<' type-param (',' type-param)* '>'
@@ -163,7 +167,7 @@ base        = scalar-type
             | 'fn' '(' (type (',' type)*)? ')' '->' type   // function-pointer type
 ptr         = '*' '?'?                               // leading-pointer (spec) spelling; `*?*T` (a `?`
                                                      // before another '*') points to a nullable pointer
-array       = '[' (INT_LIT | IDENT)? ']'             // IDENT = a named const dim; empty = slice `T[]`
+array       = '[' const-expr? ']'                    // integer constant expression; empty = slice `T[]`
 
 scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
             | 'uint' | 'uint8' | 'uint16' | 'uint32' | 'uint64'
@@ -201,7 +205,7 @@ continue-stmt = 'continue' IDENT? ';'   // IDENT = a labeled enclosing loop (def
 throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
-switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, `default` may repeat
+switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, at most one `default`
 switch-case   = 'case' expr ':' ( declaration | statement )*   // the switch body is one scope
 default-case  = 'default' ':' ( declaration | statement )*
 

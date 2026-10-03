@@ -12,7 +12,7 @@ Core properties:
 
 - Statically typed with explicit type annotations
 - Manual memory management, no garbage collector
-- Compiles to native object files via LLVM (arm64 and x86-64)
+- Compiles to native code via LLVM: AArch64 and x86-64 (macOS, Linux, Windows), plus cross-compilation to 32-bit ARM and 32-bit x86
 - Structs with methods, monomorphic templates, and structural interfaces
 - Lambdas and `fn(T)->R` function pointer types
 - Multi-file programs via `import`
@@ -175,7 +175,7 @@ errors located at the backslash. As in C, an octal escape takes at most three di
 | `double` | `double` | 64 bits | IEEE 754 double-precision          |
 | `bool`   | `i1`     | 1 bit   | `true` or `false`                  |
 | `char`   | `i8`     | 8 bits  | Unsigned; single byte              |
-| `string` | `i8*`    | pointer | Immutable C-string literal         |
+| `string` | `ptr`    | pointer | Immutable C-string literal         |
 | `void`   | `void`   | n/a     | No value; valid only as return type|
 
 Signedness is tracked by the compiler for correct arithmetic and comparison codegen. Signed and unsigned variants of the same width share the same LLVM integer type (e.g., `int8` and `uint8` are both `i8`).
@@ -308,8 +308,7 @@ a[1][2];                                    // 6  (row 1, column 2)
 
 A **slice** `T[]` (empty brackets) is a view into a contiguous run of `T`: a fat pointer
 carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
-with it, so a function that takes a `T[]` never needs a separate count argument, killing
-the classic "pointer without its length" bug.
+with it, so a function that takes a `T[]` never needs a separate count argument.
 
 Create a slice by **slicing** a fixed array *or a raw pointer* with a half-open range
 (reusing the `..` operator): `a[lo..hi]` is a view of elements `lo` through `hi-1`.
@@ -660,7 +659,7 @@ Short-circuit evaluation applies: in `a && b`, `b` is not evaluated if `a` is fa
 | `x <<= e` | Left-shift and assign        |
 | `x >>= e` | Right-shift and assign       |
 
-The compound bitwise/shift operators are desugared by the parser: `x op= e` is equivalent to `x = x op e`.
+`x op= e` is equivalent to `x = x op e`, except that `x` is evaluated only once (see below).
 
 The left-hand side must be an lvalue: a named variable, a pointer dereference (`*ptr = value`), or a field access. A field or element of a temporary (`mk().x`, `arr()[0]`) is not an lvalue: it can be read, but not assigned, have its address taken, or (an array) be sliced. Assigning through a dereferenced pointer parameter works correctly. `*ptr = value` stores through the pointer as expected.
 
@@ -687,7 +686,7 @@ The operand must be a modifiable lvalue (a `const` or a non-lvalue like `5++` is
 | `&x`     | Address of `x`; yields `*T` where `x: T`    |
 | `*ptr`   | Dereference `ptr`; yields `T` where `ptr: *T`|
 
-`&x` returns the `alloca` pointer for the stack variable `x`.
+For a local variable, `&x` is the address of its stack slot.
 
 ```eskiu
 int val = 42;
@@ -1131,7 +1130,7 @@ take typed futures with no cast at the call site, `<timer>` `timer_after(lp, ms)
 leaf future for deadlines (so `select2(read, timer_after(...))` is a real timeout; dropping
 a combinator before it resolves drops its inputs with it), and
 `<http_async>` is a non-blocking HTTP server built on the accept loop. See
-`docs/dev/async-design.md` for the runtime contract and the lowering design.
+[async-design.md](../dev/async-design.md) for the runtime contract and the lowering design.
 
 ### 6.9 Exception Handling
 
@@ -1368,7 +1367,7 @@ must name an enclosing loop, otherwise the program is rejected at compile time.
 Labeled `break` and `continue` run the same `defer`/`errdefer` cleanups as the unlabeled
 forms: every deferred statement between the jump and the target loop runs, innermost
 first, before control leaves. A labeled jump may not escape a `defer` body, and labeled
-`break`/`continue` is not supported inside an `async fn`.
+`break`/`continue` is not supported inside an `async` function.
 
 ### 7.4 switch / case / default / break
 
@@ -1404,7 +1403,7 @@ int sign(int x) {
 
 ### 7.6 break
 
-Exits the innermost enclosing `for`, `while`, or `switch` immediately.
+Exits the innermost enclosing loop (`for`, `for ... in`, `while`, `do`/`while`) or `switch` immediately.
 
 ```eskiu
 while (true) {
@@ -1653,7 +1652,7 @@ A `union` variable is declared exactly like a struct variable:
 ```eskiu
 let u: Value;
 u.i = 0x3F800000;   // bit pattern for 1.0f
-printf("%f\n", u.f); // prints 1.0
+printf("%f\n", u.f); // prints 1.000000
 ```
 
 `sizeof(Value)` returns the size of the largest field: `sizeof(*uint8)` = 8 on a 64-bit target in this example.
@@ -1854,7 +1853,7 @@ The same boxing happens wherever an interface-typed slot receives a struct point
 Under the hood, an interface value is a two-word fat pointer:
 
 ```
-{ i8* data_ptr, i8* vtable_ptr }
+{ ptr data_ptr, ptr vtable_ptr }
 ```
 
 The vtable is a struct of function pointers, one per interface method, generated per concrete type. This is transparent to user code.
@@ -2111,11 +2110,11 @@ Passing `--freestanding` predefines the macro `__ESKIU_FREESTANDING__`, which `<
 | `alloc<T>(n)`    | `calloc`         | `esk_alloc` (must zero)          |
 | `free(p)`        | `free`           | `esk_free`                      |
 
-In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. To keep `alloc<T>`'s zero-initialization guarantee, `esk_alloc` must return zeroed memory (the in-repo `kernel/alloc.esk` bump allocator does this). Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
+In freestanding mode the user must provide `esk_alloc` and `esk_free` in their own code (typically in a kernel or bare-metal runtime); `<mem>` declares them `extern` and the linker resolves them from the user-supplied object file. To keep `alloc<T>`'s zero-initialization guarantee, `esk_alloc` must return zeroed memory (the bump allocator in the repository's `kernel/alloc.esk` does this). Code that needs heap allocation still just writes `import <mem>` and calls `alloc<T>`/`free`. The same source compiles for both modes.
 
 ```eskiu
 // user-provided in kernel.esk or a C shim
-*void esk_alloc(int size) { return buddy_alloc(size); }
+*void esk_alloc(int64 nbytes) { return buddy_alloc(nbytes); }
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 ```
 
@@ -2174,7 +2173,7 @@ import "../shared/types.esk";
 
 `import <name>` resolves the module from the Eskiu installation's stdlib directory. The compiler locates the stdlib either via the `ESKIU_ROOT` environment variable (if set) or by auto-detecting it from the compiler binary's location. No path prefix is required.
 
-`import "path"` resolves the path relative to the directory of the importing file, as before.
+`import "path"` resolves the path relative to the directory of the importing file.
 
 All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.
 
@@ -2217,14 +2216,14 @@ extern void exit(int code);
 An `extern` declaration with no parameter list (a type, a name, and a semicolon) names a global variable defined in another translation unit. It emits an external-linkage global with no initializer; reads and writes resolve at link time.
 
 ```eskiu
-extern int   errno;
-extern float g_volume;
+extern int   opterr;       // libc's getopt flag
+extern float g_volume;     // defined in your own C code
 
-void clear_error() {
-    errno = 0;              // assign a C global
+void quiet_getopt() {
+    opterr = 0;             // assign a C global
 }
-int last_error() {
-    return errno;           // read a C global
+int getopt_reports() {
+    return opterr;          // read a C global
 }
 ```
 
@@ -2247,7 +2246,7 @@ int main() {
 
 ### 13.4 C ABI Compatibility
 
-`extern` declarations emit standard C-ABI-compatible LLVM IR `call` instructions. Any function exported from a C library, including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library, may be called this way.
+`extern` declarations emit standard C-ABI-compatible LLVM IR `call` instructions. Any function exported from a C library, including system libraries, OpenSSL, or any other C-compatible library, may be called this way.
 
 For functions that accept or return `void*`, use `*void` on the Eskiu side:
 
@@ -2259,14 +2258,14 @@ extern *void memset(*void ptr, int value, int64 n);
 
 (For heap allocation, prefer `import <mem>` and `alloc<T>`/`free` over declaring `malloc`/`free` as `extern` yourself; see §11.2.)
 
-A struct or union may be passed to or returned from an `extern` function **by value**. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM, in both compilers (the self-hosted one picks the convention from `--target`). See `docs/dev/abi.md` for the per-target rules.
+A struct or union may be passed to or returned from an `extern` function **by value**. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64, 32-bit ARM (AAPCS, soft and hard float) and 32-bit x86 (cdecl), following `--target`. See [abi.md](../dev/abi.md) for the per-target rules.
 
 ```eskiu
 struct Vec2 { double x; double y; }
 extern Vec2 vec2_add(Vec2 a, Vec2 b);   // a C function taking and returning structs
 ```
 
-### 13.4 Passing an Eskiu function as a C callback
+### 13.5 Passing an Eskiu function as a C callback
 
 Many C APIs take a function pointer (`qsort`, `signal`, OpenSSL's ALPN selector,
 …). Casting a **top-level** Eskiu function to a pointer type yields its bare C
@@ -2278,7 +2277,8 @@ extern void qsort(*void base, int64 n, int64 size, *void compar);
 
 int cmp(*void a, *void b) { return *(*int)a - *(*int)b; }
 
-qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
+int[5] arr = {5, 3, 1, 4, 2};
+qsort((*void)&arr[0], (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
 ```
 
 The callback's signature must match what the C side expects (C ABI). This works
@@ -2294,7 +2294,7 @@ spell the callback's signature and the call passes a top-level function by name
 ```eskiu
 extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)->int cmp);
 
-qsort((*void)arr, (int64)5, (int64)4, cmp);
+qsort((*void)&arr[0], (int64)5, (int64)4, cmp);
 ```
 
 Passing anything else there (a lambda, a fn-typed variable) is a compile error.
@@ -2335,7 +2335,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
 | `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
-| `stdlib/future.esk`   | The async runtime's `Future<T>` (the locked compiler↔generated-code contract): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`/`free_future_polled` (the latter also frees the waker a hand-driven `future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
+| `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`/`free_future_polled` (the latter also frees the waker a hand-driven `future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run`, `Executor_stop`, `Executor_free` |
 | `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async`, each registers an fd and completes its `*Future<int>` when ready; `net_read_deadline_async`, `net_write_deadline_async` and `net_ready_deadline_async` race the same against a `timer_after` (via `select2`) and complete with `NET_TIMED_OUT` once the deadline passes |
 | `stdlib/timer.esk`    | `timer_after(lp, ms)`, a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
@@ -2501,21 +2501,21 @@ The string is passed verbatim to the assembler. No inputs, outputs, or clobbers 
 
 ### 15.2 Extended Form
 
-The extended form follows GCC-compatible inline assembly syntax:
+The extended form follows the layout of GCC inline assembly, but the constraint strings are LLVM constraint codes, passed to LLVM as written:
 
 ```
 asm("template" : outputs : inputs : clobbers);
 ```
 
 ```eskiu
-asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
+asm("outb ${0:b}, $1" :: "{ax}"(val), "N{dx}"(port) : "memory");   // x86
 asm("add $0, $1, $2" : "=r"(sum) : "r"(a), "r"(b));     // AArch64
 asm("addq $1, $0" : "+r"(acc) : "r"(b));                // x86-64
 ```
 
 - **Template**: the assembly instruction string; operands are referenced LLVM-style by `$0`, `$1`, … (with modifiers like `${0:b}` for a sub-register), not `%0`/`%1`. The outputs are numbered first, then the inputs, as in GCC and clang.
-- **Outputs**: list of `"constraint"(lvalue)` pairs, written by the asm. A constraint starts with `=` (written only: `"=r"`, the early-clobber `"=&r"`, a specific register such as `"=a"`, or memory `"=m"`) or `+` (read and written: `"+r"`, `"+m"`). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a `const`) of an integer type other than `bool`, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A `+r` output also feeds the lvalue's current value in through an input tied to it.
-- **Inputs**: list of `"constraint"(expr)` pairs (a constraint may not start with `=` or `+`). Common constraints: `"a"` (eax/rax), `"Nd"` (8-bit immediate or dx), `"r"` (any register), `"m"` (memory).
+- **Outputs**: list of `"constraint"(lvalue)` pairs, written by the asm. A constraint starts with `=` (written only: `"=r"`, the early-clobber `"=&r"`, a specific register such as `"={ax}"`, or memory `"=m"`) or `+` (read and written: `"+r"`, `"+m"`). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a `const`) of an integer type other than `bool`, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A `+r` output also feeds the lvalue's current value in through an input tied to it.
+- **Inputs**: list of `"constraint"(expr)` pairs (a constraint may not start with `=` or `+`). Common constraints: `"r"` (any register), `"m"` (memory), `"i"` (an immediate), and a specific register named in braces, such as `"{ax}"` (al/ax/eax/rax by operand width) or `"N{dx}"` (an 8-bit immediate or dx). GCC's single-letter register classes such as `"a"` or `"d"` are not translated, and LLVM rejects them.
 - **Clobbers**: comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
 
 Sections are separated by `:`. Trailing sections may be omitted if empty.
@@ -2546,11 +2546,13 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
 | `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend. A level above 3 is rejected |
 | `eskiuc file.esk -o prog -lfoo` | Link, passing library flags through to the linker |
+| `eskiuc file.esk -o prog --link-arg=ARG` | Pass an extra argument to the linker (repeatable) |
 | `eskiuc file.esk -o prog --no-default-libs` | Link only what `-l` names: skip `#pragma link` and the implied runtimes |
 | `eskiuc file.esk -o file.o` | Compile to an object file only (no link) |
 | `eskiuc file.esk -c -o name` | Compile to an object file only, any name |
 | `eskiuc file.esk` | Compile to `file.esk.o` (object only) |
 | `eskiuc file.esk --target TRIPLE` | Cross-compile for the given target triple |
+| `eskiuc file.esk --mcpu=CPU --mattr=FEATURES --reloc=MODEL` | Target CPU, feature string (LLVM `-mattr` syntax) and relocation model (`pic`, the default, `static` or `dynamic-no-pic`) |
 | `eskiuc file.esk --freestanding` | Object only; use `esk_alloc`/`esk_free` instead of `malloc`/`free` |
 | `eskiuc file.esk --test-lexer` | Dump token stream |
 | `eskiuc file.esk --test-parser` | Dump AST |
@@ -2575,8 +2577,8 @@ program throws or catches (`-lc++` on macOS, `-lstdc++` on Linux and Windows) an
 every object and `--link-arg`, once each, and a library already given with `-l`
 is not repeated. `--no-default-libs` turns all of them off for custom linking.
 Nothing is added when no executable is linked. With `--freestanding` (or a `.o` output)
-no linking happens, so bare-metal targets are linked yourself (see the kernel's
-`ld.lld` invocation).
+no linking happens, so bare-metal targets are linked yourself (see the `ld.lld`
+invocation in `kernel/Makefile`).
 
 **Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, `run` exits with `128 +` the signal number, as a shell does. Compiler flags (including ones that take a value, such as `--target TRIPLE`) go *before* the script and program arguments *after* it; a `--` right after the script is dropped, so `eskiuc run --asan file.esk -- input.txt` passes only `input.txt`. Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
 
@@ -2588,7 +2590,7 @@ no linking happens, so bare-metal targets are linked yourself (see the kernel's
 
 ### Cross-compilation
 
-`--target TRIPLE` sets the LLVM target triple for the output object file. Both the AArch64 and X86 LLVM backends are included in the Eskiu build.
+`--target TRIPLE` sets the LLVM target triple for the output object file. The AArch64, X86 and 32-bit ARM LLVM backends are included in the Eskiu build. `--mcpu`, `--mattr` and `--reloc` select the CPU, the feature string and the relocation model. See [cross-compile.md](../dev/cross-compile.md) for worked examples.
 
 ```bash
 eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
@@ -2603,6 +2605,9 @@ Common triples:
 | `aarch64-unknown-linux-gnu` | ELF AArch64 (Linux) |
 | `aarch64-unknown-none` | Bare-metal AArch64 |
 | `x86_64-unknown-none` | Bare-metal x86-64 |
+| `x86_64-pc-windows-gnu` | COFF x86-64 (Windows, MinGW) |
+| `i686-pc-linux-gnu` | ELF 32-bit x86 (Linux) |
+| `armv6k-none-eabihf` | Bare-metal 32-bit ARM, hard float (e.g. the Nintendo 3DS with `--mcpu=mpcore`) |
 
 When `--target` is omitted the compiler defaults to the host machine's triple.
 
@@ -2614,7 +2619,7 @@ The compiler emits diagnostics with full source location information:
 
 ```
 error: file.esk:8:22: undefined variable 'foo'
-error: file.esk:14:5: type mismatch: expected int, got float
+error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 ```
 
 The format is `error: file:line:col: message`. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. `-Wall` warnings are printed as `file:line:col: warning: message`. Every mode, including the `--test-*` modes, exits with a non-zero status when it reports an error.
