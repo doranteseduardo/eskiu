@@ -5235,15 +5235,26 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int ro = 0;
             if (sema_has_star(bt) == 1) { ro = sema_pointee_const(bt); }
             else { ro = sema_is_readonly_lvalue(s, mem.a); }
+            int self_const = 0;
+            if (inline_m == 0 && ffn != null && List_len<Param>(&ffn.params) > 0) {
+                self_const = sema_pointee_const(List_get<Param>(&ffn.params, 0).ty);
+            }
             if (ro == 1 && is_field == 0) {
-                int self_const = 0;
-                if (inline_m == 0 && ffn != null && List_len<Param>(&ffn.params) > 0) {
-                    self_const = sema_pointee_const(List_get<Param>(&ffn.params, 0).ty);
-                }
                 if (self_const == 0) {
                     s.had_error = 1;
                     dprintf(2, "error: %s:%d:%d: cannot call method '%s' on a read-only value: its self may modify it (declare it 'const %s* self' if it does not)\n",
                            s.filename, s.line, s.col, mem.sval, sn);
+                }
+            } else if (is_field == 0 && self_const == 0 && sema_has_star(bt) == 0
+                       && (inline_m == 1 || (ffn != null && List_len<Param>(&ffn.params) > 0
+                                             && sema_has_star(sema_dealias(s, List_get<Param>(&ffn.params, 0).ty)) == 1))) {
+                // A captured value is read-only in the lambda: a non-const self would get
+                // the closure's copy (mirrors the C++ checkCapturedMethodCall).
+                string cn = sema_captured_root(s, mem.a);
+                if (cn[0] != 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: cannot call method '%s' on captured variable '%s': a closure captures it by value, and a non-const self may modify the copy (use a 'const T* self' method, or capture a pointer)\n",
+                           s.filename, s.line, s.col, mem.sval, cn);
                 }
             }
         }

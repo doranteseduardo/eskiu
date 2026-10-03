@@ -1146,7 +1146,7 @@ int main() {
 
 ### Closures: capturing from the enclosing scope
 
-A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (`x = 1`, `x++` inside the body is a compile error); to share state, write through a pointer or use a global or a `static` local.
+A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (`x = 1`, `x++` inside the body is a compile error) or call a method on it that takes a plain `*T self` (only a `const T* self` method); to share state, write through a pointer or use a global or a `static` local.
 
 ```eskiu
 extern int printf(string fmt, ...);

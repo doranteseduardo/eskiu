@@ -475,6 +475,7 @@ private:
     // The captured variable whose own storage `target` names (itself, a field or a fixed
     // array element of it, not through a pointer) inside a lambda, or "".
     std::string capturedRoot(Expr* target);
+    void checkCapturedMethodCall(ASTNode* at, MemberExpr* member);
     // `&x` / `x[lo..hi]` of a captured variable's storage: the address is the closure's
     // copy, so a write through it is lost.
     void checkCapturedAddress(ASTNode* at, Expr* target);

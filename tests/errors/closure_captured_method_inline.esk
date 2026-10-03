@@ -1,0 +1,12 @@
+// EXPECT-ERROR: cannot call method 'set' on captured variable 'b'
+struct Box<T> {
+    T v;
+    void set(T x) { self.v = x; }
+}
+
+int main() {
+    let b: Box<int> = Box<int>{ v: 1 };
+    fn()->void f = void() { b.set(5); };
+    f();
+    return b.v;
+}

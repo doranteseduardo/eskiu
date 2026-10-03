@@ -1,0 +1,37 @@
+// A captured struct value is read-only inside the lambda: a `const T* self` method may
+// be called on it (also on a field of it), and a `*T self` method through a captured
+// pointer reaches the shared object. A value declared inside the lambda is its own.
+extern int printf(string fmt, ...);
+
+struct Counter {
+    int n;
+}
+
+int Counter_get(const Counter* self) { return self.n; }
+void Counter_inc(*Counter self) { self.n = self.n + 1; }
+
+struct Pair {
+    Counter inner;
+    *Counter ptr;
+}
+
+int main() {
+    Counter c;
+    c.n = 5;
+    Pair pr;
+    pr.inner.n = 7;
+    pr.ptr = &c;
+    *Counter p = &c;
+    fn()->int read = int() { return c.get() + pr.inner.get(); };
+    fn()->void bump = void() {
+        p.inc();
+        pr.ptr.inc();
+        Counter local;
+        local.n = 0;
+        local.inc();
+    };
+    printf("read %d\n", read());
+    bump();
+    printf("c %d\n", c.n);
+    return 0;
+}

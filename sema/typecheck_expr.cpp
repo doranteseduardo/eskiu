@@ -78,6 +78,18 @@ void TypeChecker::checkCapturedAddress(ASTNode* at, Expr* target) {
                     "(use a pointer, a global, or a static)");
 }
 
+// `x.m()` on a captured value: the method gets the address of the closure's copy, so a
+// `*T self` that writes through it changes only that copy. A captured value is read-only
+// in the lambda (as in a C++ by-value capture): only a `const T* self` method may be
+// called on it. Through a captured pointer the call reaches the shared object.
+void TypeChecker::checkCapturedMethodCall(ASTNode* at, MemberExpr* member) {
+    std::string n = capturedRoot(member->base.get());
+    if (!n.empty())
+        errorAt(at, "cannot call method '" + member->member + "' on captured variable '" + n +
+                    "': a closure captures it by value, and a non-const self may modify the copy "
+                    "(use a 'const T* self' method, or capture a pointer)");
+}
+
 // Expression visitors
 // `lhs = rhs` (also the desugared compound `x op= y`): the target must be a writable
 // lvalue, the value assignable to it. Kept out of visit(BinaryExpr) so that visitor's
@@ -923,6 +935,8 @@ void TypeChecker::visit(CallExpr* node) {
                     errorAt(node, "cannot call method '" + member->member + "' on a read-only value: its '" +
                                   paramTypes[0] + " self' may modify it (declare it 'const " + baseType +
                                   "* self' if it does not)");
+                else if (!tyq::isPtr(rt) && !paramTypes.empty() && !tyq::baseConst(tyq::pointee(paramTypes[0])))
+                    checkCapturedMethodCall(node, member);
             }
             size_t selfSkip = 1;
             bool isVariadic = paramTypes.size() > selfSkip && paramTypes.back() == "...";
@@ -1275,6 +1289,8 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
         if (roRecv && !tyq::baseConst(tyq::pointee(selfT)))
             errorAt(node, "cannot call method '" + member->member + "' on a read-only value: '" +
                           fnName + "' takes '" + selfT + "' and may modify it");
+        else if (!recvPtr && !tyq::baseConst(tyq::pointee(selfT)))
+            checkCapturedMethodCall(node, member);
     }
     std::vector<std::string> pts;
     for (size_t j = 1; j < fd->params.size(); ++j) pts.push_back(substType(fd->params[j].first, subs));

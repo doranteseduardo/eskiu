@@ -1,0 +1,10 @@
+// EXPECT-ERROR: cannot call method 'push' on captured variable 'l'
+import <list>;
+
+int main() {
+    List<int> l;
+    List_init<int>(&l, 4);
+    fn()->void f = void() { l.push(8); };
+    f();
+    return 0;
+}
