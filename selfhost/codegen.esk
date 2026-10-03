@@ -160,6 +160,7 @@ struct Codegen {
     int mstamp;              // member-chain type stamps handed out so far (see cg_chain_begin)
     int mactive;             // the stamp of the member chain being emitted (0 = none)
     int tactive;             // the stamp of the `?:` tree being emitted (0 = none, see cg_tern_begin)
+    int bactive;             // the stamp of the binary expression being emitted (0 = none)
     List<string> vols;       // names of `volatile` variables (C++ volatileVars)
 }
 
@@ -261,6 +262,7 @@ void cg_init(Codegen* g) {
     g.mstamp = 0;
     g.mactive = 0;
     g.tactive = 0;
+    g.bactive = 0;
     String_init(&g.out, 1024);
     String_init(&g.globals, 256);
     g.next = 0;
@@ -3651,6 +3653,10 @@ string cg_etype_raw(Codegen* g, *ExprNode e) {
         if (cg_streq(e.sval, "=") == 1) { return cg_etype(g, e.a); }   // assignment yields the target's type
         // A left-leaning chain (`a + b + c ...`) is typed along its left spine with a loop:
         // the leftmost operand, then each operator bottom-up over the running type.
+        // While a binary expression is emitted (g.bactive), each node's type is stamped on
+        // it once known, so an operand nested on the right (`a + (a + (...))`) is typed
+        // once instead of once per enclosing level.
+        if (g.bactive != 0 && e.cg_stamp == g.bactive) { return e.cg_ety; }
         List<*ExprNode> spine; List_init<*ExprNode>(&spine, 8);
         *ExprNode b = e;
         while (b != null && b.kind == EK_BINARY && cg_streq(b.sval, "=") == 0) {
@@ -3665,6 +3671,7 @@ string cg_etype_raw(Codegen* g, *ExprNode e) {
             string bopn = cg_op_resolve(g, n.sval, lt, rt);   // overloaded binary → its ret type
             if (bopn[0] != 0) { lt = cg_find_fn(g, bopn).rety; }
             else { lt = cg_binary_ety(g, n.sval, lt, rt); }
+            if (g.bactive != 0 && lt[0] != 0) { n.cg_ety = lt; n.cg_stamp = g.bactive; }   // an unknown type is recomputed
             i = i - 1;
         }
         List_free<*ExprNode>(&spine);
@@ -4710,7 +4717,13 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             cg_emit(g, ", ptr "); cg_emit(g, lv.op); cg_emit(g, "\n");
             v.op = rop; v.ty = lty; v.ety = lv.ety; return v;
         }
-        return cg_binary_chain(g, e);
+        // Open the type stamps for the outermost binary expression (an expression declares
+        // no local and function bodies are emitted from queues, so they hold until it is done).
+        int bopen = 0;
+        if (g.bactive == 0) { g.mstamp = g.mstamp + 1; g.bactive = g.mstamp; bopen = 1; }
+        CgVal bv = cg_binary_chain(g, e);
+        if (bopen == 1) { g.bactive = 0; }
+        return bv;
     }
 
     if (e.kind == EK_CALL) {

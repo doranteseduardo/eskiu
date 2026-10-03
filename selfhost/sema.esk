@@ -1854,6 +1854,9 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
     }
     if (e.kind == EK_BINARY) {
         if (sema_is_valop(e.sval) == 0) { return sema_binary_type(s, e.sval, "", ""); }
+        // Memoized per node like `?:`: each level of `a + (a + (...))` asks for the type of
+        // its right operand, itself a binary expression (linear, not quadratic).
+        if (e.sm_epoch == g_sema_epoch && g_sema_epoch != 0) { return e.sm_ety; }
         // An operator chain (`a + b + c ...`) is typed along its left spine with a loop:
         // the leftmost operand, then each operator bottom-up over the running type.
         List<*ExprNode> spine; List_init<*ExprNode>(&spine, 8);
@@ -1870,6 +1873,7 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
             i = i - 1;
         }
         List_free<*ExprNode>(&spine);
+        e.sm_ety = t; e.sm_epoch = g_sema_epoch;
         return t;
     }
     if (e.kind == EK_MEMBER) { return sema_member_type(s, sema_infer_type(s, e.a), e.sval); }
