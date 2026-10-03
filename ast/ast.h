@@ -171,8 +171,18 @@ public:
         std::string type;
         std::string name;
         int bitWidth = 0;   // >0 for a bitfield (e.g. `uint32 x : 1;`), 0 otherwise, -1 for `: 0`
+        bool unnamed = false;   // only in layoutFields(): an unnamed bitfield (width 0 = `: 0`)
+    };
+    // An unnamed bitfield `T : N;`: padding laid out like a bitfield of type T, where
+    // N = 0 moves the next bitfield to a new unit of T. It is not a member, so it is kept
+    // apart from `fields`; `before` is the index of the named field it precedes.
+    struct Pad {
+        std::string type;
+        int bitWidth = 0;
+        size_t before = 0;
     };
     std::vector<Field> fields;
+    std::vector<Pad> pads;
     std::vector<DeclPtr> methods;
     std::vector<std::string> typeParams; // non-empty → this is a template
     // Bounded generics: type-param name → interface constraint(s) (`<K: Hashable>`).
@@ -193,6 +203,7 @@ public:
 class UnionDecl : public Decl {
 public:
     std::vector<StructDecl::Field> fields;
+    std::vector<StructDecl::Pad> pads;   // unnamed bitfields (size and alignment only)
     int packAlign = 0;                   // `#pragma pack(N)`: cap member alignment at N (0 = natural)
 
     UnionDecl(const std::string& name, const std::vector<StructDecl::Field>& fields)
@@ -200,6 +211,20 @@ public:
 
     void accept(class ASTVisitor* visitor) override;
 };
+
+// The fields of a struct or union in declaration order with its unnamed bitfields among
+// them (marked `unnamed`), for the layout code.
+inline std::vector<StructDecl::Field> layoutFields(const std::vector<StructDecl::Field>& fields,
+                                                   const std::vector<StructDecl::Pad>& pads) {
+    std::vector<StructDecl::Field> out;
+    size_t p = 0;
+    for (size_t i = 0; i <= fields.size(); ++i) {
+        for (; p < pads.size() && pads[p].before <= i; ++p)
+            out.push_back({pads[p].type, "", pads[p].bitWidth, true});
+        if (i < fields.size()) out.push_back(fields[i]);
+    }
+    return out;
+}
 
 class ExternDecl : public Decl {
 public:
@@ -414,6 +439,9 @@ public:
         std::string variant;                 // variant name, or "" for the `_` default
         std::vector<std::string> bindings;   // payload binding names (for this variant)
         std::vector<std::string> bindingTypes;   // stamped by the type checker (the async lowering's frame fields)
+        // In a generic async function: per checked instance, its type-argument bindings
+        // and the binding types (the async lowering generalizes them, as for awaits).
+        std::vector<std::pair<std::map<std::string, std::string>, std::vector<std::string>>> instanceBindingTypes;
         StmtPtr body;
     };
     ExprPtr subject;
@@ -431,6 +459,9 @@ class ThrowStmt : public Stmt {
 public:
     ExprPtr     value;
     std::string valueType; // filled in by TypeChecker
+    // Synthesized by the async lowering only: `value` is an exception object a capturing
+    // catch clause copied (CatchClause::captureAll), thrown again as is.
+    bool        rethrowCaptured = false;
     explicit ThrowStmt(ExprPtr v) : value(std::move(v)) {}
     void accept(class ASTVisitor* visitor) override;
 };
@@ -444,6 +475,10 @@ public:
         StmtPtr     body;
         int         line = 0;   // of the variable name
         int         col = 0;
+        // Synthesized by the async lowering only: matches any exception and binds `name`
+        // (a `*uint8`) to a copy of the exception object, for a later rethrow
+        // (ThrowStmt::rethrowCaptured).
+        bool        captureAll = false;
     };
     StmtPtr               body;
     std::vector<CatchClause> catches;

@@ -16,6 +16,9 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with the type checker; see template_utils.h.
@@ -36,6 +39,29 @@ static std::optional<llvm::Reloc::Model> parseRelocModel(const std::string& s) {
 // always, X86 only when the build links it (dynamic LLVM, or a non-Apple static
 // build; the static Apple release ships without X86 libs). `withAsm` also pulls in
 // the assembly printer/parser, which the object-emitting paths need.
+// The host triple. On macOS LLVM spells it with the Darwin kernel version, and its mapping
+// from that to a macOS version can be off by one on a new release, so the linker would warn
+// that every object targets a newer macOS. Use the product version, as clang does.
+static std::string nativeTriple() {
+    std::string t = llvm::sys::getDefaultTargetTriple();
+#ifdef __APPLE__
+    llvm::Triple triple(t);
+    if (triple.isMacOSX()) {
+        char buf[64] = {0};
+        size_t len = sizeof(buf) - 1;
+        if (sysctlbyname("kern.osproductversion", buf, &len, nullptr, 0) == 0 && buf[0]) {
+            std::string ver = buf;
+            size_t dot = ver.find('.');
+            if (dot != std::string::npos) dot = ver.find('.', dot + 1);
+            if (dot != std::string::npos) ver.resize(dot);
+            triple.setOSName("macosx" + ver);
+            t = triple.str();
+        }
+    }
+#endif
+    return t;
+}
+
 static void initCodegenTargets(bool withAsm) {
     LLVMInitializeAArch64Target();
     LLVMInitializeAArch64TargetInfo();
@@ -102,9 +128,14 @@ static std::unique_ptr<llvm::TargetMachine> makeTargetMachine(
                                     parseRelocModel(cg.relocModel), std::nullopt, level));
 }
 
+bool unnamedBitfieldsAlign(const llvm::Triple& t) {
+    if (t.isOSWindows() || t.isOSDarwin()) return false;
+    return t.isARM() || t.isThumb() || t.isAArch64();
+}
+
 TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
     initCodegenTargets(/*withAsm=*/false);
-    std::string tripleStr = tripleIn.empty() ? llvm::sys::getDefaultTargetTriple() : tripleIn;
+    std::string tripleStr = tripleIn.empty() ? nativeTriple() : tripleIn;
     llvm::Triple triple(tripleStr);
     CodeGen probe;
     probe.targetTriple = tripleIn;
@@ -121,6 +152,8 @@ TargetLayoutInfo targetLayoutInfo(const std::string& tripleIn) {
     info.f32Align = al(llvm::Type::getFloatTy(ctx));
     info.f64Align = al(llvm::Type::getDoubleTy(ctx));
     info.msBitfields = triple.isOSWindows();
+    info.msvcEnv = triple.isWindowsMSVCEnvironment();
+    info.unnamedBitfieldsAlign = unnamedBitfieldsAlign(triple);
     return info;
 }
 
@@ -135,7 +168,7 @@ llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
     // Set target triple + data layout early so sizeof queries work in alloc()
     initCodegenTargets(/*withAsm=*/true);
     std::string tripleStr = targetTriple.empty()
-        ? llvm::sys::getDefaultTargetTriple() : targetTriple;
+        ? nativeTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
     if (auto tm = makeTargetMachine(*this, triple, tripleStr))
@@ -175,7 +208,7 @@ void CodeGen::optimizeModule() {
     // target heuristics (and the data layout the optimizer needs for, e.g., SROA)
     // are correct. Mirrors emitObjectFile's target setup.
     std::string tripleStr = targetTriple.empty()
-        ? llvm::sys::getDefaultTargetTriple() : targetTriple;
+        ? nativeTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
 
@@ -208,7 +241,7 @@ bool CodeGen::emitObjectFile(const std::string& filename) {
     initCodegenTargets(/*withAsm=*/true);
 
     std::string tripleStr = targetTriple.empty()
-        ? llvm::sys::getDefaultTargetTriple() : targetTriple;
+        ? nativeTriple() : targetTriple;
     llvm::Triple triple(tripleStr);
     module->setTargetTriple(triple);
 

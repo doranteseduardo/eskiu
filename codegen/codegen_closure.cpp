@@ -236,36 +236,43 @@ void CodeGen::visit(ThrowStmt* node) {
     llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
     llvm::Type* i64   = llvm::Type::getInt64Ty(*context);
 
-    // EskiuEx: { [8 bytes reserved], ptr type_name, payload } where the payload is
-    // the thrown value stored by its own type at offset 16 (a double, an int64 or a
-    // whole struct keep their bits; a catch loads the same type back).
+    // EskiuEx: { int64 size, ptr type_name, payload } where the payload is the thrown
+    // value stored by its own type at offset 16 (a double, an int64 or a whole struct
+    // keep their bits; a catch loads the same type back) and `size` is the object's
+    // byte size (a capturing catch copies that many bytes).
     llvm::Value* val = evaluateExpr(node->value);
-    llvm::Type* payTy = val->getType();
-    uint64_t paySize = module->getDataLayout().getTypeAllocSize(payTy);
-    llvm::Function* allocEx = getOrDeclareFunc("__cxa_allocate_exception",
-        ptrTy, {i64});
-    llvm::Value* exPtr = builder->CreateCall(allocEx,
-        {llvm::ConstantInt::get(i64, 16 + paySize)}, "ex.alloc");
-    auto* paySlot = builder->CreateConstGEP1_64(
-        llvm::Type::getInt8Ty(*context), exPtr, 16, "ex.pay.slot");
-    builder->CreateStore(val, paySlot);
+    llvm::Value* exPtr = val;
+    if (!node->rethrowCaptured) {
+        llvm::Type* payTy = val->getType();
+        uint64_t paySize = module->getDataLayout().getTypeAllocSize(payTy);
+        llvm::Function* allocEx = getOrDeclareFunc("__cxa_allocate_exception",
+            ptrTy, {i64});
+        exPtr = builder->CreateCall(allocEx,
+            {llvm::ConstantInt::get(i64, 16 + paySize)}, "ex.alloc");
+        builder->CreateStore(llvm::ConstantInt::get(i64, 16 + paySize), exPtr);
+        auto* paySlot = builder->CreateConstGEP1_64(
+            llvm::Type::getInt8Ty(*context), exPtr, 16, "ex.pay.slot");
+        builder->CreateStore(val, paySlot);
+    }
 
     // The static type of the thrown value. The type checker stamps it on the node,
     // but a generic body is shared by its instances, so there it is derived per
     // instance from the value's type under the active substitutions.
-    std::string thrownType = node->valueType;
-    if (thrownType.empty() || !typeParamOverride.empty()) {
-        std::string d = getExprEskiuType(node->value);
-        if (!typeParamOverride.empty()) d = substType(d, typeParamOverride);
-        if (!d.empty() && d != "unknown") thrownType = d;
-    }
-    thrownType = exceptionTypeName(thrownType);
+    if (!node->rethrowCaptured) {
+        std::string thrownType = node->valueType;
+        if (thrownType.empty() || !typeParamOverride.empty()) {
+            std::string d = getExprEskiuType(node->value);
+            if (!typeParamOverride.empty()) d = substType(d, typeParamOverride);
+            if (!d.empty() && d != "unknown") thrownType = d;
+        }
+        thrownType = exceptionTypeName(thrownType);
 
-    // Store type name at offset 8
-    auto* typeStr = builder->CreateGlobalString(thrownType, ".ex.tname");
-    auto* typeSlot = builder->CreateConstGEP1_64(
-        llvm::Type::getInt8Ty(*context), exPtr, 8, "ex.type.slot");
-    builder->CreateStore(typeStr, typeSlot);
+        // Store type name at offset 8
+        auto* typeStr = builder->CreateGlobalString(thrownType, ".ex.tname");
+        auto* typeSlot = builder->CreateConstGEP1_64(
+            llvm::Type::getInt8Ty(*context), exPtr, 8, "ex.type.slot");
+        builder->CreateStore(typeStr, typeSlot);
+    }
 
     // __cxa_throw(ex, _ZTIPv, null)
     // Must be an invoke when inside a try body so the local landingpad fires.
@@ -367,6 +374,26 @@ void CodeGen::visit(TryStmt* node) {
     llvm::Function* strcmpFn  = getOrDeclareFunc("strcmp", i32, {ptrTy, ptrTy});
 
     for (auto& c : node->catches) {
+        if (c.captureAll) {
+            // Any exception: copy the object into a fresh, unthrown exception (its size
+            // is at offset 0) for a later rethrow, and release the caught one.
+            pushScope();
+            llvm::Value* exSize = builder->CreateLoad(i64, exData, "ex.size");
+            llvm::Function* allocEx = getOrDeclareFunc("__cxa_allocate_exception", ptrTy, {i64});
+            llvm::Value* copy = builder->CreateCall(allocEx, {exSize}, "ex.copy");
+            builder->CreateMemCpy(copy, llvm::MaybeAlign(8), exData, llvm::MaybeAlign(8), exSize);
+            auto* slot = entryAlloca(ptrTy, nullptr, c.name);
+            builder->CreateStore(copy, slot);
+            defineSymbol(c.name, slot);
+            defineVarType(c.name, c.type);
+            builder->CreateCall(endCatch, {});
+            if (c.body) c.body->accept(this);
+            popScope();
+            if (!hasTerminator(builder->GetInsertBlock()))
+                builder->CreateBr(finallyBB);
+            builder->SetInsertPoint(llvm::BasicBlock::Create(*context, "catch.after", fn));
+            continue;
+        }
         // A generic body's catch type names the type params: match per instance.
         const std::string cType = typeParamOverride.empty() ? c.type
                                                              : substType(c.type, typeParamOverride);
@@ -545,6 +572,33 @@ void CodeGen::visit(ThreadJoinStmt* node) {
     });
 }
 
+// On x86 a GCC single-register constraint letter names one register; LLVM wants it
+// spelled out, as clang emits it: `a` is `{ax}`, `Nd` is `N{dx}`. Modifiers, other
+// letters, digits and `{...}` (also a clobber's `~{...}`) stay as written.
+static std::string x86AsmConstraint(const std::string& c) {
+    std::string out;
+    for (size_t i = 0; i < c.size(); ++i) {
+        char ch = c[i];
+        if (ch == '{') {
+            size_t e = c.find('}', i);
+            if (e == std::string::npos) e = c.size() - 1;
+            out += c.substr(i, e - i + 1);
+            i = e;
+            continue;
+        }
+        switch (ch) {
+            case 'a': out += "{ax}"; break;
+            case 'b': out += "{bx}"; break;
+            case 'c': out += "{cx}"; break;
+            case 'd': out += "{dx}"; break;
+            case 'S': out += "{si}"; break;
+            case 'D': out += "{di}"; break;
+            default: out += ch;
+        }
+    }
+    return out;
+}
+
 // Extended asm (GCC syntax) as LLVM inline asm, numbered like clang: the outputs first
 // (`$0`...), then the inputs. A register output (`=r`, `=&r`) is a result of the call,
 // stored into its lvalue afterwards (several make a struct result); a memory output
@@ -555,9 +609,11 @@ void CodeGen::visit(AsmStmt* node) {
     std::vector<llvm::Value*> argVals;
     std::vector<llvm::Type*> elemTypes;       // per argument: its elementtype (indirect), or null
     std::string constraints;
+    CAbiTarget tgt = cabiTarget();
+    bool x86 = tgt == CAbiTarget::SysV || tgt == CAbiTarget::Win64 || tgt == CAbiTarget::X86;
     auto addConstraint = [&](const std::string& c) {
         if (!constraints.empty()) constraints += ",";
-        constraints += c;
+        constraints += x86 ? x86AsmConstraint(c) : c;
     };
     struct RegOut { llvm::Value* addr; llvm::Type* ty; bool vol; };
     std::vector<RegOut> regOuts;

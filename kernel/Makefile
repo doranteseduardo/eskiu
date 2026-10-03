@@ -9,8 +9,8 @@
 # Setup:   make setup   (installs lld and qemu via Homebrew)
 
 TARGET   = aarch64-unknown-none-elf
-ESKIUC   = ../build/eskiuc
-CLANG    = /opt/homebrew/Cellar/llvm/22.1.5/bin/clang
+ESKIUC  ?= ../build/eskiuc
+CLANG   ?= clang
 LLD      = ld.lld
 
 ESKIU_FLAGS = --target $(TARGET) --freestanding

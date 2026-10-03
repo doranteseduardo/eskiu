@@ -1,0 +1,272 @@
+// An `await` inside a `finally` or a `defer` suspends like any other await: on fall-through,
+// on an early `return` (the value is kept), on `break`/`continue`, when an exception is caught
+// or unwinds through the try (and is thrown again once the cleanup ends, or replaced by one
+// the finally throws), with several defers in LIFO order, defers registered in loops and in a
+// `switch` case, nested cleanups, a lambda, and in a generic async function. Each awaited
+// timer really suspends the coroutine.
+import <future>;
+import <timer>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+EventLoop* g;
+
+async int tick(int v) {
+    int z = await timer_after(g, (int64)1);
+    return v + z;
+}
+
+async int fall_through() {
+    int r = 0;
+    try {
+        r = await tick(1);
+        printf("body %d\n", r);
+    } finally {
+        int f = await tick(10);
+        printf("finally %d\n", f);
+        r = r + f;
+    }
+    return r;
+}
+
+async int early_return() {
+    try {
+        int a = await tick(5);
+        return a * 2;
+    } finally {
+        int b = await tick(7);
+        printf("finally after return %d\n", b);
+    }
+    return -1;
+}
+
+async int plain_return(int x) {
+    try {
+        if (x > 0) { return x; }
+        printf("not taken\n");
+    } finally {
+        await tick(0);
+        printf("finally of plain return\n");
+    }
+    return 0;
+}
+
+async int caught() {
+    int r = 0;
+    try {
+        r = await tick(2);
+        throw 9;
+    } catch (int e) {
+        printf("caught %d\n", e);
+        r = r + e;
+    } finally {
+        int f = await tick(100);
+        printf("finally after catch %d\n", f);
+    }
+    return r;
+}
+
+async int unwinds() {
+    try {
+        try {
+            await tick(0);
+            throw 4;
+        } finally {
+            int f = await tick(3);
+            printf("finally while unwinding %d\n", f);
+        }
+    } catch (int e) {
+        printf("outer caught %d\n", e);
+        return e;
+    }
+    return -1;
+}
+
+async int defers() {
+    defer { int a = await tick(1); printf("defer 1 (%d)\n", a); }
+    defer { int b = await tick(2); printf("defer 2 (%d)\n", b); }
+    defer printf("defer 3 (plain)\n");
+    int x = await tick(40);
+    printf("body %d\n", x);
+    return x;
+}
+
+async int loop_defers() {
+    int sum = 0;
+    for (int i = 0; i < 3; i++) {
+        defer { int t = await tick(i); printf("loop defer %d\n", t); sum = sum + t; }
+        if (i == 1) { continue; }
+        printf("iteration %d\n", i);
+    }
+    while (true) {
+        defer { await tick(0); printf("break defer\n"); }
+        break;
+    }
+    return sum;
+}
+
+async int nested() {
+    int r = 0;
+    try {
+        try {
+            r = await tick(1);
+        } finally {
+            defer { await tick(0); printf("defer in inner finally\n"); }
+            int a = await tick(2);
+            printf("inner finally %d\n", a);
+        }
+    } finally {
+        int b = await tick(3);
+        printf("outer finally %d\n", b);
+    }
+    return r;
+}
+
+int apply(escaping fn(int)->int f, int v) { int r = f(v); free_closure(f); return r; }
+
+async int lambda_in_finally() {
+    int base = await tick(20);
+    try {
+        base = base + 1;
+    } finally {
+        int add = await tick(1);
+        printf("lambda in finally %d\n", apply(int(int v) { return v + base; }, add));
+    }
+    return base;
+}
+
+async void void_finally() {
+    try {
+        printf("void body\n");
+    } finally {
+        await tick(0);
+        printf("void finally\n");
+    }
+}
+
+async int defer_then_handler() {
+    try {
+        defer { int a = await tick(6); printf("defer before handler %d\n", a); }
+        await tick(0);
+        throw 5;
+    } catch (int e) {
+        printf("handler %d\n", e);
+        return e;
+    }
+    return 0;
+}
+
+async int defer_unwinds() {
+    try {
+        try {
+            defer { int a = await tick(2); printf("defer while unwinding %d\n", a); }
+            await tick(0);
+            throw 7;
+        } finally {
+            printf("plain finally after defer\n");
+        }
+    } catch (int e) {
+        printf("caught %d\n", e);
+        return e;
+    }
+    return 0;
+}
+
+async int rethrow_twice() {
+    int n = 0;
+    for (int i = 0; i < 2; i++) {
+        try {
+            try {
+                await tick(0);
+                throw i + 10;
+            } finally {
+                await tick(0);
+                printf("finally %d\n", i);
+            }
+        } catch (int e) {
+            n = n + e;
+        }
+    }
+    return n;
+}
+
+async int finally_throws() {
+    try {
+        try {
+            await tick(0);
+            throw 1;
+        } finally {
+            await tick(0);
+            throw 2;
+        }
+    } catch (int e) {
+        printf("replaced by %d\n", e);
+        return e;
+    }
+    return 0;
+}
+
+Future<T>* later<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+
+async T keep<T>(T v) {
+    defer { int z = await timer_after(g, (int64)1); printf("generic defer %d\n", z); }
+    try {
+        T w = await later<T>(v);
+        return w;
+    } finally {
+        T u = await later<T>(v);
+        printf("generic finally\n");
+    }
+    return v;
+}
+
+async int sw(int k) {
+    int r = 0;
+    switch (k) {
+        case 1: {
+            defer { await timer_after(g, (int64)1); printf("case defer\n"); }
+            r = 10;
+            break;
+        }
+        default: r = 20;
+    }
+    while (r < 12) {
+        defer { await timer_after(g, (int64)1); printf("while defer %d\n", r); }
+        r = r + 1;
+    }
+    return r;
+}
+
+int run(Future<int>* f) {
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    int v = f.value;
+    free_future_polled<int>(f);
+    return v;
+}
+
+int main() {
+    g = el_new(64);
+    printf("fall_through = %d\n", run(fall_through()));
+    printf("early_return = %d\n", run(early_return()));
+    printf("plain_return = %d\n", run(plain_return(6)));
+    printf("caught = %d\n", run(caught()));
+    printf("unwinds = %d\n", run(unwinds()));
+    printf("defers = %d\n", run(defers()));
+    printf("loop_defers = %d\n", run(loop_defers()));
+    printf("nested = %d\n", run(nested()));
+    printf("lambda_in_finally = %d\n", run(lambda_in_finally()));
+    printf("defer_then_handler = %d\n", run(defer_then_handler()));
+    printf("defer_unwinds = %d\n", run(defer_unwinds()));
+    printf("rethrow_twice = %d\n", run(rethrow_twice()));
+    printf("finally_throws = %d\n", run(finally_throws()));
+    printf("keep = %d\n", run(keep<int>(4)));
+    Future<double>* d = keep<double>(2.5);
+    if (future_poll<double>(d, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    printf("keep<double> = %f\n", d.value);
+    free_future_polled<double>(d);
+    printf("sw = %d\n", run(sw(1)));
+    Future<uint8>* v = void_finally();
+    if (future_poll<uint8>(v, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    free_future_polled<uint8>(v);
+    EventLoop_free(g);
+    return 0;
+}

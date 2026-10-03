@@ -622,11 +622,14 @@ void TypeChecker::visit(MatchStmt* node) {
                 // The async lowering keeps a binding that lives across an await in a frame
                 // field of this type (a generic body's nodes are shared: not stamped).
                 if (!inInstance) arm.bindingTypes.clear();
+                std::vector<std::string> instBts;
                 for (size_t i = 0; i < arm.bindings.size() && i < payload.size(); ++i) {
                     std::string bt = normalizeType(substType(payload[i], subs));
                     defineSymbol(arm.bindings[i], bt, node->line, node->col, /*isParam=*/false);
                     if (!inInstance) arm.bindingTypes.push_back(bt);
+                    else instBts.push_back(bt);
                 }
+                if (inInstance) arm.instanceBindingTypes.push_back({instSubs, instBts});
             }
         }
         if (arm.body) arm.body->accept(this);

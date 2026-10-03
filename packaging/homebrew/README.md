@@ -13,13 +13,14 @@ holds the source-of-truth formula; the tap repo is where users actually install 
 
 After a `vX.Y.Z` release finishes and its assets (including `SHA256SUMS`) are attached:
 
-1. Bump `version` in the formula and both release URLs to the new tag.
-2. Fill the two `sha256` values from the release's `SHA256SUMS`:
+1. Bump `version` in the formula and the three release URLs to the new tag.
+2. Fill the three `sha256` values from the release's `SHA256SUMS`:
 
    ```sh
    curl -fsSL https://github.com/doranteseduardo/eskiu/releases/download/vX.Y.Z/SHA256SUMS
    #   <hash>  eskiuc-macos-arm64.tar.gz    -> macOS block sha256
-   #   <hash>  eskiuc-linux-x86_64.tar.gz   -> Linux block sha256
+   #   <hash>  eskiuc-linux-x86_64.tar.gz   -> Linux on_intel sha256
+   #   <hash>  eskiuc-linux-arm64.tar.gz    -> Linux on_arm sha256
    ```
 
 3. Commit the formula to `homebrew-eskiu`. Optionally validate first:

@@ -4,102 +4,159 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Language spec · Eskiu docs</title>
-  <meta name="description" content="Version: v0.9.2" />
+  <meta name="description" content="Version: v0.9.3" />
+  <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/spec.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
-  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&amp;family=DM+Sans:wght@400;500;700&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
+  <style>*, *::before, *::after { box-sizing: border-box; }
 :root {
-  --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
-  --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
-  --accent: #4c31bb; --accent-lt: #6448d4;
-  --inline: rgba(120, 110, 180, 0.12);
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --paper: #fbf8f3; --ink: #1c1830; --ink2: #4a4560; --muted: #6b6580; --faint: #8b8699;
+  --rule: #e6e0d6; --purple: #3b2a8c; --lilac: #e9e1f4; --lilac-2: #f1ecf8; --lilac-3: #d9d1f0;
+  --serif: "Fraunces", Georgia, serif;
+  --sans: "DM Sans", -apple-system, "Segoe UI", sans-serif;
+  --mono: "DM Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --gutter: 24px;
 }
+@media (min-width: 900px) { :root { --gutter: 48px; } }
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+body { margin: 0; background: var(--paper); color: var(--ink2); font-family: var(--sans); font-size: 17px;
        line-height: 1.7; -webkit-font-smoothing: antialiased; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a { color: var(--purple); text-decoration: none; }
+a:hover { color: var(--ink); }
+.bar { max-width: 1440px; margin: 0 auto; padding-inline: var(--gutter); }
 
-/* Top bar (shared with the homepage) */
-header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
-.top-in { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
-.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
-.brand:hover { text-decoration: none; }
-.brand img { width: 24px; height: 24px; }
-.brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
-.top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
-.top-links a { color: var(--ink2); }
-.top-links a:hover { color: var(--accent); text-decoration: none; }
+/* Header (shared look with the homepage) */
+.top { position: sticky; top: 0; z-index: 30; background: rgba(251, 248, 243, 0.94);
+       backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--rule); }
+.top-in { height: 72px; display: flex; align-items: center; gap: 40px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--serif); font-weight: 800;
+         font-size: 24px; color: var(--ink); }
+.brand img { width: 34px; height: 34px; }
+.brand .v { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--faint); margin-left: 2px; }
+.nav { display: none; gap: 30px; font-weight: 500; font-size: 16px; }
+.nav a { color: var(--ink); }
+.nav a:hover, .nav a[aria-current] { color: var(--purple); }
+.nav a[aria-current] { text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1.5px; }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.btn-install { display: none; background: var(--ink); color: var(--paper); font-weight: 700; font-size: 15px;
+               padding: 12px 20px; border-radius: 12px; }
+.btn-install:hover { background: var(--purple); color: #fff; }
+.menu-btn { width: 48px; height: 48px; border: 1.5px solid var(--ink); background: #fff; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; color: var(--ink); }
+.drawer { display: none; border-top: 1px solid var(--rule); padding: 8px var(--gutter) 20px; }
+.drawer a { display: block; padding-block: 14px; font-size: 18px; font-weight: 500; color: var(--ink);
+            border-bottom: 1px solid var(--rule); }
+.top.open .drawer { display: block; }
+@media (min-width: 900px) {
+  .nav, .btn-install { display: flex; }
+  .menu-btn, .drawer, .top.open .drawer { display: none; }
+}
 
-.wrap { max-width: 860px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.4rem; margin-bottom: 2.5rem;
-          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
-.docnav a { font-family: var(--mono); font-size: 0.78rem; color: var(--ink2);
-            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
-.docnav a:hover { color: var(--accent); background: var(--surface); text-decoration: none; }
-.docnav a.active { color: var(--accent); border-color: var(--border); background: var(--surface); font-weight: 600; }
-.content h1 { font-family: var(--mono); font-size: clamp(1.6rem, 4.5vw, 2.2rem); font-weight: 700;
-              letter-spacing: -0.03em; line-height: 1.15; margin: 0 0 1.25rem; }
-.content h2 { font-family: var(--mono); font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em;
-              margin: 2.75rem 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
-.content h3 { font-family: var(--mono); font-size: 1.08rem; font-weight: 600; margin: 1.9rem 0 0.6rem; }
-.content h4 { font-family: var(--mono); font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
-.content p { margin: 0 0 1rem; }
-.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
-.content li { margin-bottom: 0.4rem; color: var(--ink2); }
-.content strong { font-weight: 600; color: var(--ink); }
-.content hr { border: none; border-top: 1px solid var(--border); margin: 2.25rem 0; }
-.content blockquote { border-left: 3px solid var(--accent); background: var(--surface);
-                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
-                      color: var(--ink2); }
+/* Layout: sidebar | content | on this page */
+.layout { padding-block: 32px 88px; }
+.side { display: none; }
+.side .grp, .side-m .grp, .toc .grp { display: block; font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--purple); margin: 0 0 8px; }
+.side nav + .grp, .side-m nav + .grp { margin-top: 28px; }
+.side a, .side-m a { display: block; font-size: 15px; color: var(--ink2); padding: 7px 12px; border-radius: 10px; }
+.side a:hover, .side-m a:hover { color: var(--ink); background: var(--lilac-2); }
+.side a[aria-current], .side-m a[aria-current] { color: var(--ink); background: var(--lilac); font-weight: 700; }
+.side-m { margin: 0 0 36px; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px; }
+.side-m summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 18px; font-weight: 700; color: var(--ink); cursor: pointer; list-style: none; }
+.side-m summary::-webkit-details-marker { display: none; }
+.side-m summary::after { content: "+"; font-family: var(--mono); font-size: 20px; color: var(--purple); }
+.side-m[open] summary::after { content: "–"; }
+.side-m .inner { padding: 4px 8px 16px; border-top: 1px solid var(--rule); }
+.side-m .grp { padding: 14px 12px 0; }
+.toc { display: none; }
+@media (min-width: 900px) {
+  .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-block: 48px 104px; }
+  .side { display: block; position: sticky; top: 104px; align-self: start; max-height: calc(100vh - 128px); overflow: auto; }
+  .side-m { display: none; }
+}
+@media (min-width: 1240px) {
+  .layout.has-toc { grid-template-columns: 220px minmax(0, 780px) 200px; justify-content: space-between; }
+  .toc { display: block; position: sticky; top: 104px; align-self: start; max-height: calc(100vh - 128px);
+         overflow: auto; border-left: 1.5px solid var(--rule); padding-left: 16px; }
+  .toc a { display: block; font-size: 14px; line-height: 1.4; color: var(--muted); padding: 5px 0; }
+  .toc a:hover { color: var(--purple); }
+}
+
+/* Content */
+.content { min-width: 0; max-width: 780px; overflow-wrap: break-word; }
+.content h1, .content h2, .content h3, .content h4 { color: var(--ink); scroll-margin-top: 96px; }
+.content h1 { font-family: var(--serif); font-weight: 800; font-size: clamp(40px, 5vw, 56px);
+              letter-spacing: -0.03em; line-height: 1.04; margin: 0 0 24px; }
+.content h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3vw, 32px);
+              letter-spacing: -0.02em; line-height: 1.15; margin: 56px 0 16px; }
+.content h3 { font-size: 20px; font-weight: 700; line-height: 1.3; margin: 36px 0 10px; }
+.content h4 { font-size: 16px; font-weight: 700; margin: 28px 0 8px; }
+.content h1 code, .content h2 code, .content h3 code { font-size: 0.85em; }
+.content p { margin: 0 0 18px; }
+.content ul, .content ol { margin: 0 0 18px; padding-left: 1.3em; }
+.content li { margin-bottom: 6px; }
+.content li > ul, .content li > ol { margin: 6px 0 0; }
+.content strong { font-weight: 700; color: var(--ink); }
+.content hr { border: none; border-top: 1.5px solid var(--rule); margin: 48px 0; }
+.content p a, .content li a, .content td a { text-decoration: underline; text-decoration-color: var(--lilac-3);
+  text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.content p a:hover, .content li a:hover, .content td a:hover { text-decoration-color: var(--purple); }
+.content blockquote { margin: 0 0 24px; background: var(--lilac-2); border-radius: 14px; padding: 16px 20px; }
 .content blockquote p:last-child { margin-bottom: 0; }
-.content code { font-family: var(--mono); font-size: 0.86em; background: var(--inline);
-                padding: 0.15em 0.4em; border-radius: 4px; }
-.content pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-               padding: 0.9rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
-               font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--ink); }
-.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
-.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
-.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.content th, .content td { text-align: left; padding: 0.55rem 0.85rem;
-                          border-bottom: 1px solid var(--border-mut); vertical-align: top; }
-.content th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
-              letter-spacing: 0.05em; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.content code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); background: var(--lilac-2);
+                padding: 0.12em 0.38em; border-radius: 6px; }
+.content pre { margin: 0 6px 28px 0; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px;
+               padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
+               color: var(--ink); box-shadow: 5px 5px 0 var(--lilac); }
+.content :not(pre) > code { overflow-wrap: anywhere; }
+.content pre code { background: none; padding: 0; font-size: inherit; border-radius: 0; }
+.tablewrap { overflow-x: auto; margin: 0 0 28px; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px; }
+.content table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 1.55; }
+.content th, .content td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.content th { font-family: var(--mono); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+              color: var(--muted); background: var(--paper); border-bottom: 1.5px solid var(--ink); white-space: nowrap; }
 .content tbody tr:last-child td { border-bottom: none; }
 .content td code { white-space: nowrap; }
+@media (min-width: 900px) { .content pre { font-size: 14px; padding: 20px 24px; } }
+@media (max-width: 600px) { .content th, .content td { padding: 8px 10px; white-space: normal; } .content table { font-size: 14px; } }
 
-/* Footer (shared with the homepage) */
-footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
-.footer-in { max-width: 860px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
-             gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
-.footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
-.footer-in a { color: var(--ink2); }
-.footer-in a:hover { color: var(--accent); text-decoration: none; }
-.footer-in .cp { margin-left: auto; color: var(--muted); }
-@media (max-width: 600px) {
-  .content table { font-size: 0.8rem; }
-  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+/* Footer (shared look with the homepage) */
+.foot { border-top: 1.5px solid var(--ink); }
+.foot-in { padding-block: 40px 48px; display: flex; flex-direction: column; gap: 22px; font-size: 16px; color: var(--ink2); }
+.foot .brand { font-size: 26px; }
+.foot-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.foot-links a { color: var(--ink); padding-block: 12px; }
+.foot-links a:hover { color: var(--purple); }
+@media (min-width: 900px) {
+  .foot-in { flex-direction: row; align-items: center; gap: 12px 32px; padding-block: 36px; }
+  .foot .brand { font-size: 22px; }
+  .foot-links { display: flex; gap: 26px; margin-left: auto; }
 }</style>
 </head>
 <body>
   <header class="top">
-    <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
-      <nav class="top-links">
-        <a href="index.html">docs</a>
-        <a href="../the-book-of-eskiu.html">book</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </nav>
+    <div class="bar top-in">
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
+      <div class="top-right">
+        <a class="btn-install" href="../index.html#install">Install 0.9.3</a>
+        <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
+        </button>
+      </div>
     </div>
+    <nav class="drawer" id="drawer" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
   </header>
-  <div class="wrap">
-    <nav class="docnav"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" class="active">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a><a href="internals.html">Internals →</a></nav>
-    <div class="content">
+  <div class="bar layout has-toc">
+    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" aria-current="page">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></aside>
+    <main class="content">
+      <details class="side-m"><summary>Language · Language spec</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html" aria-current="page">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
 <h1 id="eskiu-language-specification">Eskiu Language Specification</h1>
-<p><strong>Version:</strong> v0.9.2</p>
+<p><strong>Version:</strong> v0.9.3</p>
 <hr>
 <h2 id="1-overview">1. Overview</h2>
 <p>Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A <code>.esk</code> file can also be run on the spot with <code>eskiuc run</code> (or a <code>#!/usr/bin/env eskiuc run</code> shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.</p>
@@ -107,7 +164,7 @@ footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
 <ul>
 <li>Statically typed with explicit type annotations</li>
 <li>Manual memory management, no garbage collector</li>
-<li>Compiles to native object files via LLVM (arm64 and x86-64)</li>
+<li>Compiles to native code via LLVM: AArch64 and x86-64 (macOS, Linux, Windows), plus cross-compilation to 32-bit ARM and 32-bit x86</li>
 <li>Structs with methods, monomorphic templates, and structural interfaces</li>
 <li>Lambdas and <code>fn(T)-&gt;R</code> function pointer types</li>
 <li>Multi-file programs via <code>import</code></li>
@@ -349,7 +406,7 @@ errors located at the backslash. As in C, an octal escape takes at most three di
 </tr>
 <tr>
 <td><code>string</code></td>
-<td><code>i8*</code></td>
+<td><code>ptr</code></td>
 <td>pointer</td>
 <td>Immutable C-string literal</td>
 </tr>
@@ -459,8 +516,7 @@ a[1][2];                                    // 6  (row 1, column 2)
 <h3 id="331-slice-types">3.3.1 Slice Types</h3>
 <p>A <strong>slice</strong> <code>T[]</code> (empty brackets) is a view into a contiguous run of <code>T</code>: a fat pointer
 carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
-with it, so a function that takes a <code>T[]</code> never needs a separate count argument, killing
-the classic "pointer without its length" bug.</p>
+with it, so a function that takes a <code>T[]</code> never needs a separate count argument.</p>
 <p>Create a slice by <strong>slicing</strong> a fixed array <em>or a raw pointer</em> with a half-open range
 (reusing the <code>..</code> operator): <code>a[lo..hi]</code> is a view of elements <code>lo</code> through <code>hi-1</code>.
 Slicing a <code>*T</code> (for example a heap buffer from <code>alloc&lt;T&gt;(n)</code>) yields a <code>T[]</code> over that
@@ -877,7 +933,7 @@ next();   // 3
 </tr>
 </tbody>
 </table></div>
-<p>The compound bitwise/shift operators are desugared by the parser: <code>x op= e</code> is equivalent to <code>x = x op e</code>.</p>
+<p><code>x op= e</code> is equivalent to <code>x = x op e</code>, except that <code>x</code> is evaluated only once (see below).</p>
 <p>The left-hand side must be an lvalue: a named variable, a pointer dereference (<code>*ptr = value</code>), or a field access. A field or element of a temporary (<code>mk().x</code>, <code>arr()[0]</code>) is not an lvalue: it can be read, but not assigned, have its address taken, or (an array) be sliced. Assigning through a dereferenced pointer parameter works correctly. <code>*ptr = value</code> stores through the pointer as expected.</p>
 <p>Evaluation order: the address of the left-hand side is computed first (its index, pointer and call subexpressions run), then the right-hand side, then the store. So <code>a[f()] = g()</code> calls <code>f</code> before <code>g</code>, and <code>getp().x = g()</code> calls <code>getp</code> first. A compound assignment <code>x op= e</code> evaluates the address of <code>x</code> once, in the same order.</p>
 <h3 id="551-increment-and-decrement">5.5.1 Increment and Decrement</h3>
@@ -908,7 +964,7 @@ int b = ++j;   // j incremented, then b = new j
 </tr>
 </tbody>
 </table></div>
-<p><code>&amp;x</code> returns the <code>alloca</code> pointer for the stack variable <code>x</code>.</p>
+<p>For a local variable, <code>&amp;x</code> is the address of its stack slot.</p>
 <pre><code class="language-eskiu">int val = 42;
 *int ptr = &amp;val;
 *ptr = 100;       // val is now 100
@@ -1159,12 +1215,13 @@ int out2 = apply(int(int x) { return x + 1; }, 9);  // out2 == 10
 let add: fn(int)-&gt;int = int(int x) { return x + base; };
 add(5);   // 15: 'base' was captured by value
 </code></pre>
-<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. Taking the address of a captured variable's storage (<code>&amp;base</code>, <code>&amp;p.a</code>, <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error for the same reason ("cannot take the address of captured variable"). To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A method called on a captured struct value (<code>p.set(5)</code>, where <code>set</code> takes <code>*P self</code>) is allowed, but it operates on the closure's copy: the change is seen by later calls of the same closure and never by the enclosing function's variable. Capture a pointer (<code>*P pp = &amp;p;</code> outside the lambda, <code>pp.set(5)</code> inside) to modify the original.</p>
+<p>The closure holds its own copy of each captured variable, taken when the lambda expression is evaluated: a later change to <code>base</code> in the enclosing function is not seen by <code>add</code>. For the same reason a lambda may not assign to a captured variable (<code>base = 1;</code>, <code>base += 1;</code> or <code>base++;</code> inside the body is a compile error, "cannot assign to captured variable"; so is a write to a field or element of a captured struct or array value, <code>p.a = 5;</code> or <code>arr[0] = 9;</code>), since the write would change only the copy and be lost. Taking the address of a captured variable's storage (<code>&amp;base</code>, <code>&amp;p.a</code>, <code>&amp;arr[0]</code>) or slicing a captured array (<code>arr[0..2]</code>) is an error for the same reason ("cannot take the address of captured variable"). To share state with the enclosing code, write through a pointer to it (<code>*p = v</code>, <code>ptr.a = v</code>), or use a global or a <code>static</code> local: those are not captured, the lambda reads and writes the one variable. The lambda's own parameters and locals are ordinary variables it may assign. A captured value is read-only inside the lambda, as with a by-value capture in C++: calling a method whose receiver is a plain <code>*P self</code> on a captured struct value or on a field of one (<code>p.set(5)</code>, <code>w.inner.set(5)</code>, a generic dot-call such as <code>l.push(8)</code>, or an inline method) is an error ("cannot call method 'set' on captured variable 'p'"), since the method would modify only the copy. A method declared with <code>const P* self</code> may be called. Capture a pointer (<code>*P pp = &amp;p;</code> outside the lambda, <code>pp.set(5)</code> inside) to modify the original.</p>
 <p>Under the hood, <code>fn(T)-&gt;R</code> is a two-word fat pointer <code>{fn_ptr, env_ptr}</code>. When a lambda captures one or more variables, the compiler packages them into an environment struct and stores its address in <code>env_ptr</code>. Lambdas that capture nothing have <code>env_ptr = null</code> and compile identically to plain function pointers. The representation is fully transparent to user code. The type annotation remains <code>fn(T)-&gt;R</code> in both cases.</p>
 <p><strong>Escape analysis and closure lifetime.</strong> Where the environment lives depends on whether the closure <em>escapes</em> its creating function:</p>
 <ul>
 <li>A <strong>non-escaping</strong> closure (one that is only called, or passed to a parameter that is not marked <code>escaping</code>) has its environment allocated on the <strong>stack</strong>. This costs nothing and needs no cleanup (the common <code>map</code>/<code>filter</code>/callback-invoked-in-place case).</li>
 <li>An <strong>escaping</strong> closure (one that is returned, stored into a struct field / global / through a pointer, or passed to an <code>escaping</code> parameter) has its environment allocated on the <strong>heap</strong>, so it remains valid after the creating function returns. Release it with <code>free_closure(f)</code> (a no-op for non-capturing closures, whose env is null; <code>f</code> must be a closure value).</li>
+<li>In an <code>async</code> function a closure bound to a local lives in the coroutine frame across suspensions, so its environment is on the heap. When the local is only bound to lambdas and otherwise only called, the frame owns it: binding the local again frees the previous environment, and the last one is freed when the async function completes or is cancelled. A local used any other way keeps the escaping rule above.</li>
 </ul>
 <p>A parameter that retains the closure beyond the call (stores it, returns it, hands it to another <code>escaping</code> parameter) must be declared <code>escaping</code>:</p>
 <pre><code class="language-eskiu">// stores cb beyond the call -&gt; the parameter is `escaping`
@@ -1260,19 +1317,28 @@ once, before the await, and an await in the right operand of <code>&amp;&amp;</c
 <code>?:</code> runs only when that operand is evaluated. A switch subject, a <code>for-in</code> iterable and
 a range bound are evaluated once, before the statement; a loop condition or step is
 evaluated on every pass.</p>
-<p>Inside <code>try</code> an await may sit in the body and in a <code>catch</code> handler. An exception thrown
-before or after a suspension is caught by the handler of the try it is thrown in, and
-the <code>finally</code> runs exactly once on every exit: normal completion, a caught or uncaught
-exception, an early <code>return</code>, <code>break</code> or <code>continue</code>, and cancellation. A future dropped
-while suspended runs the <code>finally</code> blocks and <code>defer</code>s pending at its await once,
-innermost first, before its frame is freed (a <code>defer</code> in a block split by an await runs
-at every exit of that block, as in a plain function).</p>
-<p>Rejected with a located error: an <code>await</code> inside a <code>finally</code> or a <code>defer</code> body (both run
-when a cancelled future is dropped, which cannot suspend), labeled <code>break</code>/<code>continue</code>,
-an <code>await</code> in a <code>sizeof</code> operand, an <code>asm</code> input or a <code>thread_join</code>, and in a generic
-async function an await in a <code>match</code> arm that binds a payload, or an await after an
-operand with a side effect or inside a <code>?:</code> arm (their types differ per instance). Bind
-the value first with <code>let v = await ...;</code>.</p>
+<p>Inside <code>try</code> an await may sit in the body, in a <code>catch</code> handler and in the <code>finally</code>. An
+exception thrown before or after a suspension is caught by the handler of the try it is
+thrown in, and the <code>finally</code> runs exactly once on every exit: normal completion, a caught
+or uncaught exception, an early <code>return</code>, <code>break</code> or <code>continue</code>, and cancellation. A
+<code>defer</code> in a block split by an await runs at every exit of that block, as in a plain
+function, and its body may await too. An <code>await</code> in a <code>finally</code> or a <code>defer</code> suspends like
+any other: a <code>return</code> value is kept while the cleanup awaits, several defers still run
+last-registered first, and an exception unwinding through the try is thrown again once
+the <code>finally</code> finishes.</p>
+<p>A future dropped while suspended runs the <code>finally</code> blocks and <code>defer</code>s pending at its
+await once, innermost first, after the future it was awaiting has been dropped. When that
+cleanup awaits, it runs detached, like a task given to <code>spawn</code>: <code>future_drop</code> returns while
+the cleanup is suspended, the event loop resumes it, and its frame is freed when it ends.
+Nobody reads the result of a dropped future, and dropping it again while its cleanup runs
+does nothing. An exception that escapes such a cleanup propagates to whatever resumed it,
+as one escaping a spawned task does, so keep the event loop running until the cleanup is
+done.</p>
+<p>Rejected with a located error: labeled <code>break</code>/<code>continue</code>, an <code>await</code> in a <code>sizeof</code>
+operand, an <code>asm</code> input or a <code>thread_join</code>, and a <code>finally</code> that leaves by <code>break</code> or
+<code>continue</code> (a <code>return</code> or <code>?</code> there is a type error). Bind the value first with
+<code>let v = await ...;</code>. A generic async function accepts an await in the same positions as
+a plain one.</p>
 <p>An <code>async</code> function is declared with the <code>async</code> modifier before the return type. Its
 <em>declared</em> return type is the value it ultimately produces, but a <strong>call</strong> to it
 yields a <code>*Future&lt;T&gt;</code>, a handle to the eventual result, rather than <code>T</code> directly:</p>
@@ -1297,7 +1363,7 @@ take typed futures with no cast at the call site, <code>&lt;timer&gt;</code> <co
 leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a real timeout; dropping
 a combinator before it resolves drops its inputs with it), and
 <code>&lt;http_async&gt;</code> is a non-blocking HTTP server built on the accept loop. See
-<code>docs/dev/async-design.md</code> for the runtime contract and the lowering design.</p>
+<a href="async-design.html">async-design.md</a> for the runtime contract and the lowering design.</p>
 <h3 id="69-exception-handling">6.9 Exception Handling</h3>
 <p>Eskiu supports structured exception handling via <code>try</code>, <code>catch</code>, <code>finally</code>, and <code>throw</code>.</p>
 <h4 id="syntax">Syntax</h4>
@@ -1470,7 +1536,7 @@ must name an enclosing loop, otherwise the program is rejected at compile time.<
 <p>Labeled <code>break</code> and <code>continue</code> run the same <code>defer</code>/<code>errdefer</code> cleanups as the unlabeled
 forms: every deferred statement between the jump and the target loop runs, innermost
 first, before control leaves. A labeled jump may not escape a <code>defer</code> body, and labeled
-<code>break</code>/<code>continue</code> is not supported inside an <code>async fn</code>.</p>
+<code>break</code>/<code>continue</code> is not supported inside an <code>async</code> function.</p>
 <h3 id="74-switch-case-default-break">7.4 switch / case / default / break</h3>
 <pre><code class="language-eskiu">switch (x) {
     case 1:
@@ -1495,7 +1561,7 @@ first, before control leaves. A labeled jump may not escape a <code>defer</code>
 }
 </code></pre>
 <h3 id="76-break">7.6 break</h3>
-<p>Exits the innermost enclosing <code>for</code>, <code>while</code>, or <code>switch</code> immediately.</p>
+<p>Exits the innermost enclosing loop (<code>for</code>, <code>for ... in</code>, <code>while</code>, <code>do</code>/<code>while</code>) or <code>switch</code> immediately.</p>
 <pre><code class="language-eskiu">while (true) {
     if (done) break;
 }
@@ -1579,7 +1645,8 @@ struct Rect {
 }
 </code></pre>
 <p>Field types may be any primitive type, pointer type, another struct type, or a fixed-size array type.</p>
-<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend); a bitfield whose values all fit an <code>int</code> (fewer than 32 bits, or at most 32 for a signed one) is read as an <code>int</code>, as C promotes it, so <code>u - 1</code> of a <code>uint32 u : 3</code> holding 0 is -1 (a postfix <code>f++</code> keeps the declared type, as in clang). Writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A <code>bool</code> bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (<code>int x : 0</code> is an error; C allows zero width only for an unnamed bitfield, which Eskiu does not have).</p>
+<p>An integer field may declare a <strong>bit width</strong> with <code>: N</code>, making it a bitfield. Bitfields are laid out like C on the target: on SysV/AAPCS targets a bitfield takes the next free bits unless it would cross a boundary of an aligned storage unit of its declared type (so <code>uint8 a : 4; uint32 w : 12;</code> is 4 bytes), and in a <code>packed</code> struct bitfields pack back to back; on Windows targets consecutive bitfields share a storage word only while the declared type size stays the same. Reads mask and shift out the field (signed fields sign-extend); a bitfield whose values all fit an <code>int</code> (fewer than 32 bits, or at most 32 for a signed one) is read as an <code>int</code>, as C promotes it, so <code>u - 1</code> of a <code>uint32 u : 3</code> holding 0 is -1 (a postfix <code>f++</code> keeps the declared type, as in clang). Writes (including compound assignment and <code>++</code>/<code>--</code>, which wrap within the field's width) are read-modify-write. You cannot take the address of a bitfield. A <code>bool</code> bitfield uses a one-byte storage unit, as in C. An enum bitfield reads back unsigned when the enum has no negative member (SysV/AAPCS, as clang and GCC do; the Windows layout keeps it signed); a sum type is not a bitfield type. A named bitfield may not have zero width (<code>int x : 0</code> is an error).</p>
+<p>A bitfield may have no name, as in C. <code>T : N;</code> reserves N bits laid out exactly like a named bitfield of type T, and <code>T : 0;</code> moves the next bitfield to the next allocation unit of T (<code>uint8 a : 3; uint32 : 0; uint8 b : 2;</code> puts <code>b</code> 4 bytes in on SysV). An unnamed bitfield is not a member: it cannot be read or written, a positional struct literal skips it, and its bits are zero in a literal. Its type must be an integer type at least N bits wide. Whether it changes the struct's alignment follows the target's C rules: on AAPCS (32-bit ARM, and AArch64 outside Apple platforms) it raises the alignment to its type's, elsewhere on SysV it does not; on Windows a nonzero one takes a storage word like a named one, and a <code>: 0</code> counts only right after another bitfield. A union may also hold unnamed bitfields, which only add to its size (and, on AAPCS, its alignment).</p>
 <pre><code class="language-eskiu">struct Flags {
     uint32 ready  : 1;
     uint32 mode   : 3;
@@ -1677,7 +1744,7 @@ printf(&quot;%f\n&quot;, v.f);  // reinterprets the 4 bytes of v.i as a float
 <p>A <code>union</code> variable is declared exactly like a struct variable:</p>
 <pre><code class="language-eskiu">let u: Value;
 u.i = 0x3F800000;   // bit pattern for 1.0f
-printf(&quot;%f\n&quot;, u.f); // prints 1.0
+printf(&quot;%f\n&quot;, u.f); // prints 1.000000
 </code></pre>
 <p><code>sizeof(Value)</code> returns the size of the largest field: <code>sizeof(*uint8)</code> = 8 on a 64-bit target in this example.</p>
 <p>A union literal initializes exactly one member, named or positional (<code>Value{f: 1.5}</code>, <code>Value{7}</code> sets <code>i</code>); the remaining bytes are zero. Naming two members is an error. A union literal is a constant initializer for a global or <code>static</code> when its member value is constant.</p>
@@ -1821,7 +1888,7 @@ render(&amp;c);   // &amp;c is auto-boxed into a Drawable fat pointer
 <p><code>null</code> converts to an interface, giving the empty value <code>{null, null}</code> (in a declaration, an assignment, a return, an argument or a field). An interface value compares with <code>null</code> (<code>d == null</code>, <code>d != null</code>) and is a condition that is true when it refers to a struct (<code>if (d)</code>, <code>!d</code>, <code>d &amp;&amp; ...</code>); it compares with nothing else. Calling a method through an empty interface value crashes, so test it first. A global or <code>static</code> interface is initialized with <code>null</code> or the address of a global struct (<code>Drawable d = &amp;gc;</code>), a link-time constant.</p>
 <h3 id="95-implementation-detail-fat-pointer">9.5 Implementation Detail: Fat Pointer</h3>
 <p>Under the hood, an interface value is a two-word fat pointer:</p>
-<pre><code>{ i8* data_ptr, i8* vtable_ptr }
+<pre><code>{ ptr data_ptr, ptr vtable_ptr }
 </code></pre>
 <p>The vtable is a struct of function pointers, one per interface method, generated per concrete type. This is transparent to user code.</p>
 <hr>
@@ -2027,9 +2094,9 @@ if (p != null) {
 </tr>
 </tbody>
 </table></div>
-<p>In freestanding mode the user must provide <code>esk_alloc</code> and <code>esk_free</code> in their own code (typically in a kernel or bare-metal runtime); <code>&lt;mem&gt;</code> declares them <code>extern</code> and the linker resolves them from the user-supplied object file. To keep <code>alloc&lt;T&gt;</code>'s zero-initialization guarantee, <code>esk_alloc</code> must return zeroed memory (the in-repo <code>kernel/alloc.esk</code> bump allocator does this). Code that needs heap allocation still just writes <code>import &lt;mem&gt;</code> and calls <code>alloc&lt;T&gt;</code>/<code>free</code>. The same source compiles for both modes.</p>
+<p>In freestanding mode the user must provide <code>esk_alloc</code> and <code>esk_free</code> in their own code (typically in a kernel or bare-metal runtime); <code>&lt;mem&gt;</code> declares them <code>extern</code> and the linker resolves them from the user-supplied object file. To keep <code>alloc&lt;T&gt;</code>'s zero-initialization guarantee, <code>esk_alloc</code> must return zeroed memory (the bump allocator in the repository's <code>kernel/alloc.esk</code> does this). Code that needs heap allocation still just writes <code>import &lt;mem&gt;</code> and calls <code>alloc&lt;T&gt;</code>/<code>free</code>. The same source compiles for both modes.</p>
 <pre><code class="language-eskiu">// user-provided in kernel.esk or a C shim
-*void esk_alloc(int size) { return buddy_alloc(size); }
+*void esk_alloc(int64 nbytes) { return buddy_alloc(nbytes); }
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 </code></pre>
 <p>Freestanding mode does not remove any other language features. The standard library modules (<code>stdlib/result.esk</code>, etc.) remain available but must not import libc functions that are absent from the target.</p>
@@ -2093,7 +2160,7 @@ import &quot;stdlib/result.esk&quot;;   // local file, path relative to the impo
 import &quot;../shared/types.esk&quot;;
 </code></pre>
 <p><code>import &lt;name&gt;</code> resolves the module from the Eskiu installation's stdlib directory. The compiler locates the stdlib either via the <code>ESKIU_ROOT</code> environment variable (if set) or by auto-detecting it from the compiler binary's location. No path prefix is required.</p>
-<p><code>import "path"</code> resolves the path relative to the directory of the importing file, as before.</p>
+<p><code>import "path"</code> resolves the path relative to the directory of the importing file.</p>
 <p>All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.</p>
 <h3 id="122-deduplication">12.2 Deduplication</h3>
 <p>Each file is parsed and processed at most once per compilation, regardless of how many files import it. Files are identified by their canonical path, so two different relative spellings of the same file (a diamond import) count as one. Circular imports are detected and do not cause infinite loops.</p>
@@ -2120,14 +2187,14 @@ extern void exit(int code);
 </code></pre>
 <h3 id="132-extern-variables">13.2 Extern Variables</h3>
 <p>An <code>extern</code> declaration with no parameter list (a type, a name, and a semicolon) names a global variable defined in another translation unit. It emits an external-linkage global with no initializer; reads and writes resolve at link time.</p>
-<pre><code class="language-eskiu">extern int   errno;
-extern float g_volume;
+<pre><code class="language-eskiu">extern int   opterr;       // libc's getopt flag
+extern float g_volume;     // defined in your own C code
 
-void clear_error() {
-    errno = 0;              // assign a C global
+void quiet_getopt() {
+    opterr = 0;             // assign a C global
 }
-int last_error() {
-    return errno;           // read a C global
+int getopt_reports() {
+    return opterr;          // read a C global
 }
 </code></pre>
 <p>An extern variable lives at the top level and carries no initializer (its definition, and value, live in the other object). <code>extern const &lt;type&gt; &lt;name&gt;;</code> declares a read-only C global.</p>
@@ -2142,18 +2209,18 @@ int main() {
 }
 </code></pre>
 <h3 id="134-c-abi-compatibility">13.4 C ABI Compatibility</h3>
-<p><code>extern</code> declarations emit standard C-ABI-compatible LLVM IR <code>call</code> instructions. Any function exported from a C library, including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library, may be called this way.</p>
+<p><code>extern</code> declarations emit standard C-ABI-compatible LLVM IR <code>call</code> instructions. Any function exported from a C library, including system libraries, OpenSSL, or any other C-compatible library, may be called this way.</p>
 <p>For functions that accept or return <code>void*</code>, use <code>*void</code> on the Eskiu side:</p>
 <pre><code class="language-eskiu">extern *void malloc(int64 size);
 extern *void memcpy(*void dst, *void src, int64 n);
 extern *void memset(*void ptr, int value, int64 n);
 </code></pre>
 <p>(For heap allocation, prefer <code>import &lt;mem&gt;</code> and <code>alloc&lt;T&gt;</code>/<code>free</code> over declaring <code>malloc</code>/<code>free</code> as <code>extern</code> yourself; see §11.2.)</p>
-<p>A struct or union may be passed to or returned from an <code>extern</code> function <strong>by value</strong>. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM, in both compilers (the self-hosted one picks the convention from <code>--target</code>). See <code>docs/dev/abi.md</code> for the per-target rules.</p>
+<p>A struct or union may be passed to or returned from an <code>extern</code> function <strong>by value</strong>. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64, 32-bit ARM (AAPCS, soft and hard float) and 32-bit x86 (cdecl), following <code>--target</code>. See <a href="abi.html">abi.md</a> for the per-target rules.</p>
 <pre><code class="language-eskiu">struct Vec2 { double x; double y; }
 extern Vec2 vec2_add(Vec2 a, Vec2 b);   // a C function taking and returning structs
 </code></pre>
-<h3 id="134-passing-an-eskiu-function-as-a-c-callback">13.4 Passing an Eskiu function as a C callback</h3>
+<h3 id="135-passing-an-eskiu-function-as-a-c-callback">13.5 Passing an Eskiu function as a C callback</h3>
 <p>Many C APIs take a function pointer (<code>qsort</code>, <code>signal</code>, OpenSSL's ALPN selector,
 …). Casting a <strong>top-level</strong> Eskiu function to a pointer type yields its bare C
 function-pointer address, the raw symbol, not the <code>{fn, env}</code> closure fat
@@ -2162,7 +2229,8 @@ pointer a function name otherwise decays to:</p>
 
 int cmp(*void a, *void b) { return *(*int)a - *(*int)b; }
 
-qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
+int[5] arr = {5, 3, 1, 4, 2};
+qsort((*void)&amp;arr[0], (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
 </code></pre>
 <p>The callback's signature must match what the C side expects (C ABI). This works
 only for top-level functions (a closure or fn-pointer variable still carries an
@@ -2174,7 +2242,7 @@ spell the callback's signature and the call passes a top-level function by name
 (or <code>null</code>), with no cast:</p>
 <pre><code class="language-eskiu">extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)-&gt;int cmp);
 
-qsort((*void)arr, (int64)5, (int64)4, cmp);
+qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </code></pre>
 <p>Passing anything else there (a lambda, a fn-typed variable) is a compile error.</p>
 <hr>
@@ -2302,7 +2370,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/future.esk</code></td>
-<td>The async runtime's <code>Future&lt;T&gt;</code> (the locked compiler↔generated-code contract): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>/<code>free_future_polled</code> (the latter also frees the waker a hand-driven <code>future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
+<td>The async runtime's <code>Future&lt;T&gt;</code> (the interface the compiler's async lowering targets): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>/<code>free_future_polled</code> (the latter also frees the waker a hand-driven <code>future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
 </tr>
 <tr>
 <td><code>stdlib/executor.esk</code></td>
@@ -2513,17 +2581,17 @@ asm(&quot;nop&quot;);
 </code></pre>
 <p>The string is passed verbatim to the assembler. No inputs, outputs, or clobbers are specified.</p>
 <h3 id="152-extended-form">15.2 Extended Form</h3>
-<p>The extended form follows GCC-compatible inline assembly syntax:</p>
+<p>The extended form follows the layout and constraints of GCC inline assembly. Constraint strings are LLVM constraint codes, which share GCC's common letters; on x86 targets (x86-64 and 32-bit x86) the GCC single-register letters are translated to LLVM's explicit form, as clang does, and every other constraint is passed to LLVM as written:</p>
 <pre><code>asm(&quot;template&quot; : outputs : inputs : clobbers);
 </code></pre>
-<pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+<pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);   // x86
 asm(&quot;add $0, $1, $2&quot; : &quot;=r&quot;(sum) : &quot;r&quot;(a), &quot;r&quot;(b));     // AArch64
 asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));                // x86-64
 </code></pre>
 <ul>
 <li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>. The outputs are numbered first, then the inputs, as in GCC and clang.</li>
-<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs, written by the asm. A constraint starts with <code>=</code> (written only: <code>"=r"</code>, the early-clobber <code>"=&amp;r"</code>, a specific register such as <code>"=a"</code>, or memory <code>"=m"</code>) or <code>+</code> (read and written: <code>"+r"</code>, <code>"+m"</code>). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a <code>const</code>) of an integer type other than <code>bool</code>, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A <code>+r</code> output also feeds the lvalue's current value in through an input tied to it.</li>
-<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs (a constraint may not start with <code>=</code> or <code>+</code>). Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
+<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs, written by the asm. A constraint starts with <code>=</code> (written only: <code>"=r"</code>, the early-clobber <code>"=&amp;r"</code>, a specific register such as <code>"=a"</code> or <code>"={ax}"</code>, or memory <code>"=m"</code>) or <code>+</code> (read and written: <code>"+r"</code>, <code>"+m"</code>). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a <code>const</code>) of an integer type other than <code>bool</code>, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A <code>+r</code> output also feeds the lvalue's current value in through an input tied to it.</li>
+<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs (a constraint may not start with <code>=</code> or <code>+</code>). Common constraints: <code>"r"</code> (any register), <code>"m"</code> (memory), <code>"i"</code> (an immediate), and a specific register. On x86 the GCC letters name one register each: <code>"a"</code>, <code>"b"</code>, <code>"c"</code>, <code>"d"</code>, <code>"S"</code> and <code>"D"</code> become <code>{ax}</code>, <code>{bx}</code>, <code>{cx}</code>, <code>{dx}</code>, <code>{si}</code> and <code>{di}</code> (al/ax/eax/rax by operand width), keeping the modifiers (<code>"=a"</code>, <code>"+a"</code>, <code>"=&amp;d"</code>) and the other letters of a combined constraint (<code>"Nd"</code>, an 8-bit immediate or dx, is <code>"N{dx}"</code>). LLVM's explicit form, a register in braces such as <code>"{ax}"</code> or <code>"N{dx}"</code>, is accepted as written. On other targets every constraint is passed to LLVM unchanged.</li>
 <li><strong>Clobbers</strong>: comma-separated list of clobbered resources. <code>"memory"</code> tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).</li>
 </ul>
 <p>Sections are separated by <code>:</code>. Trailing sections may be omitted if empty.</p>
@@ -2600,6 +2668,10 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 <td>Link, passing library flags through to the linker</td>
 </tr>
 <tr>
+<td><code>eskiuc file.esk -o prog --link-arg=ARG</code></td>
+<td>Pass an extra argument to the linker (repeatable)</td>
+</tr>
+<tr>
 <td><code>eskiuc file.esk -o prog --no-default-libs</code></td>
 <td>Link only what <code>-l</code> names: skip <code>#pragma link</code> and the implied runtimes</td>
 </tr>
@@ -2618,6 +2690,10 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 <tr>
 <td><code>eskiuc file.esk --target TRIPLE</code></td>
 <td>Cross-compile for the given target triple</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk --mcpu=CPU --mattr=FEATURES --reloc=MODEL</code></td>
+<td>Target CPU, feature string (LLVM <code>-mattr</code> syntax) and relocation model (<code>pic</code>, the default, <code>static</code> or <code>dynamic-no-pic</code>)</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk --freestanding</code></td>
@@ -2664,14 +2740,14 @@ program throws or catches (<code>-lc++</code> on macOS, <code>-lstdc++</code> on
 every object and <code>--link-arg</code>, once each, and a library already given with <code>-l</code>
 is not repeated. <code>--no-default-libs</code> turns all of them off for custom linking.
 Nothing is added when no executable is linked. With <code>--freestanding</code> (or a <code>.o</code> output)
-no linking happens, so bare-metal targets are linked yourself (see the kernel's
-<code>ld.lld</code> invocation).</p>
+no linking happens, so bare-metal targets are linked yourself (see the <code>ld.lld</code>
+invocation in <code>kernel/Makefile</code>).</p>
 <p><strong>Running directly.</strong> <code>eskiuc run file.esk [args...]</code> compiles to a temporary executable, runs it (forwarding <code>args...</code>), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, <code>run</code> exits with <code>128 +</code> the signal number, as a shell does. Compiler flags (including ones that take a value, such as <code>--target TRIPLE</code>) go <em>before</em> the script and program arguments <em>after</em> it; a <code>--</code> right after the script is dropped, so <code>eskiuc run --asan file.esk -- input.txt</code> passes only <code>input.txt</code>. Because a leading <code>#!</code> line is ignored, a script can also start with <code>#!/usr/bin/env eskiuc run</code> and, once <code>chmod +x</code>'d, be executed directly.</p>
 <p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing <code>\</code>, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal, including every line of a string that spans lines) exactly as written and keeps every other blank line, so line numbers (<code>__LINE__</code>, diagnostics) do not move. It never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
 <p><strong>Sanitizers.</strong> <code>--asan</code> instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; <code>--ubsan</code> inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with <code>eskiuc run</code>.</p>
 <p><code>--hover-at</code> and <code>--definition-at</code> accept the format <code>LINE:COL</code> with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.</p>
 <h3 id="cross-compilation">Cross-compilation</h3>
-<p><code>--target TRIPLE</code> sets the LLVM target triple for the output object file. Both the AArch64 and X86 LLVM backends are included in the Eskiu build.</p>
+<p><code>--target TRIPLE</code> sets the LLVM target triple for the output object file. The AArch64, X86 and 32-bit ARM LLVM backends are included in the Eskiu build. <code>--mcpu</code>, <code>--mattr</code> and <code>--reloc</code> select the CPU, the feature string and the relocation model. See <a href="cross-compile.html">cross-compile.md</a> for worked examples.</p>
 <pre><code class="language-bash">eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
 eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 </code></pre>
@@ -2700,6 +2776,18 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 <td><code>x86_64-unknown-none</code></td>
 <td>Bare-metal x86-64</td>
 </tr>
+<tr>
+<td><code>x86_64-pc-windows-gnu</code></td>
+<td>COFF x86-64 (Windows, MinGW)</td>
+</tr>
+<tr>
+<td><code>i686-pc-linux-gnu</code></td>
+<td>ELF 32-bit x86 (Linux)</td>
+</tr>
+<tr>
+<td><code>armv6k-none-eabihf</code></td>
+<td>Bare-metal 32-bit ARM, hard float (e.g. the Nintendo 3DS with <code>--mcpu=mpcore</code>)</td>
+</tr>
 </tbody>
 </table></div>
 <p>When <code>--target</code> is omitted the compiler defaults to the host machine's triple.</p>
@@ -2707,7 +2795,7 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 <h2 id="17-error-reporting">17. Error Reporting</h2>
 <p>The compiler emits diagnostics with full source location information:</p>
 <pre><code>error: file.esk:8:22: undefined variable 'foo'
-error: file.esk:14:5: type mismatch: expected int, got float
+error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 </code></pre>
 <p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>. Every mode, including the <code>--test-*</code> modes, exits with a non-zero status when it reports an error.</p>
 <p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable") when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>
@@ -2908,20 +2996,23 @@ This is how <code>&lt;net&gt;</code> selects the correct <code>sockaddr_in</code
 <p>If the first line of a file begins with <code>#!</code> (e.g. <code>#!/usr/bin/env eskiuc run</code>),
 the preprocessor ignores it and blanks it out, preserving line numbers. This lets a <code>.esk</code> file be marked executable
 (<code>chmod +x</code>) and run directly as a script; see <code>eskiuc run</code> in §16.</p>
-    </div>
+    </main>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#1-overview">1. Overview</a><a href="#2-lexical-elements">2. Lexical Elements</a><a href="#3-types">3. Types</a><a href="#4-variables">4. Variables</a><a href="#5-operators">5. Operators</a><a href="#6-functions">6. Functions</a><a href="#7-control-flow">7. Control Flow</a><a href="#8-structs">8. Structs</a><a href="#9-interfaces">9. Interfaces</a><a href="#10-templates">10. Templates</a><a href="#11-memory">11. Memory</a><a href="#12-multi-file-programs">12. Multi-file Programs</a><a href="#13-extern-c-interop">13. extern / C Interop</a><a href="#14-stdlib">14. Stdlib</a><a href="#15-inline-assembly">15. Inline Assembly</a><a href="#16-cli-flags">16. CLI Flags</a><a href="#17-error-reporting">17. Error Reporting</a><a href="#18-preprocessor">18. Preprocessor</a></nav>
   </div>
-  <footer>
-    <div class="footer-in">
-      <div class="fl">
-        <a href="../the-book-of-eskiu.html">book</a>
-        <a href="index.html">docs</a>
-        <a href="internals.html">internals</a>
-        <a href="../changelog.html">changelog</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </div>
-      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+  <footer class="foot">
+    <div class="bar foot-in">
+      <span class="brand">eskiu</span>
+      <span>Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="index.html">Docs</a>
+        <a href="../the-book-of-eskiu.html">Book</a>
+        <a href="internals.html">Internals</a>
+        <a href="../changelog.html">Changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+        <a href="https://reactvision.xyz">ReactVision</a>
+      </nav>
     </div>
   </footer>
+  <script>(function(){var t=document.querySelector(".top"),b=document.querySelector(".menu-btn");if(!t||!b)return;b.addEventListener("click",function(){var o=t.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");});})();</script>
 </body>
 </html>

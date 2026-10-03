@@ -4,221 +4,238 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Self-hosting · Eskiu docs</title>
-  <meta name="description" content="How the Eskiu compiler is written in Eskiu, and how that&#x27;s kept honest. Shipped in" />
+  <meta name="description" content="Eskiu has two implementations of its compiler. The released eskiuc is written in C++17" />
+  <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/self-hosting.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
-  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&amp;family=DM+Sans:wght@400;500;700&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
+  <style>*, *::before, *::after { box-sizing: border-box; }
 :root {
-  --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
-  --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
-  --accent: #4c31bb; --accent-lt: #6448d4;
-  --inline: rgba(120, 110, 180, 0.12);
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --paper: #fbf8f3; --ink: #1c1830; --ink2: #4a4560; --muted: #6b6580; --faint: #8b8699;
+  --rule: #e6e0d6; --purple: #3b2a8c; --lilac: #e9e1f4; --lilac-2: #f1ecf8; --lilac-3: #d9d1f0;
+  --serif: "Fraunces", Georgia, serif;
+  --sans: "DM Sans", -apple-system, "Segoe UI", sans-serif;
+  --mono: "DM Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --gutter: 24px;
 }
+@media (min-width: 900px) { :root { --gutter: 48px; } }
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+body { margin: 0; background: var(--paper); color: var(--ink2); font-family: var(--sans); font-size: 17px;
        line-height: 1.7; -webkit-font-smoothing: antialiased; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a { color: var(--purple); text-decoration: none; }
+a:hover { color: var(--ink); }
+.bar { max-width: 1440px; margin: 0 auto; padding-inline: var(--gutter); }
 
-/* Top bar (shared with the homepage) */
-header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
-.top-in { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
-.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
-.brand:hover { text-decoration: none; }
-.brand img { width: 24px; height: 24px; }
-.brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
-.top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
-.top-links a { color: var(--ink2); }
-.top-links a:hover { color: var(--accent); text-decoration: none; }
+/* Header (shared look with the homepage) */
+.top { position: sticky; top: 0; z-index: 30; background: rgba(251, 248, 243, 0.94);
+       backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--rule); }
+.top-in { height: 72px; display: flex; align-items: center; gap: 40px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--serif); font-weight: 800;
+         font-size: 24px; color: var(--ink); }
+.brand img { width: 34px; height: 34px; }
+.brand .v { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--faint); margin-left: 2px; }
+.nav { display: none; gap: 30px; font-weight: 500; font-size: 16px; }
+.nav a { color: var(--ink); }
+.nav a:hover, .nav a[aria-current] { color: var(--purple); }
+.nav a[aria-current] { text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1.5px; }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.btn-install { display: none; background: var(--ink); color: var(--paper); font-weight: 700; font-size: 15px;
+               padding: 12px 20px; border-radius: 12px; }
+.btn-install:hover { background: var(--purple); color: #fff; }
+.menu-btn { width: 48px; height: 48px; border: 1.5px solid var(--ink); background: #fff; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; color: var(--ink); }
+.drawer { display: none; border-top: 1px solid var(--rule); padding: 8px var(--gutter) 20px; }
+.drawer a { display: block; padding-block: 14px; font-size: 18px; font-weight: 500; color: var(--ink);
+            border-bottom: 1px solid var(--rule); }
+.top.open .drawer { display: block; }
+@media (min-width: 900px) {
+  .nav, .btn-install { display: flex; }
+  .menu-btn, .drawer, .top.open .drawer { display: none; }
+}
 
-.wrap { max-width: 860px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.4rem; margin-bottom: 2.5rem;
-          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
-.docnav a { font-family: var(--mono); font-size: 0.78rem; color: var(--ink2);
-            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
-.docnav a:hover { color: var(--accent); background: var(--surface); text-decoration: none; }
-.docnav a.active { color: var(--accent); border-color: var(--border); background: var(--surface); font-weight: 600; }
-.content h1 { font-family: var(--mono); font-size: clamp(1.6rem, 4.5vw, 2.2rem); font-weight: 700;
-              letter-spacing: -0.03em; line-height: 1.15; margin: 0 0 1.25rem; }
-.content h2 { font-family: var(--mono); font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em;
-              margin: 2.75rem 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
-.content h3 { font-family: var(--mono); font-size: 1.08rem; font-weight: 600; margin: 1.9rem 0 0.6rem; }
-.content h4 { font-family: var(--mono); font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
-.content p { margin: 0 0 1rem; }
-.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
-.content li { margin-bottom: 0.4rem; color: var(--ink2); }
-.content strong { font-weight: 600; color: var(--ink); }
-.content hr { border: none; border-top: 1px solid var(--border); margin: 2.25rem 0; }
-.content blockquote { border-left: 3px solid var(--accent); background: var(--surface);
-                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
-                      color: var(--ink2); }
+/* Layout: sidebar | content | on this page */
+.layout { padding-block: 32px 88px; }
+.side { display: none; }
+.side .grp, .side-m .grp, .toc .grp { display: block; font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--purple); margin: 0 0 8px; }
+.side nav + .grp, .side-m nav + .grp { margin-top: 28px; }
+.side a, .side-m a { display: block; font-size: 15px; color: var(--ink2); padding: 7px 12px; border-radius: 10px; }
+.side a:hover, .side-m a:hover { color: var(--ink); background: var(--lilac-2); }
+.side a[aria-current], .side-m a[aria-current] { color: var(--ink); background: var(--lilac); font-weight: 700; }
+.side-m { margin: 0 0 36px; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px; }
+.side-m summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 18px; font-weight: 700; color: var(--ink); cursor: pointer; list-style: none; }
+.side-m summary::-webkit-details-marker { display: none; }
+.side-m summary::after { content: "+"; font-family: var(--mono); font-size: 20px; color: var(--purple); }
+.side-m[open] summary::after { content: "–"; }
+.side-m .inner { padding: 4px 8px 16px; border-top: 1px solid var(--rule); }
+.side-m .grp { padding: 14px 12px 0; }
+.toc { display: none; }
+@media (min-width: 900px) {
+  .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-block: 48px 104px; }
+  .side { display: block; position: sticky; top: 104px; align-self: start; max-height: calc(100vh - 128px); overflow: auto; }
+  .side-m { display: none; }
+}
+@media (min-width: 1240px) {
+  .layout.has-toc { grid-template-columns: 220px minmax(0, 780px) 200px; justify-content: space-between; }
+  .toc { display: block; position: sticky; top: 104px; align-self: start; max-height: calc(100vh - 128px);
+         overflow: auto; border-left: 1.5px solid var(--rule); padding-left: 16px; }
+  .toc a { display: block; font-size: 14px; line-height: 1.4; color: var(--muted); padding: 5px 0; }
+  .toc a:hover { color: var(--purple); }
+}
+
+/* Content */
+.content { min-width: 0; max-width: 780px; overflow-wrap: break-word; }
+.content h1, .content h2, .content h3, .content h4 { color: var(--ink); scroll-margin-top: 96px; }
+.content h1 { font-family: var(--serif); font-weight: 800; font-size: clamp(40px, 5vw, 56px);
+              letter-spacing: -0.03em; line-height: 1.04; margin: 0 0 24px; }
+.content h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3vw, 32px);
+              letter-spacing: -0.02em; line-height: 1.15; margin: 56px 0 16px; }
+.content h3 { font-size: 20px; font-weight: 700; line-height: 1.3; margin: 36px 0 10px; }
+.content h4 { font-size: 16px; font-weight: 700; margin: 28px 0 8px; }
+.content h1 code, .content h2 code, .content h3 code { font-size: 0.85em; }
+.content p { margin: 0 0 18px; }
+.content ul, .content ol { margin: 0 0 18px; padding-left: 1.3em; }
+.content li { margin-bottom: 6px; }
+.content li > ul, .content li > ol { margin: 6px 0 0; }
+.content strong { font-weight: 700; color: var(--ink); }
+.content hr { border: none; border-top: 1.5px solid var(--rule); margin: 48px 0; }
+.content p a, .content li a, .content td a { text-decoration: underline; text-decoration-color: var(--lilac-3);
+  text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.content p a:hover, .content li a:hover, .content td a:hover { text-decoration-color: var(--purple); }
+.content blockquote { margin: 0 0 24px; background: var(--lilac-2); border-radius: 14px; padding: 16px 20px; }
 .content blockquote p:last-child { margin-bottom: 0; }
-.content code { font-family: var(--mono); font-size: 0.86em; background: var(--inline);
-                padding: 0.15em 0.4em; border-radius: 4px; }
-.content pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-               padding: 0.9rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
-               font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--ink); }
-.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
-.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
-.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.content th, .content td { text-align: left; padding: 0.55rem 0.85rem;
-                          border-bottom: 1px solid var(--border-mut); vertical-align: top; }
-.content th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
-              letter-spacing: 0.05em; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.content code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); background: var(--lilac-2);
+                padding: 0.12em 0.38em; border-radius: 6px; }
+.content pre { margin: 0 6px 28px 0; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px;
+               padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
+               color: var(--ink); box-shadow: 5px 5px 0 var(--lilac); }
+.content :not(pre) > code { overflow-wrap: anywhere; }
+.content pre code { background: none; padding: 0; font-size: inherit; border-radius: 0; }
+.tablewrap { overflow-x: auto; margin: 0 0 28px; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px; }
+.content table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 1.55; }
+.content th, .content td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.content th { font-family: var(--mono); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+              color: var(--muted); background: var(--paper); border-bottom: 1.5px solid var(--ink); white-space: nowrap; }
 .content tbody tr:last-child td { border-bottom: none; }
 .content td code { white-space: nowrap; }
+@media (min-width: 900px) { .content pre { font-size: 14px; padding: 20px 24px; } }
+@media (max-width: 600px) { .content th, .content td { padding: 8px 10px; white-space: normal; } .content table { font-size: 14px; } }
 
-/* Footer (shared with the homepage) */
-footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
-.footer-in { max-width: 860px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
-             gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
-.footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
-.footer-in a { color: var(--ink2); }
-.footer-in a:hover { color: var(--accent); text-decoration: none; }
-.footer-in .cp { margin-left: auto; color: var(--muted); }
-@media (max-width: 600px) {
-  .content table { font-size: 0.8rem; }
-  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+/* Footer (shared look with the homepage) */
+.foot { border-top: 1.5px solid var(--ink); }
+.foot-in { padding-block: 40px 48px; display: flex; flex-direction: column; gap: 22px; font-size: 16px; color: var(--ink2); }
+.foot .brand { font-size: 26px; }
+.foot-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.foot-links a { color: var(--ink); padding-block: 12px; }
+.foot-links a:hover { color: var(--purple); }
+@media (min-width: 900px) {
+  .foot-in { flex-direction: row; align-items: center; gap: 12px 32px; padding-block: 36px; }
+  .foot .brand { font-size: 22px; }
+  .foot-links { display: flex; gap: 26px; margin-left: auto; }
 }</style>
 </head>
 <body>
   <header class="top">
-    <div class="top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
-      <nav class="top-links">
-        <a href="index.html">docs</a>
-        <a href="../the-book-of-eskiu.html">book</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </nav>
+    <div class="bar top-in">
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
+      <div class="top-right">
+        <a class="btn-install" href="../index.html#install">Install 0.9.3</a>
+        <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
+        </button>
+      </div>
     </div>
+    <nav class="drawer" id="drawer" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
   </header>
-  <div class="wrap">
-    <nav class="docnav"><a href="index.html">← Language docs</a><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html" class="active">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav>
-    <div class="content">
-<h1 id="eskiu-self-hosting">Eskiu Self-Hosting</h1>
-<p>How the Eskiu compiler is written in Eskiu, and how that's kept honest. Shipped in
-<strong>v0.3.0</strong>.</p>
-<hr>
-<h2 id="what-self-hosting-means-here">What "self-hosting" means here</h2>
-<p>The production compiler is <code>eskiuc</code>, written in C++17. Alongside it, the entire compiler
-pipeline is <strong>reimplemented in Eskiu</strong> under <code>selfhost/</code>:</p>
-<pre><code>lexer.esk → preprocessor.esk → parser.esk → sema.esk → async_lower.esk → codegen.esk
+  <div class="bar layout has-toc">
+    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html" aria-current="page">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></aside>
+    <main class="content">
+      <details class="side-m"><summary>Compiler internals · Self-hosting</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html" aria-current="page">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
+<h1 id="self-hosting">Self-Hosting</h1>
+<p>Eskiu has two implementations of its compiler. The released <code>eskiuc</code> is written in C++17
+and links LLVM. The second, under <code>selfhost/</code>, is written in Eskiu: it covers the same
+pipeline and command line, writes LLVM IR as text, and calls <code>clang</code> to assemble and link
+it. CMake builds it as <code>eskiuc-esk</code>. See <a href="https://github.com/doranteseduardo/eskiu/blob/main/selfhost/README.md"><code>selfhost/README.md</code></a>
+for its layout.</p>
+<pre><code>preprocessor → lexer → parser → sema → async lowering → codegen (LLVM IR text) → clang
 </code></pre>
-<p>with drivers <code>lex_main</code>, <code>pp_main</code>, <code>parse_main</code>, <code>tc_main</code>, <code>cg_main</code>, and the unified
-<code>esk_main</code> (preprocess → parse → type-check → generate). On the promotion track (see
-<code>selfhost/PROMOTION_PLAN.md</code>) <code>esk_main</code> has grown into the full user-facing CLI: it
-dispatches every <code>--test-*</code> debug mode plus <code>--version</code>, takes multiple input files, and
-with <code>-o</code> assembles the IR and invokes <code>clang</code> to link a native binary (threading
-<code>--asan</code>/<code>--ubsan</code> into the link). Without <code>-o</code> it writes the object <code>FILE.o</code>, like the C++
-driver; <code>--test-codegen</code> prints the IR on stdout (the bootstrap pipes it to clang). It also owns the two subcommands: <code>run script.esk
-[args...]</code> compiles to a temp exe, execs it forwarding argv, and propagates the exit code;
-<code>fmt [--check] file …</code> reindents in place via <code>fmt.esk</code>. It starts clang and the <code>run</code>
-program with <code>fork</code>/<code>execvp</code> (no shell, so any argument is passed through unchanged),
-accepts the C++ driver's flags (<code>--target</code>, <code>--mcpu</code>, <code>--mattr</code>, <code>--reloc</code>, <code>--link-arg</code>,
-<code>-l</code>/<code>-L</code>, <code>-c</code>, <code>-O0</code> to <code>-O3</code>, <code>--freestanding</code>, <code>--safe</code>, the sanitizers; <code>-Wall</code>/<code>-Wextra</code> are accepted and
-ignored, since lint warnings are C++ only), finds <code>stdlib/</code> through <code>$ESKIU_ROOT</code> or the
-install layout, and reports a missing import as an error. The four per-pass parity gates
-drive <em>through</em> <code>esk_main --test-*</code>, and <code>run</code>/<code>fmt</code> have their own parity gates
-(<code>run_parity.sh</code>, <code>fmt_parity.sh</code>). The code generator emits <strong>LLVM IR as text</strong> (no LLVM library is
-linked), which <code>clang</code> then assembles and links. This keeps the self-hosted compiler
-dependency-free and is the standard bootstrap path.</p>
-<p>The endgame (v1.0): <code>eskiuc</code> compiles its own source. v0.3.0 reached the key milestones (a
-3-stage bootstrap fixpoint and feature-completeness against the C++ corpus), and the
-promotion track (<code>selfhost/PROMOTION_PLAN.md</code>) has since finished it: <code>esk_main</code> is the full
-CLI, and the Eskiu-written compiler is now <em>behaviorally equivalent</em> to the C++ one over the
-whole corpus (positive output + negative verdict/diagnostic, CI-gated) and is dual-built by
-CMake as <code>eskiuc-esk</code>. The C++ binary stays the shipped artifact (the self-host links via
-clang, so shipping it would add a runtime clang requirement); it is the bootstrap seed and
-the differential oracle.</p>
-<h2 id="validation-parity-oracles-not-faith">Validation: parity oracles, not faith</h2>
-<p>Each pass is validated against the C++ <code>eskiuc</code>, which is the oracle. The method differs by
-phase, because the available ground truth differs:</p>
+<p>The C++ compiler is the reference. Every change to the language lands in both compilers
+in the same commit, and CI checks that they agree.</p>
+<h2 id="how-agreement-is-checked">How agreement is checked</h2>
+<p>The ground truth differs by pass, so the check does too:</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
 <th>Pass</th>
-<th>Oracle</th>
+<th>Check</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Lexer / Parser / Preprocessor</td>
-<td><strong>Byte-exact</strong> diff against <code>eskiuc --test-{lexer,parser}</code> (preprocessor parity runs <em>through</em> the lexer)</td>
+<td>Preprocessor, lexer, parser</td>
+<td>Byte-exact comparison with <code>eskiuc --test-lexer</code> and <code>--test-parser</code></td>
 </tr>
 <tr>
-<td>Semantic analysis</td>
-<td><strong>Verdict + diagnostic</strong>: same accept/reject as <code>--test-typechecker</code>, every error class caught with the right message</td>
+<td>Type checker</td>
+<td>Same accept or reject verdict as <code>--test-typechecker</code>, with the same message and <code>line:col</code></td>
 </tr>
 <tr>
-<td>Code generation</td>
-<td><strong>Behavioral</strong>: emit <code>.ll</code> → <code>clang</code> → run, compare exit code + stdout to the C++-built binary (LLVM renumbers SSA values and constant-folds, so IR can't be matched byte-for-byte)</td>
+<td>Code generator</td>
+<td>Behavioral: build the program with each compiler, run both, compare exit code and output. LLVM renumbers values and folds constants, so the IR itself is not compared</td>
+</tr>
+<tr>
+<td>C ABI</td>
+<td>The C signatures each compiler lowers for <code>extern</code> structs and callbacks, per target</td>
 </tr>
 </tbody>
 </table></div>
-<p>These run as CI gates: <code>tests/selfhost/{lex,parse,pp,tc,cg}_parity.sh</code>, plus the
-promotion-track gates that exercise the whole driver end to end: <code>cg_bootstrap.sh</code> (the
-3-stage self-host fixpoint), <code>driver_parity.sh</code> / <code>run_parity.sh</code> / <code>fmt_parity.sh</code> (the
-<code>-o</code> / <code>run</code> / <code>fmt</code> CLI paths), and <code>corpus_parity.sh</code> (P3: every positive test compiled by
-the Eskiu-built compiler produces the same exit + stdout as C++). The negative-corpus
-verdict + diagnostic parity is part of <code>tc_parity.sh</code>. <code>cabi_parity.sh</code> compares the C
-signatures the self-host lowers for <code>extern</code> aggregates, callback thunks and fn-pointer
-parameters with the C++ ones, per target (AArch64, x86-64 SysV, Windows x64, ARM32).
-Outside these scripts, the C oracle (<code>tests/fuzz/eskiu_fuzz.py --oracle</code>) and the negative
-corpus fuzzer (<code>tests/fuzz/neg_fuzz.py</code>) run generated programs through both compilers.</p>
+<p>The scripts are in <code>tests/selfhost/</code> and all run in CI. The code-generator check covers
+every runnable program in <code>tests/</code>. The fuzzers in <code>tests/fuzz/</code> also run generated
+programs through both compilers.</p>
 <h2 id="the-bootstrap-fixpoint">The bootstrap fixpoint</h2>
-<p>Beyond per-pass parity, the self-hosted compiler is validated <strong>against itself</strong>:</p>
-<ul>
-<li><strong><code>cg_selfhost.sh</code></strong>: the self-hosted codegen emits valid IR for the <em>entire</em> self-hosted
-  compiler, and <code>cg_main</code> compiled by itself reproduces the C++-built codegen's IR
-  byte-for-byte.</li>
-<li><strong><code>cg_bootstrap.sh</code></strong> runs a 3-stage build: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds
-  <code>cc1</code>, <code>cc1</code> builds <code>cc2</code>; the gate asserts <strong><code>cc1</code> ≡ <code>cc2</code></strong> (identical IR for the
-  compiler's own source). A self-built compiler reproducing its own output is a true
-  bootstrap fixpoint.</li>
-</ul>
-<p>(Binary byte-equality is <em>not</em> asserted; a Mach-O <code>LC_UUID</code> and ad-hoc signature differ even
-for identical input, so the IR fixpoint is the real proof.)</p>
-<h2 id="feature-completeness">Feature-completeness</h2>
-<p>The compiler's own source only exercises a subset of the language, so the bootstrap fixpoint
-alone does <strong>not</strong> prove general feature coverage. To verify it, the full C++ feature corpus
-is pushed through the behavioral codegen oracle. A clean sweep (every program self-host
-compiles to the same behavior as the C++ build) is what earns the "feature-complete" claim.</p>
-<p>As of v0.3.0 the self-hosted code generator covers, beyond the bootstrap subset: floating
-point, <code>switch</code>, ADT enums + <code>match</code> (generic, and payloads wider than one word), closures,
-exceptions (the Itanium ABI), atomics, generics with argument inference, async/await, unions,
-bitfields, interfaces (dynamic dispatch), type aliases, function-as-value decay, packed
-structs (<code>packed</code> / <code>#pragma pack(N)</code>), user-defined variadics + <code>va_list</code>/<code>va_arg</code>, the
-<code>alloc_with</code>/<code>thread_create</code>/<code>thread_join</code>/<code>free_closure</code> builtins, and the <code>?</code> error-
-propagation operator.</p>
-<h2 id="running-the-gates">Running the gates</h2>
+<p>The self-hosted compiler is also checked against itself. <code>cg_bootstrap.sh</code> builds it in
+three stages: the C++ <code>eskiuc</code> builds <code>cc0</code>, <code>cc0</code> builds <code>cc1</code>, and <code>cc1</code> builds <code>cc2</code>.
+The check passes when <code>cc1</code> and <code>cc2</code> produce identical IR for the compiler's own source.
+The binaries themselves are not compared, since a Mach-O file embeds a UUID and signature
+that change between identical builds.</p>
+<p>A fixpoint only exercises the parts of the language the compiler's own source uses. It
+does not show that the rest works, which is why the behavioral check runs over the whole
+test corpus as well.</p>
+<h2 id="running-the-checks">Running the checks</h2>
 <pre><code class="language-bash">tests/selfhost/lex_parity.sh   --full   # lexer
-tests/selfhost/parse_parity.sh --full   # parser
 tests/selfhost/pp_parity.sh    --full   # preprocessor
-tests/selfhost/tc_parity.sh              # semantic analysis
-tests/selfhost/cg_parity.sh              # codegen (behavioral)
-tests/selfhost/cg_selfhost.sh            # self-compilation + emit validity
-tests/selfhost/cg_bootstrap.sh           # 3-stage bootstrap fixpoint
-tests/selfhost/cabi_parity.sh            # C ABI lowering per target
+tests/selfhost/parse_parity.sh --full   # parser
+tests/selfhost/tc_parity.sh             # type checker, valid and invalid programs
+tests/selfhost/cg_parity.sh             # code generator
+tests/selfhost/corpus_parity.sh         # every runnable test through eskiuc-esk
+tests/selfhost/driver_parity.sh         # building with -o
+tests/selfhost/run_parity.sh            # eskiuc-esk run
+tests/selfhost/fmt_parity.sh            # eskiuc-esk fmt
+tests/selfhost/cabi_parity.sh           # C ABI lowering per target
+tests/selfhost/cg_bootstrap.sh          # three-stage fixpoint
 </code></pre>
-<p>All are wired into CI. The sources live in <code>selfhost/</code>; the slice-by-slice development record
-is in <code>selfhost/BACKEND_PLAN.md</code>.</p>
-    </div>
+<p>They take the C++ compiler from <code>ESKIUC</code> (default <code>build/eskiuc</code>) and clang from <code>CLANG</code>.</p>
+    </main>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#how-agreement-is-checked">How agreement is checked</a><a href="#the-bootstrap-fixpoint">The bootstrap fixpoint</a><a href="#running-the-checks">Running the checks</a></nav>
   </div>
-  <footer>
-    <div class="footer-in">
-      <div class="fl">
-        <a href="../the-book-of-eskiu.html">book</a>
-        <a href="index.html">docs</a>
-        <a href="internals.html">internals</a>
-        <a href="../changelog.html">changelog</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </div>
-      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+  <footer class="foot">
+    <div class="bar foot-in">
+      <span class="brand">eskiu</span>
+      <span>Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="index.html">Docs</a>
+        <a href="../the-book-of-eskiu.html">Book</a>
+        <a href="internals.html">Internals</a>
+        <a href="../changelog.html">Changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+        <a href="https://reactvision.xyz">ReactVision</a>
+      </nav>
     </div>
   </footer>
+  <script>(function(){var t=document.querySelector(".top"),b=document.querySelector(".menu-btn");if(!t||!b)return;b.addEventListener("click",function(){var o=t.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");});})();</script>
 </body>
 </html>

@@ -1,0 +1,67 @@
+// A lambda bound to a local that is only called does not outlive its function, so its
+// env is on the stack (no allocation, nothing to free). A local used any other way, or
+// captured by a lambda that outlives the call, keeps a heap env. Each function below is
+// called after the stack has been reused, so a dangling env would print garbage.
+extern int printf(string fmt, ...);
+
+fn(int)->int saved;
+void keep(escaping fn(int)->int h) { saved = h; }
+int apply(fn(int)->int h, int v) { return h(v); }
+int churn(int n) { int[64] buf; for (i in 0..64) { buf[i] = n + i; } return buf[63]; }
+
+int only_called(int k) {
+    int base = k * 2;
+    let f: fn(int)->int = int(int x) { return x + base; };
+    return f(1) + f(2);
+}
+
+int in_loop(int k) {
+    int s = 0;
+    for (int i = 0; i < 4; i++) {
+        let f: fn(int)->int = int(int x) { return x * i + k; };
+        s += f(10);
+    }
+    return s;
+}
+
+int captured_by_arg(int k) {
+    let f: fn(int)->int = int(int x) { return x + k; };
+    return apply(int(int x) { return f(x) * 2; }, 5);
+}
+
+int nested(int k) {
+    let outer: fn(int)->int = int(int x) {
+        let inner: fn(int)->int = int(int y) { return y * x; };
+        return inner(k);
+    };
+    return outer(3);
+}
+
+// Used beyond a call: the env is on the heap, freed through the copy.
+int copied(int k) {
+    let f: fn(int)->int = int(int x) { return x - k; };
+    fn(int)->int g = f;
+    int r = g(10);
+    free_closure(g);
+    return r;
+}
+
+// Captured by a lambda that escapes: the local's env must stay on the heap. (It is
+// never freed: an escaping closure owns what it captures, as with free_closure.)
+void escapes_through(int k) {
+    let f: fn(int)->int = int(int x) { return x * k; };
+    keep(int(int x) { return f(x) + 1; });
+}
+
+int main() {
+    printf("only_called %d\n", only_called(4));
+    printf("in_loop %d\n", in_loop(1));
+    printf("captured_by_arg %d\n", captured_by_arg(2));
+    printf("nested %d\n", nested(5));
+    printf("copied %d\n", copied(3));
+    escapes_through(7);
+    churn(9);
+    printf("escaped %d\n", saved(2));
+    free_closure(saved);
+    return 0;
+}

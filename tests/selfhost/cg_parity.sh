@@ -83,18 +83,19 @@ if [ "$#" -eq 0 ]; then
        && "$(grep -c 'ptr elementtype(i64)' <<< "$ia")" -eq 2 ]]; then
         echo "ok    inline_asm_out  (x86-64 IR: outputs lowered like clang)"
     else echo "FAIL  inline_asm_out  (x86-64 asm output lowering)"; fail=1; fi
+    total=$((total + 1))
+    ig="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --target x86_64-unknown-linux-gnu --test-codegen tests/inline_asm_gcc.esk 2>/dev/null)"
+    if [[ "$ig" == *'"{ax},N{dx},~{dirflag}'* && "$ig" == *'"={ax},={bx},={cx},={dx},{ax},~{dirflag}'* \
+       && "$ig" == *'"={ax},{cx},0,~{dirflag}'* && "$ig" == *'"={di},{si},~{dirflag}'* \
+       && "$ig" == *'"=&{dx},{ax},~{dirflag}'* ]]; then
+        echo "ok    inline_asm_gcc  (x86-64 IR: GCC register letters lowered like clang)"
+    else echo "FAIL  inline_asm_gcc  (x86-64 GCC register constraints)"; fail=1; fi
     # An await the async lowering can't place is an error located at that await.
     total=$((total + 1))
-    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_defer.esk 2>&1 >/dev/null)"
+    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_unplaced.esk 2>&1 >/dev/null)"
     case "$aw" in
-        *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"*) echo "ok    await_in_defer  (located error)" ;;
-        *) echo "FAIL  await_in_defer  ($aw)"; fail=1 ;;
-    esac
-    total=$((total + 1))
-    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_generic_match.esk 2>&1 >/dev/null)"
-    case "$aw" in
-        *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"*) echo "ok    await_in_generic_match  (located error)" ;;
-        *) echo "FAIL  await_in_generic_match  ($aw)"; fail=1 ;;
+        *"await_unplaced.esk:8:20: async function 'worker': 'await' is not supported here"*) echo "ok    await_unplaced  (located error)" ;;
+        *) echo "FAIL  await_unplaced  ($aw)"; fail=1 ;;
     esac
 fi
 

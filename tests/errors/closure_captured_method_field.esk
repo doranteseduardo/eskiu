@@ -1,0 +1,18 @@
+// EXPECT-ERROR: cannot call method 'inc' on captured variable 'w'
+struct Counter {
+    int n;
+}
+
+void Counter_inc(*Counter self) { self.n = self.n + 1; }
+
+struct Wrap {
+    Counter inner;
+}
+
+int main() {
+    Wrap w;
+    w.inner.n = 0;
+    fn()->void f = void() { w.inner.inc(); };
+    f();
+    return w.inner.n;
+}

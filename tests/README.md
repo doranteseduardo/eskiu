@@ -65,11 +65,11 @@ when you add a test.
 | `inline_asm` | `asm(...)` simple + extended compiles, links, runs |
 | `variadic` | user-defined variadic fn: `...` + `va_list`/`va_start`/`va_arg<T>`/`va_end` (int + double) |
 | `http2_frame` | `<http2>` 9-byte frame-header encode/decode round-trip (incl. 31-bit stream id) |
-| `http2_conn` | `<http2>` stage 2 codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
+| `http2_conn` | `<http2>` connection codecs: SETTINGS write/apply, ACK, PING/PONG, GOAWAY round-trips |
 | `http2_handshake` | `<http2>` async server opening handshake over a socketpair (preface + SETTINGS exchange + ACK) |
 | `hpack` | `<hpack>` HPACK (RFC 7541): integer/string codecs, static + dynamic tables, §6 decode/encode, Huffman: RFC vectors |
-| `http2_stream` | `<http2>` stage 4: stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
-| `http2_server` | `<http2_server>` stage 6: the h2c server end-to-end over a socketpair (request → handler → response) |
+| `http2_stream` | `<http2>` stream state machine, flow-control accounting, HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs |
+| `http2_server` | `<http2_server>` the h2c server end-to-end over a socketpair (request → handler → response) |
 | `http2_chunking` | response bodies > 16384 split into MAX_FRAME_SIZE DATA frames (last has END_STREAM) |
 | `async_elseif` | async `if/else-if/else` with `await` in branches + terminating `else` (transform regression) |
 | `async_locals_forms` | in an async fn: a `static` local keeps one cell across calls, `for-in` over a slice, `try`/`catch`, an array-literal local, `match` on a local ADT, bindings named like a hoisted local |
@@ -118,6 +118,7 @@ when you add a test.
 | `lambdas` | anonymous functions, `fn(T)->R`, higher-order functions |
 | `closures` | capturing & non-capturing lambdas through higher-order functions |
 | `closure_escape` | escape analysis: non-escaping closure on the stack, escaping one heap + `free_closure` |
+| `closure_local_env` | a lambda bound to a local that is only called (also in a loop, nested, or captured by an argument lambda) keeps its env on the stack; a copied local, or one captured by an escaping lambda, stays on the heap |
 | `generic_closure` | a capturing closure inside a **generic** function body; the `T`-typed capture's env field is substituted per instantiation (`box<int>` / `box<int64>`) |
 | `import_cast` | a cast to a type imported from another file (`(FutureHdr*)p`) parses as a cast |
 | `closure_global` | a module global read inside a closure reads the global (not a stale copy) |
@@ -156,9 +157,12 @@ when you add a test.
 | `async_switch` | `switch` containing an await: fall-through + suspending case + `default` + `break` |
 | `async_try` | `await` in a `try` body and a `catch`: exceptions before/after a suspension reach the right handler, nested try, `finally` once on every exit (early return, break/continue, unmatched exception), a body `defer` before the handler |
 | `async_try_cancel` | a future dropped while suspended in try/finally (by `select2` + timer, or by hand, also inside a handler) runs its pending finally blocks and defers once |
+| `async_finally_await` | an `await` inside a `finally` or a `defer` suspends: fall-through, early `return` (value kept), `break`/`continue`, a caught exception, an exception unwinding through the try, LIFO defers, defers in loops, nested cleanups, a lambda in a finally |
+| `async_cancel_await_cleanup` | a dropped future whose pending cleanup awaits runs it detached (a `select2` loser, a hand drop, an already-ready await, a second drop, a drop inside an awaiting finally or one running while an exception unwinds), then frees its frame |
 | `async_await_positions` | `await` in a match arm, a switch subject, a for-in iterable, a range bound, a compound assignment (target once), larger expressions and call arguments (side-effect order), `&&`/`||`/`?:`, and while/do/for conditions and steps |
 | `async_await_edges` | awaits in a return and a loop condition inside try, a plain try returning inside a split one, break from a match arm, lambdas in a try and its handler, a catch variable, nested awaits, struct/array literals, a static local, a switch in a try |
 | `async_generic_try` | a generic async function awaiting in a try (with a compound assignment) and a switch subject; a match on a computed subject whose arms await |
+| `async_generic_positions` | a generic async function awaiting in a payload-binding `match` arm, after a side-effecting operand and in a `?:` arm, each with an `int` and a struct instance (also parked, leak-free) |
 | `async_for_in` | `for-in` containing an await, over a fixed-size array and a `List`-like struct (suspending) |
 | `async_timer` | `<timer>` `timer_after` leaf future: a delayed await + read-with-timeout via `select2(read, timer)` |
 | `async_frame_expr` | frame-hoisted locals used in a struct literal / index / call after an await are renamed to `fr.x` (shared child-enumeration) |
@@ -183,6 +187,7 @@ when you add a test.
 | `adt_layout` | ADT enum payload sizing: array fields, nested enums and generic instances must get enough payload slots, and a struct holding an enum by value must be sized... |
 | `alloc_overflow` | Bump/Arena/Pool/FirstFit and the <sysheap> Heap reject huge or negative sizes instead of wrapping the size arithmetic, and a FirstFit buffer smaller than one region header holds nothing (no write past it). |
 | `async_dowhile_defer` | do/while, defer and capturing lambdas inside async functions, around awaits. |
+| `async_closure_env` | a lambda bound to a local of an async function is freed by the frame: on completion, on rebinding (a loop, a conditional or repeated binding), after an exception is caught, and on a drop with no cleanup, a defer, or an awaiting (detached) cleanup; generic too. An argument lambda keeps a stack env. Leak-free under `leaks --atExit` |
 | `async_expr_rewrite` | Frame-hoisted locals used after an await inside every expression form: ++/--, a ternary, an array index, a struct literal, a slice, and a cast. |
 | `async_local_named_fr` | A user local named `fr` in an async function must not collide with the transform's internal frame pointer. |
 | `base64_strict` | base64_decode rejects impossible lengths and misplaced padding (it used to decode "Z" and "Z=g=" to something) while still accepting padded, unpadded, and... |
@@ -284,6 +289,8 @@ when you add a test.
 | `union_layout` | A union takes the alignment of its most-aligned member, so it lands at the C offset inside a struct and the struct is padded like C (u at 8, size 24). |
 | `async_name_collisions` | Locals and parameters named like the async transform's synthesized names (`__fr`, `st`, `ret`, `awaiting`, the await temporaries, the resume function) do not collide with them. |
 | `async_range_wide` | An await inside a range loop over `int64` bounds keeps the hoisted loop variable `int64`. |
+| `bitfield_unnamed` | unnamed bitfields `T : N` and `T : 0` in structs, a generic struct and a union: positional literals skip them, their bits stay zero, `sizeof` folds |
+| `bitfield_unnamed_c` | unnamed bitfields follow the target's C layout and C ABI (C side: `bitfield_unnamed_c.c`): sizes, alignments, fields written on either side, by-value args and results |
 | `bitfield_c_layout` | Bitfields follow the target's C layout (C side: `bitfield_c_layout.c`): mixed declared types share a storage unit when they fit (SysV/AAPCS), packed structs pack bit by bit; C writes, Eskiu reads, and back. |
 | `c_abi_callback` | An Eskiu function passed to C as `(*void)f` that takes or returns a struct by value is reached through a C-ABI thunk (C side: `c_abi_callback.c`). |
 | `c_abi_fnptr` | An `extern` fn-typed parameter is a C function pointer: a top-level function is passed by its C address (through a thunk for by-value structs), `null` as a null pointer, and libc `qsort` takes its comparator that way (C side: `c_abi_fnptr.c`). |
@@ -416,8 +423,7 @@ when you add a test.
 | `c_abi_narrow` | narrow integer params and results across `extern` (+ `.c`): `signext`/`zeroext`, callbacks and C calling Eskiu |
 | `va_list_c` | a `va_list` handed to `vprintf`/`vsnprintf`, also through an Eskiu `va_list` param |
 | `volatile_access` | volatile loads/stores through a volatile local or global (`*p`, `p[i]`, `p.f`, `++`, `+=`); IR count checked |
-| `run_cmd/await_in_defer` | an `await` in a defer body of an async function: an error located at the await (`run.sh`, `cg_parity.sh`) |
-| `run_cmd/await_in_generic_match` | an `await` in a payload-binding `match` arm of a generic async function: an error located at the await |
+| `run_cmd/await_unplaced` | an `await` in an `asm` input of an async function: an error located at the await (`run.sh`, `cg_parity.sh`) |
 | `run_cmd/net_timeval` | `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size: `{i32, i32}` and optlen 8 on 32-bit ARM, `{i64, i64}` and 16 on x86-64 (it was always 16 bytes); IR checked by `run.sh` per target |
 | `inline_asm_ext` | extended inline asm with inputs and a clobber (AArch64 and x86-64 spellings) |
 | `async_arm_locals` | an async fn declaring locals in `match` arms and `try`/`catch`/`finally` bodies |
@@ -688,6 +694,11 @@ when you add a test.
 | `errors/free_closure_int` | `free_closure(5)` |
 | `errors/bitfield_adt_enum` | a sum type as a bitfield type |
 | `errors/bitfield_zero_width` | a named zero-width bitfield `int x : 0` |
+| `errors/bitfield_unnamed_too_wide` | an unnamed bitfield wider than its type |
+| `errors/bitfield_unnamed_float` | an unnamed bitfield of a non-integer type (in a union) |
+| `errors/bitfield_unnamed_negative` | a negative unnamed bitfield width is a parse error |
+| `errors/bitfield_unnamed_member` | an unnamed bitfield is no member |
+| `errors/bitfield_unnamed_literal` | a positional literal has no value for an unnamed bitfield |
 | `errors/method_as_field_write` | assigning an inline method as a field (`p.sum = 3`) |
 | `errors/method_as_field_read` | reading an inline method as a field (`int s = p.sum`) |
 | `errors/string_slice_elem` | a string slice into an `int[]` ("cannot convert 'char[]'") |
@@ -731,7 +742,6 @@ when you add a test.
 | `errors/finally_return` | a `return` inside a `finally` block |
 | `errors/finally_question` | a `?` inside a `finally` block (it would swallow the exception being unwound) |
 | `errors/match_alias_nonexhaustive` | a `match` on an alias of a classic enum missing a member |
-| `errors/await_in_finally` | `await` inside a `finally` in an `async` function |
 | `errors/void_logical_operand` | a `void` call as an operand of `&&` |
 | `errors/void_compare` | comparing two `void` calls |
 | `errors/void_variadic_arg` | a `void` call passed through `...` (`printf("%d", hi())`) |
@@ -769,6 +779,20 @@ covered by exact-match `run` tests, so a regression would fail `run.sh`.
    declaration) failed with `Undefined variable or function`. Codegen now declares
    all prototypes in a pre-pass before emitting bodies, enabling call-before-define
    and mutual recursion. Guarded by `forward_decl.esk`.
+
+## Other test scripts
+
+Besides `run.sh`, these run in CI:
+
+- `tests/opt_differential.sh`: every `tests/*.esk` must give the same exit code and
+  stdout at `-O0` and `-O2`.
+- `tests/safe_mode.sh`: `--safe` bounds checks trap on an out-of-range index and are off
+  by default.
+- `tests/nullable.sh`: the `?*T` checks and narrowing.
+- `tests/type_zoo/snapshot.sh check`: the golden-IR oracle (see `docs/dev/debugging.md`).
+- `tests/selfhost/*.sh`: parity between the self-hosted compiler and the C++ one
+  (lexer, parser, preprocessor, type checker, codegen, C ABI, driver) and the bootstrap
+  fixpoint; see `docs/dev/self-hosting.md`.
 
 ## Fuzzers
 

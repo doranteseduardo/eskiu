@@ -38,7 +38,7 @@ no manual import.
 
 ```bash
 cd editor/intellij/plugin
-./gradlew buildPlugin        # → build/distributions/eskiu-intellij-*.zip
+gradle buildPlugin           # → build/distributions/eskiu-intellij-*.zip (needs Gradle 8+)
 ```
 
 Install the resulting zip via **Settings → Plugins → ⚙ → Install Plugin from Disk…**.
@@ -53,14 +53,12 @@ Install the resulting zip via **Settings → Plugins → ⚙ → Install Plugin 
 ## Keeping the grammar in sync
 
 The **canonical** grammar is `editor/vscode/syntaxes/eskiu.tmLanguage.json`. The copy
-here (and the one inside `plugin/`) must be updated in lockstep whenever the language
+here (and the one inside `plugin/`) must be kept in sync whenever the language
 gains or loses syntax. Refresh both with:
 
 ```bash
 make -C editor sync-grammar     # or: cp editor/vscode/syntaxes/eskiu.tmLanguage.json editor/intellij/bundle/Syntaxes/
 ```
-
-(No language-syntax change ⇒ nothing to sync, the same rule as the VS Code grammar.)
 
 ## Scope: highlighting only
 

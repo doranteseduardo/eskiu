@@ -6,605 +6,202 @@
     <script>try{if(localStorage.getItem("eskiu-lang")==="es")location.replace("es/index.html"+location.hash);}catch(e){}</script>
     <title>Eskiu: a self-hosting systems language</title>
     <meta name="description" content="Eskiu is a compiled systems language with async/await, sum types, generics, HTTP/2, and atomics. LLVM backend, manual memory, compiles to a standalone binary. Self-hosting as of v0.3.0." />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#fbf8f3" />
     <link rel="icon" type="image/png" href="../assets/logo.png" />
     <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/index.html" />
     <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/index.html" />
     <link rel="alternate" hreflang="x-default" href="https://eskiu-lang.org/index.html" />
-    <style>
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-      :root {
-        --bg: #ffffff;
-        --surface: #f6f8fa;
-        --border: #d0d7de;
-        --border-mut: #e4e8ed;
-        --ink: #1f2328;
-        --ink2: #424a53;
-        --muted: #6e7781;
-        --accent: #4c31bb;
-        --accent-lt: #6448d4;
-        --inline: rgba(120, 110, 180, 0.12);
-        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-        --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-      }
-      html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-      body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.7; -webkit-font-smoothing: antialiased; }
-      a { color: var(--accent); text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      p { margin: 0 0 1rem; }
-      h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em; }
-      code {
-        font-family: var(--mono); font-size: 0.86em;
-        background: var(--inline); padding: 0.15em 0.4em; border-radius: 4px;
-      }
-
-      /* Top bar */
-      header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
-      .top-in { max-width: 1080px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
-      .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
-      .brand:hover { text-decoration: none; }
-      .brand img { width: 24px; height: 24px; }
-      .brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
-      .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
-      .top-links a { color: var(--ink2); }
-      .top-links a:hover { color: var(--accent); text-decoration: none; }
-      .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
-      .lang .sep { color: var(--border); }
-      .lang a { color: var(--muted); cursor: pointer; }
-      .lang a:hover { color: var(--accent); text-decoration: none; }
-      .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
-
-      /* Layout */
-      .shell { max-width: 1080px; margin: 0 auto; padding: 0 1.25rem; display: flex; gap: 2.5rem; align-items: flex-start; }
-      .toc { display: none; }
-      @media (min-width: 940px) {
-        .toc {
-          display: block; position: sticky; top: 54px; width: 210px; flex-shrink: 0;
-          padding: 2.5rem 0; max-height: calc(100vh - 54px); overflow: auto;
-        }
-      }
-      .toc-title { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.7rem; }
-      .toc ol { list-style: none; }
-      .toc li { margin: 0; }
-      .toc a { display: block; font-family: var(--mono); font-size: 0.8rem; color: var(--ink2); padding: 0.28rem 0.6rem; border-left: 2px solid var(--border-mut); }
-      .toc a:hover { color: var(--accent); text-decoration: none; border-left-color: var(--accent-lt); }
-      .toc a.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
-      .toc a .n { color: var(--muted); margin-right: 0.5rem; }
-      .toc a.active .n { color: var(--accent); }
-
-      .content { flex: 1 1 auto; min-width: 0; max-width: 780px; padding: 2.5rem 0 4rem; }
-      @media (min-width: 940px) { .content { padding-top: 3rem; } }
-
-      /* Intro */
-      .intro { display: flex; flex-direction: column-reverse; gap: 1.5rem; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2.25rem; }
-      @media (min-width: 620px) { .intro { flex-direction: row; align-items: center; gap: 2rem; } }
-      .intro-txt { flex: 1 1 auto; min-width: 0; }
-      .intro h1 { font-size: clamp(1.7rem, 4.5vw, 2.3rem); font-weight: 700; margin-bottom: 0.5rem; font-family: var(--mono); letter-spacing: -0.03em; }
-      .intro .tagline { color: var(--muted); font-family: var(--mono); font-size: 0.9rem; margin-bottom: 1rem; }
-      .intro p { color: var(--ink2); font-size: 1.02rem; margin-bottom: 0; }
-      .intro-fig { flex-shrink: 0; align-self: center; }
-      .intro-fig img { width: 132px; height: auto; border-radius: 50%; display: block; }
-      @media (min-width: 620px) { .intro-fig img { width: 176px; } }
-
-      /* Install */
-      .btnrow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0 1.35rem; }
-      .btnrow:first-of-type { margin-top: 1.4rem; }
-      .btn { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-weight: 600; font-size: 0.83rem; padding: 0.5rem 1rem; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); cursor: pointer; transition: all 0.12s; }
-      .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
-      .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-      .btn-primary:hover { background: var(--accent-lt); border-color: var(--accent-lt); color: #fff; }
-
-      /* Sections */
-      section { scroll-margin-top: 68px; padding-top: 1.5rem; }
-      h2 { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); font-family: var(--mono); }
-      h2 .num { color: var(--muted); font-weight: 500; margin-right: 0.55rem; }
-      h3 { font-size: 1.08rem; font-weight: 600; margin: 1.75rem 0 0.6rem; font-family: var(--mono); }
-      .content ul { margin: 0 0 1rem 1.3rem; }
-      .content li { margin-bottom: 0.35rem; color: var(--ink2); }
-      .content li code { font-size: 0.86em; }
-
-      /* Code blocks */
-      pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1.1rem; margin: 0 0 1.35rem; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.7; color: var(--ink); }
-      pre code { background: none; padding: 0; font-size: inherit; }
-      .fname { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin: 0 0 0.4rem; }
-      .fname::before { content: "// "; }
-      .kw { color: #cf222e; }
-      .ty { color: #953800; }
-      .fn { color: #8250df; }
-      .st { color: #0a3069; }
-      .cm { color: #6e7781; font-style: italic; }
-      .nu { color: #0550ae; }
-      .aw { color: #cf222e; font-weight: 600; }
-      .op { color: #0550ae; }
-
-      /* Table */
-      .tablewrap { overflow-x: auto; margin: 0 0 1.35rem; border: 1px solid var(--border); border-radius: 8px; }
-      table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-      th, td { text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border-mut); vertical-align: top; }
-      thead th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--surface); }
-      tbody tr:last-child td { border-bottom: none; }
-      td .metric { font-family: var(--mono); font-weight: 700; color: var(--accent); }
-
-      /* Playground */
-      .pg { margin: 1rem 0 0.5rem; }
-      .pg-grid { display: grid; grid-template-columns: 1fr; gap: 0.85rem; }
-      @media (min-width: 760px) { .pg-grid { grid-template-columns: 1fr 1fr; } }
-      .pg-panel { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-height: 300px; background: var(--surface); }
-      .pg-bar { border-bottom: 1px solid var(--border); padding: 0.4rem 0.75rem; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); display: flex; justify-content: space-between; background: var(--bg); }
-      .pg-editor { flex: 1; width: 100%; border: none; outline: none; resize: vertical; background: var(--surface); color: var(--ink); font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; padding: 0.8rem 0.95rem; tab-size: 4; white-space: pre; overflow-x: auto; min-height: 260px; }
-      .pg-out { flex: 1; margin: 0; padding: 0.8rem 0.95rem; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--ink2); overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--surface); }
-      .pg-out .ok { color: #1a7f37; } .pg-out .err { color: #cf222e; } .pg-out .meta, .pg-out .hint { color: var(--muted); }
-      .pg-controls { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; margin-top: 0.85rem; }
-      .pg-run { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--accent); color: #fff; font-family: var(--mono); font-weight: 600; font-size: 0.82rem; border: 1px solid var(--accent); padding: 0.45rem 1rem; border-radius: 7px; cursor: pointer; transition: background 0.12s; }
-      .pg-run:hover:not(:disabled) { background: var(--accent-lt); }
-      .pg-run:disabled { opacity: 0.6; cursor: progress; }
-      .pg-examples { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-left: auto; }
-      .pg-ex { background: var(--bg); border: 1px solid var(--border); color: var(--ink2); font-family: var(--mono); font-size: 0.72rem; padding: 0.28rem 0.55rem; border-radius: 6px; cursor: pointer; transition: all 0.12s; }
-      .pg-ex:hover { border-color: var(--accent); color: var(--accent); }
-      .pg-note { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); margin-top: 0.85rem; }
-      .spin { width: 12px; height: 12px; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; border-radius: 50%; animation: pg-spin 0.6s linear infinite; }
-      @keyframes pg-spin { to { transform: rotate(360deg); } }
-
-      /* Footer */
-      footer { border-top: 1px solid var(--border); }
-      .footer-in { max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
-      .footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
-      .footer-in a { color: var(--ink2); }
-      .footer-in a:hover { color: var(--accent); text-decoration: none; }
-      .footer-in .cp { margin-left: auto; color: var(--muted); }
-
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,800;1,9..144,400&amp;family=DM+Sans:wght@400;500;700&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="home.css" />
   </head>
   <body>
     <header class="top">
-      <div class="top-in">
-        <a class="brand" href="#"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
-        <nav class="top-links">
-          <a href="docs/index.html">docs</a>
-          <a href="the-book-of-eskiu.html">book</a>
-          <a href="https://github.com/doranteseduardo/eskiu">github</a>
-          <a href="https://reactvision.xyz">reactvision ↗</a>
-          <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/index.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
+      <div class="wrap top-in">
+        <a class="brand" href="#"><img src="../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+        <nav class="nav" aria-label="Main">
+          <a href="quickstart.html">Learn</a>
+          <a href="docs/index.html">Docs</a>
+          <a href="#playground">Playground</a>
+          <a href="the-book-of-eskiu.html">Book</a>
+          <a href="changelog.html">Changelog</a>
+          <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
         </nav>
+        <div class="top-right">
+          <span class="lang"><span aria-current="page">EN</span> / <a href="es/index.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
+          <a class="btn-install" href="#install">Install 0.9.3</a>
+          <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
+          </button>
+        </div>
       </div>
+      <nav class="drawer" id="drawer" aria-label="Main">
+        <a href="quickstart.html">Learn</a>
+        <a href="docs/index.html">Docs</a>
+        <a href="#playground">Playground</a>
+        <a href="the-book-of-eskiu.html">Book</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+      </nav>
     </header>
 
-    <div class="shell">
-      <!-- TOC -->
-      <aside class="toc">
-        <div class="toc-title">Contents</div>
-        <ol id="toc-list">
-          <li><a href="#production"><span class="n">1</span>In production</a></li>
-          <li><a href="#language"><span class="n">2</span>The language</a></li>
-          <li><a href="#toolchain"><span class="n">3</span>Toolchain</a></li>
-          <li><a href="#install"><span class="n">4</span>Install</a></li>
-        </ol>
-      </aside>
-
-      <!-- Content -->
-      <main class="content">
-        <div class="intro">
-          <div class="intro-txt">
-            <h1>eskiu</h1>
-            <p class="tagline">a self-hosting systems language · <a href="https://reactvision.xyz" style="color: inherit; text-decoration: underline;">a ReactVision project</a></p>
-            <p>
-              Eskiu is a statically typed, compiled systems language with the power of C
-              (explicit memory, direct C interop, native output via LLVM) and the immediacy of a
-              scripting language: <code>eskiuc run file.esk</code> compiles and executes in one
-              step. It already runs in shipping software, from ReactVision's ViroReact renderer to
-              a Nintendo 3DS, and builds the same on Linux, macOS, and Windows. Self-hosting since
-              v0.3.0.
-            </p>
+    <main>
+      <section class="wrap hero">
+        <div class="hero-txt">
+          <span class="eyebrow">v0.9.3 · a systems language</span>
+          <h1>Write it like a script. <em>Ship it like C.</em></h1>
+          <p class="lede">Eskiu is a self-hosting systems language. LLVM, explicit memory, direct C interop and no garbage collector, with an <code>eskiuc run</code> that feels like Python.</p>
+          <div class="cta">
+            <a class="btn btn-dark" href="#playground"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M3 1.5v11l9-5.5z"/></svg>Try it in the browser</a>
+            <a class="btn btn-line" href="the-book-of-eskiu.html">Read the Book</a>
           </div>
-          <div class="intro-fig"><img src="../assets/eskiu_round.jpg" alt="Eskiu mascot" /></div>
-        </div>
-
-        <div class="btnrow">
-          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
-          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-arm64.tar.gz">↓ Linux arm64</a>
-          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
-          <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
-        </div>
-        <div class="btnrow">
-          <a class="btn" href="quickstart.html">Quickstart</a>
-          <a class="btn" href="#toolchain">Try it in the browser</a>
-          <a class="btn" href="docs/index.html">Documentation</a>
-        </div>
-
-        <!-- 1 -->
-        <section id="production">
-          <h2><span class="num">1.</span>In production</h2>
-          <p>
-            Eskiu already runs in shipping software. It replaces memory-sensitive native code
-            with no garbage collector, keeps a C ABI so it drops straight into an existing C or
-            C++ codebase, and reaches hardware a young systems language rarely meets. The same
-            source builds on Linux, macOS, and Windows, including the async networking stack. It
-            is the systems language of <a href="https://reactvision.xyz">ReactVision</a>, and the
-            first place it shipped is the family's own XR renderer.
-          </p>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Project</th><th>Result</th><th>Detail</th><th></th></tr></thead>
-              <tbody>
-                <tr>
-                  <td>ViroReact</td>
-                  <td><span class="metric">≈85%</span> less memory</td>
-                  <td>ReactVision's AR/VR renderer: rendering modules migrated from C++, preserving C ABI interop.</td>
-                  <td><a href="case-study-reactvision.html">case study</a></td>
-                </tr>
-                <tr>
-                  <td>Nintendo 3DS</td>
-                  <td><span class="metric">on-device</span> AR demo</td>
-                  <td>Camera-and-gyroscope AR rendered through ViroCore on citro3d, its logic in Eskiu on the ARM11.</td>
-                  <td><a href="case-study-3ds.html">case study</a></td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="install-box" id="install">
+            <span class="lbl">Install on macOS or Linux</span>
+            <span class="cmd">curl -fsSL https://eskiu-lang.org/install.sh | sh</span>
+            <button class="btn btn-purple" type="button" data-copy="curl -fsSL https://eskiu-lang.org/install.sh | sh">Copy</button>
           </div>
-          <p>Early adopters: <a href="https://reactvision.xyz" target="_blank" rel="noopener">ReactVision</a>, <a href="https://themorrow.digital" target="_blank" rel="noopener">The Morrow Digital</a>.</p>
-        </section>
+          <div class="downloads">
+            <span class="lbl">Or download:</span>
+            <a href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">Linux x86-64</a>
+            <a href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-arm64.tar.gz">Linux arm64</a>
+            <a href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">macOS arm64</a>
+            <a href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-windows-x86_64.zip">Windows x86-64</a>
+          </div>
+        </div>
+        <div class="hero-fig"><div class="disc"><img src="../assets/eskiu_round.jpg" alt="The Eskiu mascot, a grey tabby kitten with a ball of yarn" /></div></div>
+      </section>
 
-        <!-- 2 -->
-        <section id="language">
-          <h2><span class="num">2.</span>The language</h2>
-          <p>
-            Eskiu compiles through LLVM to a standalone native binary, with no garbage collector
-            or managed runtime. The surface syntax is C-style, so the basics are familiar; the
-            semantics add sum types, generics with bounds, operator overloading,
-            <code>async</code>/await, channels, and atomics. The compiler is written in Eskiu.
-          </p>
+      <section class="strip" id="production">
+        <div class="wrap strip-in">
+          <span class="eyebrow">In production</span>
+          <p>At ReactVision, with <strong>≈85% less memory</strong> in ViroReact, and on a Nintendo 3DS.</p>
+          <div class="strip-links">
+            <a href="case-study-reactvision.html">ViroReact case study <span aria-hidden="true">→</span></a>
+            <a href="case-study-3ds.html">3DS case study <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+      </section>
 
-          <h3>Sum types and exhaustive match</h3>
-          <p>
-            An <code>enum</code> carries data per variant, and <code>match</code> is checked for
-            exhaustiveness at compile time, so a forgotten case fails to compile.
-          </p>
-          <p class="fname">parse_port.esk</p>
-<pre><span class="kw">enum</span> <span class="ty">ParseResult</span> {
-    <span class="ty">Port</span>(<span class="ty">int</span>),
-    <span class="ty">InvalidRange</span>(<span class="ty">int</span>),
-    <span class="ty">NotANumber</span>,
-}
+      <section class="wrap lang-sec" id="language">
+        <h2>Familiar on the surface.</h2>
 
-<span class="ty">ParseResult</span> <span class="fn">parse_port</span>(<span class="ty">string</span> s) {
-    <span class="kw">let</span> n: <span class="ty">int</span> = <span class="fn">atoi</span>(s);
-    <span class="kw">if</span> (n == <span class="nu">0</span>) { <span class="kw">return</span> <span class="ty">NotANumber</span>; }
-    <span class="kw">if</span> (n &lt; <span class="nu">1</span> || n &gt; <span class="nu">65535</span>) { <span class="kw">return</span> <span class="ty">InvalidRange</span>(n); }
-    <span class="kw">return</span> <span class="ty">Port</span>(n);
-}
-
-<span class="kw">match</span> <span class="fn">parse_port</span>(<span class="st">"8080"</span>) {
-    <span class="ty">Port</span>(p)         <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"listening on :%d\n"</span>, p);
-    <span class="ty">InvalidRange</span>(n) <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"%d out of range\n"</span>, n);
-    <span class="ty">NotANumber</span>      <span class="op">-&gt;</span> <span class="fn">printf</span>(<span class="st">"not a number\n"</span>);
+        <div class="feat">
+          <div class="feat-txt">
+            <span class="n">01</span>
+            <h3>Sum types, checked to the last case</h3>
+            <p>An enum carries data per variant. Leave a case out of a <code>match</code> and it does not compile.</p>
+          </div>
+<pre class="card"><span class="kw">match</span> parse_port(<span class="st">"8080"</span>) {
+    Port(p)         -&gt; <span class="wide">printf(<span class="st">"listening on :%d\n"</span>, p);</span><span class="narrow">serve(p);</span>
+    InvalidRange(n) -&gt; <span class="wide">printf(<span class="st">"%d out of range\n"</span>, n);</span><span class="narrow">warn(n);</span>
+    NotANumber      -&gt; <span class="wide">printf(<span class="st">"not a number\n"</span>);</span><span class="narrow">fail();</span>
 }</pre>
-
-          <h3>Generics and operators</h3>
-          <p>
-            Types are parameterised with interface bounds and monomorphised at compile time. A
-            type can also overload operators as ordinary methods, resolved by operand type, so
-            vector math reads like arithmetic and lowers to a direct call with no runtime cost.
-          </p>
-          <p class="fname">vec.esk</p>
-<pre><span class="kw">struct</span> <span class="ty">V3</span> { <span class="ty">float</span> x; <span class="ty">float</span> y; <span class="ty">float</span> z; }
-
-<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">+</span>(<span class="ty">V3</span> a, <span class="ty">V3</span> b) {
-    <span class="kw">let</span> r: <span class="ty">V3</span>;
-    r.x = a.x <span class="op">+</span> b.x;
-    r.y = a.y <span class="op">+</span> b.y;
-    r.z = a.z <span class="op">+</span> b.z;
-    <span class="kw">return</span> r;
-}
-
-<span class="ty">V3</span> <span class="kw">operator</span> <span class="op">*</span>(<span class="ty">V3</span> v, <span class="ty">float</span> s) {
-    <span class="kw">let</span> r: <span class="ty">V3</span>;
-    r.x = v.x <span class="op">*</span> s;
-    r.y = v.y <span class="op">*</span> s;
-    r.z = v.z <span class="op">*</span> s;
-    <span class="kw">return</span> r;
-}
-
-<span class="kw">let</span> mid: <span class="ty">V3</span> = (a <span class="op">+</span> b) <span class="op">*</span> <span class="nu">0.5</span>;   <span class="cm">// + and * resolve to the overloads</span></pre>
-
-          <h3>Async and channels</h3>
-          <p>
-            <code>async</code> functions return a <code>Future</code>; <code>await</code> suspends
-            until a value is ready. Typed channels (<code>Chan&lt;T&gt;</code>) move values between
-            tasks. The reactor runs on kqueue, epoll, or WSAPoll, so the same code drives Linux,
-            macOS, and Windows.
-          </p>
-          <p class="fname">sum_squares.esk</p>
-<pre><span class="kw">import</span> &lt;future&gt;;
-<span class="kw">import</span> &lt;channel&gt;;
-
-<span class="aw">async</span> <span class="ty">int</span> <span class="fn">sum_squares</span>(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch) {
-    <span class="kw">let</span> a: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">Chan_recv</span>(ch);
-    <span class="kw">let</span> b: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">Chan_recv</span>(ch);
-    <span class="kw">let</span> c: <span class="ty">int</span> = <span class="aw">await</span> <span class="fn">Chan_recv</span>(ch);
-    <span class="kw">return</span> a + b + c;
-}
-
-<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch = <span class="fn">chan_new</span>&lt;<span class="ty">int</span>&gt;(<span class="nu">8</span>);
-<span class="kw">for</span> (i <span class="kw">in</span> <span class="nu">1</span>..<span class="nu">4</span>) { <span class="fn">Chan_send</span>(ch, i * i); }   <span class="cm">// 1, 4, 9 -> 14</span></pre>
-        </section>
-
-        <!-- 3 -->
-        <section id="toolchain">
-          <h2><span class="num">3.</span>Toolchain</h2>
-          <p>
-            One binary, <code>eskiuc</code>, drives everything. <code>eskiuc run</code> compiles
-            and executes in a step; <code>eskiuc app.esk -o app</code> emits a native binary. The stdlib
-            is bundled, so imports resolve out of the box.
-          </p>
-<pre><span class="cm">$ eskiuc run app.esk</span>          <span class="cm"># compile + run in one step</span>
-<span class="cm">$ eskiuc app.esk -o app</span>        <span class="cm"># emit a standalone native binary</span>
-<span class="cm">$ eskiuc --version</span></pre>
-          <h3>Try it</h3>
-          <p>Edit the program below and run it. The server compiles it with LLVM and runs it through the same <code>eskiuc run</code>.</p>
-          <div class="pg" id="try">
-            <div class="pg-grid">
-              <div class="pg-panel">
-                <div class="pg-bar"><span>main.esk</span><span>editor</span></div>
-                <textarea id="pg-code" class="pg-editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Eskiu code editor"></textarea>
-              </div>
-              <div class="pg-panel">
-                <div class="pg-bar"><span>output</span><span>stdout</span></div>
-                <pre id="pg-out" class="pg-out"><span class="hint">Output appears here. Press Run (or ⌘/Ctrl + Enter).</span></pre>
-              </div>
-            </div>
-            <div class="pg-controls">
-              <button id="pg-run" class="pg-run" onclick="runEskiu()"><span id="pg-run-label">▶ Run</span></button>
-              <div class="pg-examples" id="examples">
-                <button class="pg-ex" onclick="loadExample('hello')">hello</button>
-                <button class="pg-ex" onclick="loadExample('basics')">basics</button>
-                <button class="pg-ex" onclick="loadExample('match')">match</button>
-                <button class="pg-ex" onclick="loadExample('generics')">generics</button>
-                <button class="pg-ex" onclick="loadExample('operators')">operators</button>
-                <button class="pg-ex" onclick="loadExample('async')">async</button>
-              </div>
-            </div>
-            <p class="pg-note">sandboxed: no network, time- and memory-limited, output capped.</p>
-          </div>
-        </section>
-
-        <!-- 4 -->
-        <section id="install">
-          <h2><span class="num">4.</span>Install</h2>
-          <p>On macOS or Linux, install the latest release with one command:</p>
-<pre><span class="cm">$ curl -fsSL https://eskiu-lang.org/install.sh | sh</span></pre>
-          <p>It downloads the prebuilt binary for your platform, verifies its checksum, and installs it. Or grab a binary directly and untar it into <code>/usr/local</code>:</p>
-          <div class="btnrow">
-            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-x86_64.tar.gz">↓ Linux x86-64</a>
-            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-linux-arm64.tar.gz">↓ Linux arm64</a>
-            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-macos-arm64.tar.gz">↓ macOS arm64</a>
-            <a class="btn btn-primary" href="https://github.com/doranteseduardo/eskiu/releases/latest/download/eskiuc-windows-x86_64.zip">↓ Windows x86-64</a>
-            <a class="btn" href="quickstart.html">Quickstart →</a>
-          </div>
-          <p style="font-size: 0.85rem; color: var(--muted); margin: -0.6rem 0 1.35rem;">Windows is validated end to end on a native CI runner: the compiler builds and links, and exceptions plus the blocking and async networking stacks all pass. It is not yet part of the release gate, so the Windows build tracks a little ahead of the Linux and macOS ones.</p>
-<pre><span class="cm"># or build from source</span>
-<span class="cm">$ git clone https://github.com/doranteseduardo/eskiu</span>
-<span class="cm">$ cd eskiu &amp;&amp; make</span></pre>
-        </section>
-      </main>
-    </div>
-
-    <footer>
-      <div class="footer-in">
-        <div class="fl">
-          <a href="the-book-of-eskiu.html">book</a>
-          <a href="docs/index.html">docs</a>
-          <a href="docs/internals.html">internals</a>
-          <a href="changelog.html">changelog</a>
-          <a href="https://github.com/doranteseduardo/eskiu">github</a>
-          <a href="https://reactvision.xyz">reactvision ↗</a>
         </div>
-        <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+
+        <div class="feat flip">
+          <div class="feat-txt">
+            <span class="n">02</span>
+            <h3>Vector maths that reads like maths</h3>
+            <p>Bounded generics are monomorphised; operator overloads resolve by operand type and cost nothing at run time.</p>
+          </div>
+<pre class="card"><span class="ty">V3</span> <span class="kw">operator</span> +(<span class="ty">V3</span> a, <span class="ty">V3</span> b) { ... }
+<span class="ty">V3</span> <span class="kw">operator</span> *(<span class="ty">V3</span> v, <span class="ty">float</span> s) { ... }
+
+<span class="kw">let</span> mid: <span class="ty">V3</span> = (a + b) * 0.5;<span class="wide">  <span class="cm">// direct calls</span></span></pre>
+        </div>
+
+        <div class="feat">
+          <div class="feat-txt">
+            <span class="n">03</span>
+            <h3>async, await and typed channels</h3>
+            <p>One reactor on kqueue, epoll or WSAPoll, so the same networking code runs on Linux, macOS and Windows.</p>
+          </div>
+<pre class="card"><span class="kw">async</span> <span class="ty">int</span> sum_squares(<span class="ty">Chan</span>&lt;<span class="ty">int</span>&gt;* ch) {
+    <span class="kw">let</span> a: <span class="ty">int</span> = <span class="kw">await</span> Chan_recv(ch);
+    <span class="kw">let</span> b: <span class="ty">int</span> = <span class="kw">await</span> Chan_recv(ch);
+    <span class="kw">return</span> a + b;
+}</pre>
+        </div>
+
+        <div class="feat flip">
+          <div class="feat-txt">
+            <span class="n">04</span>
+            <h3>The compiler is written in Eskiu</h3>
+            <p>Self-hosting since v0.3.0. The whole pipeline reproduces its own output through a 3-stage bootstrap fixpoint.</p>
+            <a class="more" href="docs/self-hosting.html">How it bootstraps →</a>
+          </div>
+<pre class="card"><span class="cm">selfhost/</span>
+  <span class="kw">lexer</span> → <span class="kw">preprocessor</span> → <span class="kw">parser</span>
+  → <span class="kw">sema</span> → <span class="kw">codegen</span> → <span class="ty">LLVM</span>
+
+stage 1 → 2 → 3  <span class="st">✓ fixpoint</span></pre>
+        </div>
+      </section>
+
+      <section class="pg" id="playground">
+        <span id="toolchain"></span>
+        <div class="wrap pg-in">
+          <div class="pg-head-row">
+            <div class="pg-head">
+              <span class="eyebrow">Playground</span>
+              <h2>Try it in the browser.</h2>
+              <p>Edit the program and run it. The server compiles it with LLVM through the same <code>eskiuc run</code>.</p>
+            </div>
+            <div class="pg-ex" role="group" aria-label="Examples">
+              <button type="button" data-ex="hello" aria-pressed="true">hello</button>
+              <button type="button" data-ex="basics" aria-pressed="false">basics</button>
+              <button type="button" data-ex="match" aria-pressed="false">match</button>
+              <button type="button" data-ex="generics" aria-pressed="false">generics</button>
+              <button type="button" data-ex="operators" aria-pressed="false">operators</button>
+              <button type="button" data-ex="async" aria-pressed="false">async</button>
+            </div>
+          </div>
+          <div class="pg-grid">
+            <div class="pg-editor">
+              <div class="pg-bar"><label for="pg-code">main.esk</label><span>⌘/Ctrl + Enter to run</span></div>
+              <textarea id="pg-code" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+            </div>
+            <div class="pg-side">
+              <pre class="pg-out" aria-live="polite"><span class="lbl">STDOUT</span><span id="pg-res"></span></pre>
+              <button class="btn btn-purple" id="pg-run" type="button"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M3 1.5v11l9-5.5z"/></svg>Run</button>
+              <p class="note">Sandboxed: no network, time- and memory-limited, output capped.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="wrap book-sec">
+        <div class="book">
+          <div class="book-txt">
+            <span class="eyebrow">Free · online</span>
+            <h2>The Book of Eskiu</h2>
+            <p>From <code>Hello, Eskiu</code> to bare-metal programming, async and self-hosting.</p>
+          </div>
+          <div class="book-cta">
+            <a class="btn btn-dark" href="the-book-of-eskiu.html">Start reading</a>
+            <a class="btn btn-line" href="quickstart.html">Quickstart</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-in">
+        <span class="brand">eskiu</span>
+        <span>Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+        <nav class="foot-links" aria-label="Footer">
+          <a href="docs/index.html">Docs</a>
+          <a href="the-book-of-eskiu.html">Book</a>
+          <a href="docs/internals.html">Internals</a>
+          <a href="changelog.html">Changelog</a>
+          <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+          <a href="https://reactvision.xyz">ReactVision</a>
+        </nav>
+        <small>Early adopters: <a href="https://reactvision.xyz">ReactVision</a>, <a href="https://themorrow.digital">The Morrow Digital</a>. Windows is validated end to end on a native CI runner but is not yet part of the release gate.</small>
       </div>
     </footer>
 
-    <script>
-      /* Active-section highlight in TOC */
-      (function () {
-        var links = Array.prototype.slice.call(document.querySelectorAll("#toc-list a"));
-        var map = {};
-        links.forEach(function (a) { map[a.getAttribute("href").slice(1)] = a; });
-        var obs = new IntersectionObserver(function (entries) {
-          entries.forEach(function (e) {
-            if (e.isIntersecting) {
-              links.forEach(function (l) { l.classList.remove("active"); });
-              if (map[e.target.id]) map[e.target.id].classList.add("active");
-            }
-          });
-        }, { rootMargin: "-64px 0px -70% 0px" });
-        document.querySelectorAll("main section[id]").forEach(function (s) { obs.observe(s); });
-      })();
-
-      /* ── Playground ──────────────────────────────────────────────── */
-      const PLAYGROUND_API = "https://eskiu-playground-4cb1.orvex.cloud";
-      const EXAMPLES = {
-        hello: `extern int printf(string fmt, ...);
-
-int add(int a, int b) {
-    return a + b;
-}
-
-int main() {
-    printf("Hello from Eskiu!\\n");
-    printf("2 + 3 = %d\\n", add(2, 3));
-    return 0;
-}
-`,
-        basics: `extern int printf(string fmt, ...);
-
-// A counter that remembers its state across calls (static local).
-int next_id() {
-    static int id = 0;
-    id++;                        // increment operator
-    return id;
-}
-
-int main() {
-    // Array-literal init; a short list zero-fills the rest.
-    int[5] fib = {0, 1, 1, 2, 3};
-
-    // do/while runs the body at least once.
-    int i = 0;
-    do {
-        int even = fib[i] % 2 == 0 ? 1 : 0;      // ternary
-        printf("fib[%d]=%d (%s)\\n", i, fib[i], even ? "even" : "odd");
-        i++;
-    } while (i < 5);
-
-    // Multidimensional array in C order: rows of columns.
-    int[2][3] grid = { {1, 2, 3}, {4, 5, 6} };
-    printf("grid[1][2] = %d\\n", grid[1][2]);     // 6
-
-    printf("ids: %d %d %d\\n", next_id(), next_id(), next_id());  // 1 2 3
-    return 0;
-}
-`,
-        match: `extern int printf(string fmt, ...);
-extern int atoi(string s);
-
-enum ParseResult {
-    Port(int),
-    InvalidRange(int),
-    NotANumber,
-}
-
-ParseResult parse_port(string s) {
-    let n: int = atoi(s);
-    if (n == 0) { return NotANumber; }
-    if (n < 1 || n > 65535) { return InvalidRange(n); }
-    return Port(n);
-}
-
-int main() {
-    match parse_port("8080") {
-        Port(p)         -> printf("Listening on :%d\\n", p);
-        InvalidRange(n) -> printf("%d out of range\\n", n);
-        NotANumber      -> printf("not a number\\n");
-    }
-    return 0;
-}
-`,
-        generics: `extern int printf(string fmt, ...);
-
-interface Ord { int cmp(Ord* o); }
-
-struct Coin {
-    int value;
-    int cmp(Coin* o) { if (self.value < o.value) { return -1; } return 1; }
-}
-
-T max<T: Ord>(T* a, T* b) {
-    if (a.cmp(b) > 0) { return a[0]; }
-    return b[0];
-}
-
-int main() {
-    let x: Coin;  x.value = 7;
-    let y: Coin;  y.value = 3;
-    let hi: Coin = max<Coin>(&x, &y);
-    printf("max = %d\\n", hi.value);   // max = 7
-    return 0;
-}
-`,
-        operators: `extern int printf(string fmt, ...);
-
-struct V3 { float x; float y; float z; }
-
-V3 operator +(V3 a, V3 b) {
-    let r: V3;
-    r.x = a.x + b.x;
-    r.y = a.y + b.y;
-    r.z = a.z + b.z;
-    return r;
-}
-
-V3 operator *(V3 v, float s) {
-    let r: V3;
-    r.x = v.x * s;
-    r.y = v.y * s;
-    r.z = v.z * s;
-    return r;
-}
-
-bool operator ==(V3 a, V3 b) {
-    return a.x == b.x && a.y == b.y && a.z == b.z;
-}
-
-int main() {
-    let a: V3; a.x = 1.0; a.y = 2.0; a.z = 3.0;
-    let b: V3; b.x = 3.0; b.y = 4.0; b.z = 5.0;
-
-    let mid: V3 = (a + b) * 0.5;                 // + and * resolve to the overloads
-    printf("mid = %.0f %.0f %.0f\\n", (double)mid.x, (double)mid.y, (double)mid.z);
-
-    printf("mid == a? %d\\n", mid == a);          // 0
-    return 0;
-}
-`,
-        async: `extern int printf(string fmt, ...);
-import <future>;
-import <channel>;
-
-async int sum_squares(Chan<int>* ch) {
-    let a: int = await Chan_recv(ch);
-    let b: int = await Chan_recv(ch);
-    let c: int = await Chan_recv(ch);
-    return a + b + c;
-}
-
-int main() {
-    Chan<int>* ch = chan_new<int>(8);
-    for (i in 1..4) { Chan_send(ch, i * i); }   // 1, 4, 9
-    Future<int>* f = sum_squares(ch);
-    future_poll<int>(f, void() {});
-    printf("sum of squares = %d\\n", f.value);   // 14
-    free_future<int>(f);  Chan_free<int>(ch);
-    return 0;
-}
-`,
-      };
-      function loadExample(name) { document.getElementById("pg-code").value = EXAMPLES[name]; }
-      function esc(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]); }
-      async function runEskiu() {
-        const btn = document.getElementById("pg-run");
-        const label = document.getElementById("pg-run-label");
-        const out = document.getElementById("pg-out");
-        const code = document.getElementById("pg-code").value;
-        if (!code.trim()) { out.innerHTML = '<span class="err">Nothing to run. Write some code first.</span>'; return; }
-        btn.disabled = true;
-        label.innerHTML = '<span class="spin"></span> Running';
-        out.innerHTML = '<span class="meta">Compiling &amp; running…</span>';
-        try {
-          const res = await fetch(PLAYGROUND_API + "/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
-          const data = await res.json();
-          if (!data.ok) { out.innerHTML = '<span class="err">' + esc(data.error || "Request failed.") + "</span>"; return; }
-          let html = "";
-          if (data.stdout) html += esc(data.stdout);
-          if (data.stderr) html += '<span class="err">' + esc(data.stderr) + "</span>";
-          if (!data.stdout && !data.stderr) html += '<span class="meta">(no output)</span>';
-          const parts = [];
-          if (data.timed_out) parts.push('<span class="err">timed out</span>');
-          else if (data.exit_code === 0) parts.push('<span class="ok">exit 0</span>');
-          else parts.push('<span class="err">exit ' + data.exit_code + "</span>");
-          if (typeof data.duration_ms === "number") parts.push(data.duration_ms + "ms");
-          if (data.truncated) parts.push("output truncated");
-          html += '\n\n<span class="meta">' + parts.join(" · ") + "</span>";
-          out.innerHTML = html;
-        } catch (e) {
-          out.innerHTML = '<span class="err">Could not reach the playground server.</span>\n<span class="hint">The live runner may be offline. Run locally instead; see the quickstart.</span>';
-        } finally { btn.disabled = false; label.textContent = "▶ Run"; }
-      }
-      (function () {
-        const ta = document.getElementById("pg-code");
-        if (ta) {
-          ta.value = EXAMPLES.hello;
-          ta.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); runEskiu(); } });
-        }
-      })();
-    </script>
+    <script src="home.js"></script>
   </body>
 </html>

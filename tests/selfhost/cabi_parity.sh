@@ -36,7 +36,7 @@ x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-w64-windows-gnu
 armv7-none-linux-gnueabihf armv6k-none-eabihf armv7-none-linux-gnueabi
 i686-pc-linux-gnu i386-apple-darwin i686-w64-windows-gnu i686-pc-windows-msvc"
 X86_32="i686-pc-linux-gnu i386-apple-darwin i686-w64-windows-gnu i686-pc-windows-msvc"
-INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk tests/c_abi_narrow.esk tests/c_abi_x86_32.esk tests/pack_nested_c.esk tests/pack_union_c.esk"
+INPUTS="tests/c_abi_struct.esk tests/c_abi_callback.esk tests/c_abi_try.esk tests/c_abi_fnptr.esk tests/bitfield_c_layout.esk tests/c_abi_union.esk tests/c_abi_narrow.esk tests/c_abi_x86_32.esk tests/pack_nested_c.esk tests/pack_union_c.esk tests/bitfield_unnamed_c.esk"
 
 # The lowered signatures in an IR file, one per line, sorted: `NAME<TAB>signature`. The C++
 # names a union's storage type `%U.union` and the self-host `%U`; only the spelling differs.
@@ -126,6 +126,19 @@ for t in $TARGETS; do
         echo "FAIL  $name"; diff "$WORK/cpp.sz" "$WORK/esk.sz" | head -8 | sed 's/^/  /'; fail=1
     else
         echo "ok    $name  ($(tr '\n' ' ' <"$WORK/cpp.sz" | sed -E 's/@sz_([a-z]+) = global i32 /\1=/g'))"
+    fi
+done
+# Bitfield layouts that differ by target (tests/run_cmd/bitfield_targets.esk; run.sh checks
+# the C++ sizes against clang's): the same `@sz_*`/`@al_*` in both compilers.
+for t in $TARGETS; do
+    n=$((n + 1))
+    name="bitfield_targets@$t"
+    ESKIU_ROOT="$(pwd)" "$BIN" tests/run_cmd/bitfield_targets.esk --test-codegen --target "$t" 2>&1 | grep -E '^@(sz|al)_' >"$WORK/cpp.sz"
+    ESKIU_ROOT="$(pwd)" "$ESKMAIN" tests/run_cmd/bitfield_targets.esk --test-codegen --target "$t" 2>&1 | grep -E '^@(sz|al)_' >"$WORK/esk.sz"
+    if [ ! -s "$WORK/cpp.sz" ] || ! cmp -s "$WORK/cpp.sz" "$WORK/esk.sz"; then
+        echo "FAIL  $name"; diff "$WORK/cpp.sz" "$WORK/esk.sz" | head -8 | sed 's/^/  /'; fail=1
+    else
+        echo "ok    $name"
     fi
 done
 echo "----"

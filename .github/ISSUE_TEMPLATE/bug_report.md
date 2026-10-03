@@ -56,7 +56,7 @@ Run with test modes and paste the output:
 ## System Information
 - **OS:** macOS / Linux
 - **LLVM version:** (run: `llvm-config --version`)
-- **Compiler version:** (run: `./build/eskiuc --version`)
+- **Compiler version:** (run: `eskiuc --version`)
 - **Build type:** Debug / Release
 
 ## Related Issues

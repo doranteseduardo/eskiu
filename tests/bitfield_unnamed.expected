@@ -1,0 +1,13 @@
+Flags 5 6 size 1
+Flags: c5
+Flags: 27
+Split 6 3
+Split zero 0
+Reg 1 9 4660 size 8
+Reg: 01 09 00 00 34 12 00 00
+Edge x y
+Tail 65535 size 4
+Box 42 17 size 8
+Wide 200
+Outer o 1 2 3 1
+dims 1 1 1

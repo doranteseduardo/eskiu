@@ -16,25 +16,12 @@ POST /run
 
 `GET /healthz` → `{ "ok": true }` once the compiler is present.
 
-## The vendored compiler (`dist/`)
+## The compiler
 
-The repo is private, so the image can't pull the release asset during a build.
-Instead the Linux compiler is **vendored** in `dist/` (committed) and copied in:
-
-```
-dist/bin/eskiuc
-dist/lib/eskiu/stdlib/...
-```
-
-Refresh it whenever you cut a new release:
-
-```bash
-./update-dist.sh            # latest tag
-./update-dist.sh v0.2.5     # a specific tag
-```
-
-(The release binary statically links LLVM, so the image stays small: it only
-needs a few shared libs + `gcc` as the C linker for `eskiuc run`.)
+The image downloads the Linux x86-64 release of `eskiuc` during the build and checks it
+against the release's `SHA256SUMS`. The version is a build argument, `ESKIU_VERSION`, whose
+default in the `Dockerfile` tracks the latest release. The release binary statically links
+LLVM, so the image only needs a few shared libs and `gcc` as the C linker for `eskiuc run`.
 
 ## Build
 
@@ -42,6 +29,7 @@ The build context is **this directory** (`playground/`):
 
 ```bash
 docker build -t eskiu-playground .
+docker build --build-arg ESKIU_VERSION=0.9.3 -t eskiu-playground .   # a specific release
 ```
 
 ## Run on the VPS

@@ -1,0 +1,42 @@
+just k=6
+= 7
+nothing
+= 9
+just k=8
+= 1 2
+nothing
+= 5 6
+tick 1
+bump 2
+boxed 3
+k=15 n=315
+boxed 4
+= 2
+tick 5
+bump 6
+boxed 7
+k=15 n=715
+boxed 8
+= 3 4
+z=2
+= 11
+z=0
+= 12
+z=2
+= 7 8
+z=0
+= 9 10
+boxed 9
+bx.n=7
+= 2 3
+boxed 10
+bx.n=7
+= 6
+bump 11
+parked
+x=41
+= 5
+bump 12
+parked
+x=-7
+= 0 0

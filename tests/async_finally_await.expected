@@ -1,0 +1,55 @@
+body 1
+finally 10
+fall_through = 11
+finally after return 7
+early_return = 10
+finally of plain return
+plain_return = 6
+caught 9
+finally after catch 100
+caught = 11
+finally while unwinding 3
+outer caught 4
+unwinds = 4
+body 40
+defer 3 (plain)
+defer 2 (2)
+defer 1 (1)
+defers = 40
+iteration 0
+loop defer 0
+loop defer 1
+iteration 2
+loop defer 2
+break defer
+loop_defers = 3
+inner finally 2
+defer in inner finally
+outer finally 3
+nested = 1
+lambda in finally 22
+lambda_in_finally = 21
+defer before handler 6
+handler 5
+defer_then_handler = 5
+defer while unwinding 2
+plain finally after defer
+caught 7
+defer_unwinds = 7
+finally 0
+finally 1
+rethrow_twice = 21
+replaced by 2
+finally_throws = 2
+generic finally
+generic defer 0
+keep = 4
+generic finally
+generic defer 0
+keep<double> = 2.500000
+case defer
+while defer 11
+while defer 12
+sw = 12
+void body
+void finally

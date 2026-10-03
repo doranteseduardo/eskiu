@@ -8,6 +8,83 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.9.3] - unreleased
+
+### Added
+- **`await` inside `finally` and `defer`** in an async function. The cleanup suspends and
+  resumes like any other await: on fall-through, an early `return` (the value is kept),
+  `break`/`continue`, a caught exception, or an exception unwinding through the try, which
+  is thrown again once the `finally` ends. Several defers still run last-registered first.
+  A future dropped while parked runs its pending cleanup detached, as with `spawn`: the
+  awaited future is dropped first, the cleanup may suspend, and the frame frees itself when
+  the cleanup ends; dropping it again meanwhile does nothing. Both compilers. Tests
+  `async_finally_await`, `async_cancel_await_cleanup`; `errors/await_in_finally` and
+  `run_cmd/await_in_defer` are gone, and `run_cmd/await_unplaced` checks the located error
+  for an `await` in an `asm` input (the C++ compiler reported it as an internal error).
+- **Unnamed bitfields**, as in C. `T : N;` reserves N bits laid out like a named bitfield
+  of type T, and `T : 0;` moves the next bitfield to a new unit of T. They are allowed in
+  structs and unions, are not members (a positional struct literal skips them and their
+  bits are zero), and follow the target's C layout, including the alignment rules that
+  differ between SysV, AAPCS and Windows. `sizeof` folds them in the type checker, and a
+  struct holding one crosses the C ABI as clang passes it. Both compilers. Tests
+  `bitfield_unnamed`, `bitfield_unnamed_c` (+ `.c`), `errors/bitfield_unnamed_*`.
+
+### Fixed
+- A bitfield typed by a generic struct's type parameter (`struct F<T> { T a : 3; }`) is
+  checked with each instance's type argument: `F<uint8>` works in the self-hosted compiler
+  too (it rejected the declaration), and `F<float>` is an error in the C++ compiler too (it
+  accepted it). Tests `bitfield_generic`, `errors/bitfield_generic_float`.
+- An `int64`/`uint64` bitfield on 32-bit x86 Linux and Darwin (where `int64` is aligned to
+  4) follows clang's layout: it may start at any 4-byte boundary as long as it fits in 8
+  bytes from there, and it takes no more storage than the bytes it spans. Before, it was
+  placed as if aligned to 8 (`struct { uint64 f : 22; }` was 8 bytes instead of 4). Both
+  compilers; `tests/run.sh` checks the sizes of `tests/run_cmd/bitfield_targets.esk`
+  against clang's for six targets.
+- **Closure environments leaked.** A capturing lambda bound to a local of an async
+  function lost its environment (16 bytes or more per call): the local lives in the
+  coroutine frame, so the environment is on the heap, and nothing freed it. The frame now
+  frees it when the function completes or is cancelled, and when the local is bound again
+  (for example once per loop pass). Outside async functions, a lambda bound to a local
+  that is only called now keeps its environment on the stack as documented (it was on the
+  heap and never freed), and the self-hosted compiler also keeps a lambda passed to a
+  non-`escaping` parameter on the stack (it allocated every capturing lambda on the heap).
+  Both compilers. Tests `async_closure_env`, `closure_local_env`.
+- Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
+  constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
+  and in combined constraints (`Nd`). They are translated to LLVM's `{ax}` form as clang
+  does; before, LLVM failed to allocate them. Test `inline_asm_gcc`.
+- A captured value is read-only inside a lambda, as with a by-value capture in C++.
+  Calling a method with a plain `*T self` on it, or on a field of it (`c.inner.m()`), is
+  now an error; before, the method silently changed the closure's copy. A `const T* self`
+  method and a call through a captured pointer are allowed. Tests
+  `errors/closure_captured_method_*`, `closure_captured_method_ok`.
+- **`await` in generic async functions.** An await in a `match` arm that binds a
+  payload, after an operand with a side effect in the same expression, or inside a `?:`
+  arm now works in a generic async function, as it does in a plain one. The lowering
+  types the temporaries from the type checker's records for each instance, written in
+  terms of the type parameters. Both compilers.
+- **Self-hosted compiler on deeply nested binary expressions.** Code generation for
+  `a + (a + (...))` thousands of levels deep took time quadratic in the depth; the type
+  checker and the code generator now type each node once, so it is linear (depth 4000:
+  26 s before, 0.06 s now). The emitted IR is unchanged.
+- On macOS the native target triple carries the macOS product version (`macosx27.0`)
+  instead of the Darwin one, whose mapping LLVM gets wrong on a new release; the linker
+  no longer warns that every object was built for a newer macOS.
+- `-o name.obj` writes an object file, like `.o`, instead of trying to link an executable.
+  Both drivers.
+- Diagnostics name types as written (`'Box'`, not `'struct:Box'`), matching the
+  self-hosted compiler. `--help` for `-Wall` lists the maybe-uninitialized warning.
+
+### Changed
+- The roadmap (`docs/dev/phases.md`), the self-hosting overview and the contributor guide
+  are rewritten. Every document was reviewed against the compiler: stale or wrong statements
+  in the spec, the tutorial, the build guide, the architecture, async and ABI notes, the
+  API reference and the READMEs are corrected, and the examples compile and print what
+  they say.
+- The playground image downloads the release from GitHub and checks it against
+  `SHA256SUMS`, instead of a copy of the compiler committed under `playground/dist`.
+- `kernel/Makefile` uses `clang` from `PATH`.
+
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
@@ -1014,13 +1091,14 @@ These are open in 0.9.2. None of them miscompiles a valid program.
   when a cancelled future is dropped. In a generic async function an `await` is also
   rejected in a `match` arm that binds a payload, after an operand with a side effect in
   the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
+  (The generic cases are fixed in 0.9.3.)
 - A method that mutates a captured value inside a lambda acts on the closure's copy
   (captures are by value); write through a pointer to share state.
 - The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so
   constant-expression checks do not see it (codegen gets its size right).
 - The self-hosted compiler generates code for deeply nested binary expressions
   (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear.
+  compiler is linear. (Fixed in 0.9.3.)
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
@@ -1375,7 +1453,7 @@ promotion track.
   was a generic container, so `for (v in xs)` over a `List<double>`/`List<int64>`
   truncated each element (and emitted invalid IR for `List<Struct>`). The desugar now
   resolves the element type by substituting the container's type argument, matching the
-  C++ back-end. (Residual R1 in `PROMOTION_PLAN.md`.)
+  C++ back-end.
 - **Self-hosted back-end: exceptions were mishandled.** A catch-less `try`/`finally`
   swallowed an in-flight exception (running cleanup but then continuing as if caught), and
   a `throw` from inside a catch handler that had to cross a function boundary was lost
@@ -1504,8 +1582,7 @@ promotion track.
   preprocesses the top-level file (matching how the C++ `--test-parser` folds
   preprocessing into the lexer), so `parse_parity.sh --full` no longer excludes
   files whose import closure touches the preprocessor (`#ifdef`/`#define`/`__FILE__`/
-  `__LINE__`/shebang). A prerequisite for promoting the Eskiu-written compiler
-  (see `selfhost/PROMOTION_PLAN.md`, R2).
+  `__LINE__`/shebang). A prerequisite for promoting the Eskiu-written compiler.
 
 ---
 
@@ -1537,13 +1614,12 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
   generation. `-O0` (the default) keeps the prior behavior: naive IR straight to the
   backend. On real code this collapses the per-local stack traffic the front-end emits
-  (the `ine_decoder` demo drops from 514 allocas to 25 at `-O2`); its Makefile now builds
-  with `-O2`.
+  (a 1,600-line crypto pipeline drops from 514 allocas to 25 at `-O2`).
 - **Clearer diagnostic for a keyword used as a name.** Using a reserved word (`fn`, `in`,
   `match`, a type name, ...) as a variable, parameter, or field name now reports
   `expected a name, found keyword 'fn'` at the cause, instead of a misleading downstream
   error (`Expected ';'`, `Expected expression`). This was the most recurring self-host
-  papercut. The self-hosted parser mirror is tracked in `selfhost/PROMOTION_PLAN.md` (R3).
+  papercut. The self-hosted parser mirror followed later.
 - **`String_free` clears `data`.** It sets `self.data = null` after `free`, so a reused or
   doubly-freed `String` can no longer hand a dangling pointer to `free`.
 - **`String` length/capacity are now `int64`.** `%String` went from `{ ptr, i32, i32 }` to
@@ -1580,7 +1656,7 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   error can never contaminate the `.ll` text on stdout. cg_parity 55/55, cg_selfhost 68/68,
   bootstrap fixpoint. (NOTE: a later systematic feature sweep, pushing the C++ test corpus
   through the parity oracle, showed self-host codegen is NOT yet feature-complete; ~8
-  root-cause gaps remain, tracked in `selfhost/BACKEND_PLAN.md`. The bootstrap only exercises
+  root-cause gaps remained, closed in later releases. The bootstrap only exercises
   the subset the compiler's own source uses, so it missed them.)
 - **Self-hosted codegen: more of the language.** Beyond the bootstrap subset, the
   self-hosted code generator (`selfhost/codegen.esk`) now also lowers: **floating point**
@@ -1874,7 +1950,7 @@ compiler trustworthy and close the generics gap before the self-hosting arc.
 ---
 
 ## [0.2.1]
-Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
+Hardening and ergonomics, shaken out by building a real service (a QR-decoding HTTP
 API) on 0.2.0.
 
 ### Compiler
@@ -2145,12 +2221,8 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ### Added
 
-**Decoder rewritten in Eskiu (no C pipeline code)**
-- `ine_decoder/crypto.esk` (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, `run_no_so_pipeline()`; all in Eskiu calling OpenSSL via `extern`
-- `ine_decoder/output.esk` (186 lines): Spanish character table, field splitter, growable JSON buffer, `decode_to_buffers()`; pure Eskiu
-- `ine_decoder/crypto.c` and `output_decode.c` removed: replaced entirely by Eskiu
-- Only C remaining: `qr_extract.c` shim (12 lines) + `qr_extract_impl.cpp` (CoreGraphics + zxing-cpp)
-- Runtime: **80ms** on arm64, identical output to reference
+**Crypto pipeline demo rewritten in Eskiu (no C pipeline code)**
+- AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders and the JSON output stage moved from C to Eskiu calling OpenSSL via `extern` (the demo has since been removed from the repository)
 
 **String literal adjacent concatenation**
 - `"abc" "def"` on consecutive lines (or the same line) are now concatenated into a single string at parse time; enables readable multi-line constant definitions
@@ -2178,7 +2250,6 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 - `globalVarTypes` map tracks Eskiu type strings for globals (complement to function-scoped `varTypeStack`)
 - `evaluateConstantExpr()`: folds literal expressions to `llvm::Constant*`
 - `visit(IdentExpr*)` now loads from `llvm::GlobalVariable` as well as `AllocaInst`
-- `IMAGE_PATH`, `OUT_JSON`, `OUT_WEBP` in `ine_decoder/main.esk` moved to module scope
 
 **sret (large struct return)**
 - `needsSret(type)`: returns true for aggregates > 16 bytes (arm64 register limit)
@@ -2192,8 +2263,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 - Fixes `i32 1712` passed to `int64 param` (was LLVM verification error)
 
 ### Fixed
-- `*int` vs `size_t *` in `extern.esk`: `run_no_so_pipeline` and `decode_to_buffers` now use `int64` for length params to match C's `size_t` (was writing 8 bytes to a 4-byte stack slot → heap corruption)
-- ine_decoder `pipeline.esk`: stage signatures updated to `int64` for all size parameters
+- `*int` vs `size_t *` in the demo's externs: length params now use `int64` to match C's `size_t` (was writing 8 bytes to a 4-byte stack slot → heap corruption)
 
 ### Planned
 - `argv`/`argc` support: programs can accept CLI arguments natively
@@ -2203,16 +2273,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 ## [0.0.9-alpha]
 
 ### Added
-- **`ine_decoder/`, INE QR decoder port**: full pipeline running at **74.4 ms** total
-  (QR: 71.7 ms + crypto: 2.8 ms + output decode: <1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C
-  - `types.esk`: `QRPair`, `NoSoKeys`, `IneResult`, `IneFields` structs
-  - `extern.esk`: libc + OpenSSL EVP (AES-256-CBC / RSA-8192) + `ine_qr_extract()` declarations
-  - `stage1_qr.esk`: QR extraction wrapper
-  - `stage2_crypto.esk`: 3-round AES-256-CBC + RSA-8192 via OpenSSL
-  - `stage3_output.esk`: pipe-delimited plaintext → JSON + WebP extraction
-  - `main.esk`: orchestration, timing, output
-  - `qr_extract.c` / `qr_extract_impl.cpp`: C/C++ shim using CoreGraphics + zxing-cpp 3.x
-  - `Makefile`, `README.md`
+- **Crypto pipeline demo**: a QR extraction + AES-256-CBC + RSA-8192 pipeline ported to Eskiu, 74.4 ms total vs. 188.9 ms for the reference C (since removed from the repository)
 
 ### Fixed
 - **Integer width mismatch in comparisons**: `uint8 == int` (e.g. `plaintext[i] == 124`) crashed LLVM with "Both operands to ICmp instruction are not of the same type"; now `ZExt`s the narrower operand to match the wider before emitting any of the six comparison operators

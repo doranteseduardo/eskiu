@@ -1,0 +1,8 @@
+// EXPECT-ERROR: cannot convert 'Box' to 'int'
+// A diagnostic names a struct type as written, without the internal `struct:` tag.
+struct Box { int v; }
+int main() {
+    let b: Box = Box { v: 1 };
+    int y = b;
+    return y;
+}

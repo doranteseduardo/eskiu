@@ -5,104 +5,240 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Changelog · Eskiu</title>
   <meta name="description" content="All notable changes to Eskiu are documented in this file." />
+  <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/changelog.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
-  <style>*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&amp;family=DM+Sans:wght@400;500;700&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
+  <style>*, *::before, *::after { box-sizing: border-box; }
 :root {
-  --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
-  --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
-  --accent: #4c31bb; --accent-lt: #6448d4;
-  --inline: rgba(120, 110, 180, 0.12);
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --paper: #fbf8f3; --ink: #1c1830; --ink2: #4a4560; --muted: #6b6580; --faint: #8b8699;
+  --rule: #e6e0d6; --purple: #3b2a8c; --lilac: #e9e1f4; --lilac-2: #f1ecf8; --lilac-3: #d9d1f0;
+  --serif: "Fraunces", Georgia, serif;
+  --sans: "DM Sans", -apple-system, "Segoe UI", sans-serif;
+  --mono: "DM Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --gutter: 24px;
 }
+@media (min-width: 900px) { :root { --gutter: 48px; } }
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
+body { margin: 0; background: var(--paper); color: var(--ink2); font-family: var(--sans); font-size: 17px;
        line-height: 1.7; -webkit-font-smoothing: antialiased; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a { color: var(--purple); text-decoration: none; }
+a:hover { color: var(--ink); }
+.bar { max-width: 1440px; margin: 0 auto; padding-inline: var(--gutter); }
 
-/* Top bar (shared with the homepage) */
-header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
-.top-in { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
-.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
-.brand:hover { text-decoration: none; }
-.brand img { width: 24px; height: 24px; }
-.brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
-.top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
-.top-links a { color: var(--ink2); }
-.top-links a:hover { color: var(--accent); text-decoration: none; }
+/* Header (shared look with the homepage) */
+.top { position: sticky; top: 0; z-index: 30; background: rgba(251, 248, 243, 0.94);
+       backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--rule); }
+.top-in { height: 72px; display: flex; align-items: center; gap: 40px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--serif); font-weight: 800;
+         font-size: 24px; color: var(--ink); }
+.brand img { width: 34px; height: 34px; }
+.brand .v { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--faint); margin-left: 2px; }
+.nav { display: none; gap: 30px; font-weight: 500; font-size: 16px; }
+.nav a { color: var(--ink); }
+.nav a:hover, .nav a[aria-current] { color: var(--purple); }
+.nav a[aria-current] { text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1.5px; }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.btn-install { display: none; background: var(--ink); color: var(--paper); font-weight: 700; font-size: 15px;
+               padding: 12px 20px; border-radius: 12px; }
+.btn-install:hover { background: var(--purple); color: #fff; }
+.menu-btn { width: 48px; height: 48px; border: 1.5px solid var(--ink); background: #fff; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; color: var(--ink); }
+.drawer { display: none; border-top: 1px solid var(--rule); padding: 8px var(--gutter) 20px; }
+.drawer a { display: block; padding-block: 14px; font-size: 18px; font-weight: 500; color: var(--ink);
+            border-bottom: 1px solid var(--rule); }
+.top.open .drawer { display: block; }
+@media (min-width: 900px) {
+  .nav, .btn-install { display: flex; }
+  .menu-btn, .drawer, .top.open .drawer { display: none; }
+}
 
-.wrap { max-width: 860px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-.docnav { display: flex; flex-wrap: wrap; gap: 0.35rem 0.4rem; margin-bottom: 2.5rem;
-          padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
-.docnav a { font-family: var(--mono); font-size: 0.78rem; color: var(--ink2);
-            padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid transparent; }
-.docnav a:hover { color: var(--accent); background: var(--surface); text-decoration: none; }
-.docnav a.active { color: var(--accent); border-color: var(--border); background: var(--surface); font-weight: 600; }
-.content h1 { font-family: var(--mono); font-size: clamp(1.6rem, 4.5vw, 2.2rem); font-weight: 700;
-              letter-spacing: -0.03em; line-height: 1.15; margin: 0 0 1.25rem; }
-.content h2 { font-family: var(--mono); font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em;
-              margin: 2.75rem 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
-.content h3 { font-family: var(--mono); font-size: 1.08rem; font-weight: 600; margin: 1.9rem 0 0.6rem; }
-.content h4 { font-family: var(--mono); font-size: 0.95rem; margin: 1.4rem 0 0.5rem; color: var(--ink2); }
-.content p { margin: 0 0 1rem; }
-.content ul, .content ol { margin: 0 0 1rem 1.3rem; }
-.content li { margin-bottom: 0.4rem; color: var(--ink2); }
-.content strong { font-weight: 600; color: var(--ink); }
-.content hr { border: none; border-top: 1px solid var(--border); margin: 2.25rem 0; }
-.content blockquote { border-left: 3px solid var(--accent); background: var(--surface);
-                      padding: 0.8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 0 0 1.25rem;
-                      color: var(--ink2); }
+/* Layout: sidebar | content | on this page */
+.layout { padding-block: 32px 88px; }
+.side { display: none; }
+.side .grp, .side-m .grp, .toc .grp { display: block; font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--purple); margin: 0 0 8px; }
+.side nav + .grp, .side-m nav + .grp { margin-top: 28px; }
+.side a, .side-m a { display: block; font-size: 15px; color: var(--ink2); padding: 7px 12px; border-radius: 10px; }
+.side a:hover, .side-m a:hover { color: var(--ink); background: var(--lilac-2); }
+.side a[aria-current], .side-m a[aria-current] { color: var(--ink); background: var(--lilac); font-weight: 700; }
+.side-m { margin: 0 0 36px; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px; }
+.side-m summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 18px; font-weight: 700; color: var(--ink); cursor: pointer; list-style: none; }
+.side-m summary::-webkit-details-marker { display: none; }
+.side-m summary::after { content: "+"; font-family: var(--mono); font-size: 20px; color: var(--purple); }
+.side-m[open] summary::after { content: "–"; }
+.side-m .inner { padding: 4px 8px 16px; border-top: 1px solid var(--rule); }
+.side-m .grp { padding: 14px 12px 0; }
+.toc { display: none; }
+@media (min-width: 900px) {
+  .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-block: 48px 104px; }
+  .side { display: block; position: sticky; top: 104px; align-self: start; max-height: calc(100vh - 128px); overflow: auto; }
+  .side-m { display: none; }
+}
+@media (min-width: 1240px) {
+  .layout.has-toc { grid-template-columns: 220px minmax(0, 780px) 200px; justify-content: space-between; }
+  .toc { display: block; position: sticky; top: 104px; align-self: start; max-height: calc(100vh - 128px);
+         overflow: auto; border-left: 1.5px solid var(--rule); padding-left: 16px; }
+  .toc a { display: block; font-size: 14px; line-height: 1.4; color: var(--muted); padding: 5px 0; }
+  .toc a:hover { color: var(--purple); }
+}
+
+/* Content */
+.content { min-width: 0; max-width: 780px; overflow-wrap: break-word; }
+.content h1, .content h2, .content h3, .content h4 { color: var(--ink); scroll-margin-top: 96px; }
+.content h1 { font-family: var(--serif); font-weight: 800; font-size: clamp(40px, 5vw, 56px);
+              letter-spacing: -0.03em; line-height: 1.04; margin: 0 0 24px; }
+.content h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3vw, 32px);
+              letter-spacing: -0.02em; line-height: 1.15; margin: 56px 0 16px; }
+.content h3 { font-size: 20px; font-weight: 700; line-height: 1.3; margin: 36px 0 10px; }
+.content h4 { font-size: 16px; font-weight: 700; margin: 28px 0 8px; }
+.content h1 code, .content h2 code, .content h3 code { font-size: 0.85em; }
+.content p { margin: 0 0 18px; }
+.content ul, .content ol { margin: 0 0 18px; padding-left: 1.3em; }
+.content li { margin-bottom: 6px; }
+.content li > ul, .content li > ol { margin: 6px 0 0; }
+.content strong { font-weight: 700; color: var(--ink); }
+.content hr { border: none; border-top: 1.5px solid var(--rule); margin: 48px 0; }
+.content p a, .content li a, .content td a { text-decoration: underline; text-decoration-color: var(--lilac-3);
+  text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.content p a:hover, .content li a:hover, .content td a:hover { text-decoration-color: var(--purple); }
+.content blockquote { margin: 0 0 24px; background: var(--lilac-2); border-radius: 14px; padding: 16px 20px; }
 .content blockquote p:last-child { margin-bottom: 0; }
-.content code { font-family: var(--mono); font-size: 0.86em; background: var(--inline);
-                padding: 0.15em 0.4em; border-radius: 4px; }
-.content pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-               padding: 0.9rem 1.1rem; margin: 0 0 1.5rem; overflow-x: auto;
-               font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--ink); }
-.content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
-.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
-.content table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.content th, .content td { text-align: left; padding: 0.55rem 0.85rem;
-                          border-bottom: 1px solid var(--border-mut); vertical-align: top; }
-.content th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
-              letter-spacing: 0.05em; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.content code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); background: var(--lilac-2);
+                padding: 0.12em 0.38em; border-radius: 6px; }
+.content pre { margin: 0 6px 28px 0; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px;
+               padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
+               color: var(--ink); box-shadow: 5px 5px 0 var(--lilac); }
+.content :not(pre) > code { overflow-wrap: anywhere; }
+.content pre code { background: none; padding: 0; font-size: inherit; border-radius: 0; }
+.tablewrap { overflow-x: auto; margin: 0 0 28px; background: #fff; border: 1.5px solid var(--ink); border-radius: 14px; }
+.content table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 1.55; }
+.content th, .content td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.content th { font-family: var(--mono); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+              color: var(--muted); background: var(--paper); border-bottom: 1.5px solid var(--ink); white-space: nowrap; }
 .content tbody tr:last-child td { border-bottom: none; }
 .content td code { white-space: nowrap; }
+@media (min-width: 900px) { .content pre { font-size: 14px; padding: 20px 24px; } }
+@media (max-width: 600px) { .content th, .content td { padding: 8px 10px; white-space: normal; } .content table { font-size: 14px; } }
 
-/* Footer (shared with the homepage) */
-footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
-.footer-in { max-width: 860px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
-             gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
-.footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
-.footer-in a { color: var(--ink2); }
-.footer-in a:hover { color: var(--accent); text-decoration: none; }
-.footer-in .cp { margin-left: auto; color: var(--muted); }
-@media (max-width: 600px) {
-  .content table { font-size: 0.8rem; }
-  .content th, .content td { padding: 0.4rem 0.55rem; white-space: normal; }
+/* Footer (shared look with the homepage) */
+.foot { border-top: 1.5px solid var(--ink); }
+.foot-in { padding-block: 40px 48px; display: flex; flex-direction: column; gap: 22px; font-size: 16px; color: var(--ink2); }
+.foot .brand { font-size: 26px; }
+.foot-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.foot-links a { color: var(--ink); padding-block: 12px; }
+.foot-links a:hover { color: var(--purple); }
+@media (min-width: 900px) {
+  .foot-in { flex-direction: row; align-items: center; gap: 12px 32px; padding-block: 36px; }
+  .foot .brand { font-size: 22px; }
+  .foot-links { display: flex; gap: 26px; margin-left: auto; }
 }</style>
 </head>
 <body>
   <header class="top">
-    <div class="top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
-      <nav class="top-links">
-        <a href="docs/index.html">docs</a>
-        <a href="the-book-of-eskiu.html">book</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </nav>
+    <div class="bar top-in">
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <nav class="nav" aria-label="Main"><a href="quickstart.html">Learn</a><a href="docs/index.html">Docs</a><a href="index.html#playground">Playground</a><a href="the-book-of-eskiu.html">Book</a><a href="changelog.html" aria-current="page">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
+      <div class="top-right">
+        <a class="btn-install" href="index.html#install">Install 0.9.3</a>
+        <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
+        </button>
+      </div>
     </div>
+    <nav class="drawer" id="drawer" aria-label="Main"><a href="quickstart.html">Learn</a><a href="docs/index.html">Docs</a><a href="index.html#playground">Playground</a><a href="the-book-of-eskiu.html">Book</a><a href="changelog.html" aria-current="page">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
   </header>
-  <div class="wrap">
-    <nav class="docnav"><a href="index.html">Home</a><a href="docs/index.html">Docs</a><a href="the-book-of-eskiu.html">Book</a><a href="quickstart.html">Quickstart</a><a href="changelog.html" class="active">Changelog</a></nav>
-    <div class="content">
+  <div class="bar layout has-toc">
+    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="docs/index.html">Overview</a><a href="docs/getting-started.html">Getting started</a><a href="docs/spec.html">Spec</a><a href="docs/grammar.html">Grammar</a><a href="docs/build.html">Tooling</a><a href="docs/glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="docs/internals.html">Overview</a><a href="docs/architecture.html">Architecture</a><a href="docs/design.html">Design</a><a href="docs/abi.html">ABI</a><a href="docs/async-design.html">Async</a><a href="docs/self-hosting.html">Self-hosting</a><a href="docs/http2-design.html">HTTP/2</a><a href="docs/api.html">C++ API</a><a href="docs/debugging.html">Debugging</a><a href="docs/contributing.html">Contributing</a></nav></aside>
+    <main class="content">
+      <details class="side-m"><summary>Documentation</summary><div class="inner"><span class="grp">Language</span><nav><a href="docs/index.html">Overview</a><a href="docs/getting-started.html">Getting started</a><a href="docs/spec.html">Spec</a><a href="docs/grammar.html">Grammar</a><a href="docs/build.html">Tooling</a><a href="docs/glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="docs/internals.html">Overview</a><a href="docs/architecture.html">Architecture</a><a href="docs/design.html">Design</a><a href="docs/abi.html">ABI</a><a href="docs/async-design.html">Async</a><a href="docs/self-hosting.html">Self-hosting</a><a href="docs/http2-design.html">HTTP/2</a><a href="docs/api.html">C++ API</a><a href="docs/debugging.html">Debugging</a><a href="docs/contributing.html">Contributing</a></nav></div></details>
 <h1 id="changelog">Changelog</h1>
 <p>All notable changes to Eskiu are documented in this file.</p>
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
+<h2 id="093-unreleased">[0.9.3] - unreleased</h2>
+<h3 id="added">Added</h3>
+<ul>
+<li><strong><code>await</code> inside <code>finally</code> and <code>defer</code></strong> in an async function. The cleanup suspends and
+  resumes like any other await: on fall-through, an early <code>return</code> (the value is kept),
+  <code>break</code>/<code>continue</code>, a caught exception, or an exception unwinding through the try, which
+  is thrown again once the <code>finally</code> ends. Several defers still run last-registered first.
+  A future dropped while parked runs its pending cleanup detached, as with <code>spawn</code>: the
+  awaited future is dropped first, the cleanup may suspend, and the frame frees itself when
+  the cleanup ends; dropping it again meanwhile does nothing. Both compilers. Tests
+  <code>async_finally_await</code>, <code>async_cancel_await_cleanup</code>; <code>errors/await_in_finally</code> and
+  <code>run_cmd/await_in_defer</code> are gone, and <code>run_cmd/await_unplaced</code> checks the located error
+  for an <code>await</code> in an <code>asm</code> input (the C++ compiler reported it as an internal error).</li>
+<li><strong>Unnamed bitfields</strong>, as in C. <code>T : N;</code> reserves N bits laid out like a named bitfield
+  of type T, and <code>T : 0;</code> moves the next bitfield to a new unit of T. They are allowed in
+  structs and unions, are not members (a positional struct literal skips them and their
+  bits are zero), and follow the target's C layout, including the alignment rules that
+  differ between SysV, AAPCS and Windows. <code>sizeof</code> folds them in the type checker, and a
+  struct holding one crosses the C ABI as clang passes it. Both compilers. Tests
+  <code>bitfield_unnamed</code>, <code>bitfield_unnamed_c</code> (+ <code>.c</code>), <code>errors/bitfield_unnamed_*</code>.</li>
+</ul>
+<h3 id="fixed">Fixed</h3>
+<ul>
+<li>A bitfield typed by a generic struct's type parameter (<code>struct F&lt;T&gt; { T a : 3; }</code>) is
+  checked with each instance's type argument: <code>F&lt;uint8&gt;</code> works in the self-hosted compiler
+  too (it rejected the declaration), and <code>F&lt;float&gt;</code> is an error in the C++ compiler too (it
+  accepted it). Tests <code>bitfield_generic</code>, <code>errors/bitfield_generic_float</code>.</li>
+<li>An <code>int64</code>/<code>uint64</code> bitfield on 32-bit x86 Linux and Darwin (where <code>int64</code> is aligned to
+  4) follows clang's layout: it may start at any 4-byte boundary as long as it fits in 8
+  bytes from there, and it takes no more storage than the bytes it spans. Before, it was
+  placed as if aligned to 8 (<code>struct { uint64 f : 22; }</code> was 8 bytes instead of 4). Both
+  compilers; <code>tests/run.sh</code> checks the sizes of <code>tests/run_cmd/bitfield_targets.esk</code>
+  against clang's for six targets.</li>
+<li><strong>Closure environments leaked.</strong> A capturing lambda bound to a local of an async
+  function lost its environment (16 bytes or more per call): the local lives in the
+  coroutine frame, so the environment is on the heap, and nothing freed it. The frame now
+  frees it when the function completes or is cancelled, and when the local is bound again
+  (for example once per loop pass). Outside async functions, a lambda bound to a local
+  that is only called now keeps its environment on the stack as documented (it was on the
+  heap and never freed), and the self-hosted compiler also keeps a lambda passed to a
+  non-<code>escaping</code> parameter on the stack (it allocated every capturing lambda on the heap).
+  Both compilers. Tests <code>async_closure_env</code>, <code>closure_local_env</code>.</li>
+<li>Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
+  constraints <code>a</code>, <code>b</code>, <code>c</code>, <code>d</code>, <code>S</code> and <code>D</code>, with their modifiers (<code>=a</code>, <code>+a</code>, <code>=&amp;d</code>)
+  and in combined constraints (<code>Nd</code>). They are translated to LLVM's <code>{ax}</code> form as clang
+  does; before, LLVM failed to allocate them. Test <code>inline_asm_gcc</code>.</li>
+<li>A captured value is read-only inside a lambda, as with a by-value capture in C++.
+  Calling a method with a plain <code>*T self</code> on it, or on a field of it (<code>c.inner.m()</code>), is
+  now an error; before, the method silently changed the closure's copy. A <code>const T* self</code>
+  method and a call through a captured pointer are allowed. Tests
+  <code>errors/closure_captured_method_*</code>, <code>closure_captured_method_ok</code>.</li>
+<li><strong><code>await</code> in generic async functions.</strong> An await in a <code>match</code> arm that binds a
+  payload, after an operand with a side effect in the same expression, or inside a <code>?:</code>
+  arm now works in a generic async function, as it does in a plain one. The lowering
+  types the temporaries from the type checker's records for each instance, written in
+  terms of the type parameters. Both compilers.</li>
+<li><strong>Self-hosted compiler on deeply nested binary expressions.</strong> Code generation for
+  <code>a + (a + (...))</code> thousands of levels deep took time quadratic in the depth; the type
+  checker and the code generator now type each node once, so it is linear (depth 4000:
+  26 s before, 0.06 s now). The emitted IR is unchanged.</li>
+<li>On macOS the native target triple carries the macOS product version (<code>macosx27.0</code>)
+  instead of the Darwin one, whose mapping LLVM gets wrong on a new release; the linker
+  no longer warns that every object was built for a newer macOS.</li>
+<li><code>-o name.obj</code> writes an object file, like <code>.o</code>, instead of trying to link an executable.
+  Both drivers.</li>
+<li>Diagnostics name types as written (<code>'Box'</code>, not <code>'struct:Box'</code>), matching the
+  self-hosted compiler. <code>--help</code> for <code>-Wall</code> lists the maybe-uninitialized warning.</li>
+</ul>
+<h3 id="changed">Changed</h3>
+<ul>
+<li>The roadmap (<code>docs/dev/phases.md</code>), the self-hosting overview and the contributor guide
+  are rewritten. Every document was reviewed against the compiler: stale or wrong statements
+  in the spec, the tutorial, the build guide, the architecture, async and ABI notes, the
+  API reference and the READMEs are corrected, and the examples compile and print what
+  they say.</li>
+<li>The playground image downloads the release from GitHub and checks it against
+  <code>SHA256SUMS</code>, instead of a copy of the compiler committed under <code>playground/dist</code>.</li>
+<li><code>kernel/Makefile</code> uses <code>clang</code> from <code>PATH</code>.</li>
+</ul>
 <h2 id="092-2026-09-29">[0.9.2] - 2026-09-29</h2>
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
@@ -113,7 +249,7 @@ known limitations left from 0.9.1 (R and S). Seven more blind audit rounds follo
 on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
 rounds concentrated on the C ABI, generics, <code>volatile</code> and the HTTP servers under hostile
 input. What is still open is listed under Known issues.</p>
-<h3 id="added">Added</h3>
+<h3 id="added_1">Added</h3>
 <ul>
 <li><strong><code>#pragma link("name")</code></strong> links the executable with <code>-lname</code>. The driver also adds
   the libraries a program implies: the stdlib's own pragmas (<code>libm</code> on Linux, <code>pthread</code>,
@@ -378,7 +514,7 @@ input. What is still open is listed under Known issues.</p>
   <code>regex_compile</code>). The old names remain as wrappers and will be removed in a later
   release. <code>String_is_space</code> is deprecated in favor of <code>is_space</code> from <code>&lt;ctype&gt;</code>.</li>
 </ul>
-<h3 id="fixed">Fixed</h3>
+<h3 id="fixed_1">Fixed</h3>
 <h4 id="miscompiles-of-valid-code">Miscompiles of valid code</h4>
 <ul>
 <li>A <code>let</code> in a nested block overwrote the outer variable of the same name for the rest of
@@ -1136,17 +1272,18 @@ input. What is still open is listed under Known issues.</p>
 <li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
   when a cancelled future is dropped. In a generic async function an <code>await</code> is also
   rejected in a <code>match</code> arm that binds a payload, after an operand with a side effect in
-  the same expression, and inside a <code>?:</code> arm. Bind the awaited value to a local first.</li>
+  the same expression, and inside a <code>?:</code> arm. Bind the awaited value to a local first.
+  (The generic cases are fixed in 0.9.3.)</li>
 <li>A method that mutates a captured value inside a lambda acts on the closure's copy
   (captures are by value); write through a pointer to share state.</li>
 <li>The type checker does not fold <code>sizeof</code> of a struct with an unnamed <code>: 0</code> bitfield, so
   constant-expression checks do not see it (codegen gets its size right).</li>
 <li>The self-hosted compiler generates code for deeply nested binary expressions
   (<code>a + (a + (...))</code>, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear.</li>
+  compiler is linear. (Fixed in 0.9.3.)</li>
 </ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
-<h3 id="fixed_1">Fixed</h3>
+<h3 id="fixed_2">Fixed</h3>
 <p>A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
 type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unless noted.</p>
 <ul>
@@ -1173,7 +1310,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   miscompile.</li>
 </ul>
 <h2 id="090-2026-09-08">[0.9.0] - 2026-09-08</h2>
-<h3 id="added_1">Added</h3>
+<h3 id="added_2">Added</h3>
 <ul>
 <li><strong>Labeled <code>break</code> and <code>continue</code>.</strong> A loop can be named with a leading label
   (<code>outer: for (...) { ... }</code>), and <code>break outer</code> / <code>continue outer</code> act on that loop
@@ -1184,7 +1321,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   innermost first), may not escape a <code>defer</code> body, and is not supported inside an
   <code>async fn</code>. Implemented lockstep in both the C++ and the self-hosted compiler.</li>
 </ul>
-<h3 id="fixed_2">Fixed</h3>
+<h3 id="fixed_3">Fixed</h3>
 <ul>
 <li><strong>Global array initializers are no longer dropped.</strong> A global (or <code>static</code> local) array
   literal such as <code>int[3] G = {10, 20, 30};</code> was silently zero-filled: only scalar globals
@@ -1195,7 +1332,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   constant form). Fixed in both compilers. Locals were unaffected.</li>
 </ul>
 <h2 id="080-2026-08-21">[0.8.0] - 2026-08-21</h2>
-<h3 id="fixed_3">Fixed</h3>
+<h3 id="fixed_4">Fixed</h3>
 <ul>
 <li><strong>The release binaries are self-contained.</strong> <code>eskiuc</code> picked up z3 and zstd as dynamic
   libraries from the build machine (versioned <code>/opt/homebrew/...</code> paths on macOS; <code>libz3.so</code>,
@@ -1229,7 +1366,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   (<code>windows.yml</code>): a <code>try</code>/<code>catch</code> program compiles, links with the mingw C++ runtime, and
   catches the throw.</li>
 </ul>
-<h3 id="added_2">Added</h3>
+<h3 id="added_3">Added</h3>
 <ul>
 <li><strong><code>match</code> on classic (payload-less) enums.</strong> A plain <code>enum Dir { N, E, S, W }</code> can now be
   <code>match</code>ed with exhaustiveness checking, the same guarantee algebraic enums already had:
@@ -1257,7 +1394,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
     reject <code>?*T</code> -&gt; <code>*T</code> without a check; <code>codegen.esk</code> lowers <code>?*T</code> exactly like <code>*T</code>).
   Each is gated in CI (<code>tests/selfhost/safe_parity.sh</code>, <code>tests/selfhost/nullable_parity.sh</code>).</li>
 </ul>
-<h3 id="changed">Changed</h3>
+<h3 id="changed_1">Changed</h3>
 <ul>
 <li><strong><code>alloc&lt;T&gt;</code> now zero-initializes.</strong> <code>&lt;mem&gt;</code>'s <code>alloc&lt;T&gt;(n)</code> returns memory that is
   zeroed (hosted mode calls <code>calloc</code> instead of <code>malloc</code>; the <code>--freestanding</code> <code>esk_alloc</code>
@@ -1268,7 +1405,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   whose raw heap is not already zero (Linux), while working on those whose is (macOS).</li>
 </ul>
 <h2 id="070">[0.7.0]</h2>
-<h3 id="added_3">Added</h3>
+<h3 id="added_4">Added</h3>
 <ul>
 <li><strong><code>extern</code> variables.</strong> <code>extern &lt;type&gt; &lt;name&gt;;</code> declares a global defined in another
   translation unit (a C global), emitting an external-linkage declaration with no
@@ -1290,7 +1427,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   An eskiuc object built this way links cleanly into a <code>.3dsx</code> homebrew via the devkitARM
   toolchain.</li>
 </ul>
-<h3 id="fixed_4">Fixed</h3>
+<h3 id="fixed_5">Fixed</h3>
 <ul>
 <li><strong>Float arguments narrow at the call site.</strong> A <code>double</code> literal (Eskiu's default float
   literal type) passed to a <code>float</code> parameter was left as <code>double</code>, so the argument type
@@ -1310,14 +1447,14 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="062">[0.6.2]</h2>
-<h3 id="added_4">Added</h3>
+<h3 id="added_5">Added</h3>
 <ul>
 <li><strong>Cross-compilation targets the right platform.</strong> The <code>--target</code> triple now drives the
   predefined platform macro (<code>__APPLE__</code> / <code>__linux__</code>), so <code>eskiuc --target x86_64-linux-gnu</code>
   on macOS selects the Linux stdlib paths (epoll, Linux <code>sockaddr_in</code>) instead of emitting
   unresolved BSD symbols. With no <code>--target</code> it still follows the build host.</li>
 </ul>
-<h3 id="fixed_5">Fixed</h3>
+<h3 id="fixed_6">Fixed</h3>
 <ul>
 <li><strong>Event-loop timer callbacks are initialized.</strong> <code>el_new</code> allocated the timer array but
   only zeroed each timer's <code>active</code> flag, leaving the <code>on_fire</code> closure as heap garbage
@@ -1342,7 +1479,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="061">[0.6.1]</h2>
-<h3 id="added_5">Added</h3>
+<h3 id="added_6">Added</h3>
 <ul>
 <li><strong><code>\xNN</code> hex escape</strong> in string and character literals: one or two hex digits decode
   to a raw byte, so byte-precise strings are possible (e.g. <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8,
@@ -1353,7 +1490,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   fixed arrays. Write-through the slice aliases the backing buffer, and <code>.len</code> /
   indexing / <code>for-in</code> work as on any slice.</li>
 </ul>
-<h3 id="fixed_6">Fixed</h3>
+<h3 id="fixed_7">Fixed</h3>
 <ul>
 <li><strong>Escape sequences in string and character literals.</strong> <code>\0</code> now decodes to a NUL
   byte instead of the character <code>'0'</code> (a silent trap), character literals accept <code>\r</code>
@@ -1370,7 +1507,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   C++ and self-hosted code generators (the self-host also gained direct calls through a
   global closure variable).</li>
 </ul>
-<h3 id="changed_1">Changed</h3>
+<h3 id="changed_2">Changed</h3>
 <ul>
 <li>Documentation accuracy pass (from an internal audit): corrected AST node counts and
   added the <code>defer</code> cleanup-stack to the internals docs, regenerated the real
@@ -1379,7 +1516,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   spec section and a <code>--safe</code> flag row, and corrected glossary token-type names.</li>
 </ul>
 <h2 id="060">[0.6.0]</h2>
-<h3 id="added_6">Added</h3>
+<h3 id="added_7">Added</h3>
 <ul>
 <li><strong><code>&lt;sort&gt;</code> stdlib module.</strong> Generic in-place <code>sort&lt;T&gt;(a, n, cmp)</code> (heapsort, a
   guaranteed O(n log n) worst case) and <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> over a <code>*T</code> array,
@@ -1434,7 +1571,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   builds are unaffected. (Self-host mirror of <code>--safe</code> is deferred to the promotion
   track; the shipped C++ compiler carries it.)</li>
 </ul>
-<h3 id="fixed_7">Fixed</h3>
+<h3 id="fixed_8">Fixed</h3>
 <ul>
 <li><strong><code>finally</code> was skipped on an early <code>return</code>/<code>break</code>/<code>continue</code> from inside a <code>try</code>
   body.</strong> The cleanup only ran on fall-through and exception unwind; an early exit jumped
@@ -1446,7 +1583,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 <p>Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.</p>
-<h3 id="added_7">Added</h3>
+<h3 id="added_8">Added</h3>
 <ul>
 <li><strong><code>do</code>/<code>while</code> loops.</strong> <code>do { ... } while (cond);</code> runs the body once before testing
   the condition, as in C.</li>
@@ -1469,7 +1606,7 @@ compilers and follows C semantics.</p>
   matching same-level <code>:</code> ahead is a ternary, otherwise propagation (parenthesize to
   propagate inside a ternary arm).</li>
 </ul>
-<h3 id="fixed_8">Fixed</h3>
+<h3 id="fixed_9">Fixed</h3>
 <ul>
 <li><strong><code>switch</code> on a sub-<code>int</code> subject.</strong> A <code>switch</code> over a <code>char</code> (or other narrow integer)
   with wider case constants failed LLVM verification; the subject and case constants are
@@ -1483,7 +1620,7 @@ and self-hosted compilers found a batch of miscompiles, crashes, and soundness h
 this release fixes them and tightens the type system. The shipped (C++) compiler carries
 every fix below; the self-hosted compiler's matching sema checks are tracked for the
 promotion track.</p>
-<h3 id="fixed_9">Fixed</h3>
+<h3 id="fixed_10">Fixed</h3>
 <ul>
 <li><strong>A catch-less <code>try</code>/<code>finally</code> aborted when an exception passed through it.</strong> With an
   in-flight exception, the <code>finally</code> block was skipped and the runtime aborted
@@ -1509,7 +1646,7 @@ promotion track.</p>
   was a generic container, so <code>for (v in xs)</code> over a <code>List&lt;double&gt;</code>/<code>List&lt;int64&gt;</code>
   truncated each element (and emitted invalid IR for <code>List&lt;Struct&gt;</code>). The desugar now
   resolves the element type by substituting the container's type argument, matching the
-  C++ back-end. (Residual R1 in <code>PROMOTION_PLAN.md</code>.)</li>
+  C++ back-end.</li>
 <li><strong>Self-hosted back-end: exceptions were mishandled.</strong> A catch-less <code>try</code>/<code>finally</code>
   swallowed an in-flight exception (running cleanup but then continuing as if caught), and
   a <code>throw</code> from inside a catch handler that had to cross a function boundary was lost
@@ -1549,7 +1686,7 @@ promotion track.</p>
   zero under the C++ back-end, crashing under the self-host). The definite-return check
   now runs on template bodies too.</li>
 </ul>
-<h3 id="changed_2">Changed</h3>
+<h3 id="changed_3">Changed</h3>
 <ul>
 <li><strong>Assigning a floating-point value to an integer needs an explicit cast.</strong> <code>int x =
   3.9;</code> (or any <code>float</code>/<code>double</code> into an integer) is rejected, because it silently drops
@@ -1585,7 +1722,7 @@ promotion track.</p>
 </ul>
 <hr>
 <h2 id="031">[0.3.1]</h2>
-<h3 id="fixed_10">Fixed</h3>
+<h3 id="fixed_11">Fixed</h3>
 <ul>
 <li><strong><code>*T[N]</code> now parses as an array of pointers, not a pointer to an array.</strong> The
   type-string parser (<code>ty::Type::parse</code>) peeled a leading <code>*</code> before the trailing
@@ -1627,7 +1764,7 @@ promotion track.</p>
   warning. Lambda literals in a <code>let x: fn(...)-&gt;R = ...</code> still coerce (their return type
   is malleable); only non-adaptable fn <em>values</em> are rejected. Test <code>errors/fn_return_mismatch</code>.</li>
 </ul>
-<h3 id="changed_3">Changed</h3>
+<h3 id="changed_4">Changed</h3>
 <ul>
 <li><strong>New CI gate: <code>-O0</code>-vs-<code>-O2</code> behavioral differential</strong> (<code>tests/opt_differential.sh</code>).
   Compiles the whole corpus at both levels and fails on any exit/stdout divergence,
@@ -1638,8 +1775,7 @@ promotion track.</p>
   preprocesses the top-level file (matching how the C++ <code>--test-parser</code> folds
   preprocessing into the lexer), so <code>parse_parity.sh --full</code> no longer excludes
   files whose import closure touches the preprocessor (<code>#ifdef</code>/<code>#define</code>/<code>__FILE__</code>/
-  <code>__LINE__</code>/shebang). A prerequisite for promoting the Eskiu-written compiler
-  (see <code>selfhost/PROMOTION_PLAN.md</code>, R2).</li>
+  <code>__LINE__</code>/shebang). A prerequisite for promoting the Eskiu-written compiler.</li>
 </ul>
 <hr>
 <h2 id="030">[0.3.0]</h2>
@@ -1647,7 +1783,7 @@ promotion track.</p>
 analyzer, and code generator) is reimplemented in Eskiu (<code>selfhost/</code>), reaches a 3-stage
 bootstrap fixpoint, and the self-hosted codegen is <strong>feature-complete against the C++
 corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap gates are CI-wired.</p>
-<h3 id="fixed_11">Fixed</h3>
+<h3 id="fixed_12">Fixed</h3>
 <ul>
 <li><strong><code>&amp;&amp;</code> and <code>||</code> now short-circuit.</strong> Code generation evaluated both operands eagerly
   and emitted a logical-and/or, so the right-hand side always ran; a guarded
@@ -1665,19 +1801,18 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   4 GB. They are now <code>int64</code>, matching <code>size_t</code>. Behavior is unchanged for the common
   sub-4 GB case (the value zero-extends into the argument register either way).</li>
 </ul>
-<h3 id="added_8">Added</h3>
+<h3 id="added_9">Added</h3>
 <ul>
 <li><strong><code>-O</code> optimization levels.</strong> <code>eskiuc -O1</code>/<code>-O2</code>/<code>-O3</code> now runs the LLVM middle-end
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
   generation. <code>-O0</code> (the default) keeps the prior behavior: naive IR straight to the
   backend. On real code this collapses the per-local stack traffic the front-end emits
-  (the <code>ine_decoder</code> demo drops from 514 allocas to 25 at <code>-O2</code>); its Makefile now builds
-  with <code>-O2</code>.</li>
+  (a 1,600-line crypto pipeline drops from 514 allocas to 25 at <code>-O2</code>).</li>
 <li><strong>Clearer diagnostic for a keyword used as a name.</strong> Using a reserved word (<code>fn</code>, <code>in</code>,
   <code>match</code>, a type name, ...) as a variable, parameter, or field name now reports
   <code>expected a name, found keyword 'fn'</code> at the cause, instead of a misleading downstream
   error (<code>Expected ';'</code>, <code>Expected expression</code>). This was the most recurring self-host
-  papercut. The self-hosted parser mirror is tracked in <code>selfhost/PROMOTION_PLAN.md</code> (R3).</li>
+  papercut. The self-hosted parser mirror followed later.</li>
 <li><strong><code>String_free</code> clears <code>data</code>.</strong> It sets <code>self.data = null</code> after <code>free</code>, so a reused or
   doubly-freed <code>String</code> can no longer hand a dangling pointer to <code>free</code>.</li>
 <li><strong><code>String</code> length/capacity are now <code>int64</code>.</strong> <code>%String</code> went from <code>{ ptr, i32, i32 }</code> to
@@ -1714,7 +1849,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   error can never contaminate the <code>.ll</code> text on stdout. cg_parity 55/55, cg_selfhost 68/68,
   bootstrap fixpoint. (NOTE: a later systematic feature sweep, pushing the C++ test corpus
   through the parity oracle, showed self-host codegen is NOT yet feature-complete; ~8
-  root-cause gaps remain, tracked in <code>selfhost/BACKEND_PLAN.md</code>. The bootstrap only exercises
+  root-cause gaps remained, closed in later releases. The bootstrap only exercises
   the subset the compiler's own source uses, so it missed them.)</li>
 <li><strong>Self-hosted codegen: more of the language.</strong> Beyond the bootstrap subset, the
   self-hosted code generator (<code>selfhost/codegen.esk</code>) now also lowers: <strong>floating point</strong>
@@ -1850,7 +1985,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
 </ul>
 <hr>
 <h2 id="025">[0.2.5]</h2>
-<h3 id="added_9">Added</h3>
+<h3 id="added_10">Added</h3>
 <ul>
 <li><strong><code>&lt;ctype&gt;</code> stdlib module.</strong> Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): <code>is_space</code>, <code>is_digit</code>, <code>is_hex</code>, <code>is_alpha</code>, <code>is_alnum</code>,
@@ -1883,7 +2018,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   uniformly mis-lexed program), guards the comment-continuation footgun fixed
   below.</li>
 </ul>
-<h3 id="fixed_12">Fixed</h3>
+<h3 id="fixed_13">Fixed</h3>
 <ul>
 <li><strong>Preprocessor: a <code>//</code> comment ending in <code>\</code> no longer swallows the next source
   line.</strong> Backslash-newline line continuation was applied unconditionally, so a
@@ -2009,7 +2144,7 @@ compiler trustworthy and close the generics gap before the self-hosting arc.</p>
 </ul>
 <hr>
 <h2 id="021">[0.2.1]</h2>
-<p>Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
+<p>Hardening and ergonomics, shaken out by building a real service (a QR-decoding HTTP
 API) on 0.2.0.</p>
 <h3 id="compiler">Compiler</h3>
 <ul>
@@ -2220,7 +2355,7 @@ thread_join(t);
 <li><code>volatile</code> MMIO, <code>asm(...)</code> with GCC-compatible constraints</li>
 </ul>
 <h2 id="0014-alpha">[0.0.14-alpha]</h2>
-<h3 id="added_10">Added</h3>
+<h3 id="added_11">Added</h3>
 <p><strong>Inline assembly</strong>
 - <code>asm("cli");</code>: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
 - <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands and clobber lists (no output operands)
@@ -2237,13 +2372,13 @@ thread_join(t);
 <p><strong>v0.1 prerequisites complete</strong>
 - All compiler prerequisites for the kernel-on-QEMU milestone are implemented and tested</p>
 <h2 id="0013-alpha">[0.0.13-alpha]</h2>
-<h3 id="fixed_13">Fixed</h3>
+<h3 id="fixed_14">Fixed</h3>
 <ul>
 <li><strong>Negative literals</strong>: <code>-1</code>, <code>-3.14</code> etc. now parse as negative literal values directly, not as unary minus applied to a positive literal. Global variable initialisers with negative values (e.g. <code>int x = -1;</code>) previously compiled to 0; this is now correct. <code>evaluateConstantExpr</code> folds unary minus on numeric constants as a fallback.</li>
 </ul>
 <hr>
 <h2 id="0012-alpha">[0.0.12-alpha]</h2>
-<h3 id="added_11">Added</h3>
+<h3 id="added_12">Added</h3>
 <p><strong>Lambdas and function pointer types</strong>
 - <code>fn(T,...)-&gt;R</code> function pointer type syntax: first-class function types usable in variable declarations, struct fields, and parameter lists
 - Anonymous function expressions: <code>int(int x) { return x * 2; }</code>, C-like syntax producing a function pointer value
@@ -2259,13 +2394,9 @@ thread_join(t);
 <p><strong>switch/case type checking</strong>
 - The type checker now validates that each <code>case</code> value is compatible with the <code>switch</code> subject expression type; mismatched case types are reported as errors at the <code>case</code> token position</p>
 <h2 id="0011-alpha">[0.0.11-alpha]</h2>
-<h3 id="added_12">Added</h3>
-<p><strong>Decoder rewritten in Eskiu (no C pipeline code)</strong>
-- <code>ine_decoder/crypto.esk</code> (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, <code>run_no_so_pipeline()</code>; all in Eskiu calling OpenSSL via <code>extern</code>
-- <code>ine_decoder/output.esk</code> (186 lines): Spanish character table, field splitter, growable JSON buffer, <code>decode_to_buffers()</code>; pure Eskiu
-- <code>ine_decoder/crypto.c</code> and <code>output_decode.c</code> removed: replaced entirely by Eskiu
-- Only C remaining: <code>qr_extract.c</code> shim (12 lines) + <code>qr_extract_impl.cpp</code> (CoreGraphics + zxing-cpp)
-- Runtime: <strong>80ms</strong> on arm64, identical output to reference</p>
+<h3 id="added_13">Added</h3>
+<p><strong>Crypto pipeline demo rewritten in Eskiu (no C pipeline code)</strong>
+- AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders and the JSON output stage moved from C to Eskiu calling OpenSSL via <code>extern</code> (the demo has since been removed from the repository)</p>
 <p><strong>String literal adjacent concatenation</strong>
 - <code>"abc" "def"</code> on consecutive lines (or the same line) are now concatenated into a single string at parse time; enables readable multi-line constant definitions</p>
 <h3 id="fixed-compiler-bugs-found-during-eskiu-crypto-port">Fixed (compiler bugs found during Eskiu crypto port)</h3>
@@ -2280,15 +2411,14 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0010-alpha">[0.0.10-alpha]</h2>
-<h3 id="added_13">Added</h3>
+<h3 id="added_14">Added</h3>
 <p><strong>Global variables</strong>
 - <code>VarDecl</code> at module scope now emits <code>llvm::GlobalVariable</code> instead of <code>alloca</code>
 - Constant initializers folded at compile time: <code>int</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>null</code>
 - Non-constant initializers zero-initialize the global (assign in <code>main()</code> for complex expressions)
 - <code>globalVarTypes</code> map tracks Eskiu type strings for globals (complement to function-scoped <code>varTypeStack</code>)
 - <code>evaluateConstantExpr()</code>: folds literal expressions to <code>llvm::Constant*</code>
-- <code>visit(IdentExpr*)</code> now loads from <code>llvm::GlobalVariable</code> as well as <code>AllocaInst</code>
-- <code>IMAGE_PATH</code>, <code>OUT_JSON</code>, <code>OUT_WEBP</code> in <code>ine_decoder/main.esk</code> moved to module scope</p>
+- <code>visit(IdentExpr*)</code> now loads from <code>llvm::GlobalVariable</code> as well as <code>AllocaInst</code></p>
 <p><strong>sret (large struct return)</strong>
 - <code>needsSret(type)</code>: returns true for aggregates &gt; 16 bytes (arm64 register limit)
 - <code>visit(FunctionDecl*)</code> rewrites large-return functions: prepends hidden <code>ptr sret.ptr</code> parameter, changes return type to <code>void</code>, tracks struct type in <code>funcSretTypes</code>
@@ -2298,10 +2428,9 @@ thread_join(t);
 <p><strong>Integer argument widening at call sites</strong>
 - Automatically <code>SExt</code>/<code>Trunc</code> integer arguments to match function parameter widths
 - Fixes <code>i32 1712</code> passed to <code>int64 param</code> (was LLVM verification error)</p>
-<h3 id="fixed_14">Fixed</h3>
+<h3 id="fixed_15">Fixed</h3>
 <ul>
-<li><code>*int</code> vs <code>size_t *</code> in <code>extern.esk</code>: <code>run_no_so_pipeline</code> and <code>decode_to_buffers</code> now use <code>int64</code> for length params to match C's <code>size_t</code> (was writing 8 bytes to a 4-byte stack slot → heap corruption)</li>
-<li>ine_decoder <code>pipeline.esk</code>: stage signatures updated to <code>int64</code> for all size parameters</li>
+<li><code>*int</code> vs <code>size_t *</code> in the demo's externs: length params now use <code>int64</code> to match C's <code>size_t</code> (was writing 8 bytes to a 4-byte stack slot → heap corruption)</li>
 </ul>
 <h3 id="planned">Planned</h3>
 <ul>
@@ -2309,40 +2438,31 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="009-alpha">[0.0.9-alpha]</h2>
-<h3 id="added_14">Added</h3>
+<h3 id="added_15">Added</h3>
 <ul>
-<li><strong><code>ine_decoder/</code>, INE QR decoder port</strong>: full pipeline running at <strong>74.4 ms</strong> total
-  (QR: 71.7 ms + crypto: 2.8 ms + output decode: &lt;1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C</li>
-<li><code>types.esk</code>: <code>QRPair</code>, <code>NoSoKeys</code>, <code>IneResult</code>, <code>IneFields</code> structs</li>
-<li><code>extern.esk</code>: libc + OpenSSL EVP (AES-256-CBC / RSA-8192) + <code>ine_qr_extract()</code> declarations</li>
-<li><code>stage1_qr.esk</code>: QR extraction wrapper</li>
-<li><code>stage2_crypto.esk</code>: 3-round AES-256-CBC + RSA-8192 via OpenSSL</li>
-<li><code>stage3_output.esk</code>: pipe-delimited plaintext → JSON + WebP extraction</li>
-<li><code>main.esk</code>: orchestration, timing, output</li>
-<li><code>qr_extract.c</code> / <code>qr_extract_impl.cpp</code>: C/C++ shim using CoreGraphics + zxing-cpp 3.x</li>
-<li><code>Makefile</code>, <code>README.md</code></li>
+<li><strong>Crypto pipeline demo</strong>: a QR extraction + AES-256-CBC + RSA-8192 pipeline ported to Eskiu, 74.4 ms total vs. 188.9 ms for the reference C (since removed from the repository)</li>
 </ul>
-<h3 id="fixed_15">Fixed</h3>
+<h3 id="fixed_16">Fixed</h3>
 <ul>
 <li><strong>Integer width mismatch in comparisons</strong>: <code>uint8 == int</code> (e.g. <code>plaintext[i] == 124</code>) crashed LLVM with "Both operands to ICmp instruction are not of the same type"; now <code>ZExt</code>s the narrower operand to match the wider before emitting any of the six comparison operators</li>
 <li><strong>Mixed int/float arithmetic</strong>: <code>i64 * double</code> (e.g. timing calculation <code>(t1 - t0) * 1000.0</code>) generated invalid IR; now detects int/float type mismatch in <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code> and promotes the integer operand with <code>SIToFP</code> before emitting the floating-point instruction</li>
 </ul>
 <hr>
 <h2 id="008-alpha">[0.0.8-alpha]</h2>
-<h3 id="added_15">Added</h3>
+<h3 id="added_16">Added</h3>
 <ul>
 <li><strong><code>import "file.esk"</code></strong>: multi-file support with paths resolved relative to the importing file's directory; recursive imports with deduplication (a file imported more than once is parsed only once); <code>Parser.basedir</code> + <code>importedFiles</code> set propagated to sub-parsers</li>
 <li><strong>Interface vtable dispatch</strong>: <code>interface I { void method(); }</code> generates <code>%I_vtable = type { ptr, ... }</code> and <code>%I_fat = type { ptr data, ptr vtable }</code> LLVM types; structs are auto-boxed at call sites via <code>boxAsInterface()</code>; method dispatch loads the vtable pointer from the fat pointer and calls indirectly; <code>getExprEskiuType</code> extended to handle <code>UnaryExpr("&amp;", ...)</code> and <code>UnaryExpr("*", ...)</code> for boxing detection</li>
 <li><strong><code>String.append()</code> and <code>String.concat()</code></strong>: added to <code>stdlib/string.esk</code> using <code>memcpy</code> + pointer arithmetic</li>
 </ul>
-<h3 id="fixed_16">Fixed</h3>
+<h3 id="fixed_17">Fixed</h3>
 <ul>
 <li>Pointer comparison (<code>p == null</code>, <code>ptr1 == ptr2</code>) incorrectly used <code>FCmpOEQ</code> (float equality); now uses <code>ICmpEQ</code>; all six comparison operators updated to check <code>isFloatingPointTy()</code> first</li>
 <li><code>i1 → i32</code> widening used <code>SExt</code> (sign-extends <code>true</code> → <code>-1</code>); now uses <code>ZExt</code> for <code>i1</code> operands so comparisons correctly store <code>0</code> or <code>1</code></li>
 </ul>
 <hr>
 <h2 id="007-alpha">[0.0.7-alpha]</h2>
-<h3 id="added_16">Added</h3>
+<h3 id="added_17">Added</h3>
 <ul>
 <li><strong>Bitwise operators</strong></li>
 <li>Binary: <code>&amp;</code>, <code>|</code>, <code>^</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>, new precedence levels in parser (bitwiseOr → bitwiseXor → bitwiseAnd → equality → shift → comparison → additive)</li>
@@ -2354,7 +2474,7 @@ thread_join(t);
 <li><strong>For-loop with declaration init</strong>: <code>for (int i = 0; i &lt; n; i += 1)</code>, parser wraps the declaration in a <code>BlockStmt</code>; type checker processes init items directly in <code>ForStmt</code> scope, avoiding the inner-scope pop that previously made <code>i</code> undefined in the condition, step, and body</li>
 <li><strong>Pointer arithmetic</strong>: <code>ptr + n</code> → <code>GEP(i8, ptr, n)</code>, <code>ptr - n</code> → <code>GEP(i8, ptr, -n)</code> in <code>visit(BinaryExpr*)</code></li>
 </ul>
-<h3 id="fixed_17">Fixed</h3>
+<h3 id="fixed_18">Fixed</h3>
 <ul>
 <li><code>&amp;</code> address-of returned a loaded value instead of the alloca pointer, breaking all pointer-argument call patterns</li>
 <li>Unary <code>-</code> for floats used integer <code>CreateNeg</code>; now uses <code>CreateFNeg</code> for floating-point operands</li>
@@ -2366,7 +2486,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="006-alpha">[0.0.6-alpha]</h2>
-<h3 id="added_17">Added</h3>
+<h3 id="added_18">Added</h3>
 <ul>
 <li><strong>Source locations in errors</strong>: <code>ASTNode</code> now carries <code>line</code>/<code>col</code>; parser stamps all expression and statement nodes; errors now report <code>file.esk:line:col:</code> instead of <code>file.esk:0:0:</code>; filename taken from the CLI input path</li>
 <li><strong><code>&amp;</code> address-of operator</strong>: correctly returns the lvalue pointer (alloca), enabling <code>fn(&amp;localVar)</code> patterns and template method calls via <code>self</code> pointer</li>
@@ -2376,7 +2496,7 @@ thread_join(t);
 <li><strong>Interface structural check</strong>: <code>isValidAssignment</code> now verifies that a struct satisfies an interface's method signatures (vtable codegen deferred to 0.0.8)</li>
 <li><strong><code>isPointerType</code> unified</strong>: now detects both leading <code>*T</code> and trailing <code>T*</code> conventions</li>
 </ul>
-<h3 id="fixed_18">Fixed</h3>
+<h3 id="fixed_19">Fixed</h3>
 <ul>
 <li><code>&amp;</code> operator returned a loaded value instead of the address, breaking all pointer-argument patterns</li>
 <li>Template method parameter types with pointer suffix (e.g. <code>List&lt;T&gt;*</code>) were incorrectly mangled to <code>List_int_*</code> instead of <code>List_int*</code></li>
@@ -2384,7 +2504,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="005-alpha">[0.0.5-alpha]</h2>
-<h3 id="added_18">Added</h3>
+<h3 id="added_19">Added</h3>
 <ul>
 <li><strong><code>switch</code>/<code>case</code></strong>: <code>SwitchStmt</code> AST node with <code>Case { value, stmts }</code> list; full visitor chain; parser handles <code>switch (expr) { case val: stmts break; default: stmts }</code> with fallthrough support; codegen emits LLVM <code>switch</code> instruction with <code>ConstantInt</code> case values; <code>break</code> branches to <code>switch.end</code> via existing <code>breakTarget</code> mechanism</li>
 <li><strong>Function templates</strong>: <code>fn Name&lt;T, E&gt;(T x) -&gt; RetType&lt;T,E&gt; { ... }</code>; <code>FunctionDecl.typeParams</code> field; <code>TemplateCallExpr</code> AST node parsed in <code>parsePostfix()</code>; lazy instantiation via <code>typeParamOverride</code> map that intercepts all type lookups during template body emission; context save/restore preserves insert point and <code>currentFunction</code> when instantiating inside another function's body; <code>substType</code> handles <code>Name&lt;T,E&gt;</code> nested substitution recursively</li>
@@ -2395,7 +2515,7 @@ thread_join(t);
 <li><code>io.esk</code>: <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>, <code>getchar</code>, <code>putchar</code></li>
 <li><code>mem.esk</code>: <code>memcpy</code>, <code>memset</code>, <code>memmove</code>, <code>memcmp</code>, <code>strlen</code>, <code>memchr</code></li>
 </ul>
-<h3 id="fixed_19">Fixed</h3>
+<h3 id="fixed_20">Fixed</h3>
 <ul>
 <li>Parser: <code>int fn&lt;T&gt;(T x)</code> at top level was silently dropped; <code>parseDeclaration()</code> now detects <code>&lt;</code> after a name as a function template</li>
 <li>Type checker: template function bodies were visited with unresolved type params; now guarded with <code>typeParams.empty()</code> check</li>
@@ -2403,7 +2523,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="004-alpha">[0.0.4-alpha]</h2>
-<h3 id="added_19">Added</h3>
+<h3 id="added_20">Added</h3>
 <ul>
 <li><strong>Template struct declaration</strong>: <code>struct Result&lt;T, E&gt; { ... }</code>; <code>StructDecl</code> gains <code>typeParams</code> field; template declarations are stored in a separate registry and not emitted to LLVM until first use</li>
 <li><strong>Template type references</strong>: <code>Result&lt;int, string&gt;</code> parsed in <code>parseType()</code> via <code>IDENT &lt; TYPE, ... &gt;</code> lookahead; stored as <code>"Result&lt;int,string&gt;"</code> in the AST</li>
@@ -2413,20 +2533,20 @@ thread_join(t);
 <li><strong>Type substitution</strong>: <code>substType</code> handles <code>*T</code> → <code>*int</code>, <code>T*</code> → <code>int*</code>, <code>T[N]</code> → <code>int[N]</code>, and nested template types recursively</li>
 <li><strong><code>varTypeStack</code> normalization</strong>: <code>VarDecl</code> stores the mangled name so <code>MemberExpr</code> resolution finds instantiated struct fields correctly</li>
 </ul>
-<h3 id="fixed_20">Fixed</h3>
+<h3 id="fixed_21">Fixed</h3>
 <ul>
 <li>Parser: <code>int fn&lt;T&gt;(...)</code> at top level was silently dropped; <code>parseDeclaration()</code> now detects <code>&lt;</code> after a function name as a template parameter list</li>
 <li>Type checker: template bodies were visited with unresolved type parameters; now guarded so only concrete instantiations are type-checked</li>
 </ul>
 <hr>
 <h2 id="003-alpha">[0.0.3-alpha]</h2>
-<h3 id="added_20">Added</h3>
+<h3 id="added_21">Added</h3>
 <ul>
 <li><strong><code>alloc(T, N)</code></strong>: new <code>AllocExpr</code> AST node; emits <code>call @malloc(i64 N * sizeof(T))</code>; <code>sizeof(T)</code> resolved via <code>DataLayout</code> initialized at the start of <code>generateCode()</code></li>
 <li><strong><code>free(ptr)</code></strong>: parsed as a regular call; <code>free</code> pre-registered in the type checker as variadic; auto-declared in the LLVM module on first use, no explicit <code>extern</code> required</li>
 <li><strong><code>getOrDeclareFunc()</code></strong>: codegen helper that lazily declares C runtime functions (<code>malloc</code>, <code>free</code>) into the module without requiring explicit <code>extern</code> declarations</li>
 </ul>
-<h3 id="fixed_21">Fixed</h3>
+<h3 id="fixed_22">Fixed</h3>
 <ul>
 <li><code>validateStructType</code> did not strip the leading <code>*T</code> pointer prefix, causing false "undefined struct" errors on <code>*uint8</code>, <code>*Point</code>, etc.</li>
 <li><code>inferBinaryExprType</code> did not handle the <code>=</code> operator for non-numeric types; assignment to pointer fields and struct fields now type-checks correctly</li>
@@ -2434,7 +2554,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="002-alpha">[0.0.2-alpha]</h2>
-<h3 id="added_21">Added</h3>
+<h3 id="added_22">Added</h3>
 <ul>
 <li><strong>Struct codegen</strong>: <code>llvm::StructType::create</code> per <code>StructDecl</code>; <code>alloca %StructType</code> for locals; field read/write via <code>getelementptr</code></li>
 <li><strong>Fixed-size array fields</strong>: <code>uint8[858]</code> → <code>[858 x i8]</code>; parser now captures the array size (was previously discarded); <code>IndexExpr</code> codegen via GEP for both <code>T[N]</code> and <code>*T</code></li>
@@ -2445,7 +2565,7 @@ thread_join(t);
 <li><strong><code>emitObjectFile()</code></strong>: native <code>.o</code> via LLVM <code>TargetMachine</code> + <code>legacy::PassManager</code>; full pipeline <code>eskiuc file.esk -o file.o</code> produces a linkable object file</li>
 <li><strong>Float arithmetic</strong>: <code>+</code>, <code>-</code>, <code>*</code> now emit <code>fadd</code>/<code>fsub</code>/<code>fmul</code> for floating-point operands (previously always emitted integer instructions)</li>
 </ul>
-<h3 id="fixed_22">Fixed</h3>
+<h3 id="fixed_23">Fixed</h3>
 <ul>
 <li>Type checker: method bodies were not registered and type-checked in the first pass</li>
 <li>Type checker: <code>*T</code> (leading-pointer) was not auto-derefed on member access; now strips the leading <code>*</code> before struct field lookup</li>
@@ -2456,7 +2576,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="001-alpha">[0.0.1-alpha]</h2>
-<h3 id="added_22">Added</h3>
+<h3 id="added_23">Added</h3>
 <ul>
 <li><strong>Phase 0: Build system and CLI</strong>. CMake build with LLVM 17+ integration; <code>--version</code> flag; <code>--test-lexer</code>, <code>--test-parser</code>, <code>--test-typechecker</code>, <code>--test-codegen</code> modes; <code>file:line:col</code> error reporting</li>
 <li><strong>Phase 1: Lexer</strong>. Complete tokenizer with line/col tracking; all Eskiu keywords (<code>int</code>, <code>float</code>, <code>uint8</code>–<code>uint64</code>, <code>int8</code>–<code>int64</code>, <code>struct</code>, <code>interface</code>, <code>enum</code>, <code>alloc</code>, <code>free</code>, <code>extern</code>, <code>thread</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, and more); <code>COLON</code> token for type annotations</li>
@@ -2467,7 +2587,7 @@ thread_join(t);
 <li><strong>Pointer types</strong>: both leading <code>*T</code> and trailing <code>T*</code> syntax accepted throughout lexer, parser, and type checker</li>
 <li><strong>Examples</strong>: <code>examples/hello.esk</code>, <code>examples/test_struct.esk</code>, <code>examples/test_struct_error.esk</code></li>
 </ul>
-<h3 id="fixed_23">Fixed</h3>
+<h3 id="fixed_24">Fixed</h3>
 <ul>
 <li>Lexer: <code>COLON</code> token was not recognized, breaking <code>let</code>-style type annotations</li>
 <li>Type checker: function parameters were not registered before the body validation pass, causing false "undeclared identifier" errors</li>
@@ -2480,20 +2600,23 @@ thread_join(t);
 <li>No standard library or <code>Result&lt;T,E&gt;</code> (Phase 7)</li>
 <li>No lambdas, threads, or async (Phase 8+)</li>
 </ul>
-    </div>
+    </main>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#093-unreleased">[0.9.3] - unreleased</a><a href="#092-2026-09-29">[0.9.2] - 2026-09-29</a><a href="#091-2026-09-09">[0.9.1] - 2026-09-09</a><a href="#090-2026-09-08">[0.9.0] - 2026-09-08</a><a href="#080-2026-08-21">[0.8.0] - 2026-08-21</a><a href="#070">[0.7.0]</a><a href="#062">[0.6.2]</a><a href="#061">[0.6.1]</a><a href="#060">[0.6.0]</a><a href="#050">[0.5.0]</a><a href="#040">[0.4.0]</a><a href="#031">[0.3.1]</a><a href="#030">[0.3.0]</a><a href="#025">[0.2.5]</a><a href="#024">[0.2.4]</a><a href="#023">[0.2.3]</a><a href="#022">[0.2.2]</a><a href="#021">[0.2.1]</a><a href="#020">[0.2.0]</a><a href="#010">[0.1.0]</a><a href="#systems-milestone">Systems milestone</a><a href="#0014-alpha">[0.0.14-alpha]</a><a href="#0013-alpha">[0.0.13-alpha]</a><a href="#0012-alpha">[0.0.12-alpha]</a><a href="#0011-alpha">[0.0.11-alpha]</a><a href="#0010-alpha">[0.0.10-alpha]</a><a href="#009-alpha">[0.0.9-alpha]</a><a href="#008-alpha">[0.0.8-alpha]</a><a href="#007-alpha">[0.0.7-alpha]</a><a href="#006-alpha">[0.0.6-alpha]</a><a href="#005-alpha">[0.0.5-alpha]</a><a href="#004-alpha">[0.0.4-alpha]</a><a href="#003-alpha">[0.0.3-alpha]</a><a href="#002-alpha">[0.0.2-alpha]</a><a href="#001-alpha">[0.0.1-alpha]</a></nav>
   </div>
-  <footer>
-    <div class="footer-in">
-      <div class="fl">
-        <a href="the-book-of-eskiu.html">book</a>
-        <a href="docs/index.html">docs</a>
-        <a href="docs/internals.html">internals</a>
-        <a href="changelog.html">changelog</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </div>
-      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+  <footer class="foot">
+    <div class="bar foot-in">
+      <span class="brand">eskiu</span>
+      <span>Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="docs/index.html">Docs</a>
+        <a href="the-book-of-eskiu.html">Book</a>
+        <a href="docs/internals.html">Internals</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+        <a href="https://reactvision.xyz">ReactVision</a>
+      </nav>
     </div>
   </footer>
+  <script>(function(){var t=document.querySelector(".top"),b=document.querySelector(".menu-btn");if(!t||!b)return;b.addEventListener("click",function(){var o=t.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");});})();</script>
 </body>
 </html>

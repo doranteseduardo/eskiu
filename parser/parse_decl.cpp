@@ -62,8 +62,13 @@ DeclPtr Parser::parseDeclaration() {
             std::string name = unameTok.value;
             consume(TokenType::LBRACE, "Expected '{'");
             std::vector<StructDecl::Field> fields;
+            std::vector<StructDecl::Pad> pads;
             while (!check(TokenType::RBRACE) && !is_at_end()) {
                 std::string fieldType = parseType();
+                if (check(TokenType::COLON)) {
+                    pads.push_back(parseUnnamedBitfield(fieldType, fields.size()));
+                    continue;
+                }
                 std::string fieldName = consume(TokenType::IDENT,
                     "Expected field name").value;
                 consume(TokenType::SEMICOLON, "Expected ';'");
@@ -72,6 +77,7 @@ DeclPtr Parser::parseDeclaration() {
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
             auto ud = std::make_shared<UnionDecl>(name, fields);
+            ud->pads = pads;
             ud->packAlign = currentPack;
             return withPos(ud, unameTok);
         }
@@ -446,6 +452,7 @@ DeclPtr Parser::parseStructDecl() {
     consume(TokenType::LBRACE, "Expected '{'");
 
     std::vector<StructDecl::Field> fields;
+    std::vector<StructDecl::Pad> pads;
     std::vector<DeclPtr> methods;
     // The struct's type parameters are in scope for its inline methods.
     size_t scopeMark = typeParamScope.size();
@@ -457,6 +464,10 @@ DeclPtr Parser::parseStructDecl() {
         size_t savePos = current;
         try {
             std::string memberType = parseType();
+            if (check(TokenType::COLON)) {
+                pads.push_back(parseUnnamedBitfield(memberType, fields.size()));
+                continue;
+            }
             std::string memberName = consume(TokenType::IDENT, "Expected member name").value;
 
             if (check(TokenType::LPAREN)) {
@@ -484,6 +495,7 @@ DeclPtr Parser::parseStructDecl() {
 
     sharedTypeNames->insert(name);
     auto decl = withPos(std::make_shared<StructDecl>(name, fields), snameTok);
+    decl->pads     = pads;
     decl->methods  = methods;
     decl->typeParams = typeParams;
     decl->constraints = typeConstraints;
@@ -492,6 +504,15 @@ DeclPtr Parser::parseStructDecl() {
         if (packAtStart == 1) decl->isPacked = true;
     }
     return withPos(decl, snameTok);
+}
+
+// An unnamed bitfield after its type: `: N;` (N = 0 allowed).
+StructDecl::Pad Parser::parseUnnamedBitfield(const std::string& type, size_t before) {
+    consume(TokenType::COLON, "Expected ':'");
+    Token w = consume(TokenType::INT_LIT, "Expected bit width after ':' in bitfield");
+    consume(TokenType::SEMICOLON, "Expected ';' after field");
+    long long n = std::stoll(w.value, nullptr, 0);
+    return {type, (int)std::min(n, 1LL << 20), before};
 }
 
 void Parser::addLinkLib(const std::string& name) {

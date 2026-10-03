@@ -3,11 +3,15 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.9.2**.
+All code blocks in this document compile and run with **Eskiu v0.9.3**.
 
 ---
 
 ## Installation
+
+Prebuilt releases for macOS and Linux install with one command; see the
+[README](../../README.md#install). To build from source, follow the steps below
+(more detail, Windows and troubleshooting are in [build.md](build.md)).
 
 ### Prerequisites
 
@@ -15,8 +19,8 @@ All code blocks in this document compile and run with **Eskiu v0.9.2**.
 | ------------ | --------------- | --------------------------------- |
 | LLVM         | 21+             | Headers and libraries required (CI uses 22) |
 | CMake        | 3.20+           | Build system                      |
-| C++ compiler | C++17           | GCC 7+, Clang 5+, or Apple Clang  |
-| clang        | any recent      | Used to link the final binary     |
+| C++ compiler | C++17           | clang++ or g++                    |
+| C compiler   | any recent      | `cc`, `clang` or `gcc`, used to link executables |
 
 ### macOS
 
@@ -37,7 +41,9 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 ### Linux (Ubuntu / Debian)
 
 ```bash
-sudo apt-get install -y cmake llvm-22-dev clang-22 build-essential
+sudo apt-get install -y git cmake llvm-22-dev clang-22 build-essential
+git clone https://github.com/doranteseduardo/eskiu.git
+cd eskiu
 cmake -S . -B build -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
 cmake --build build -j$(nproc)
 ```
@@ -46,7 +52,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.9.2 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.9.3 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -135,15 +141,21 @@ eskiuc hello.esk --test-codegen
 Abridged output:
 
 ```llvm
-@0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00"
-@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00"
+@0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00", align 1
+@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
 define i32 @add(i32 %a, i32 %b) {
 entry:
-  %0 = add i32 %a, %b
-  ret i32 %0
+  %b2 = alloca i32, align 4
+  %a1 = alloca i32, align 4
+  store i32 %a, ptr %a1, align 4
+  store i32 %b, ptr %b2, align 4
+  %0 = load i32, ptr %a1, align 4
+  %1 = load i32, ptr %b2, align 4
+  %2 = add i32 %0, %1
+  ret i32 %2
 }
 
 define i32 @main() {
@@ -156,8 +168,9 @@ entry:
 }
 ```
 
-String literals become private globals. Local variables are stack slots
-(`alloca`). The `add` function compiles down to a single `add i32` instruction.
+String literals become private globals. At the default `-O0`, parameters and local
+variables are stack slots (`alloca`). Add `-O2` to see the optimized IR, where `add`
+is a single `add i32` instruction.
 
 ---
 
@@ -481,11 +494,11 @@ Drop the parentheses and end with a semicolon; the variable resolves at link tim
 so Eskiu can read and write state shared with a C library:
 
 ```eskiu
-extern int   errno;        // a C global; read and assign it like any variable
-extern float g_volume;
+extern int   opterr;       // libc's getopt flag; read and assign it like any variable
+extern float g_volume;     // a global defined in your own C code
 
-void reset() {
-    errno = 0;
+void quiet_getopt() {
+    opterr = 0;
 }
 ```
 
@@ -739,7 +752,7 @@ T max<T: Ord>(T a, T b) {
 }
 ```
 
-Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a `struct Num` with `int cmp(*Num other)` satisfies `Ord`. Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int a, *int b)` makes `int` satisfy the `Ord` above (the interface's `*Ord` becomes `*int`). See spec §10.6 for the full rules.
+Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a `struct Num` with `int cmp(*Num other)` satisfies `Ord`. Use `+` to require several interfaces at once (`<K: Hashable + Eq, V>`). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a **free function** named like the interface method whose first parameter is that primitive, e.g. `int cmp(int a, *int b)` makes `int` satisfy the `Ord` above (the interface's `*Ord` becomes `*int`), so `max(3, 9)` works. See spec §10.6 for the full rules.
 
 ---
 
@@ -881,8 +894,6 @@ int main() {
 }
 ```
 
-Pointer comparisons use integer equality, not floating-point equality.
-
 For checked null safety, declare the pointer `?*T`. The compiler then rejects a
 dereference until a check proves the pointer is not null. The check can be an
 `if (p != null)`, an early exit (`if (p == null) { return 0; }`), a loop condition,
@@ -916,7 +927,7 @@ import <result>;      // stdlib module, resolved by the compiler
 import "utils.esk";   // local file, relative to the current file
 ```
 
-`import <name>` looks up the module in the Eskiu installation's stdlib directory. No path required. `import "path"` is relative to the importing file, as before.
+`import <name>` looks up the module in the Eskiu installation's stdlib directory. No path required. `import "path"` is relative to the importing file.
 
 Each file is parsed only once regardless of how many times it is imported.
 
@@ -982,6 +993,7 @@ Available modules:
 | `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers |
 | `<bytes>`    | `Bytes`: growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
 | `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
+| `<ctype>`    | ASCII character classes: `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
@@ -993,7 +1005,7 @@ Available modules:
 | `<http2_server>`| HTTP/2 (h2c, cleartext) server over the event loop: `http2_serve_async`, multiplexed streams, same handler interface as `<http>` |
 | `<tls>`      | h2 over TLS via OpenSSL with ALPN `"h2"`: `http2_tls_serve_conn` (blocking) / `http2_tls_serve_async` |
 | `<sysheap>`  | `Heap`: a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
-| `<fs>`       | `fs_open`, `fs_close`, `fs_read`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
+| `<fs>`       | `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
 | `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
 | `<http>`     | HTTP/1.1: `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
@@ -1027,7 +1039,7 @@ eskiuc file.esk -o file
 
 ### Standard library highlights
 
-A few of the newer modules. See the language spec §14 for the full reference.
+A few of the modules. See the [language spec §14](spec.md#14-stdlib) for the full reference.
 
 **`<alloc>`: allocators over a caller buffer.** `alloc_with(&a, T, n)` carves a
 typed `*T` out of any struct that exposes a `_alloc` method. Bump is the
@@ -1134,7 +1146,7 @@ int main() {
 
 ### Closures: capturing from the enclosing scope
 
-A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (`x = 1`, `x++` inside the body is a compile error); to share state, write through a pointer or use a global or a `static` local.
+A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (`x = 1`, `x++` inside the body is a compile error) or call a method on it that takes a plain `*T self` (only a `const T* self` method); to share state, write through a pointer or use a global or a `static` local.
 
 ```eskiu
 extern int printf(string fmt, ...);
@@ -1163,7 +1175,7 @@ int main() {
 }
 ```
 
-Under the hood, `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Non-capturing lambdas have `env_ptr = null` and behave identically to before.
+Under the hood, `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Non-capturing lambdas have `env_ptr = null` and behave like plain function pointers.
 
 ---
 
@@ -1197,7 +1209,7 @@ int main() {
 }
 ```
 
-The closure fat pointer maps directly to pthread's `(start_routine, arg)` pair: no trampoline is generated. The driver links pthread by itself where the platform needs it:
+A closure value's fat pointer maps directly to pthread's `(start_routine, arg)` pair. A lambda written in the call goes through a small trampoline that frees its environment when the thread ends. The driver links pthread by itself where the platform needs it:
 
 ```bash
 eskiuc threads.esk -o threads
@@ -1279,11 +1291,15 @@ The `editor/vscode/` directory contains a VS Code extension for Eskiu.
 
 ### Install
 
+Package the extension and install the `.vsix` (from the repository root):
+
 ```bash
-ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language
+cd editor/vscode
+npx @vscode/vsce package --allow-missing-repository --skip-license
+code --install-extension eskiu-language-*.vsix
 ```
 
-Restart VS Code. `.esk` files will have syntax highlighting immediately.
+For development, link the folder instead: `ln -s "$PWD/editor/vscode" ~/.vscode/extensions/eskiu-language`, then reload the window. The extension uses the `eskiuc` on your `PATH`. See `editor/vscode/README.md` for details.
 
 ### Features
 
@@ -1400,25 +1416,34 @@ The string is passed verbatim to the assembler. Use this form for instructions t
 
 ### Inline assembly: extended form
 
-The extended form passes values in and out of the asm template using GCC-compatible constraints:
+The extended form passes values in and out of the asm template. Its layout and constraints follow GCC:
 
 ```eskiu
 // Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
     asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
 }
+
+// Add two registers on x86-64 and read the result back
+int64 add(int64 a, int64 b) {
+    int64 acc = a;
+    asm("addq $1, $0" : "+r"(acc) : "r"(b));
+    return acc;
+}
 ```
 
-Syntax: `asm("template" :: inputs : clobbers);`
+Syntax: `asm("template" : outputs : inputs : clobbers);` (empty sections may be left blank, as in `::`).
 
-- Inputs are `"constraint"(expression)` pairs.
-- Output operands are not supported: the output section stays empty, so the extended form starts with `::`. Pass results back through memory (a pointer input plus the `"memory"` clobber).
+- Operands are `"constraint"(expression)` pairs, referenced in the template as `$0`, `$1`, ... (outputs first, then inputs).
+- An output constraint starts with `=` (written) or `+` (read and written), and its operand must be a writable variable, field, element or dereference.
 - `"memory"` in the clobber list acts as a compiler barrier.
-- Common constraints: `"a"` → rax/eax, `"Nd"` → 8-bit immediate or dx, `"r"` → any register.
+- Common constraints: `"r"` → any register, `"m"` → memory, `"i"` → an immediate. On x86 the GCC register letters `"a"`, `"b"`, `"c"`, `"d"`, `"S"` and `"D"` pick one register (al/ax/eax/rax by width for `"a"`), and `"Nd"` is an 8-bit immediate or dx. LLVM's explicit form, a register in braces such as `"{ax}"` or `"N{dx}"`, works too; the GCC letters are translated to it.
+
+See spec §15 for the full rules.
 
 ### Freestanding mode
 
-When targeting bare metal or a kernel, pass `--freestanding` to the compiler. This redirects the built-in `alloc` and `free` to user-provided `esk_alloc` / `esk_free` symbols instead of the libc `malloc` / `free`:
+When targeting bare metal or a kernel, pass `--freestanding` to the compiler. This makes `<mem>`'s `alloc<T>` and `free` call user-provided `esk_alloc` / `esk_free` symbols instead of libc `calloc` / `free`:
 
 ```bash
 eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
@@ -1428,7 +1453,7 @@ You must provide `esk_alloc` and `esk_free` in your own source or a C shim:
 
 ```eskiu
 // kernel_alloc.esk, linked together with kernel.esk
-*void esk_alloc(int size) { return bump_alloc(size); }
+*void esk_alloc(int64 nbytes) { return bump_alloc(nbytes); }   // must return zeroed memory
 void  esk_free(*void ptr)  { bump_free(ptr); }
 ```
 
@@ -1531,7 +1556,8 @@ them, as in C: with `let q: *int = buf + 3;`, `q - buf` is `3`.
 
 ## What's Next
 
-- Full language reference: `docs/lang/spec.md`
-- Standard library source: `stdlib/`
-- Worked examples: `examples/`
-- Contributing guide: `docs/dev/`
+- Full language reference: [spec.md](spec.md)
+- Formal grammar: [grammar.md](grammar.md)
+- Standard library source: [`stdlib/`](../../stdlib/)
+- Worked examples: [`examples/`](../../examples/)
+- Contributing guide: [contributing.md](../dev/contributing.md)

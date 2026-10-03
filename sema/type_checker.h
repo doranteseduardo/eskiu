@@ -23,6 +23,8 @@ struct TargetLayoutInfo {
     unsigned ptrSize = 8, ptrAlign = 8;
     unsigned i16Align = 2, i32Align = 4, i64Align = 8, f32Align = 4, f64Align = 8;
     bool msBitfields = false;   // Windows: bitfields follow the MS layout rules
+    bool msvcEnv = false;       // MSVC (not mingw): a `: 0` under pack(N) is aligned to at most N
+    bool unnamedBitfieldsAlign = false;   // AAPCS: an unnamed bitfield raises the struct alignment
 };
 TargetLayoutInfo targetLayoutInfo(const std::string& triple);
 // Does the floating value v, truncated toward zero, fit the integer type t?
@@ -44,6 +46,11 @@ public:
     const std::map<Expr*, std::string>& expressionTypeMap() const { return expressionTypes; }
     // Generic struct / enum instances: mangled name -> (template name, type args).
     const std::map<std::string, std::pair<std::string, std::vector<std::string>>>& instanceArgsMap() const { return templateInstanceArgs; }
+    // In a generic async function's body: per expression, each checked instance's
+    // type-argument bindings and the expression's type there (the async lowering types
+    // its temporaries from these).
+    using InstanceExprTypes = std::map<Expr*, std::vector<std::pair<std::map<std::string, std::string>, std::string>>>;
+    const InstanceExprTypes& instanceExprTypeMap() const { return instanceExprTypes; }
 
     // Visitor methods
     void visit(Program* node) override;
@@ -160,6 +167,7 @@ private:
     struct StructInfo {
         std::string name;
         std::vector<StructDecl::Field> fields;
+        std::vector<StructDecl::Pad> pads;   // unnamed bitfields (layout only)
         bool isUnion = false;
         int packAlign = 0;       // 1 = packed, N = `#pragma pack(N)`, 0 = natural
     };
@@ -211,6 +219,7 @@ private:
     std::string instContext;                      // its display name (appended to diagnostics)
     int instDepth = 0;
     bool inInstance = false;
+    InstanceExprTypes instanceExprTypes;
     bool substituting = false;                    // normalizeType re-entry guard
     // Queue an instance of `fn` (keyed and displayed as `name<args>suffix`), unless already queued.
     void queueInstance(FunctionDecl* fn, const std::vector<std::string>& typeParams,
@@ -312,6 +321,11 @@ private:
     // Lambdas bound to a local (`let w = lambda`) and the locals used beyond a call.
     std::map<LambdaExpr*, std::string> lambdaLocal;
     std::set<std::string> lambdaLocals, escapedLambdaLocals;
+    // (lambda, lambda-bound local it captures): the local escapes if the lambda outlives the call.
+    std::vector<std::pair<LambdaExpr*, std::string>> localCaptures;
+    // Lambdas bound to a local of an async body: the local becomes a frame field, so the
+    // env must outlive a suspension (heap; the async lowering frees it with the frame).
+    std::set<LambdaExpr*> asyncLocalLambdas;
     std::string calleeContext;
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;
@@ -414,6 +428,7 @@ private:
     std::set<std::string> unknownTypes;   // names already reported as unknown (no cascades)
     // A bitfield must have an integer type at least `bitWidth` bits wide.
     void checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f);
+    void checkUnnamedBitfields(ASTNode* at, const std::string& owner, const std::vector<StructDecl::Pad>& pads);
     // Reject a struct/union that contains itself by value (no finite layout).
     void checkValueCycles(Program* program);
     // One top-level namespace: duplicate/conflicting functions, globals, types, members.
@@ -475,6 +490,7 @@ private:
     // The captured variable whose own storage `target` names (itself, a field or a fixed
     // array element of it, not through a pointer) inside a lambda, or "".
     std::string capturedRoot(Expr* target);
+    void checkCapturedMethodCall(ASTNode* at, MemberExpr* member);
     // `&x` / `x[lo..hi]` of a captured variable's storage: the address is the closure's
     // copy, so a write through it is lost.
     void checkCapturedAddress(ASTNode* at, Expr* target);

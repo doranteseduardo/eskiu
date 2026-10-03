@@ -1,0 +1,195 @@
+// A lambda bound to a local of an async function lives in the frame across suspensions,
+// so its env is on the heap. The frame owns it: rebinding the local frees the env bound
+// before, and the frame frees the last one when it completes, when its cancellation
+// cleanup ends, or when it is dropped with no cleanup pending. A lambda passed straight
+// to a non-escaping parameter keeps a stack env. Run under `leaks --atExit`: no leak.
+import <future>;
+import <timer>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+EventLoop* g;
+fn(int)->int saved;
+enum Opt { Some(int), None }
+
+int apply(fn(int)->int h, int v) { return h(v); }
+void keep(escaping fn(int)->int h) { saved = h; }
+
+async int local(int k) {
+    int base = k * 2;
+    let f: fn(int)->int = int(int x) { return x + base; };
+    int z = await timer_after(g, (int64)1);
+    return f(1) + z;
+}
+
+async int in_loop(int k) {
+    int s = 0;
+    for (int i = 0; i < 3; i++) {
+        let f: fn(int)->int = int(int x) { return x + i * k; };
+        int t = await timer_after(g, (int64)1);
+        s += f(t + 1);
+    }
+    return s;
+}
+
+async int cond_init(int k) {
+    int s = 0;
+    for (int i = 0; i < 4; i++) {
+        fn(int)->int h;
+        if (i % 2 == 0) { h = int(int x) { return x * k + i; }; }
+        int t = await timer_after(g, (int64)1);
+        if (i % 2 == 0) { s += h(t + 1); }
+    }
+    return s;
+}
+
+async int rebind(int k) {
+    let f: fn(int)->int = int(int x) { return x + k; };
+    int a = f(1);
+    int t = await timer_after(g, (int64)1);
+    f = int(int x) { return x * k; };
+    int b = f(2 + t);
+    if (k > 1) f = int(int x) { return x - k; };
+    return a * 100 + b * 10 + f(k);
+}
+
+async int arg(int k) {
+    int base = k * 2;
+    int z = await timer_after(g, (int64)1);
+    return apply(int(int x) { return x * base; }, 3) + z;
+}
+
+async T pick<T>(T v, T w) {
+    let f: fn(T)->T = T(T x) { return x + v; };
+    int t = await timer_after(g, (int64)1);
+    return f(w);
+}
+
+async int throws(int k) {
+    let f: fn(int)->int = int(int x) { return x + k; };
+    int s = 0;
+    try {
+        int t = await timer_after(g, (int64)1);
+        if (t == 0) { throw 5; }
+    } catch (int e) {
+        s = f(e);
+    }
+    return s;
+}
+
+async int escapes(int k) {
+    int t = await timer_after(g, (int64)1);
+    keep(int(int x) { return x + k; });
+    return t;
+}
+
+async int captured(int k) {
+    let f: fn(int)->int = int(int x) { return x * k; };
+    int t = await timer_after(g, (int64)1);
+    int r = apply(int(int x) { return f(x) + 1; }, 4);
+    free_closure(f);
+    return r + t;
+}
+
+async int dropped_plain(int k) {
+    let f: fn(int)->int = int(int x) { return x + k; };
+    int t = await timer_after(g, (int64)500);
+    return f(t);
+}
+
+async int dropped_defer(int k) {
+    let f: fn(int)->int = int(int x) { return x + k; };
+    defer printf("dropped_defer: defer %d\n", f(1));
+    int t = await timer_after(g, (int64)500);
+    return f(t);
+}
+
+async int dropped_detached(int k) {
+    let f: fn(int)->int = int(int x) { return x + k; };
+    defer {
+        int t = await timer_after(g, (int64)2);
+        printf("dropped_detached: defer %d\n", f(t));
+    }
+    int t = await timer_after(g, (int64)500);
+    return f(t);
+}
+
+// Closure locals in blocks no await splits: an if body, a switch case, a match arm.
+async int plain_blocks(int k) {
+    int s = 0;
+    for (int i = 0; i < 3; i++) {
+        int t = await timer_after(g, (int64)1);
+        if (i > 0) { let f: fn(int)->int = int(int x) { return x + i + k; }; s += f(t); }
+        switch (i) {
+            case 1: { let h: fn(int)->int = int(int x) { return x * k; }; s += h(2); break; }
+            default: break;
+        }
+        Opt o = Some(i);
+        match (o) {
+            Some(v) -> { let m: fn(int)->int = int(int x) { return x + v; }; s += m(100); }
+            None -> {}
+        }
+    }
+    return s;
+}
+
+async T twice<T>(T v) {
+    let f: fn(T)->T = T(T x) { return x + v; };
+    int t = await timer_after(g, (int64)1);
+    f = T(T x) { return x * v; };
+    return f(v);
+}
+
+// A closure local in a split try (the exception is caught), and one in a finally that awaits.
+async int split_try(int k) {
+    int s = 0;
+    try {
+        let f: fn(int)->int = int(int x) { return x + k; };
+        int t = await timer_after(g, (int64)1);
+        s = f(t);
+        throw 3;
+    } catch (int e) {
+        s += e;
+    } finally {
+        let q: fn(int)->int = int(int x) { return x * 10; };
+        int t2 = await timer_after(g, (int64)1);
+        s = q(s) + t2;
+    }
+    return s;
+}
+
+int run(Future<int>* f) {
+    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    int v = f.value;
+    free_future_polled<int>(f);
+    return v;
+}
+
+int main() {
+    g = el_new(64);
+    printf("local %d\n", run(local(5)));
+    printf("in_loop %d\n", run(in_loop(2)));
+    printf("cond_init %d\n", run(cond_init(3)));
+    printf("rebind %d\n", run(rebind(3)));
+    printf("arg %d\n", run(arg(5)));
+    printf("pick %d\n", run(pick<int>(4, 6)));
+    printf("throws %d\n", run(throws(7)));
+    printf("escapes %d\n", run(escapes(2)));
+    printf("saved %d\n", saved(1));
+    free_closure(saved);
+    printf("captured %d\n", run(captured(3)));
+    printf("plain_blocks %d\n", run(plain_blocks(2)));
+    printf("twice %d\n", run(twice<int>(7)));
+    printf("split_try %d\n", run(split_try(4)));
+    Future<int>* st = split_try(1);
+    future_drop((FutureHdr*)st);
+    Future<int>* p = dropped_plain(1);
+    future_drop((FutureHdr*)p);
+    printf("dropped_plain\n");
+    Future<int>* d = dropped_defer(2);
+    future_drop((FutureHdr*)d);
+    Future<int>* x = dropped_detached(3);
+    future_drop((FutureHdr*)x);
+    run(timer_after(g, (int64)40));
+    EventLoop_free(g);
+    return 0;
+}

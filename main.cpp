@@ -98,7 +98,8 @@ static llvm::cl::opt<bool> Safe("safe",
 
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
-                   "and functions, and assignment used as a condition"),
+                   "and functions, assignment used as a condition, and locals "
+                   "that may be used uninitialized"),
     llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> Wextra("Wextra",
@@ -152,7 +153,7 @@ static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::init(0),
     llvm::cl::cat(EskiuCat));
 
-const char* VERSION = "0.9.2";
+const char* VERSION = "0.9.3";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
@@ -252,7 +253,7 @@ static int testCodegen(const std::string& filename) {
             std::cerr << "Type checking failed!" << std::endl;
             return 1;
         }
-        AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap()).run(program.get());
+        AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap(), &tc.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
         TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = filename;
         if (!postTc.check(program.get())) {
@@ -267,7 +268,6 @@ static int testCodegen(const std::string& filename) {
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
         if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
-        codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.optLevel = OptLevel;
         llvm::Module* module = codegen.generateCode(program);
@@ -480,7 +480,7 @@ static int compilerMain(int argc, char** argv) {
             return 1;
         }
 
-        AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap()).run(program.get());
+        AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap(), &typeChecker.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
         TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = std::string(InputFilename);
         if (!postTc.check(program.get())) {
@@ -494,7 +494,6 @@ static int compilerMain(int argc, char** argv) {
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
         if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
-        codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.asan = Asan;
         codegen.ubsan = Ubsan;
@@ -521,10 +520,11 @@ static int compilerMain(int argc, char** argv) {
             : std::string(OutputFilename);
 
         // Link into an executable when the output is not an object file.
-        // Object-only when: -c is given, the output ends in .o, no -o was given,
-        // or --freestanding (bare-metal needs a custom linker script — link yourself).
+        // Object-only when: -c is given, the output ends in .o or .obj, no -o was given,
+        // or --freestanding (bare-metal needs a custom linker script: link yourself).
         bool linkExe = g_runMode || (!CompileOnly && !Freestanding &&
-                       !OutputFilename.empty() && !endsWith(outFile, ".o"));
+                       !OutputFilename.empty() && !endsWith(outFile, ".o") &&
+                       !endsWith(outFile, ".obj"));
 
         if (linkExe) {
             llvm::SmallString<128> tmpObj;

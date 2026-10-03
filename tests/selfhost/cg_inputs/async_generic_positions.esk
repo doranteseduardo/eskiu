@@ -1,0 +1,92 @@
+// Awaits in a generic async function in the positions whose temporaries need a type:
+// a match arm that binds a payload, after an operand with a side effect in the same
+// expression, and inside a ?: arm. Each is instantiated with int and with a struct.
+import <future>;
+extern int printf(string fmt, ...);
+struct P { int x; int y; }
+struct Box<T> { T v; int n; }
+enum Maybe<T> { Just(T, int), Nothing }
+int seq = 0;
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+T tick<T>(T v) { seq = seq + 1; printf("tick %d\n", seq); return v; }
+int bump(int k) { seq = seq + 1; printf("bump %d\n", seq); return k; }
+T second<T>(T a, T b) { return b; }
+Box<T> boxed<T>(T v) { seq = seq + 1; printf("boxed %d\n", seq); return Box<T>{v, seq}; }
+
+async T in_match<T>(Maybe<T> m, T dflt) {
+    T r = dflt;
+    match m {
+        Just(v, k) -> { T w = await rdy<T>(v); r = w; printf("just k=%d\n", k + await rdy<int>(k)); }
+        Nothing -> { r = await rdy<T>(dflt); printf("nothing\n"); }
+    }
+    return r;
+}
+
+async T after_side<T>(T a, T b) {
+    T s = second<T>(tick<T>(a), await rdy<T>(b));
+    int k = bump(10) + await rdy<int>(5);
+    Box<T> bx = boxed<T>(a);
+    int n = bx.n * 100 + await rdy<int>(k);
+    printf("k=%d n=%d\n", k, n);
+    T t = second<T>(boxed<T>(b).v, await rdy<T>(s));
+    return t;
+}
+
+async T in_ternary<T>(bool c, T a, T b) {
+    T r = c ? await rdy<T>(a) : b;
+    T q = c ? a : await rdy<T>(b);
+    int z = c ? await rdy<int>(1) + 1 : 0;
+    printf("z=%d\n", z);
+    return second<T>(r, q);
+}
+
+async U two<T, U>(T a, U b, bool c) {
+    Box<U> bx = second<Box<U>>(boxed<U>(b), await rdy<Box<U>>(Box<U>{b, 7}));
+    T t = c ? await rdy<T>(a) : a;
+    *T pt = second<*T>(&t, await rdy<*T>(&t));
+    t = *pt;
+    printf("bx.n=%d\n", bx.n);
+    return bx.v;
+}
+
+// The awaited future completes after the function has parked: the binding, the held
+// operand and the ternary's value live in the frame across the suspension.
+async T parked<T>(Maybe<T> m, Future<int>* g, T other) {
+    T r = other;
+    match m {
+        Just(v, k) -> {
+            int x = bump(k) + await g;
+            r = x > 0 ? v : await rdy<T>(other);
+            printf("x=%d\n", x);
+        }
+        Nothing -> {}
+    }
+    return r;
+}
+
+int main() {
+    Future<int>* a = in_match<int>(Just<int>(7, 3), 0); printf("= %d\n", a.value); free_future<int>(a);
+    Future<int>* b = in_match<int>(Nothing<int>(), 9); printf("= %d\n", b.value); free_future<int>(b);
+    Future<P>* c = in_match<P>(Just<P>(P{1, 2}, 4), P{0, 0}); printf("= %d %d\n", c.value.x, c.value.y); free_future<P>(c);
+    Future<P>* d = in_match<P>(Nothing<P>(), P{5, 6}); printf("= %d %d\n", d.value.x, d.value.y); free_future<P>(d);
+
+    Future<int>* e = after_side<int>(1, 2); printf("= %d\n", e.value); free_future<int>(e);
+    Future<P>* f = after_side<P>(P{1, 1}, P{3, 4}); printf("= %d %d\n", f.value.x, f.value.y); free_future<P>(f);
+
+    Future<int>* g = in_ternary<int>(true, 11, 12); printf("= %d\n", g.value); free_future<int>(g);
+    Future<int>* h = in_ternary<int>(false, 11, 12); printf("= %d\n", h.value); free_future<int>(h);
+    Future<P>* i = in_ternary<P>(true, P{7, 8}, P{9, 10}); printf("= %d %d\n", i.value.x, i.value.y); free_future<P>(i);
+    Future<P>* j = in_ternary<P>(false, P{7, 8}, P{9, 10}); printf("= %d %d\n", j.value.x, j.value.y); free_future<P>(j);
+
+    Future<P>* k = two<int, P>(1, P{2, 3}, true); printf("= %d %d\n", k.value.x, k.value.y); free_future<P>(k);
+    Future<int>* l = two<P, int>(P{4, 5}, 6, false); printf("= %d\n", l.value); free_future<int>(l);
+    Future<int>* g1 = future_new<int>();
+    Future<int>* m = parked<int>(Just<int>(5, 1), g1, 0);
+    printf("parked\n");
+    future_complete<int>(g1, 40); printf("= %d\n", m.value); free_future<int>(m);
+    Future<int>* g2 = future_new<int>();
+    Future<P>* n = parked<P>(Just<P>(P{3, 4}, 2), g2, P{0, 0});
+    printf("parked\n");
+    future_complete<int>(g2, -9); printf("= %d %d\n", n.value.x, n.value.y); free_future<P>(n);
+    return 0;
+}

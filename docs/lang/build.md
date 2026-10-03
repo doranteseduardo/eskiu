@@ -9,7 +9,9 @@
 | C++ compiler | C++17 (clang++ recommended, g++ works) | clang++ 17+ |
 | git          | any                                    | n/a         |
 
-LLVM is the only non-trivial dependency. The compiler uses the `support`, `core`, and `irreader` component libraries.
+LLVM is the only non-trivial dependency. The compiler links the `support`, `core`, `irreader` and native code generation components, plus the AArch64, X86 and ARM backends used for cross-compilation.
+
+To use a prebuilt compiler instead, see the install instructions in the [README](../../README.md#install). A built `eskiuc` calls the system C compiler (`cc`, `clang` or `gcc`) to link executables, so one must be installed.
 
 ---
 
@@ -44,12 +46,13 @@ cmake --build build -- -j$(sysctl -n hw.logicalcpu)
 Expected output (last few lines):
 
 ```
-[ 85%] Building CXX object CMakeFiles/eskiuc.dir/codegen/codegen_expr.cpp.o
-[100%] Linking CXX executable eskiuc
-[100%] Built target eskiuc
+[ 97%] Linking CXX executable eskiuc
+[ 97%] Built target eskiuc
+[100%] Building the Eskiu-written compiler (eskiuc-esk) with the C++ seed
+[100%] Built target eskiuc-selfhost
 ```
 
-The compiler binary is at `build/eskiuc`.
+The compiler binary is at `build/eskiuc`. When clang is available, the build also produces `build/eskiuc-esk`, the same compiler written in Eskiu and compiled by `build/eskiuc`. Pass `--target eskiuc` to `cmake --build` to build only the C++ compiler.
 
 ---
 
@@ -107,6 +110,26 @@ cmake --build build -- -j$(nproc)
 
 ---
 
+## Windows (MSYS2)
+
+Windows builds use the MSYS2 MINGW64 environment. From a MINGW64 shell:
+
+```bash
+pacman -S --needed git mingw-w64-x86_64-toolchain mingw-w64-x86_64-llvm \
+  mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+git clone https://github.com/doranteseduardo/eskiu.git
+cd eskiu
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_DIR="$MINGW_PREFIX/lib/cmake/llvm" \
+  -DCMAKE_CXX_COMPILER=g++
+cmake --build build --target eskiuc
+```
+
+The result is `build/eskiuc.exe`. It links executables through the MinGW `gcc`.
+
+---
+
 ## Build Options
 
 ### Debug vs Release
@@ -150,7 +173,7 @@ cmake --build build -- -j$(nproc)
 Expected output:
 
 ```
-Eskiu 0.9.2 (LLVM 22.x.x)
+Eskiu 0.9.3 (LLVM 22.x.x)
 ```
 
 The LLVM version will reflect whichever version is installed on the host.
@@ -164,11 +187,15 @@ The LLVM version will reflect whichever version is installed on the host.
 Expected output (LLVM IR for `hello.esk`):
 
 ```llvm
-; ModuleID = 'eskiu_module'
-source_filename = "eskiu_module"
+Generating LLVM IR: examples/hello.esk
+========================================================
+; ModuleID = 'eskiu'
+source_filename = "eskiu"
+target datalayout = "..."
+target triple = "arm64-apple-darwin..."
 
-@0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00"
-@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00"
+@0 = private unnamed_addr constant [19 x i8] c"Hello from Eskiu!\0A\00", align 1
+@1 = private unnamed_addr constant [12 x i8] c"Result: %d\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -183,7 +210,7 @@ entry:
 }
 ```
 
-The exact IR body will vary with LLVM version, but the module must contain `@printf`, `@add`, and `@main`.
+The target lines and the exact IR body vary with the host and the LLVM version, but the module must contain `@printf`, `@add`, and `@main`.
 
 ---
 
@@ -228,7 +255,7 @@ cmake -S . -B build \
 
 ### Linker errors: undefined LLVM symbols
 
-The build links `support`, `core`, and `irreader`. If you see undefined symbols from LLVM:
+If you see undefined symbols from LLVM:
 
 1. Confirm the installed LLVM version matches the headers used at configure time (`llvm-config --version`).
 2. On Ubuntu, ensure you installed `llvm-22-dev` (not just `llvm-22`); the `-dev` package contains the static libraries.
@@ -240,7 +267,8 @@ The build links `support`, `core`, and `irreader`. If you see undefined symbols 
 
 The automated suite is driven by `tests/run.sh`, which compiles, links, and runs every
 `tests/*.esk` case (matching stdout against `*.expected`, smoke-running the rest, and
-checking that `tests/errors/*.esk` are rejected). `eskiuc` links each test itself with
+checking that `tests/errors/*.esk` are rejected and that `tests/warnings/*.esk` produce
+their expected `-Wall` warnings). `eskiuc` links each test itself with
 no `-l` flags, so the libraries programs imply (`#pragma link`, the C++ exception
 runtime, pthread) are exercised too:
 
@@ -250,10 +278,11 @@ ESKIUC=/path/eskiuc tests/run.sh   # point at a specific compiler
 ```
 
 CI runs the suite three ways: plain, then under UBSan and ASan (`SANITIZE=ubsan` /
-`SANITIZE=asan`) as hardening gates, plus a generative fuzzer
-(`tests/fuzz/eskiu_fuzz.py`) that mutates programs and fails on any compiler crash,
-IR-verifier failure, or O0-vs-O2 runtime divergence (a differential oracle); a
-golden-IR oracle guards against unintended codegen changes.
+`SANITIZE=asan`) as hardening gates. It also runs fuzzers from `tests/fuzz/` (see
+`tests/README.md`): a generative fuzzer that mutates programs and fails on any compiler
+crash, IR-verifier failure, or O0-vs-O2 runtime divergence, one that checks that invalid
+programs are rejected with a located error, and one that runs the stdlib parsers under
+ASan.
 
 The four `--test-*` modes below expose individual compiler phases for manual inspection.
 
@@ -331,10 +360,12 @@ Type checking: examples/hello.esk
 Type checking succeeded!
 ```
 
-Example error output for a type mismatch:
+Example error output for `int f() { return 1.5; }`:
 
 ```
-error: type mismatch in return: expected 'int', got 'float'
+error: e.esk:1:11: return type mismatch: expected int, got double (cannot assign a floating-point value ('double') to integer type 'int' without an explicit cast (it drops the fraction))
+========================================================
+Type checking failed!
 ```
 
 ### `--test-codegen`

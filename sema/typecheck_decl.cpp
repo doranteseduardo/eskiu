@@ -427,12 +427,16 @@ void TypeChecker::visit(FunctionDecl* node) {
     auto prevCaptures = std::move(watchedCaptures);
     auto prevLambdaLocal = std::move(lambdaLocal);
     auto prevLambdaLocals = std::move(lambdaLocals), prevEscapedLocals = std::move(escapedLambdaLocals);
+    auto prevLocalCaptures = std::move(localCaptures);
+    auto prevAsyncLocals = std::move(asyncLocalLambdas);
     nonEscapingFnParams.clear();
     escapedFnParams.clear();
     watchedCaptures.clear();
     lambdaLocal.clear();
     lambdaLocals.clear();
     escapedLambdaLocals.clear();
+    localCaptures.clear();
+    asyncLocalLambdas.clear();
     for (size_t i = 0; i < node->params.size(); ++i) {
         const std::string& pty = node->params[i].first;
         bool isFn = pty.size() > 3 && pty.substr(0, 3) == "fn(";
@@ -475,6 +479,25 @@ void TypeChecker::visit(FunctionDecl* node) {
     // A closure param captured by a lambda that outlives the call (any lambda not passed
     // straight to a non-`escaping` param, nor bound to a local that is only called)
     // escapes with it.
+    // A lambda bound to a local that is only called gets its env on the stack. The local
+    // escapes when it is used beyond a call, or captured by a lambda that outlives the
+    // call. A local of an async body keeps a heap env: it lives in the frame across
+    // suspensions, and the async lowering frees it with the frame.
+    auto outlives = [&](LambdaExpr* l) {
+        if (!l->escapes) return false;
+        auto b = lambdaLocal.find(l);
+        return b == lambdaLocal.end() || escapedLambdaLocals.count(b->second) || asyncLocalLambdas.count(l);
+    };
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (const auto& [lam, name] : localCaptures)
+            if (!escapedLambdaLocals.count(name) && outlives(lam)) {
+                escapedLambdaLocals.insert(name);
+                changed = true;
+            }
+    }
+    for (const auto& [lam, name] : lambdaLocal)
+        if (!escapedLambdaLocals.count(name) && !asyncLocalLambdas.count(lam)) lam->escapes = false;
     for (const auto& [lam, name] : watchedCaptures) {
         if (!lam->escapes) continue;
         auto bound = lambdaLocal.find(lam);
@@ -493,6 +516,8 @@ void TypeChecker::visit(FunctionDecl* node) {
     lambdaLocal = std::move(prevLambdaLocal);
     lambdaLocals = std::move(prevLambdaLocals);
     escapedLambdaLocals = std::move(prevEscapedLocals);
+    localCaptures = std::move(prevLocalCaptures);
+    asyncLocalLambdas = std::move(prevAsyncLocals);
 
     popScope();
     currentFunctionReturnType = "";
@@ -1079,6 +1104,7 @@ void TypeChecker::visit(VarDecl* node) {
             lam && scopes.size() > 1 && !node->isStatic && !inInstance) {
             lambdaLocal[lam] = node->name;
             lambdaLocals.insert(node->name);
+            if (inAsyncFn) asyncLocalLambdas.insert(lam);
         }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); visit(ForStmt) then widens both decls to their common type.
@@ -1229,6 +1255,7 @@ void TypeChecker::visit(StructDecl* node) {
                                     "' cannot have a parameter named 'self': it is the implicit receiver");
             }
     }
+    checkUnnamedBitfields(node, node->name, node->pads);
     // Field types must name known types (a template's fields mention its type params and
     // are checked per instantiation through the instance's type arguments instead).
     if (node->typeParams.empty()) {
@@ -1370,6 +1397,7 @@ void TypeChecker::visit(UnionDecl* node) {
     for (const auto& f : node->fields)
         if (!names.insert(f.name).second)
             errorAt(node, "duplicate field '" + f.name + "' in union '" + node->name + "'");
+    checkUnnamedBitfields(node, node->name, node->pads);
     for (const auto& f : node->fields) {
         validateStructType(normalizeType(f.type), node);
         if (std::string vm = voidTypeError(f.type); !vm.empty())
@@ -1377,22 +1405,43 @@ void TypeChecker::visit(UnionDecl* node) {
     }
 }
 
+// The bit width of an integer type a bitfield may have (0: not one).
+static int bitfieldTypeWidth(const std::string& normalized) {
+    static const std::map<std::string, int> widths = {
+        {"bool", 1}, {"char", 8}, {"int8", 8}, {"uint8", 8}, {"int16", 16}, {"uint16", 16},
+        {"int", 32}, {"int32", 32}, {"uint", 32}, {"uint32", 32}, {"int64", 64}, {"uint64", 64}};
+    auto w = widths.find(normalized);
+    return w == widths.end() ? 0 : w->second;
+}
+
 void TypeChecker::checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f) {
+    // `at` is null for a generic struct's instance: report where the type is used.
+    auto errorAt = [&](ASTNode* node, const std::string& m) {
+        if (node) this->errorAt(node, m); else errorAtCtx(m);
+    };
     if (f.bitWidth < 0) {
         errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' has zero width (only an unnamed bitfield may be zero-width)");
         return;
     }
     if (f.bitWidth == 0) return;
-    std::string t = normalizeType(f.type);
-    static const std::map<std::string, int> widths = {
-        {"bool", 1}, {"char", 8}, {"int8", 8}, {"uint8", 8}, {"int16", 16}, {"uint16", 16},
-        {"int", 32}, {"int32", 32}, {"uint", 32}, {"uint32", 32}, {"int64", 64}, {"uint64", 64}};
-    auto w = widths.find(t);
-    if (w == widths.end()) {
+    int w = bitfieldTypeWidth(normalizeType(f.type));
+    if (w == 0) {
         errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' must have an integer type, got '" + f.type + "'");
         return;
     }
-    if (f.bitWidth > w->second)
+    if (f.bitWidth > w)
         errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' is " + std::to_string(f.bitWidth) +
-                    " bits wide, more than its type '" + f.type + "' holds (" + std::to_string(w->second) + ")");
+                    " bits wide, more than its type '" + f.type + "' holds (" + std::to_string(w) + ")");
+}
+
+void TypeChecker::checkUnnamedBitfields(ASTNode* at, const std::string& owner,
+                                        const std::vector<StructDecl::Pad>& pads) {
+    for (const auto& p : pads) {
+        int w = bitfieldTypeWidth(normalizeType(p.type));
+        if (w == 0)
+            errorAt(at, "unnamed bitfield of '" + owner + "' must have an integer type, got '" + p.type + "'");
+        else if (p.bitWidth > w)
+            errorAt(at, "unnamed bitfield of '" + owner + "' is " + std::to_string(p.bitWidth) +
+                        " bits wide, more than its type '" + p.type + "' holds (" + std::to_string(w) + ")");
+    }
 }

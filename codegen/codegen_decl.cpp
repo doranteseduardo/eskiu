@@ -451,13 +451,23 @@ void CodeGen::declareStructType(StructDecl* node) {
     }
     if (structTypes.count(node->name)) return; // already created by the pre-pass
 
-    layoutStruct(node->name, node->fields, node->isPacked, node->packAlign);
+    layoutStruct(node->name, node->fields, node->pads, node->isPacked, node->packAlign);
 }
 
 void CodeGen::layoutStruct(const std::string& name, const std::vector<StructDecl::Field>& fields,
-                           bool isPacked, int packAlign) {
-    bool hasBitfields = false;
+                           const std::vector<StructDecl::Pad>& pads, bool isPacked, int packAlign) {
+    bool hasBitfields = !pads.empty();
     for (const auto& f : fields) if (f.bitWidth > 0) hasBitfields = true;
+    // An unnamed bitfield of nonzero width, here or in a field's type, keeps the struct
+    // from being a homogeneous FP aggregate for the C ABI (as in clang).
+    bool nonHomog = false;
+    for (const auto& p : pads) if (p.bitWidth > 0) nonHomog = true;
+    for (const auto& f : fields) {
+        llvm::Type* ft = getTypeFromString(f.type);
+        while (auto* at = llvm::dyn_cast<llvm::ArrayType>(ft)) ft = at->getElementType();
+        if (auto* fst = llvm::dyn_cast<llvm::StructType>(ft); fst && notHomogeneous.count(fst)) nonHomog = true;
+    }
+    auto note = [&](llvm::StructType* st) { if (nonHomog) notHomogeneous.insert(st); };
 
     if (!hasBitfields) {
         // #pragma pack(N>=2), or a field whose C alignment is not LLVM's (a pack(N)
@@ -481,13 +491,16 @@ void CodeGen::layoutStruct(const std::string& name, const std::vector<StructDecl
             structFields[name] = fields;
             structLayout[name] = slots;
             if (align > 1) cAlignOverride[st] = align;
+            note(st);
             return;
         }
         std::vector<llvm::Type*> fieldTypes;
         for (const auto& field : fields)
             fieldTypes.push_back(getTypeFromString(field.type));
-        structTypes[name] = llvm::StructType::create(*context, fieldTypes, name, isPacked);
+        auto* st = llvm::StructType::create(*context, fieldTypes, name, isPacked);
+        structTypes[name] = st;
         structFields[name] = fields;
+        note(st);
         return;
     }
 
@@ -495,13 +508,16 @@ void CodeGen::layoutStruct(const std::string& name, const std::vector<StructDecl
     std::map<std::string, BitfieldSlot> slots;
     bool llvmPacked = isPacked;
     uint64_t align = 1;
-    layoutBitfieldStruct(fields, isPacked, (unsigned)std::max(packAlign, 0),
-                         phys, slots, llvmPacked, align);
+    std::vector<std::pair<uint64_t, uint64_t>> unnamedData;
+    layoutBitfieldStruct(layoutFields(fields, pads), isPacked, (unsigned)std::max(packAlign, 0),
+                         phys, slots, llvmPacked, align, unnamedData);
     auto* st = llvm::StructType::create(*context, phys, name, llvmPacked);
     structTypes[name]  = st;
     structFields[name] = fields;
     structLayout[name] = slots;
     if (align > module->getDataLayout().getABITypeAlign(st).value()) cAlignOverride[st] = align;
+    if (!pads.empty()) unnamedBitData[st] = unnamedData;
+    note(st);
 }
 
 // An enum bitfield with no negative member reads back zero-extended (clang and GCC give
@@ -516,13 +532,18 @@ bool CodeGen::enumBitfieldUnsigned(const std::string& type) {
 void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields, bool packed,
                                    unsigned packN, std::vector<llvm::Type*>& phys,
                                    std::map<std::string, BitfieldSlot>& slots, bool& llvmPacked,
-                                   uint64_t& cAlign) {
-    if (llvm::Triple(module->getTargetTriple()).isOSWindows()) {
+                                   uint64_t& cAlign,
+                                   std::vector<std::pair<uint64_t, uint64_t>>& unnamedData) {
+    llvm::Triple triple(module->getTargetTriple());
+    if (triple.isOSWindows()) {
         // MS: consecutive bitfields share a storage word of their declared type while the
         // type size stays the same and the next one fits; a normal field closes the word.
         // Each word is its own element, so LLVM's natural layout is the MS one; under
         // #pragma pack(N>=2), or with a field whose C alignment is not LLVM's, the
-        // elements are placed by hand at their C alignment (capped at N).
+        // elements are placed by hand at their C alignment (capped at N). An unnamed
+        // bitfield takes its bits like a named one. A `: 0` right after a bitfield closes
+        // the word and aligns the next field to its type (capped by the packing on MSVC,
+        // not on mingw), which needs the layout by hand; anywhere else it is ignored.
         const llvm::DataLayout& DL = module->getDataLayout();
         uint64_t offset = 0, structAlign = 1;
         bool manual = packN >= 2;
@@ -531,6 +552,12 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
                 llvm::Type* ft = getTypeFromString(f.type);
                 if (cAlignOf(ft) != DL.getABITypeAlign(ft).value()) manual = true;
             }
+        bool afterBits = false;
+        for (const auto& f : fields) {
+            if (f.unnamed && f.bitWidth == 0) { if (afterBits) manual = true; afterBits = false; }
+            else afterBits = f.bitWidth > 0;
+        }
+        afterBits = false;
         auto addElem = [&](llvm::Type* t) -> unsigned {
             if (manual) {
                 uint64_t a = packed ? 1 : cAlignOf(t);
@@ -545,6 +572,22 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
         };
         int curPhys = -1; unsigned curUnitBits = 0, curOffset = 0;
         for (const auto& f : fields) {
+            if (f.unnamed && f.bitWidth == 0) {
+                if (afterBits) {
+                    uint64_t a = cAlignOf(getTypeFromString(f.type));
+                    if (triple.isWindowsMSVCEnvironment()) {
+                        if (packed) a = 1;
+                        if (packN >= 2) a = std::min<uint64_t>(a, packN);
+                    }
+                    structAlign = std::max(structAlign, a);
+                    uint64_t at = (offset + a - 1) / a * a;
+                    if (at > offset) phys.push_back(llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), at - offset));
+                    offset = at;
+                }
+                curPhys = -1; curUnitBits = 0; curOffset = 0; afterBits = false;
+                continue;
+            }
+            afterBits = f.bitWidth > 0;
             if (f.bitWidth > 0) {
                 llvm::Type* sty = getTypeFromString(f.type);
                 // A bool bitfield's storage unit is its byte, as in C (the value is i1).
@@ -560,7 +603,7 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
                 s.bitOffset = curOffset; s.bitWidth = (unsigned)f.bitWidth;
                 s.storageType = sty; s.isSigned = !eskiuUnsigned(f.type);
                 if (uty != sty) s.accessType = uty;
-                slots[f.name] = s;
+                if (!f.unnamed) slots[f.name] = s;
                 curOffset += (unsigned)f.bitWidth;
             } else {
                 curPhys = -1; curUnitBits = 0; curOffset = 0;
@@ -585,7 +628,11 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
     // starts at that boundary. A packed struct (or #pragma pack) packs bitfields
     // back to back. A normal field starts at the next byte, aligned. Every field is
     // then addressed by byte offset; the element list only has to reproduce the C
-    // size and alignment (and the integer/FP classes the C ABI lowering reads).
+    // size and alignment (and the integer/FP classes the C ABI lowering reads). An
+    // unnamed bitfield takes its bits like a named one but is no storage (it holds no
+    // data); a `: 0` moves the next field to the next boundary of its type's alignment,
+    // whatever the packing. Neither raises the struct alignment, except on AAPCS.
+    bool unnamedAligns = unnamedBitfieldsAlign(triple);
     const llvm::DataLayout& DL = module->getDataLayout();
     llvm::Type* i8 = llvm::Type::getInt8Ty(*context);
     bool contiguous = packed || packN >= 2;
@@ -597,8 +644,15 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
     for (const auto& f : fields) {
         llvm::Type* ty = getTypeFromString(f.type);
         uint64_t size = DL.getTypeAllocSize(ty).getFixedValue();
+        if (f.unnamed && f.bitWidth == 0) {
+            uint64_t a = cAlignOf(ty);
+            bitpos = (bitpos + a * 8 - 1) / (a * 8) * (a * 8);
+            if (unnamedAligns) structAlign = std::max(structAlign, a);
+            unnamedData.push_back({bitpos / 8, (bitpos + size * 8 + 7) / 8});
+            continue;
+        }
         uint64_t align = capAlign(cAlignOf(ty));
-        structAlign = std::max(structAlign, align);
+        if (!f.unnamed || unnamedAligns) structAlign = std::max(structAlign, align);
         BitfieldSlot s;
         s.byOffset = true; s.storageType = ty;
         if (f.bitWidth > 0) {
@@ -611,7 +665,20 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
                 uint64_t span = (s.bitOffset + w + 7) / 8;
                 s.accessType = llvm::IntegerType::get(*context, (unsigned)(span * 8));
                 s.accessAlign = 1;
-                units.push_back({s.byteOffset, s.byteOffset + span, nullptr});
+                if (!f.unnamed) units.push_back({s.byteOffset, s.byteOffset + span, nullptr});
+            } else if (align < size) {
+                // A type aligned below its size (int64 on 32-bit x86 SysV): the bitfield
+                // may not cross its type's size from an alignment boundary, and its storage
+                // is the bytes it spans from that boundary (clang's rule).
+                uint64_t alignBits = align * 8;
+                if (bitpos % alignBits + w > unitBits)
+                    bitpos = (bitpos + alignBits - 1) / alignBits * alignBits;
+                s.byteOffset = bitpos / alignBits * align;
+                s.bitOffset = (unsigned)(bitpos - s.byteOffset * 8);
+                uint64_t span = (s.bitOffset + w + 7) / 8;
+                s.accessType = llvm::IntegerType::get(*context, (unsigned)(span * 8));
+                s.accessAlign = (unsigned)align;
+                if (!f.unnamed) units.push_back({s.byteOffset, s.byteOffset + span, nullptr});
             } else {
                 if (bitpos / unitBits != (bitpos + w - 1) / unitBits)
                     bitpos = (bitpos + unitBits - 1) / unitBits * unitBits;
@@ -621,7 +688,11 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
                 llvm::Type* uty = ty->isIntegerTy(1) ? i8 : ty;
                 s.accessType = uty;
                 s.accessAlign = (unsigned)DL.getABITypeAlign(uty).value();
-                units.push_back({s.byteOffset, s.byteOffset + size, uty});
+                if (!f.unnamed) units.push_back({s.byteOffset, s.byteOffset + size, uty});
+            }
+            if (f.unnamed) {
+                uint64_t first = s.byteOffset * 8 + s.bitOffset;
+                unnamedData.push_back({first / 8, (first + size * 8 + 7) / 8});
             }
             bitpos += w;
         } else {
@@ -630,9 +701,12 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
             normals.push_back({off, off + size, ty});
             bitpos = (off + size) * 8;
         }
-        slots[f.name] = s;
+        if (!f.unnamed) slots[f.name] = s;
     }
     uint64_t total = ((bitpos + 7) / 8 + structAlign - 1) / structAlign * structAlign;
+    // The bytes an unnamed bitfield counts as data for the C ABI (clang's
+    // BitsContainNoUserData: from its first bit through its type's size) end at the struct.
+    for (auto& d : unnamedData) { d.first = std::min(d.first, total); d.second = std::min(d.second, total); }
 
     // Elements: the bitfield storage (each maximal storage unit as an integer of its
     // type, which carries the unit's alignment; the byte runs of a packed struct as
@@ -679,7 +753,10 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
         phys.push_back(t);
         cur = e.end;
     }
-    if (byHand && cur < total) phys.push_back(llvm::ArrayType::get(i8, total - cur));
+    // Trailing bytes the natural layout would not add (padding of a packed type, or the
+    // bits of a trailing unnamed bitfield).
+    uint64_t naturalEnd = byHand ? cur : (cur + llAlign - 1) / llAlign * llAlign;
+    if (cur < total && naturalEnd < total) phys.push_back(llvm::ArrayType::get(i8, total - cur));
     llvmPacked = byHand;
     cAlign = structAlign;
 }
@@ -795,22 +872,52 @@ void CodeGen::visit(UnionDecl* node) {
     // Under `#pragma pack(N)` each member's alignment is capped at N, like a struct's
     // fields; when that lowers the union's alignment the storage type is a packed LLVM
     // struct whose C alignment is recorded in cAlignOverride.
+    // An unnamed bitfield is no member: it only adds its bytes (on MS rules its type's
+    // size) and, on AAPCS, its type's alignment (a `: 0` only that, uncapped). On MSVC a
+    // `: 0` right after a bitfield adds its type's size.
     const llvm::DataLayout& DL = module->getDataLayout();
-    uint64_t maxSize = 0, maxAlign = 1, natAlign = 1;
+    llvm::Triple triple(module->getTargetTriple());
+    bool ms = triple.isOSWindows(), afterBits = false;
+    uint64_t maxSize = 0, maxAlign = 1, natAlign = 1, anchorAlign = 1;
     uint64_t cap = node->packAlign >= 1 ? (uint64_t)node->packAlign : 0;
     llvm::Type* anchor = nullptr;
     std::vector<llvm::Type*> memberTys;
-    for (const auto& f : node->fields) {
+    std::vector<uint64_t> unnamedSizes;
+    bool nonHomog = false;
+    for (const auto& f : layoutFields(node->fields, node->pads)) {
         llvm::Type* ft = getTypeFromString(f.type);
+        if (f.unnamed) unnamedSizes.push_back(DL.getTypeAllocSize(ft).getFixedValue());
+        if (f.unnamed && f.bitWidth > 0) nonHomog = true;
+        llvm::Type* et = ft;
+        while (auto* at = llvm::dyn_cast<llvm::ArrayType>(et)) et = at->getElementType();
+        if (auto* est = llvm::dyn_cast<llvm::StructType>(et); est && notHomogeneous.count(est)) nonHomog = true;
+        bool wasAfterBits = afterBits;
+        afterBits = f.unnamed && f.bitWidth > 0;
+        if (f.unnamed) {
+            uint64_t al = cAlignOf(ft);
+            if (f.bitWidth == 0) {
+                if (!ms && unnamedBitfieldsAlign(triple)) { maxAlign = std::max(maxAlign, al); natAlign = std::max(natAlign, al); }
+                if (wasAfterBits && triple.isWindowsMSVCEnvironment())
+                    maxSize = std::max<uint64_t>(maxSize, DL.getTypeAllocSize(ft).getFixedValue());
+                continue;
+            }
+            maxSize = std::max<uint64_t>(maxSize, ms ? DL.getTypeAllocSize(ft).getFixedValue() : ((uint64_t)f.bitWidth + 7) / 8);
+            if (!ms && unnamedBitfieldsAlign(triple)) {
+                natAlign = std::max(natAlign, al);
+                maxAlign = std::max(maxAlign, cap ? std::min(al, cap) : al);
+            }
+            continue;
+        }
         memberTys.push_back(ft);
         uint64_t sz = DL.getTypeAllocSize(ft);
         uint64_t al = cAlignOf(ft);
         natAlign = std::max(natAlign, al);
         if (cap) al = std::min(al, cap);
         if (sz > maxSize) maxSize = sz;
-        if (!anchor || al > maxAlign ||
-            (al == maxAlign && sz > DL.getTypeAllocSize(anchor))) {
-            anchor = ft; maxAlign = std::max(maxAlign, al);
+        maxAlign = std::max(maxAlign, al);
+        if (!anchor || al > anchorAlign ||
+            (al == anchorAlign && sz > DL.getTypeAllocSize(anchor))) {
+            anchor = ft; anchorAlign = al;
         }
     }
     uint64_t total = (maxSize + maxAlign - 1) / maxAlign * maxAlign;
@@ -827,6 +934,11 @@ void CodeGen::visit(UnionDecl* node) {
     structTypes[mangledName] = namedTy;
     if (maxAlign > DL.getABITypeAlign(namedTy).value()) cAlignOverride[namedTy] = maxAlign;
     unionMemberTypes[namedTy] = memberTys;
+    if (!node->pads.empty()) {
+        auto& data = unnamedBitData[namedTy];
+        for (uint64_t sz : unnamedSizes) data.push_back({0, std::min(sz, total)});
+    }
+    if (nonHomog) notHomogeneous.insert(namedTy);
 
     // Register fields so MemberExpr can resolve them (all at offset 0, typed via cast)
     unionFields[mangledName] = node->fields;

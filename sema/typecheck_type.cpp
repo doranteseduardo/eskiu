@@ -376,7 +376,8 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
             // alignment, N), the size and the struct's own alignment the largest of those,
             // as C.
             unsigned long long packN = si.packAlign >= 2 ? (unsigned long long)si.packAlign : 0;
-            if (std::any_of(si.fields.begin(), si.fields.end(), [](const StructDecl::Field& f) { return f.bitWidth != 0; }))
+            if (!si.pads.empty() ||
+                std::any_of(si.fields.begin(), si.fields.end(), [](const StructDecl::Field& f) { return f.bitWidth != 0; }))
                 return !si.isUnion && bitfieldLayout(si, size, align, depth);
             unsigned long long off = 0, maxAl = 1;
             for (const auto& f : si.fields) {
@@ -409,14 +410,25 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
     unsigned long long structAlign = 1;
     if (layoutInfo.msBitfields) {
         // Each storage word and normal field is an element of the natural (or packed) layout.
+        // An unnamed bitfield takes its bits like a named one; a `: 0` right after a bitfield
+        // closes the word and aligns the next field to its type, else it is ignored.
         unsigned long long off = 0, curBits = 0, curOff = 0;
-        bool open = false;
-        for (const auto& f : si.fields) {
+        bool open = false, afterBits = false;
+        for (const auto& f : layoutFields(si.fields, si.pads)) {
             if (f.bitWidth < 0) return false;
             unsigned long long fs = 0, fa = 1;
             if (!constLayout(f.type, fs, fa, depth + 1)) return false;
+            unsigned long long natural = fa;
             if (packed) fa = 1;
             if (packN) fa = std::min(fa, packN);
+            if (f.unnamed && f.bitWidth == 0) {
+                if (afterBits) {
+                    unsigned long long a = layoutInfo.msvcEnv ? fa : natural;
+                    off = up(off, a); structAlign = std::max(structAlign, a);
+                }
+                open = false; afterBits = false;
+                continue;
+            }
             if (f.bitWidth > 0) {
                 unsigned long long stBits = fs * 8, w = (unsigned long long)f.bitWidth;
                 if (!open || curBits != stBits || curOff + w > stBits) {
@@ -424,8 +436,9 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
                     open = true; curBits = stBits; curOff = 0;
                 }
                 curOff += w;
+                afterBits = true;
             } else {
-                open = false;
+                open = false; afterBits = false;
                 off = up(off, fa) + fs; structAlign = std::max(structAlign, fa);
             }
         }
@@ -433,19 +446,32 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
         size = up(off, structAlign);
         return true;
     }
+    // SysV / AAPCS. An unnamed bitfield takes its bits like a named one; a `: 0` moves the
+    // next field to the next boundary of its type's alignment (whatever the packing).
+    // Neither raises the struct alignment, except on AAPCS.
     bool contiguous = packed || packN;
     unsigned long long bitpos = 0;
-    for (const auto& f : si.fields) {
+    for (const auto& f : layoutFields(si.fields, si.pads)) {
         if (f.bitWidth < 0) return false;
         unsigned long long fs = 0, fa = 1;
         if (!constLayout(f.type, fs, fa, depth + 1)) return false;
+        if (f.unnamed && f.bitWidth == 0) {
+            bitpos = up(bitpos, fa * 8);
+            if (layoutInfo.unnamedBitfieldsAlign) structAlign = std::max(structAlign, fa);
+            continue;
+        }
         if (packed) fa = 1;
         if (packN) fa = std::min(fa, packN);
-        structAlign = std::max(structAlign, fa);
+        if (!f.unnamed || layoutInfo.unnamedBitfieldsAlign) structAlign = std::max(structAlign, fa);
         if (f.bitWidth > 0) {
             unsigned long long w = (unsigned long long)f.bitWidth, unitBits = fs * 8;
-            if (!contiguous && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits)
+            if (!contiguous && fa < fs) {
+                // Aligned below its size (int64 on 32-bit x86 SysV): may not cross its
+                // size from an alignment boundary.
+                if (bitpos % (fa * 8) + w > unitBits) bitpos = up(bitpos, fa * 8);
+            } else if (!contiguous && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits) {
                 bitpos = up(bitpos, unitBits);
+            }
             bitpos += w;
         } else {
             unsigned long long off = up((bitpos + 7) / 8, fa);
@@ -1089,6 +1115,7 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
                 info.name = mangled;
                 for (const auto& f : templ->second->fields)
                     info.fields.push_back({substType(f.type, subs), f.name});
+                info.pads = templ->second->pads;
                 structs[mangled] = info;
                 // Inline methods of a generic struct become `Box_int_get(*Box_int self, ...)`
                 // per instance. Like codegen, which emits one on its first call, a method's
@@ -1104,6 +1131,14 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
                 // Bounded generics on a struct template (`Map<K: Hashable, V>`):
                 // verify the type args satisfy their constraints, once per instance.
                 checkConstraints(nullptr, templ->second->constraints, subs);
+                // A bitfield typed by a type parameter is checked with the instance's
+                // type argument (the template declaration skips it).
+                for (const auto& f : templ->second->fields) {
+                    if (f.bitWidth <= 0 || !subs.count(f.type)) continue;
+                    StructDecl::Field inst = f;
+                    inst.type = subs[f.type];
+                    checkBitfield(nullptr, tname, inst);
+                }
             }
             return "struct:" + mangled;
         }

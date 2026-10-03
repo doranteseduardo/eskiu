@@ -10,84 +10,26 @@
   <link rel="alternate" hreflang="en" href="https://eskiu-lang.org/case-study-reactvision.html" />
   <link rel="alternate" hreflang="es" href="https://eskiu-lang.org/es/case-study-reactvision.html" />
   <link rel="icon" type="image/png" href="../assets/logo.png" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de; --border-mut: #e4e8ed;
-      --ink: #1f2328; --ink2: #424a53; --muted: #6e7781;
-      --accent: #4c31bb; --accent-lt: #6448d4;
-      --inline: rgba(120, 110, 180, 0.12);
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-      --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-    }
-    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-    body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px;
-           line-height: 1.7; -webkit-font-smoothing: antialiased; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-
-    /* Top bar (shared with the homepage) */
-    header.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 30; }
-    .top-in { max-width: 720px; margin: 0 auto; padding: 0 1.25rem; height: 54px; display: flex; align-items: center; gap: 0.55rem; }
-    .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--ink); }
-    .brand:hover { text-decoration: none; }
-    .brand img { width: 24px; height: 24px; }
-    .brand .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); font-weight: 500; }
-    .top-links { margin-left: auto; display: flex; align-items: center; gap: 1.25rem; font-family: var(--mono); font-size: 0.82rem; }
-    .top-links a { color: var(--ink2); }
-    .top-links a:hover { color: var(--accent); text-decoration: none; }
-    .lang { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.82rem; }
-    .lang .sep { color: var(--border); }
-    .lang a { color: var(--muted); cursor: pointer; }
-    .lang a:hover { color: var(--accent); text-decoration: none; }
-    .lang a.active { color: var(--ink); font-weight: 700; cursor: default; }
-
-    .wrap { max-width: 720px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
-    .eyebrow { font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
-               text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
-    h1 { font-family: var(--mono); font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 700;
-         letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 1.5rem; }
-    h2 { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; margin: 2.5rem 0 0.75rem; }
-    p { margin: 0 0 1rem; }
-    .pull { border-left: 3px solid var(--accent); background: var(--surface); padding: 1.1rem 1.25rem;
-            border-radius: 0 8px 8px 0; margin: 0 0 1.5rem; font-size: 1.05rem; }
-    .pull .stat { display: block; margin-top: 0.6rem; font-weight: 600; color: var(--accent); }
-    .tablewrap { overflow-x: auto; margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 8px; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    th, td { text-align: left; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border-mut); vertical-align: top; }
-    th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
-         color: var(--muted); background: var(--surface); }
-    tbody tr:last-child td { border-bottom: none; }
-    td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
-    ul { margin: 0 0 1rem 1.1rem; }
-    li { margin-bottom: 0.5rem; color: var(--ink2); }
-    code { font-family: var(--mono); font-size: 0.86em; background: var(--inline); padding: 0.15em 0.4em; border-radius: 4px; }
-    strong { font-weight: 600; }
-
-    /* Footer (shared with the homepage) */
-    footer { border-top: 1px solid var(--border); margin-top: 3.5rem; }
-    .footer-in { max-width: 720px; margin: 0 auto; padding: 1.5rem 1.25rem; display: flex; align-items: center;
-                 gap: 1.25rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.78rem; }
-    .footer-in .fl { display: flex; gap: 1.1rem; flex-wrap: wrap; }
-    .footer-in a { color: var(--ink2); }
-    .footer-in a:hover { color: var(--accent); text-decoration: none; }
-    .footer-in .cp { margin-left: auto; color: var(--muted); }
-  </style>
+  <meta name="theme-color" content="#fbf8f3" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&amp;family=DM+Sans:wght@400;500;700&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="page.css" />
 </head>
 <body>
   <header class="top">
-    <div class="top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="Eskiu" />eskiu <span class="v">v0.9.2</span></a>
-      <nav class="top-links">
-        <a href="docs/index.html">docs</a>
-        <a href="the-book-of-eskiu.html">book</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-        <span class="lang"><a class="active" aria-current="page">EN</a><span class="sep">·</span><a href="es/case-study-reactvision.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
-      </nav>
+    <div class="bar top-in">
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <nav class="nav" aria-label="Main"><a href="quickstart.html">Learn</a><a href="docs/index.html">Docs</a><a href="index.html#playground">Playground</a><a href="the-book-of-eskiu.html">Book</a><a href="changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
+      <div class="top-right">
+        <span class="lang"><span aria-current="page">EN</span> / <a href="es/case-study-reactvision.html" onclick="try{localStorage.setItem('eskiu-lang','es')}catch(e){}">ES</a></span>
+        <a class="btn-install" href="index.html#install">Install 0.9.3</a>
+        <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg></button>
+      </div>
     </div>
+    <nav class="drawer" id="drawer" aria-label="Main"><a href="quickstart.html">Learn</a><a href="docs/index.html">Docs</a><a href="index.html#playground">Playground</a><a href="the-book-of-eskiu.html">Book</a><a href="changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
   </header>
-  <div class="wrap">
+  <main class="bar article">
     <div class="eyebrow">Case study</div>
     <h1>ReactVision: cutting memory in an AR/VR rendering engine</h1>
 
@@ -154,36 +96,19 @@
       <strong>≈85% less memory.</strong>
     </p>
 
-    <h2>The same language in the cloud</h2>
     <p>
-      The other end of the stack validated the same toolchain. Eduardo's
-      <a href="case-study-ine.html">INE credential-QR decoder</a>, a personal side
-      project, a real image-plus-crypto pipeline (QR extraction,
-      then multi-round AES-256-CBC + RSA-8192), was reimplemented in Eskiu and
-      is served as an HTTP API. On the cryptographic pipeline it runs
-      <strong>2.5× faster than the reference C implementation</strong>, on a
-      stack built entirely from Eskiu's standard library (<code>&lt;http&gt;</code>,
-      <code>&lt;json&gt;</code>, <code>&lt;base64&gt;</code>, threading), with no
-      external framework.
+      So the same language that boots a bare-metal ARM64 kernel also drops a
+      memory-tight module into a C++ rendering engine. One language across the
+      stack, used where it pays off.
     </p>
-    <p>
-      So the same language that boots a bare-metal ARM64 kernel, and that drops a
-      memory-tight module into a C++ rendering engine, also runs a service in the
-      cloud. One language across the stack, used where it pays off.
-    </p>
-  </div>
-  <footer>
-    <div class="footer-in">
-      <div class="fl">
-        <a href="index.html">home</a>
-        <a href="docs/index.html">docs</a>
-        <a href="the-book-of-eskiu.html">book</a>
-        <a href="changelog.html">changelog</a>
-        <a href="https://github.com/doranteseduardo/eskiu">github</a>
-        <a href="https://reactvision.xyz">reactvision ↗</a>
-      </div>
-      <span class="cp">Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+  </main>
+  <footer class="foot">
+    <div class="bar foot-in">
+      <span class="brand">eskiu</span>
+      <span>Part of the <a href="https://reactvision.xyz">ReactVision</a> family · MIT</span>
+      <nav class="foot-links" aria-label="Footer"><a href="docs/index.html">Docs</a><a href="the-book-of-eskiu.html">Book</a><a href="docs/internals.html">Internals</a><a href="changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a><a href="https://reactvision.xyz">ReactVision</a></nav>
     </div>
   </footer>
+  <script>(function(){var t=document.querySelector(".top"),b=document.querySelector(".menu-btn");if(!t||!b)return;b.addEventListener("click",function(){var o=t.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");});})();</script>
 </body>
 </html>

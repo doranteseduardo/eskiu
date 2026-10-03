@@ -1,5 +1,5 @@
-// Driver: `eskiuc run selfhost/cg_main.esk FILE` (or compiled) — preprocess + parse +
-// generate LLVM IR for FILE, printing the .ll text to stdout. Pipe it to clang to get
+// Driver: `eskiuc run selfhost/cg_main.esk FILE` (or compiled): preprocess, parse,
+// type-check and generate LLVM IR for FILE, printing the .ll text to stdout. Pipe it to clang to get
 // a native binary. The parity harness compiles both this output and the C++ build and
 // compares runtime behavior (exit code + stdout).
 
@@ -7,6 +7,7 @@ import <io>;
 import <fs>;
 import "preprocessor.esk";
 import "parser.esk";
+import "sema.esk";
 import "async_lower.esk";
 import "codegen.esk";
 import "bigstack.esk";
@@ -52,6 +53,15 @@ int cg_main(int argc, string* argv) {
     p_init(&p, src, plen);
     p.basedir = str_dir(argv[1]);
     *Program prog = parse_program(&p);
+
+    // Type-check first, as the C++ --test-codegen does: the async lowering reads the
+    // checker's stamps (generic instance types), and a failed check emits no IR.
+    let sm: Sema;
+    sema_init(&sm, argv[1]);
+    if (sema_check(&sm, prog) == 0) {
+        eprint("Type checking failed!\n");
+        return 1;
+    }
 
     async_lower(prog);                 // lower async fns → frame + resume + ctor
 

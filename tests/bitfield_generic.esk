@@ -1,0 +1,8 @@
+// A bitfield typed by a type parameter is checked with each instance's type argument.
+extern int printf(string fmt, ...);
+struct Flags<T> { T a : 3; T b : 5; }
+int main() {
+    let f: Flags<uint8> = Flags<uint8> { a: 5, b: 17 };
+    printf("%d %d %d\n", (int)f.a, (int)f.b, (int)sizeof(Flags<uint8>));
+    return 0;
+}

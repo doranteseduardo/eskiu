@@ -1,0 +1,8 @@
+// EXPECT-ERROR: bitfield 'a' of 'Flags' must have an integer type, got 'float'
+extern int printf(string fmt, ...);
+struct Flags<T> { T a : 3; T b : 5; }
+int main() {
+    let f: Flags<float> = Flags<float> { a: 5.0, b: 1.0 };
+    printf("%d %d %d\n", (int)f.a, (int)f.b, (int)sizeof(Flags<float>));
+    return 0;
+}

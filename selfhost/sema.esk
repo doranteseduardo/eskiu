@@ -41,6 +41,8 @@ struct Sema {
     int ptrsz;               // the target's pointer size and int64/double alignment, so
     int i64al;               // sizeof folds to its layout (sema_set_target)
     int msbf;                // 1: bitfields follow the MS (Windows) layout rules
+    int bfal;                // 1: an unnamed bitfield raises its struct's alignment (AAPCS)
+    int msvc;                // 1: MSVC (not mingw): a `: 0` under pack(N) is aligned to at most N
     List<Sym> syms;
     List<string> gaddr;      // names whose address is taken anywhere (a global among them is never narrowed)
     List<FnSig> fns;
@@ -84,6 +86,13 @@ struct Sema {
     List<string> wlocals_esc;    // those used beyond a direct call
     List<string> cap_param;      // a watched param captured by a lambda bound to a local ...
     List<string> cap_local;      // ... and that local: the param escapes if the local does
+    int lam_arg_stack;           // the lambda about to be checked is an argument to a non-escaping param of a non-async fn
+    List<*ExprNode> lam_nodes;   // per enclosing lambda: its node
+    List<*ExprNode> wlam;        // lambdas bound to a local (parallel: the local, 1 if in an async body)
+    List<string> wlam_name;
+    List<int> wlam_async;
+    List<*ExprNode> lcap_lam;    // a lambda capturing a lambda-bound local ...
+    List<string> lcap_name;      // ... and that local: the local escapes if the lambda outlives the call
     List<string> narrowed;  // `?*T` vars proven non-null in the current branch (`if (x != null)`)
     List<string> loop_lbls; // enclosing loop labels ("" for unlabeled), for labeled break/continue
     int sw_depth;           // enclosing switches (a bare `break` may exit one)
@@ -370,6 +379,7 @@ void sema_set_target(Sema* s, string triple) {
     s.ptrsz = 8; s.i64al = 8;
     int win = sema_has_sub(triple, "windows") | sema_has_sub(triple, "win32") | sema_has_sub(triple, "mingw");
     s.msbf = win;
+    ast_target_bf(triple, &s.bfal, &s.msvc);
     if (ast_has_prefix(triple, "aarch64") == 1 || ast_has_prefix(triple, "arm64") == 1
         || ast_has_prefix(triple, "x86_64") == 1 || ast_has_prefix(triple, "amd64") == 1) { return; }
     if (ast_has_prefix(triple, "i386") == 1 || ast_has_prefix(triple, "i486") == 1
@@ -446,6 +456,7 @@ void sema_fold_enum(Sema* s, *DeclNode d, int report) {
 void sema_init(Sema* s, string filename) {
     memset((*void)s, 0, sizeof(Sema));   // every field starts as a valid empty value
     s.ptrsz = 8; s.i64al = 8; s.msbf = 0;
+    ast_target_bf("", &s.bfal, &s.msvc);
 #ifdef _WIN32
     s.msbf = 1;
 #endif
@@ -479,6 +490,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.loop_lbls, 4);
     List_init<int>(&s.lam_bounds, 4);
     List_init<int>(&s.lam_esc, 4);
+    List_init<*ExprNode>(&s.lam_nodes, 4);
     List_init<string>(&s.lam_local_of, 4);
     s.lam_local = "";
     s.callee_ctx = "";
@@ -953,24 +965,30 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
     // (mirrors the C++ constLayout).
     int64 packn = (int64)0;
     if (d.is_packed == 0 && d.pack_align >= 2) { packn = (int64)d.pack_align; }
-    int nf = List_len<Param>(&d.params);
+    List<Param> lfs; List<int> lbits; List<int> lnamed;
+    ast_layout_fields(d, &lfs, &lbits, &lnamed);
+    int nf = List_len<Param>(&lfs);
     int hasbits = 0;
+    if (List_len<string>(&d.pad_tys) > 0) { hasbits = 1; }
     int fi = 0;
     while (fi < nf) {
-        if (fi < List_len<int>(&d.field_bits) && List_get<int>(&d.field_bits, fi) != 0) { hasbits = 1; }
+        if (List_get<int>(&lbits, fi) != 0) { hasbits = 1; }
         fi = fi + 1;
     }
     if (hasbits == 1 && d.kind == DK_UNION) { return (int64)0; }
     int64 off = (int64)0; int64 maxal = (int64)1;
     int64 bitpos = (int64)0;                         // SysV bitfield cursor
     int open = 0; int64 curbits = (int64)0; int64 curoff = (int64)0;   // MS open storage word
+    int after = 0;                                   // MS: the previous field is a bitfield
     fi = 0;
     while (fi < nf) {
-        int bw = 0; if (fi < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, fi); }
+        int bw = List_get<int>(&lbits, fi);
+        int unnamed = 1 - List_get<int>(&lnamed, fi);
         if (bw < 0) { return (int64)0; }
         int64 fal = (int64)1;
-        int64 fsz = sema_const_layout(s, sema_subst_params(List_get<Param>(&d.params, fi).ty, &d.type_params, targs), &fal, depth + 1);
+        int64 fsz = sema_const_layout(s, sema_subst_params(List_get<Param>(&lfs, fi).ty, &d.type_params, targs), &fal, depth + 1);
         if (fsz == (int64)0) { return (int64)0; }
+        int64 nat = fal;
         if (d.is_packed == 1) { fal = (int64)1; }
         if (packn > (int64)0 && fal > packn) { fal = packn; }
         if (hasbits == 0) {
@@ -978,22 +996,38 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
             if (d.kind == DK_UNION) { if (fsz > off) { off = fsz; } }
             else { off = sema_up(off, fal) + fsz; }
         } else if (s.msbf == 1) {                    // MS: each storage word is an element
-            if (bw > 0) {
+            if (unnamed == 1 && bw == 0) {
+                // A `: 0` right after a bitfield closes the word and aligns the next field
+                // to its type (capped by the packing on MSVC only); elsewhere it is ignored.
+                if (after == 1) {
+                    int64 za = nat; if (s.msvc == 1) { za = fal; }
+                    off = sema_up(off, za); if (za > maxal) { maxal = za; }
+                }
+                open = 0; after = 0;
+            } else if (bw > 0) {
                 int64 stb = fsz * (int64)8;
                 if (open == 0 || curbits != stb || curoff + (int64)bw > stb) {
                     off = sema_up(off, fal) + fsz; if (fal > maxal) { maxal = fal; }
                     open = 1; curbits = stb; curoff = (int64)0;
                 }
                 curoff = curoff + (int64)bw;
+                after = 1;
             } else {
-                open = 0;
+                open = 0; after = 0;
                 off = sema_up(off, fal) + fsz; if (fal > maxal) { maxal = fal; }
             }
-        } else {                                     // SysV / AAPCS
-            if (fal > maxal) { maxal = fal; }
+        } else if (unnamed == 1 && bw == 0) {        // SysV / AAPCS `: 0`: next boundary of its type
+            bitpos = sema_up(bitpos, nat * (int64)8);
+            if (s.bfal == 1 && nat > maxal) { maxal = nat; }
+        } else {                                     // SysV / AAPCS (an unnamed one aligns only on AAPCS)
+            if ((unnamed == 0 || s.bfal == 1) && fal > maxal) { maxal = fal; }
             if (bw > 0) {
                 int64 ub = fsz * (int64)8;
-                if (d.is_packed == 0 && packn == (int64)0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
+                if (d.is_packed == 0 && packn == (int64)0 && fal < fsz) {
+                    // Aligned below its size (int64 on 32-bit x86 SysV): may not cross its
+                    // size from an alignment boundary.
+                    if (bitpos % (fal * (int64)8) + (int64)bw > ub) { bitpos = sema_up(bitpos, fal * (int64)8); }
+                } else if (d.is_packed == 0 && packn == (int64)0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
                 bitpos = bitpos + (int64)bw;
             } else {
                 int64 fo = sema_up((bitpos + (int64)7) / (int64)8, fal);
@@ -1096,6 +1130,44 @@ void sema_check_dims(Sema* s, string t) {
     }
 }
 
+// Whether `t` is one of `d`'s type parameters.
+int sema_names_tparam(*DeclNode d, string t) {
+    int k = 0;
+    while (k < List_len<TypeParam>(&d.type_params)) {
+        if (sema_streq(List_get<TypeParam>(&d.type_params, k).name, t) == 1) { return 1; }
+        k = k + 1;
+    }
+    return 0;
+}
+
+// A generic struct's bitfield typed by a type parameter is checked with the instance's
+// type argument (mirrors the C++ per-instance checkBitfield).
+void sema_check_inst_bitfields(Sema* s, *DeclNode d, List<string>* targs) {
+    if (d.kind != DK_STRUCT) { return; }
+    int i = 0;
+    while (i < List_len<Param>(&d.params) && i < List_len<int>(&d.field_bits)) {
+        Param f = List_get<Param>(&d.params, i);
+        int bw = List_get<int>(&d.field_bits, i);
+        int k = 0;
+        while (bw > 0 && k < List_len<TypeParam>(&d.type_params) && k < List_len<string>(targs)) {
+            if (sema_streq(List_get<TypeParam>(&d.type_params, k).name, f.ty) == 1) {
+                string at = List_get<string>(targs, k);
+                int tb = sema_int_bits(sema_bitfield_base(s, at));
+                if (tb == 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, f.name, d.name, at);
+                } else if (bw > tb) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' is %d bits wide, more than its type '%s' holds (%d)\n",
+                           s.filename, s.line, s.col, f.name, d.name, bw, at, tb);
+                }
+            }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+}
+
 void sema_check_decl_type(Sema* s, string t) {
     if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
     if ((int)t[0] == 63 && sema_known_type(s, t) == 1 && sema_c_ptr(sema_canon(s, t)) == 0) {   // `?` marks a pointer only
@@ -1123,7 +1195,10 @@ void sema_check_decl_type(Sema* s, string t) {
     }
     int k = 0;
     while (k < got) { sema_check_decl_type(s, List_get<string>(&targs, k)); k = k + 1; }
-    if (d != null && want > 0 && want == got) { sema_check_constraints(s, &d.type_params, &targs); }
+    if (d != null && want > 0 && want == got) {
+        sema_check_constraints(s, &d.type_params, &targs);
+        sema_check_inst_bitfields(s, d, &targs);
+    }
 }
 
 // Name of the struct/union a field of type `ft` holds BY VALUE ("" for a pointer, slice,
@@ -1854,6 +1929,9 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
     }
     if (e.kind == EK_BINARY) {
         if (sema_is_valop(e.sval) == 0) { return sema_binary_type(s, e.sval, "", ""); }
+        // Memoized per node like `?:`: each level of `a + (a + (...))` asks for the type of
+        // its right operand, itself a binary expression (linear, not quadratic).
+        if (e.sm_epoch == g_sema_epoch && g_sema_epoch != 0) { return e.sm_ety; }
         // An operator chain (`a + b + c ...`) is typed along its left spine with a loop:
         // the leftmost operand, then each operator bottom-up over the running type.
         List<*ExprNode> spine; List_init<*ExprNode>(&spine, 8);
@@ -1870,6 +1948,7 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
             i = i - 1;
         }
         List_free<*ExprNode>(&spine);
+        e.sm_ety = t; e.sm_epoch = g_sema_epoch;
         return t;
     }
     if (e.kind == EK_MEMBER) { return sema_member_type(s, sema_infer_type(s, e.a), e.sval); }
@@ -4205,6 +4284,21 @@ int sema_any_index_op(Sema* s) {
 
 // ── expression walk ──
 
+// `recs` with a record of type `t` in the generic instance being checked appended: its
+// type arguments joined by '\t', a '\f', the type, a '\n' (al_generalize reads these).
+string sema_inst_rec(Sema* s, string recs, string t) {
+    string r = recs; if (r == null) { r = ""; }
+    int i = 0;
+    while (i < List_len<string>(&s.isub_a)) {
+        if (i > 0) { r = sema_cat(r, "\t"); }
+        r = sema_cat(r, List_get<string>(&s.isub_a, i));
+        i = i + 1;
+    }
+    r = sema_cat(r, "\f");
+    if (t != null) { r = sema_cat(r, t); }
+    return sema_cat(r, "\n");
+}
+
 void sema_binary_chain(Sema* s, *ExprNode e);
 // Check `e` with its position as the current diagnostic location (restored afterwards so
 // the enclosing node's own checks report at the enclosing node).
@@ -4213,7 +4307,10 @@ void sema_expr(Sema* s, *ExprNode e) {
     int pl = s.line; int pc = s.col;
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
-    if (s.in_async == 1) { e.aty = sema_infer_type(s, e); }   // the async lowering's temporaries
+    if (s.in_async == 1) {                 // the async lowering's temporaries
+        e.aty = sema_infer_type(s, e);
+        if (s.in_inst == 1) { e.ainst = sema_inst_rec(s, e.ainst, e.aty); }
+    }
     // The callee may assign any global: a global's narrowing ends after the call.
     // alloc_with calls the allocator's method and thread_create starts code that may run
     // at once, so they end it too.
@@ -4535,6 +4632,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             && sema_in_list(&s.wlocals_esc, e.sval) == 0) {
             List_push<string>(&s.wlocals_esc, e.sval);
         }
+        if (sema_in_list(&s.wlocals, e.sval) == 1) { sema_note_local_capture(s, e.sval); }
         return;
     }
     if (k == EK_SIZEOF && e.a != null) {   // sizeof(expr): checked, never evaluated
@@ -4697,8 +4795,6 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (k == EK_AWAIT) {
         if (s.in_async == 0) {
             sema_error(s, "await is only allowed inside an async function");
-        } else if (s.fin_depth > 0) {
-            sema_error(s, "await inside a 'finally' block is not supported in an async function (a cancelled future runs its pending finally without suspending)");
         }
         s.await_seen = 1;
         sema_expr(s, e.a);
@@ -5235,15 +5331,26 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int ro = 0;
             if (sema_has_star(bt) == 1) { ro = sema_pointee_const(bt); }
             else { ro = sema_is_readonly_lvalue(s, mem.a); }
+            int self_const = 0;
+            if (inline_m == 0 && ffn != null && List_len<Param>(&ffn.params) > 0) {
+                self_const = sema_pointee_const(List_get<Param>(&ffn.params, 0).ty);
+            }
             if (ro == 1 && is_field == 0) {
-                int self_const = 0;
-                if (inline_m == 0 && ffn != null && List_len<Param>(&ffn.params) > 0) {
-                    self_const = sema_pointee_const(List_get<Param>(&ffn.params, 0).ty);
-                }
                 if (self_const == 0) {
                     s.had_error = 1;
                     dprintf(2, "error: %s:%d:%d: cannot call method '%s' on a read-only value: its self may modify it (declare it 'const %s* self' if it does not)\n",
                            s.filename, s.line, s.col, mem.sval, sn);
+                }
+            } else if (is_field == 0 && self_const == 0 && sema_has_star(bt) == 0
+                       && (inline_m == 1 || (ffn != null && List_len<Param>(&ffn.params) > 0
+                                             && sema_has_star(sema_dealias(s, List_get<Param>(&ffn.params, 0).ty)) == 1))) {
+                // A captured value is read-only in the lambda: a non-const self would get
+                // the closure's copy (mirrors the C++ checkCapturedMethodCall).
+                string cn = sema_captured_root(s, mem.a);
+                if (cn[0] != 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: cannot call method '%s' on captured variable '%s': a closure captures it by value, and a non-const self may modify the copy (use a 'const T* self' method, or capture a pointer)\n",
+                           s.filename, s.line, s.col, mem.sval, cn);
                 }
             }
         }
@@ -5443,6 +5550,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 int lesc = 0;
                 if (i < List_len<int>(&cfd.param_escaping)) { lesc = List_get<int>(&cfd.param_escaping, i); }
                 if (lesc == 0 && s.in_inst == 0) { s.lam_arg_nonesc = 1; }
+                if (lesc == 0 && s.in_inst == 0 && cfd.is_async == 0) { s.lam_arg_stack = 1; }
             }
             if (fwd == 1) {
                 string pk = s.callee_ctx;
@@ -5594,6 +5702,65 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     }
 }
 
+// A lambda-bound local `name` read inside enclosing lambdas: each lambda it is outer to
+// captures it (mirrors the C++ localCaptures).
+void sema_note_local_capture(Sema* s, string name) {
+    int si = sema_sym_index(s, name);
+    if (si < 0) { return; }
+    int sd = List_get<Sym>(&s.syms, si).depth;
+    int j = 0;
+    while (j < List_len<int>(&s.lam_bounds)) {
+        if (sd <= List_get<int>(&s.lam_bounds, j)) {
+            List_push<*ExprNode>(&s.lcap_lam, List_get<*ExprNode>(&s.lam_nodes, j));
+            List_push<string>(&s.lcap_name, name);
+        }
+        j = j + 1;
+    }
+}
+
+// Does lambda `l` outlive its creating call? Not when its env is already on the stack, nor
+// when it is bound to a local only called outside an async body.
+int sema_lam_outlives(Sema* s, *ExprNode l) {
+    if (l.stack_env == 1) { return 0; }
+    int i = 0;
+    while (i < List_len<*ExprNode>(&s.wlam)) {
+        if (List_get<*ExprNode>(&s.wlam, i) == l) {
+            if (List_get<int>(&s.wlam_async, i) == 1) { return 1; }
+            return sema_in_list(&s.wlocals_esc, List_get<string>(&s.wlam_name, i));
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// At the end of a function: a lambda bound to a local that is only called gets its env on
+// the stack. The local escapes when it is used beyond a call or captured by a lambda that
+// outlives the call. A local of an async body keeps a heap env: it lives in the frame
+// across suspensions, and the async lowering frees it with the frame.
+void sema_stack_envs(Sema* s) {
+    int changed = 1;
+    while (changed == 1) {
+        changed = 0;
+        int i = 0;
+        while (i < List_len<string>(&s.lcap_name)) {
+            string nm = List_get<string>(&s.lcap_name, i);
+            if (sema_in_list(&s.wlocals_esc, nm) == 0 && sema_lam_outlives(s, List_get<*ExprNode>(&s.lcap_lam, i)) == 1) {
+                List_push<string>(&s.wlocals_esc, nm);
+                changed = 1;
+            }
+            i = i + 1;
+        }
+    }
+    int k = 0;
+    while (k < List_len<*ExprNode>(&s.wlam)) {
+        if (List_get<int>(&s.wlam_async, k) == 0 && sema_in_list(&s.wlocals_esc, List_get<string>(&s.wlam_name, k)) == 0) {
+            *ExprNode wl = List_get<*ExprNode>(&s.wlam, k);
+            wl.stack_env = 1;
+        }
+        k = k + 1;
+    }
+}
+
 // Is `name` (an outer variable) captured by an enclosing lambda that outlives the call?
 int sema_captured_by_escaping(Sema* s, string name) {
     int si = sema_sym_index(s, name);
@@ -5641,6 +5808,11 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     List_push<int>(&s.lam_bounds, s.depth);
     if (s.lam_arg_nonesc == 1) { List_push<int>(&s.lam_esc, 0); } else { List_push<int>(&s.lam_esc, 1); }
     s.lam_arg_nonesc = 0;
+    // An argument to a non-escaping param of a (non-async) function does not outlive the
+    // call: its env goes on the stack.
+    if (s.lam_arg_stack == 1) { e.stack_env = 1; }
+    s.lam_arg_stack = 0;
+    List_push<*ExprNode>(&s.lam_nodes, e);
     List_push<string>(&s.lam_local_of, s.lam_local);
     s.lam_local = "";
     sema_push(s);
@@ -5662,6 +5834,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
     sema_pop(s);
     List_remove<int>(&s.lam_bounds, List_len<int>(&s.lam_bounds) - 1);
     List_remove<int>(&s.lam_esc, List_len<int>(&s.lam_esc) - 1);
+    List_remove<*ExprNode>(&s.lam_nodes, List_len<*ExprNode>(&s.lam_nodes) - 1);
     List_remove<string>(&s.lam_local_of, List_len<string>(&s.lam_local_of) - 1);
     s.cur_ret = saved_ret; s.cur_ret_raw = saved_ret_raw; s.in_async = saved_async; s.await_seen = saved_seen;
     s.fin_depth = saved_fin;
@@ -5991,7 +6164,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_expr(s, st.expr);             // initializer (can't reference itself)
         s.lam_ret = "";
         s.lam_local = "";
-        if (lam_bound == 1) { List_push<string>(&s.wlocals, st.name); }
+        if (lam_bound == 1) {
+            List_push<string>(&s.wlocals, st.name);
+            List_push<*ExprNode>(&s.wlam, st.expr); List_push<string>(&s.wlam_name, st.name);
+            List_push<int>(&s.wlam_async, s.in_async);
+        }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
         int bad_range = 0;
@@ -6588,6 +6765,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             bi = bi + 1;
         }
         st.arm_types = ats;
+        if (s.in_async == 1 && s.in_inst == 1) { st.arm_inst = sema_inst_rec(s, st.arm_inst, ats); }
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;
@@ -7033,14 +7211,17 @@ string sema_sig_of(*DeclNode f) {
 
 // Do two struct decls have identical fields (a multi-file merge of one declaration)?
 int sema_same_struct(*DeclNode a, *DeclNode b) {
-    int n = List_len<Param>(&a.params);
-    if (n != List_len<Param>(&b.params)) { return 0; }
+    List<Param> af; List<int> ab; List<int> an; ast_layout_fields(a, &af, &ab, &an);
+    List<Param> bf; List<int> bb; List<int> bn; ast_layout_fields(b, &bf, &bb, &bn);
+    int n = List_len<Param>(&af);
+    if (n != List_len<Param>(&bf)) { return 0; }
     if (List_len<*DeclNode>(&a.methods) != List_len<*DeclNode>(&b.methods)) { return 0; }
     if (List_len<TypeParam>(&a.type_params) != List_len<TypeParam>(&b.type_params)) { return 0; }
     int i = 0;
     while (i < n) {
-        Param x = List_get<Param>(&a.params, i); Param y = List_get<Param>(&b.params, i);
+        Param x = List_get<Param>(&af, i); Param y = List_get<Param>(&bf, i);
         if (sema_streq(x.ty, y.ty) == 0 || sema_streq(x.name, y.name) == 0) { return 0; }
+        if (List_get<int>(&ab, i) != List_get<int>(&bb, i) || List_get<int>(&an, i) != List_get<int>(&bn, i)) { return 0; }
         i = i + 1;
     }
     return 1;
@@ -7227,6 +7408,20 @@ int sema_int_bits(string t) {
     return 0;
 }
 
+// A bitfield's declared type with aliases resolved and a classic enum as `int` (a sum type
+// stays itself: it is not an integer).
+string sema_bitfield_base(Sema* s, string t) {
+    string ft = sema_strip_const(t);
+    int hops = 0;
+    while (hops < 16) {
+        *DeclNode ad = sema_find_tdecl(s, ft);
+        if (ad != null && ad.kind == DK_TYPEALIAS) { ft = sema_strip_const(ad.ret_type); }
+        else { if (sema_is_plain_enum_decl(ad) == 1) { ft = "int"; } hops = 16; }
+        hops = hops + 1;
+    }
+    return ft;
+}
+
 // Struct/union fields: not void; a bitfield needs an integer type at least as wide.
 void sema_check_fields(Sema* s, *DeclNode d) {
     int i = 0; int n = List_len<Param>(&d.params);
@@ -7267,6 +7462,21 @@ void sema_check_fields(Sema* s, *DeclNode d) {
         }
         m = m + 1;
     }
+    int pi = 0;
+    while (pi < List_len<string>(&d.pad_tys)) {               // unnamed bitfields `T : N;`
+        string pty = List_get<string>(&d.pad_tys, pi);
+        int pw = List_get<int>(&d.pad_bits, pi);
+        int ptb = sema_int_bits(sema_bitfield_base(s, pty));
+        if (ptb == 0) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: unnamed bitfield of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, d.name, pty);
+        } else if (pw > ptb) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: unnamed bitfield of '%s' is %d bits wide, more than its type '%s' holds (%d)\n",
+                   s.filename, s.line, s.col, d.name, pw, pty, ptb);
+        }
+        pi = pi + 1;
+    }
     while (i < n) {
         Param f = List_get<Param>(&d.params, i);
         string fterr = sema_void_type_err(s, f.ty);
@@ -7280,16 +7490,8 @@ void sema_check_fields(Sema* s, *DeclNode d) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' has zero width (only an unnamed bitfield may be zero-width)\n", s.filename, s.line, s.col, f.name, d.name);
         }
-        if (bw > 0) {
-            string ft = sema_strip_const(f.ty);
-            int hops = 0;                                   // resolve a type alias / classic enum
-            while (hops < 16) {
-                *DeclNode ad = sema_find_tdecl(s, ft);
-                if (ad != null && ad.kind == DK_TYPEALIAS) { ft = sema_strip_const(ad.ret_type); }
-                else { if (sema_is_plain_enum_decl(ad) == 1) { ft = "int"; } hops = 16; }   // a sum type is not an integer
-                hops = hops + 1;
-            }
-            int tb = sema_int_bits(ft);
+        if (bw > 0 && sema_names_tparam(d, f.ty) == 0) {   // a type parameter: checked per instance
+            int tb = sema_int_bits(sema_bitfield_base(s, f.ty));
             if (tb == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, f.name, d.name, f.ty);
@@ -7376,6 +7578,9 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.wlocals, 4);
     List_init<string>(&s.wlocals_esc, 4);
+    List_init<*ExprNode>(&s.wlam, 4); List_init<string>(&s.wlam_name, 4); List_init<int>(&s.wlam_async, 4);
+    List_init<*ExprNode>(&s.lcap_lam, 4); List_init<string>(&s.lcap_name, 4);
+    s.lam_arg_stack = 0;
     List_init<string>(&s.cap_param, 4);
     List_init<string>(&s.cap_local, 4);
     List_init<string>(&s.narrowed, 4);
@@ -7429,6 +7634,7 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: async function '%s' has no `await`\n", s.filename, s.line, s.col, f.name);
     }
+    sema_stack_envs(s);
     int ci = 0;
     while (ci < List_len<string>(&s.cap_param)) {
         if (sema_in_list(&s.wlocals_esc, List_get<string>(&s.cap_local, ci)) == 1

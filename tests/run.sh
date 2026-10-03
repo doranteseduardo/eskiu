@@ -281,6 +281,15 @@ if [[ "$ia" == *"call { i64, i64 } asm sideeffect"* && "$ia" == *'"=r,r,0,~{dirf
 else
     bad "codegen/inline-asm-outputs-x86-64" "asm output constraints or operands differ from clang's lowering"
 fi
+# GCC register letters on x86 become LLVM's explicit registers, as clang spells them.
+ig="$("$ESKIUC" --target x86_64-unknown-linux-gnu --test-codegen "$here/inline_asm_gcc.esk" 2>/dev/null)"
+if [[ "$ig" == *'"{ax},N{dx},~{dirflag}'* && "$ig" == *'"={ax},={bx},={cx},={dx},{ax},~{dirflag}'* \
+   && "$ig" == *'"={ax},{cx},0,~{dirflag}'* && "$ig" == *'"={di},{si},~{dirflag}'* \
+   && "$ig" == *'"=&{dx},{ax},~{dirflag}'* ]]; then
+    ok "codegen/inline-asm-gcc-registers-x86-64"
+else
+    bad "codegen/inline-asm-gcc-registers-x86-64" "GCC register constraints not lowered like clang's"
+fi
 
 # <net>'s struct timeval is two C `long`s: 8 bytes on 32-bit ARM, 16 on 64-bit.
 tv_arm="$("$ESKIUC" --target armv7-unknown-linux-gnueabihf --test-codegen "$here/run_cmd/net_timeval.esk" 2>/dev/null)"
@@ -292,19 +301,31 @@ else
     bad "codegen/net-timeval-width" "timeval layout or optlen wrong for armv7 or x86-64"
 fi
 
-# An await the async lowering cannot place is an error located at the await (a defer
-# body, or a payload-binding match arm in a generic async function).
-aw_out="$("$ESKIUC" "$here/run_cmd/await_in_defer.esk" -o "$work/await_in_defer" 2>&1)"
-if [[ "$aw_out" == *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"* ]]; then
-    ok "cli/await-in-defer-located"
+# Bitfield layouts that differ by target (an int64 bitfield on 32-bit x86 SysV, unnamed
+# bitfields): the sizes and alignments clang gives each target.
+bt_fail=""
+while read -r bt_t bt_want; do
+    bt_got="$("$ESKIUC" --target "$bt_t" --test-codegen "$here/run_cmd/bitfield_targets.esk" 2>/dev/null \
+        | sed -nE 's/^@((sz|al)_[a-z0-9]+) = .*global i32 ([0-9]+).*/\1=\3/p' | tr '\n' ' ')"
+    [[ "$bt_got" == "$bt_want " ]] || bt_fail="$bt_fail $bt_t: $bt_got;"
+done <<'EOF'
+x86_64-unknown-linux-gnu sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=5 sz_u2=3 sz_u3=2 sz_u4=5 al_l3=8 al_u2=1 al_u3=1
+i686-pc-linux-gnu sz_l1=4 sz_l2=8 sz_l3=12 sz_u1=5 sz_u2=3 sz_u3=2 sz_u4=5 al_l3=4 al_u2=1 al_u3=1
+aarch64-unknown-linux-gnu sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=8 sz_u2=4 sz_u3=4 sz_u4=8 al_l3=8 al_u2=4 al_u3=4
+armv7-none-linux-gnueabihf sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=8 sz_u2=4 sz_u3=4 sz_u4=8 al_l3=8 al_u2=4 al_u3=4
+x86_64-w64-windows-gnu sz_l1=8 sz_l2=16 sz_l3=16 sz_u1=2 sz_u2=12 sz_u3=4 sz_u4=8 al_l3=8 al_u2=4 al_u3=1
+arm64-apple-darwin sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=5 sz_u2=3 sz_u3=2 sz_u4=5 al_l3=8 al_u2=1 al_u3=1
+EOF
+if [[ -z "$bt_fail" ]]; then ok "codegen/bitfield-target-layouts"
+else bad "codegen/bitfield-target-layouts" "sizes differ from clang's:$bt_fail"; fi
+
+# An await the async lowering cannot place is an error located at the await (an asm
+# input).
+aw_out="$("$ESKIUC" "$here/run_cmd/await_unplaced.esk" -o "$work/await_unplaced" 2>&1)"
+if [[ "$aw_out" == *"await_unplaced.esk:8:20: async function 'worker': 'await' is not supported here"* ]]; then
+    ok "cli/await-unplaced-located"
 else
-    bad "cli/await-in-defer-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
-fi
-aw_out="$("$ESKIUC" "$here/run_cmd/await_in_generic_match.esk" -o "$work/await_in_generic_match" 2>&1)"
-if [[ "$aw_out" == *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"* ]]; then
-    ok "cli/await-in-generic-match-located"
-else
-    bad "cli/await-in-generic-match-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
+    bad "cli/await-unplaced-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
 
 # A successful compile prints nothing to stdout (no output-file echo).
@@ -366,6 +387,23 @@ if "$ESKIUC" "$qdir/f.esk" -o "$work/fq" >/dev/null 2>&1 && [[ "$("$work/fq")" =
     ok "cli/file-macro-escape"
 else
     bad "cli/file-macro-escape" "__FILE__ for '$qdir/f.esk' is not the path"
+fi
+
+# An output named .obj is an object file (Windows spelling), not an executable to link.
+printf 'int main() { return 0; }\n' > "$work/obj.esk"
+if "$ESKIUC" "$work/obj.esk" -o "$work/obj.obj" >/dev/null 2>&1 && [[ -s "$work/obj.obj" ]] \
+   && ! "$work/obj.obj" >/dev/null 2>&1; then
+    ok "cli/obj-output"
+else
+    bad "cli/obj-output" "-o x.obj did not write an object file"
+fi
+
+# The native macOS triple carries the macOS product version, so the linker does not
+# warn that the object targets a newer macOS than the one it links for.
+if [[ "$(uname -s)" == Darwin ]]; then
+    mac_out=$("$ESKIUC" "$work/obj.esk" -o "$work/objexe" 2>&1)
+    if [[ "$mac_out" != *"built for newer"* ]]; then ok "cli/macos-version"
+    else bad "cli/macos-version" "$mac_out"; fi
 fi
 
 # `--help` documents the subcommands and lists only Eskiu's options (the LLVM

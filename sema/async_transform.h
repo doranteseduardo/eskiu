@@ -21,12 +21,17 @@ public:
     using InstanceArgs = std::map<std::string, std::pair<std::string, std::vector<std::string>>>;
     // `instanceArgs` (the checker's generic instances: mangled name -> template and
     // arguments) spells a checked type the way a declaration writes it (`List<int>`).
+    using InstanceTypes = std::vector<std::pair<std::map<std::string, std::string>, std::string>>;
+    // `instanceExprTypes` (a generic async body's expression types, per checked instance)
+    // types the same temporaries there, generalized over the type parameters.
     AsyncTransform(const std::map<Expr*, std::string>* exprTypes = nullptr,
-                   const InstanceArgs* instanceArgs = nullptr)
-        : exprTypes(exprTypes), instanceArgs(instanceArgs) {}
+                   const InstanceArgs* instanceArgs = nullptr,
+                   const std::map<Expr*, InstanceTypes>* instanceExprTypes = nullptr)
+        : exprTypes(exprTypes), instanceArgs(instanceArgs), instanceExprTypes(instanceExprTypes) {}
     void run(Program* program);
 private:
     const std::map<Expr*, std::string>* exprTypes;
     const InstanceArgs* instanceArgs;
+    const std::map<Expr*, InstanceTypes>* instanceExprTypes;
     std::string declType(const std::string& checked) const;
 };

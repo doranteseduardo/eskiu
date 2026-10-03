@@ -1,0 +1,3 @@
+// EXPECT-ERROR: unnamed bitfield of 'S' is 40 bits wide, more than its type 'uint32' holds (32)
+struct S { uint8 a : 3; uint32 : 40; uint8 b; }
+int main() { let s: S; s.b = 1; return (int)s.b; }

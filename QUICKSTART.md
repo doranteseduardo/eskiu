@@ -6,31 +6,36 @@ Two ways to get `eskiuc` running. Pick the one that suits you.
 
 ## Option A: Pre-built binary (recommended)
 
-Download the latest release from [github.com/doranteseduardo/eskiu/releases](https://github.com/doranteseduardo/eskiu/releases).
+On macOS or Linux, the install script picks the right binary, verifies its checksum and
+installs it under `/usr/local` (or `~/.eskiu` when `/usr/local` is not writable):
 
 ```bash
-# macOS (Apple Silicon)
-tar -xzf eskiuc-macos-arm64.tar.gz -C /usr/local
-
-# Linux (x86_64)
-tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
-
+curl -fsSL https://eskiu-lang.org/install.sh | sh
 eskiuc --version
 ```
 
-Expected output: `Eskiu 0.9.2 (LLVM ...)`
+Expected output: `Eskiu 0.9.3 (LLVM ...)`
 
-The tarball installs:
-- `bin/eskiuc`: the compiler
-- `lib/eskiu/stdlib/`: the standard library
+To install by hand, download a tarball from
+[github.com/doranteseduardo/eskiu/releases](https://github.com/doranteseduardo/eskiu/releases)
+(macOS arm64, Linux x86-64, Linux arm64) and unpack it into a prefix:
 
-`import <result>` and other stdlib imports work immediately after installation.
+```bash
+sudo tar -xzf eskiuc-linux-x86_64.tar.gz -C /usr/local
+```
+
+The tarball holds `bin/eskiuc` (the compiler) and `lib/eskiu/stdlib/` (the standard
+library), so `import <result>` and the other stdlib imports work right away. On Windows,
+unpack `eskiuc-windows-x86_64.zip` and add its `bin` folder to `PATH`.
+
+`eskiuc` links programs with your system C toolchain (`cc`, `clang` or `gcc`). On macOS
+that is `xcode-select --install`.
 
 ---
 
 ## Option B: Build from source
 
-Requires LLVM 21+, CMake 3.20+, and a C++17 compiler.
+Requires LLVM 21+ (LLVM 22 recommended), CMake 3.20+, and a C++17 compiler.
 
 ```bash
 cmake -S . -B build
@@ -38,7 +43,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.9.2 (LLVM ...)`
+Expected output: `Eskiu 0.9.3 (LLVM ...)`
 
 ## Hello, Eskiu
 
