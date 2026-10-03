@@ -3,7 +3,9 @@
 // Every exception saves the interrupted state as a TrapFrame on the current stack
 // (x0-x30, ELR_EL1, SPSR_EL1: 272 bytes, the layout of `TrapFrame` in trap.esk) and
 // calls an Eskiu handler with a pointer to it. The handler returns the frame to
-// resume, and trap_return loads sp from it before restoring the registers.
+// resume, and trap_return loads sp from it before restoring the registers. That is
+// also the task switch: the scheduler returns another task's frame, which sits on
+// that task's stack.
 //
 // The kernel is built with --mattr=-fp-armv8,-neon, so the FP/SIMD registers are
 // never used and need no saving.
