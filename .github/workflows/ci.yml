@@ -89,6 +89,13 @@ jobs:
       - name: Nullable pointers
         run: CC=clang-22 tests/nullable.sh
 
+      # Bare-metal ARM64 kernel (kernel/): cross-compile, link with lld, boot it in
+      # QEMU -M virt headless and check its UART output. The kernel powers QEMU off.
+      - name: Bare-metal kernel (QEMU)
+        run: |
+          sudo apt-get install -y qemu-system-arm lld-22
+          make -C kernel check ESKIUC=../build/eskiuc CLANG=clang-22 LLD=ld.lld-22
+
       # Self-hosted lexer (selfhost/) must stay byte-identical to the C++ lexer
       # over the whole preprocessor-free corpus. The driver is compiled once to a
       # native binary, so this is ~seconds. A divergence means the Eskiu lexer (or
