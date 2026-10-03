@@ -1537,8 +1537,7 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
   generation. `-O0` (the default) keeps the prior behavior: naive IR straight to the
   backend. On real code this collapses the per-local stack traffic the front-end emits
-  (the `ine_decoder` demo drops from 514 allocas to 25 at `-O2`); its Makefile now builds
-  with `-O2`.
+  (a 1,600-line crypto pipeline drops from 514 allocas to 25 at `-O2`).
 - **Clearer diagnostic for a keyword used as a name.** Using a reserved word (`fn`, `in`,
   `match`, a type name, ...) as a variable, parameter, or field name now reports
   `expected a name, found keyword 'fn'` at the cause, instead of a misleading downstream
@@ -1874,7 +1873,7 @@ compiler trustworthy and close the generics gap before the self-hosting arc.
 ---
 
 ## [0.2.1]
-Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
+Hardening and ergonomics, shaken out by building a real service (a QR-decoding HTTP
 API) on 0.2.0.
 
 ### Compiler
@@ -2145,12 +2144,8 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 
 ### Added
 
-**Decoder rewritten in Eskiu (no C pipeline code)**
-- `ine_decoder/crypto.esk` (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, `run_no_so_pipeline()`; all in Eskiu calling OpenSSL via `extern`
-- `ine_decoder/output.esk` (186 lines): Spanish character table, field splitter, growable JSON buffer, `decode_to_buffers()`; pure Eskiu
-- `ine_decoder/crypto.c` and `output_decode.c` removed: replaced entirely by Eskiu
-- Only C remaining: `qr_extract.c` shim (12 lines) + `qr_extract_impl.cpp` (CoreGraphics + zxing-cpp)
-- Runtime: **80ms** on arm64, identical output to reference
+**Crypto pipeline demo rewritten in Eskiu (no C pipeline code)**
+- AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders and the JSON output stage moved from C to Eskiu calling OpenSSL via `extern` (the demo has since been removed from the repository)
 
 **String literal adjacent concatenation**
 - `"abc" "def"` on consecutive lines (or the same line) are now concatenated into a single string at parse time; enables readable multi-line constant definitions
@@ -2178,7 +2173,6 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 - `globalVarTypes` map tracks Eskiu type strings for globals (complement to function-scoped `varTypeStack`)
 - `evaluateConstantExpr()`: folds literal expressions to `llvm::Constant*`
 - `visit(IdentExpr*)` now loads from `llvm::GlobalVariable` as well as `AllocaInst`
-- `IMAGE_PATH`, `OUT_JSON`, `OUT_WEBP` in `ine_decoder/main.esk` moved to module scope
 
 **sret (large struct return)**
 - `needsSret(type)`: returns true for aggregates > 16 bytes (arm64 register limit)
@@ -2192,8 +2186,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 - Fixes `i32 1712` passed to `int64 param` (was LLVM verification error)
 
 ### Fixed
-- `*int` vs `size_t *` in `extern.esk`: `run_no_so_pipeline` and `decode_to_buffers` now use `int64` for length params to match C's `size_t` (was writing 8 bytes to a 4-byte stack slot → heap corruption)
-- ine_decoder `pipeline.esk`: stage signatures updated to `int64` for all size parameters
+- `*int` vs `size_t *` in the demo's externs: length params now use `int64` to match C's `size_t` (was writing 8 bytes to a 4-byte stack slot → heap corruption)
 
 ### Planned
 - `argv`/`argc` support: programs can accept CLI arguments natively
@@ -2203,16 +2196,7 @@ Bare-metal ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) and prints to
 ## [0.0.9-alpha]
 
 ### Added
-- **`ine_decoder/`, INE QR decoder port**: full pipeline running at **74.4 ms** total
-  (QR: 71.7 ms + crypto: 2.8 ms + output decode: <1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C
-  - `types.esk`: `QRPair`, `NoSoKeys`, `IneResult`, `IneFields` structs
-  - `extern.esk`: libc + OpenSSL EVP (AES-256-CBC / RSA-8192) + `ine_qr_extract()` declarations
-  - `stage1_qr.esk`: QR extraction wrapper
-  - `stage2_crypto.esk`: 3-round AES-256-CBC + RSA-8192 via OpenSSL
-  - `stage3_output.esk`: pipe-delimited plaintext → JSON + WebP extraction
-  - `main.esk`: orchestration, timing, output
-  - `qr_extract.c` / `qr_extract_impl.cpp`: C/C++ shim using CoreGraphics + zxing-cpp 3.x
-  - `Makefile`, `README.md`
+- **Crypto pipeline demo**: a QR extraction + AES-256-CBC + RSA-8192 pipeline ported to Eskiu, 74.4 ms total vs. 188.9 ms for the reference C (since removed from the repository)
 
 ### Fixed
 - **Integer width mismatch in comparisons**: `uint8 == int` (e.g. `plaintext[i] == 124`) crashed LLVM with "Both operands to ICmp instruction are not of the same type"; now `ZExt`s the narrower operand to match the wider before emitting any of the six comparison operators

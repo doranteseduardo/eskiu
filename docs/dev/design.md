@@ -25,7 +25,7 @@ Eskiu's answer is a single language with the power of C and the immediacy of a s
 
 2.5× faster than the reference C. The crypto stage matches hand-written C within 0.1 ms.
 
-Every design decision below was evaluated against two questions: does it get the decoder working correctly, and does it serve the long-term domain specialisation goal?
+Every design decision below was evaluated against two questions: does it get that pipeline working correctly, and does it serve the long-term domain specialisation goal?
 
 ---
 
@@ -256,4 +256,4 @@ popScope()
 
 The decisions above form a consistent position: Eskiu is an explicit-control systems language that targets programmers who already think in C, need to call C libraries, and want near-C performance without writing C. The compiler is designed to be read and modified by one to three people, so implementation simplicity (hand-written parser, recursive-descent, visitor pattern, no parser generator) is a real constraint. LLVM handles the hard parts of code generation; the front end's job is to produce correct IR quickly.
 
-The INE decoder benchmark is the north star. Every decision that made the benchmark harder to hit was rejected; every decision that kept the code close to C semantics while adding safety margins (structural interfaces, `Result<T,E>`, two-pass type checking) was accepted.
+That pipeline benchmark is the north star. Every decision that made the benchmark harder to hit was rejected; every decision that kept the code close to C semantics while adding safety margins (structural interfaces, `Result<T,E>`, two-pass type checking) was accepted.

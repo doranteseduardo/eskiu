@@ -95,22 +95,10 @@
       <strong>≈85% menos memoria.</strong>
     </p>
 
-    <h2>El mismo lenguaje en la nube</h2>
     <p>
-      El otro extremo del stack validó el mismo toolchain. El
-      <a href="case-study-ine.html">decodificador de QR de credencial del INE</a> de Eduardo, un
-      proyecto personal, un pipeline real de imagen más cripto (extracción de QR,
-      luego múltiples rondas de AES-256-CBC + RSA-8192), fue reimplementado en Eskiu y
-      se sirve como una API HTTP. En el pipeline criptográfico corre
-      <strong>2.5× más rápido que la implementación de referencia en C</strong>, sobre un
-      stack construido enteramente con la biblioteca estándar de Eskiu (<code>&lt;http&gt;</code>,
-      <code>&lt;json&gt;</code>, <code>&lt;base64&gt;</code>, hilos), sin
-      framework externo.
-    </p>
-    <p>
-      Así que el mismo lenguaje que arranca un kernel ARM64 bare-metal, y que mete un
-      módulo ajustado en memoria dentro de un motor de renderizado C++, también corre un servicio en la
-      nube. Un solo lenguaje a lo largo del stack, usado donde de verdad rinde.
+      Así que el mismo lenguaje que arranca un kernel ARM64 bare-metal también mete
+      un módulo ajustado en memoria dentro de un motor de renderizado C++. Un solo
+      lenguaje a lo largo del stack, usado donde de verdad rinde.
     </p>
   </main>
   <footer class="foot">

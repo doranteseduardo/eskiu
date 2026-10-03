@@ -425,26 +425,20 @@ pre.code-block {
 <a href="#sec-23-5" class="toc-sec">23.5 net_accept_addr and binary uploads</a>
 <a href="#sec-23-6" class="toc-sec">23.6 Timeouts and limits</a>
 <a href="#chapter-24" class="toc-ch">Chapter 24</a>
-<a href="#sec-24-1" class="toc-sec">24.1 Background</a>
-<a href="#sec-24-2" class="toc-sec">24.2 The pipeline</a>
-<a href="#sec-24-3" class="toc-sec">24.3 Key data structures</a>
-<a href="#sec-24-4" class="toc-sec">24.4 Performance</a>
-<a href="#sec-24-5" class="toc-sec">24.5 What it demonstrates</a>
+<a href="#sec-24-1" class="toc-sec">24.1 The model</a>
+<a href="#sec-24-2" class="toc-sec">24.2 The event loop</a>
+<a href="#sec-24-3" class="toc-sec">24.3 Concurrent HTTP with http_serve_async</a>
+<a href="#sec-24-4" class="toc-sec">24.4 spawn, select2, and join2</a>
+<a href="#sec-24-5" class="toc-sec">24.5 Channels</a>
 <a href="#chapter-25" class="toc-ch">Chapter 25</a>
-<a href="#sec-25-1" class="toc-sec">25.1 The model</a>
-<a href="#sec-25-2" class="toc-sec">25.2 The event loop</a>
-<a href="#sec-25-3" class="toc-sec">25.3 Concurrent HTTP with http_serve_async</a>
-<a href="#sec-25-4" class="toc-sec">25.4 spawn, select2, and join2</a>
-<a href="#sec-25-5" class="toc-sec">25.5 Channels</a>
+<a href="#sec-25-1" class="toc-sec">25.1 Algebraic enums</a>
+<a href="#sec-25-2" class="toc-sec">25.2 match</a>
+<a href="#sec-25-3" class="toc-sec">25.3 Generic enums: Option and Either</a>
+<a href="#sec-25-4" class="toc-sec">25.4 Generic enum definitions</a>
 <a href="#chapter-26" class="toc-ch">Chapter 26</a>
-<a href="#sec-26-1" class="toc-sec">26.1 Algebraic enums</a>
-<a href="#sec-26-2" class="toc-sec">26.2 match</a>
-<a href="#sec-26-3" class="toc-sec">26.3 Generic enums: Option and Either</a>
-<a href="#sec-26-4" class="toc-sec">26.4 Generic enum definitions</a>
-<a href="#chapter-27" class="toc-ch">Chapter 27</a>
-<a href="#sec-27-1" class="toc-sec">27.1 Trust, but verify</a>
-<a href="#sec-27-2" class="toc-sec">27.2 The fixpoint</a>
-<a href="#sec-27-3" class="toc-sec">27.3 Earning the word "complete"</a>
+<a href="#sec-26-1" class="toc-sec">26.1 Trust, but verify</a>
+<a href="#sec-26-2" class="toc-sec">26.2 The fixpoint</a>
+<a href="#sec-26-3" class="toc-sec">26.3 Earning the word "complete"</a>
 <a href="#ref-r1" class="toc-ch">Ref R1</a>
 <a href="#ref-r2" class="toc-ch">Ref R2</a>
 <a href="#ref-r3" class="toc-ch">Ref R3</a>
@@ -509,10 +503,9 @@ pre.code-block {
   <div class="toc-entry"><a href="#chapter-21"><strong>Chapter 21: Testing</strong> <span class="toc-entry-desc">(Assertions, unit tests, and test organisation)</span></a></div>
   <div class="toc-entry"><a href="#chapter-22"><strong>Chapter 22: Common Bugs</strong> <span class="toc-entry-desc">(The mistakes everyone makes and how to avoid them)</span></a></div>
   <div class="toc-entry"><a href="#chapter-23"><strong>Chapter 23: Networking</strong> <span class="toc-entry-desc">(TCP sockets, echo servers, and HTTP in Eskiu)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-24"><strong>Chapter 24: Real World: INE QR Decoder</strong> <span class="toc-entry-desc">(A cryptographic pipeline in production Eskiu)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25: Async and Await</strong> <span class="toc-entry-desc">(Concurrent I/O without threads)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26: Sum Types and Match</strong> <span class="toc-entry-desc">(Algebraic enums, Option, Either)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-27"><strong>Chapter 27: Self-Hosting</strong> <span class="toc-entry-desc">(The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-24"><strong>Chapter 24: Async and Await</strong> <span class="toc-entry-desc">(Concurrent I/O without threads)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25: Sum Types and Match</strong> <span class="toc-entry-desc">(Algebraic enums, Option, Either)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26: Self-Hosting</strong> <span class="toc-entry-desc">(The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness)</span></a></div>
   <p class="toc-part" style="margin-top:28px">Part II: Language Reference</p>
   <div class="toc-entry"><a href="#ref-r1"><strong>Ref R1: Lexical Elements</strong> <span class="toc-entry-desc">(Comments, identifiers, keywords, literals)</span></a></div>
   <div class="toc-entry"><a href="#ref-r2"><strong>Ref R2: Types</strong> <span class="toc-entry-desc">(Primitives, pointers, arrays, structs, templates)</span></a></div>
@@ -538,7 +531,7 @@ pre.code-block {
 <p>By the end you will have read the complete language, managed memory explicitly, called C libraries directly, spawned threads, and read through a real cryptographic pipeline that runs 2.5× faster than the hand-written C it replaced.</p>
 <p>Eskiu is named after a cat.</p>
 <p class="etymology">Tiny → Minusculiny (minúscula + tiny) → Kulini → Eskiulini → Eskiu.</p>
-<p>As of v0.3.0, Eskiu is self-hosting: the whole compiler (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (<code>selfhost/</code>), reaches a three-stage bootstrap fixpoint, and its code generator is feature-complete against the reference C++ compiler. Chapter 27 tells that story.</p>
+<p>As of v0.3.0, Eskiu is self-hosting: the whole compiler (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (<code>selfhost/</code>), reaches a three-stage bootstrap fixpoint, and its code generator is feature-complete against the reference C++ compiler. Chapter 26 tells that story.</p>
 <div class="chapter-start" id="chapter-1"><span class="chapter-label">Chapter 1</span>
 <h1 class="chapter-title">Hello, Eskiu</h1><hr class="chapter-rule"></div>
 <p>Every journey in programming starts with a single program that does almost nothing. It prints a line of text and exits. This is Hello World, a tradition as old as the C language itself. Its purpose is not the output. Its purpose is to prove that your tools work: the compiler is installed, you can type code, and the result runs on your machine. Everything else builds on that.</p>
@@ -2705,7 +2698,7 @@ pre.code-block {
 <p>The constant checks work on the folded value, not only on the literal spelling. A divisor, a shift count, an index or a cast operand that folds to a bad value through a <code>const</code> name, a <code>sizeof</code>, a cast or arithmetic is reported the same way as the literal form, instead of compiling to an undefined result.</p>
 <h2 class="section" id="sec-22-8">22.8 Known issues in 0.9.2</h2>
 <p>A few gaps are still open in this release. None of them miscompiles a valid program:</p>
-<pre class="code-block"> await is rejected inside a finally or a defer (25.1), and in a generic async function
+<pre class="code-block"> await is rejected inside a finally or a defer (24.1), and in a generic async function
    in a match arm that binds a payload, after a side-effecting operand in the same
    expression, and inside a ?: arm; bind the awaited value to a local first.
  A method that mutates a captured value inside a lambda acts on the closure's copy;
@@ -2853,51 +2846,9 @@ pre.code-block {
 <p>Sizes are bounded as well. An HTTP/1.1 request head over 64 KiB is answered 400 and a body over 1 MiB 413. The parser follows RFC 9112: a chunked body is decoded before the handler sees it, <code>Transfer-Encoding</code> together with <code>Content-Length</code> is 400, a transfer coding other than <code>chunked</code> is 501, and a missing, repeated or malformed <code>Host</code> header (it must be a host with an optional <code>:port</code>) is 400. Both HTTP/1.1 servers read until the request is complete, so a request split across several TCP segments reaches the handler whole. On the way out, <code>HttpResponse_header</code> refuses a value containing a CR or LF (it returns 0 and adds nothing), so a handler that echoes client input cannot be used to inject a header line.</p>
 <p>The HTTP/2 engine buffers at most 1 MiB of body per request and 4 MiB across a connection (<code>s.max_body</code> and <code>s.max_buffered</code> on the <code>H2Server</code>); past either the request is answered 413 without calling the handler. A decoded header list over 64 KiB is 431. A malformed request (a missing <code>:method</code> or <code>:path</code>, a connection-specific header, a content-length the DATA frames do not add up to) is reset with <code>RST_STREAM</code> and never reaches the handler. The HTTP/1.1 Host rules apply here too: an invalid host or <code>:authority</code> is 400, two host fields or a host that disagrees with <code>:authority</code> reset the stream, and a request without a host field shows its <code>:authority</code> to the handler as the Host header.</p>
 <div class="chapter-start" id="chapter-24"><span class="chapter-label">Chapter 24</span>
-<h1 class="chapter-title">Real World: INE QR Decoder</h1><hr class="chapter-rule"></div>
-<p>This chapter walks through the program that validated Eskiu: a production decoder for the cryptographic QR codes on Mexican voter ID cards. It uses nearly every feature covered in this book, and it runs 2.5× faster than the hand-written C reference it replaced.</p>
-<h2 class="section" id="sec-24-1">24.1 Background</h2>
-<p>Every Mexican INE credential has two QR codes on the back. Together they encode the cardholder&#x27;s biographical data and photo, encrypted with AES-256-CBC and RSA-8192. The encryption was reverse-engineered from a proprietary native ARM64 library (libPersonalCode.so, 4.6 MB, Chilkat 9.5 statically linked) and reimplemented entirely in Eskiu, calling OpenSSL via <code>extern</code>.</p>
-<h2 class="section" id="sec-24-2">24.2 The pipeline</h2>
-<p>Stage 1 (qr_extract.c, 37 lines of C): zxing-cpp extracts two 858-byte payloads from the QR codes. The only C code in the project.</p>
-<p>Stage 2 (crypto.esk, 724 lines): six AES-256-CBC decryptions and one RSA-8192 modular exponentiation, all via OpenSSL <code>extern</code> calls. Manages intermediate buffers with <code>alloc</code>/<code>free</code>.</p>
-<p>Stage 3 (output.esk, 127 lines): parses the pipe-delimited plaintext into 18 biographical fields and extracts the embedded WebP photo. Pure Eskiu, no <code>extern</code>.</p>
-<p>The three stages (<code>stage_extract</code>, <code>stage_crypto</code>, <code>stage_decode</code>) live in <code>pipeline.esk</code> and are wired together by <code>main.esk</code>, with the shared types in <code>types.esk</code> and the OpenSSL declarations in <code>extern.esk</code>.</p>
-<h2 class="section" id="sec-24-3">24.3 Key data structures</h2>
-<pre class="code-block"> // types.esk
- struct QRPair {
-       uint8[858] left;         // fixed-size, no heap allocation
-       uint8[858] right;
-       int         ok;
-       char[256]   err;
- }</pre>
-<pre class="code-block"> // types.esk: parsed output (both pointers heap-allocated; free each)
- struct DecodeOutput {
-       *char  json;
-       int    json_len;
-       *uint8 webp;              // the embedded photo
-       int    webp_len;
- }</pre>
-<pre class="code-block"> // per-stage wall-clock timing, in milliseconds
- struct PipelineTiming {
-       double qr_ms;
-       double crypto_ms;
-       double decode_ms;
-       double total_ms;
- }</pre>
-<h2 class="section" id="sec-24-4">24.4 Performance</h2>
-<pre class="code-block">      Stage                                         Eskiu            Reference C</pre>
-<pre class="code-block">      QR extraction                                 71.7 ms          185.5 ms</pre>
-<pre class="code-block">      Crypto pipeline                               2.8 ms           2.9 ms</pre>
-<pre class="code-block">      Output decode                                 &lt; 1 ms           0.5 ms</pre>
-<pre class="code-block">      Total                                         74.4 ms          188.9 ms</pre>
-<p>2.5× faster than the reference C implementation on Apple Silicon. The crypto stage matches C within 0.1 ms. Both call the same OpenSSL functions. The speedup comes from the QR extraction stage, where LLVM&#x27;s optimiser produces tighter code than the reference compiled without equivalent flags.</p>
-<h2 class="section" id="sec-24-5">24.5 What it demonstrates</h2>
-<p>The decoder uses structs with fixed-size array fields, pointers and typed pointer arithmetic, heap allocation with explicit <code>free</code>, <code>extern</code> declarations for OpenSSL, <code>Result</code> for error propagation, multi-file imports, and <code>string</code> manipulation. Every feature in this book has a real use in that program.</p>
-<p>The decoder ships in the Eskiu repository under ine_decoder/. Reading it is the best way to see how a real Eskiu program is structured.</p>
-<div class="chapter-start" id="chapter-25"><span class="chapter-label">Chapter 25</span>
 <h1 class="chapter-title">Async and Await</h1><hr class="chapter-rule"></div>
 <p>Threads get concurrency by running code on multiple CPU cores at once. Async/await takes a different route: many tasks share a single thread, and each task suspends when it is waiting for I/O rather than blocking the thread. The result: a server that handles thousands of concurrent connections with the same memory a handful of threads would use.</p>
-<h2 class="section" id="sec-25-1">25.1 The model</h2>
+<h2 class="section" id="sec-24-1">24.1 The model</h2>
 <p>An async function returns a <code>Future</code>&lt;T&gt; instead of T directly. The future represents a value that does not exist yet. await suspends the current task until the future is ready, then unwraps the value:</p>
 <pre class="code-block"> import &lt;future&gt;;
  import &lt;mem&gt;;
@@ -2937,7 +2888,7 @@ pre.code-block {
  }
  Future&lt;int&gt;* a = twice&lt;int&gt;(21);        // a.value == 42
  Future&lt;double&gt;* b = twice(1.25);        // T inferred as double; b.value == 2.5</pre>
-<h2 class="section" id="sec-25-2">25.2 The event loop</h2>
+<h2 class="section" id="sec-24-2">24.2 The event loop</h2>
 <p>Async tasks need something to run them. The event loop is a reactor that watches file descriptors for readiness and resumes the tasks waiting on them:</p>
 <pre class="code-block"> import &lt;eventloop&gt;;
  import &lt;net_async&gt;;
@@ -2963,7 +2914,7 @@ pre.code-block {
        return 0;
  }</pre>
 <p>el_new(n) creates an event loop that watches up to n file descriptors. EventLoop_run(lp) blocks until all registered callbacks complete. Internally it uses kqueue on macOS, epoll on Linux, and WSAPoll on Windows.</p>
-<h2 class="section" id="sec-25-3">25.3 Concurrent HTTP with http_serve_async</h2>
+<h2 class="section" id="sec-24-3">24.3 Concurrent HTTP with http_serve_async</h2>
 <p>The simplest way to write a concurrent HTTP server (one event loop thread, many simultaneous connections):</p>
 <pre class="code-block"> import &lt;http_async&gt;;
  import &lt;http&gt;;
@@ -2987,7 +2938,7 @@ pre.code-block {
  }</pre>
 <p>Each incoming connection is handled by a detached async task: a slow client never blocks others. The same handler function works with &lt;http&gt; (threaded) and &lt;http_async&gt; (event loop).</p>
 <p>Each connection socket is non-blocking and the answer goes out through <code>net_write_async</code>, so a client that stops reading parks only its own connection. The server enforces the deadlines and the connection cap from section 23.6; <code>http_serve_async_with(lp, fd, hello, 1000, lim)</code> takes an <code>HttpLimits</code> of your own.</p>
-<h2 class="section" id="sec-25-4">25.4 spawn, select2, and join2</h2>
+<h2 class="section" id="sec-24-4">24.4 spawn, select2, and join2</h2>
 <p>Three combinators for composing concurrent tasks:</p>
 <pre class="code-block"> import &lt;future&gt;;
  import &lt;mem&gt;;</pre>
@@ -3009,7 +2960,7 @@ pre.code-block {
 <pre class="code-block"> import &lt;futureval&gt;;
  Future&lt;Either&lt;int,int&gt;&gt;* race = select2v&lt;int,int&gt;(fa, fb);
  Future&lt;Pair&lt;int,int&gt;&gt;* both = join2v&lt;int,int&gt;(fc, fd);</pre>
-<h2 class="section" id="sec-25-5">25.5 Channels</h2>
+<h2 class="section" id="sec-24-5">24.5 Channels</h2>
 <p>A channel passes values between async tasks. Chan_send enqueues a value; Chan_recv returns a future that completes with the next value:</p>
 <pre class="code-block"> import &lt;channel&gt;;
  import &lt;future&gt;;
@@ -3031,10 +2982,10 @@ pre.code-block {
        Chan_free&lt;int&gt;(ch);
        return 0;
  }</pre>
-<div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
+<div class="chapter-start" id="chapter-25"><span class="chapter-label">Chapter 25</span>
 <h1 class="chapter-title">Sum Types and Match</h1><hr class="chapter-rule"></div>
 <p>A sum type is a type that can be one of several variants, each carrying its own data. They are the type system&#x27;s answer to the question: how do you represent a value that might be one of several different things? Eskiu has sum types as algebraic enums (integer enums extended with payload variants) and a match statement that dispatches on them exhaustively.</p>
-<h2 class="section" id="sec-26-1">26.1 Algebraic enums</h2>
+<h2 class="section" id="sec-25-1">25.1 Algebraic enums</h2>
 <p>An enum variant can carry a payload: one or more values of any type. The tag identifies which variant; the payload carries its data:</p>
 <pre class="code-block"> enum Expr {
        Lit(int),          // carries one int
@@ -3043,7 +2994,7 @@ pre.code-block {
        Zero,              // no payload, like a classic enum variant
  }</pre>
 <p>Classic integer enums still work unchanged. The two styles coexist freely in the same codebase.</p>
-<h2 class="section" id="sec-26-2">26.2 match</h2>
+<h2 class="section" id="sec-25-2">25.2 match</h2>
 <p>match dispatches on the variant and binds the payload fields to names:</p>
 <pre class="code-block"> int eval(Expr e) {
        match e {
@@ -3069,7 +3020,7 @@ pre.code-block {
        }
        return k;
  }</pre>
-<h2 class="section" id="sec-26-3">26.3 Generic enums: Option and Either</h2>
+<h2 class="section" id="sec-25-3">25.3 Generic enums: Option and Either</h2>
 <p>Enums can have type parameters. The standard library provides two:</p>
 <pre class="code-block"> import &lt;either&gt;;</pre>
 <pre class="code-block"> // Option&lt;T&gt;: a value that may or may not exist
@@ -3106,7 +3057,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> some 5 some 5 none</p>
 <p>The payload is still checked against those type arguments: <code>Option&lt;int64&gt; b = Some(&quot;x&quot;);</code> is an error (&quot;variant 'Some' argument 1 type mismatch&quot;). With no expected type, as in a call to a generic function or an expression statement, write the arguments out as before (<code>Some&lt;int&gt;(42)</code>).</p>
 <p>Option&lt;T&gt; is the alternative to <code>null</code> pointer checks. Either&lt;T,E&gt; is an alternative to <code>Result</code>&lt;T,E&gt; when you want to handle both cases symmetrically in a match rather than checking .ok.</p>
-<h2 class="section" id="sec-26-4">26.4 Generic enum definitions</h2>
+<h2 class="section" id="sec-25-4">25.4 Generic enum definitions</h2>
 <p>You can define your own generic enums. The compiler monomorphizes them, one concrete type per set of type arguments:</p>
 <pre class="code-block"> enum Tree&lt;T&gt; {
        Leaf(T),
@@ -3120,17 +3071,17 @@ pre.code-block {
        Empty       -&gt; printf(&quot;empty\n&quot;);
  }</pre>
 <p>The chapters above are the tutorial. What follows is the reference: a complete specification of the syntax, types, operators, standard library, and CLI.</p>
-<div class="chapter-start" id="chapter-27"><span class="chapter-label">Chapter 27</span>
+<div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
 <h1 class="chapter-title">Self-Hosting</h1><hr class="chapter-rule"></div>
 <p>There is a moment in a language's life when it grows up: the day its compiler is written in itself. Until then the language depends on another: Eskiu's reference compiler, <code>eskiuc</code>, is written in C++. A self-hosted compiler is one the language can build on its own, and reaching it proves something concrete: the language is expressive enough, and the compiler correct enough, to take on a program as demanding as a compiler. As of v0.3.0, Eskiu is there.</p>
 <p>The whole pipeline is reimplemented in Eskiu, under <code>selfhost/</code>: a lexer, a preprocessor, a parser, a type checker, and a code generator, each a faithful translation of its C++ counterpart. They chain together exactly as the reference compiler does:</p>
 <pre class="code-block"> lexer → preprocessor → parser → type checker → code generator → LLVM IR</pre>
 <p>The code generator is the interesting one. It does not link against the LLVM libraries. Instead it writes LLVM IR out as plain text, which <code>clang</code> then assembles and links. That choice keeps the self-hosted compiler dependency-free, and it is how most bootstrapping compilers do it.</p>
-<h2 class="section" id="sec-27-1">27.1 Trust, but verify</h2>
+<h2 class="section" id="sec-26-1">26.1 Trust, but verify</h2>
 <p>A compiler that is subtly wrong is worse than no compiler at all, so every pass is checked against the reference. The method changes with what can be observed. For the lexer, parser, and preprocessor there is an exact answer to compare against: their output is diffed <em>byte-for-byte</em> against <code>eskiuc</code>'s debug dumps. For the type checker, the ground truth is a verdict: does it accept the same programs and reject the same mistakes, with the same error messages? For the code generator, the generated IR can't be compared character by character (LLVM renumbers values and folds constants), so the test is <em>behavioural</em>: compile the program both ways, run both binaries, and check that they print the same thing and exit the same way. Every one of these comparisons runs in continuous integration; a divergence fails the build.</p>
-<h2 class="section" id="sec-27-2">27.2 The fixpoint</h2>
+<h2 class="section" id="sec-26-2">26.2 The fixpoint</h2>
 <p>Per-pass parity is necessary but not sufficient. The real test of self-hosting is whether the compiler can reproduce <em>itself</em>. So the self-hosted compiler is built three times: the C++ <code>eskiuc</code> builds it once (call the result cc0); cc0 builds it again (cc1); cc1 builds it a third time (cc2). If the project is sound, cc1 and cc2 must emit identical IR for the compiler's own source: a compiler built by itself reproducing its own output. That equality is the <em>bootstrap fixpoint</em>, and Eskiu reaches it.</p>
-<h2 class="section" id="sec-27-3">27.3 Earning the word "complete"</h2>
+<h2 class="section" id="sec-26-3">26.3 Earning the word "complete"</h2>
 <p>There is a trap here worth naming, because it caught the author more than once. The bootstrap fixpoint only exercises the slice of the language the compiler's <em>own</em> source happens to use. It says nothing about features the compiler doesn't use: floating point, say, or unions, or the <code>?</code> operator. It is tempting to declare the code generator complete once the fixpoint holds, but that would be wrong. The only way to know a feature works is to compile a program that uses it and run it. So feature-completeness is measured by pushing the entire reference test corpus through the behavioural oracle and demanding a clean sweep, with every program, compiled by the Eskiu-written code generator, behaving exactly as the C++ build does. v0.3.0 passes that sweep: floats, <code>switch</code>, sum types and <code>match</code>, closures, exceptions, atomics, generics with inference, async/await, unions, bitfields, interfaces, packed structs, variadics, and the <code>?</code> operator all generate correct code.</p>
 <p>The lesson generalises beyond compilers: a system that checks itself can only ever confirm the paths it walks. To claim coverage, you have to walk every path on purpose, and watch what happens.</p>
 <p>Since v0.3.0 the self-hosting has been taken to completion. The Eskiu-written compiler is behaviorally equivalent to the C++ one across the whole corpus, gated on every commit, and dual-built as <code>eskiuc-esk</code>. It stays a co-equal build rather than the shipped artifact for one practical reason: the self-hosted driver links its output by shelling out to clang, so shipping it as the default would add a clang dependency at run time. The C++ binary remains the shipped compiler, and the parity gates keep the two equivalent.</p>

@@ -1728,8 +1728,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
   generation. <code>-O0</code> (the default) keeps the prior behavior: naive IR straight to the
   backend. On real code this collapses the per-local stack traffic the front-end emits
-  (the <code>ine_decoder</code> demo drops from 514 allocas to 25 at <code>-O2</code>); its Makefile now builds
-  with <code>-O2</code>.</li>
+  (a 1,600-line crypto pipeline drops from 514 allocas to 25 at <code>-O2</code>).</li>
 <li><strong>Clearer diagnostic for a keyword used as a name.</strong> Using a reserved word (<code>fn</code>, <code>in</code>,
   <code>match</code>, a type name, ...) as a variable, parameter, or field name now reports
   <code>expected a name, found keyword 'fn'</code> at the cause, instead of a misleading downstream
@@ -2066,7 +2065,7 @@ compiler trustworthy and close the generics gap before the self-hosting arc.</p>
 </ul>
 <hr>
 <h2 id="021">[0.2.1]</h2>
-<p>Hardening and ergonomics, shaken out by building a real service (an INE-QR HTTP
+<p>Hardening and ergonomics, shaken out by building a real service (a QR-decoding HTTP
 API) on 0.2.0.</p>
 <h3 id="compiler">Compiler</h3>
 <ul>
@@ -2317,12 +2316,8 @@ thread_join(t);
 - The type checker now validates that each <code>case</code> value is compatible with the <code>switch</code> subject expression type; mismatched case types are reported as errors at the <code>case</code> token position</p>
 <h2 id="0011-alpha">[0.0.11-alpha]</h2>
 <h3 id="added_12">Added</h3>
-<p><strong>Decoder rewritten in Eskiu (no C pipeline code)</strong>
-- <code>ine_decoder/crypto.esk</code> (541 lines): AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders, PKCS#1 stripper, 6-bit decoder, WebP reconstruction, <code>run_no_so_pipeline()</code>; all in Eskiu calling OpenSSL via <code>extern</code>
-- <code>ine_decoder/output.esk</code> (186 lines): Spanish character table, field splitter, growable JSON buffer, <code>decode_to_buffers()</code>; pure Eskiu
-- <code>ine_decoder/crypto.c</code> and <code>output_decode.c</code> removed: replaced entirely by Eskiu
-- Only C remaining: <code>qr_extract.c</code> shim (12 lines) + <code>qr_extract_impl.cpp</code> (CoreGraphics + zxing-cpp)
-- Runtime: <strong>80ms</strong> on arm64, identical output to reference</p>
+<p><strong>Crypto pipeline demo rewritten in Eskiu (no C pipeline code)</strong>
+- AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders and the JSON output stage moved from C to Eskiu calling OpenSSL via <code>extern</code> (the demo has since been removed from the repository)</p>
 <p><strong>String literal adjacent concatenation</strong>
 - <code>"abc" "def"</code> on consecutive lines (or the same line) are now concatenated into a single string at parse time; enables readable multi-line constant definitions</p>
 <h3 id="fixed-compiler-bugs-found-during-eskiu-crypto-port">Fixed (compiler bugs found during Eskiu crypto port)</h3>
@@ -2344,8 +2339,7 @@ thread_join(t);
 - Non-constant initializers zero-initialize the global (assign in <code>main()</code> for complex expressions)
 - <code>globalVarTypes</code> map tracks Eskiu type strings for globals (complement to function-scoped <code>varTypeStack</code>)
 - <code>evaluateConstantExpr()</code>: folds literal expressions to <code>llvm::Constant*</code>
-- <code>visit(IdentExpr*)</code> now loads from <code>llvm::GlobalVariable</code> as well as <code>AllocaInst</code>
-- <code>IMAGE_PATH</code>, <code>OUT_JSON</code>, <code>OUT_WEBP</code> in <code>ine_decoder/main.esk</code> moved to module scope</p>
+- <code>visit(IdentExpr*)</code> now loads from <code>llvm::GlobalVariable</code> as well as <code>AllocaInst</code></p>
 <p><strong>sret (large struct return)</strong>
 - <code>needsSret(type)</code>: returns true for aggregates &gt; 16 bytes (arm64 register limit)
 - <code>visit(FunctionDecl*)</code> rewrites large-return functions: prepends hidden <code>ptr sret.ptr</code> parameter, changes return type to <code>void</code>, tracks struct type in <code>funcSretTypes</code>
@@ -2357,8 +2351,7 @@ thread_join(t);
 - Fixes <code>i32 1712</code> passed to <code>int64 param</code> (was LLVM verification error)</p>
 <h3 id="fixed_14">Fixed</h3>
 <ul>
-<li><code>*int</code> vs <code>size_t *</code> in <code>extern.esk</code>: <code>run_no_so_pipeline</code> and <code>decode_to_buffers</code> now use <code>int64</code> for length params to match C's <code>size_t</code> (was writing 8 bytes to a 4-byte stack slot → heap corruption)</li>
-<li>ine_decoder <code>pipeline.esk</code>: stage signatures updated to <code>int64</code> for all size parameters</li>
+<li><code>*int</code> vs <code>size_t *</code> in the demo's externs: length params now use <code>int64</code> to match C's <code>size_t</code> (was writing 8 bytes to a 4-byte stack slot → heap corruption)</li>
 </ul>
 <h3 id="planned">Planned</h3>
 <ul>
@@ -2368,16 +2361,7 @@ thread_join(t);
 <h2 id="009-alpha">[0.0.9-alpha]</h2>
 <h3 id="added_14">Added</h3>
 <ul>
-<li><strong><code>ine_decoder/</code>, INE QR decoder port</strong>: full pipeline running at <strong>74.4 ms</strong> total
-  (QR: 71.7 ms + crypto: 2.8 ms + output decode: &lt;1 ms) vs. 188.9 ms reference C and 3–5 s original target; 2.5× faster than hand-written C</li>
-<li><code>types.esk</code>: <code>QRPair</code>, <code>NoSoKeys</code>, <code>IneResult</code>, <code>IneFields</code> structs</li>
-<li><code>extern.esk</code>: libc + OpenSSL EVP (AES-256-CBC / RSA-8192) + <code>ine_qr_extract()</code> declarations</li>
-<li><code>stage1_qr.esk</code>: QR extraction wrapper</li>
-<li><code>stage2_crypto.esk</code>: 3-round AES-256-CBC + RSA-8192 via OpenSSL</li>
-<li><code>stage3_output.esk</code>: pipe-delimited plaintext → JSON + WebP extraction</li>
-<li><code>main.esk</code>: orchestration, timing, output</li>
-<li><code>qr_extract.c</code> / <code>qr_extract_impl.cpp</code>: C/C++ shim using CoreGraphics + zxing-cpp 3.x</li>
-<li><code>Makefile</code>, <code>README.md</code></li>
+<li><strong>Crypto pipeline demo</strong>: a QR extraction + AES-256-CBC + RSA-8192 pipeline ported to Eskiu, 74.4 ms total vs. 188.9 ms for the reference C (since removed from the repository)</li>
 </ul>
 <h3 id="fixed_15">Fixed</h3>
 <ul>

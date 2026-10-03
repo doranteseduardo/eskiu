@@ -196,7 +196,7 @@ a:hover { color: var(--ink); }
 </tbody>
 </table></div>
 <p>2.5× faster than the reference C. The crypto stage matches hand-written C within 0.1 ms.</p>
-<p>Every design decision below was evaluated against two questions: does it get the decoder working correctly, and does it serve the long-term domain specialisation goal?</p>
+<p>Every design decision below was evaluated against two questions: does it get that pipeline working correctly, and does it serve the long-term domain specialisation goal?</p>
 <hr>
 <h2 id="1-c-style-syntax">1. C-Style Syntax</h2>
 <p><strong>Decision:</strong> Eskiu uses C-style syntax: braces for blocks, semicolons as statement terminators, type-before-name declarations (<code>int x = 5</code>), <code>for (init; cond; step)</code>, explicit return types before function names.</p>
@@ -357,7 +357,7 @@ popScope()
 <hr>
 <h2 id="summary">Summary</h2>
 <p>The decisions above form a consistent position: Eskiu is an explicit-control systems language that targets programmers who already think in C, need to call C libraries, and want near-C performance without writing C. The compiler is designed to be read and modified by one to three people, so implementation simplicity (hand-written parser, recursive-descent, visitor pattern, no parser generator) is a real constraint. LLVM handles the hard parts of code generation; the front end's job is to produce correct IR quickly.</p>
-<p>The INE decoder benchmark is the north star. Every decision that made the benchmark harder to hit was rejected; every decision that kept the code close to C semantics while adding safety margins (structural interfaces, <code>Result&lt;T,E&gt;</code>, two-pass type checking) was accepted.</p>
+<p>That pipeline benchmark is the north star. Every decision that made the benchmark harder to hit was rejected; every decision that kept the code close to C semantics while adding safety margins (structural interfaces, <code>Result&lt;T,E&gt;</code>, two-pass type checking) was accepted.</p>
     </main>
     <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#origin-and-vision">Origin and vision</a><a href="#1-c-style-syntax">1. C-Style Syntax</a><a href="#2-no-garbage-collector">2. No Garbage Collector</a><a href="#3-no-borrow-checker">3. No Borrow Checker</a><a href="#4-llvm-as-backend">4. LLVM as Backend</a><a href="#5-visitor-pattern-for-passes">5. Visitor Pattern for Passes</a><a href="#6-blockitem-stdvariantdeclptr-stmtptr">6. BlockItem = std::variant&lt;DeclPtr, StmtPtr&gt;</a><a href="#7-monomorphic-templates-not-genericpolymorphic">7. Monomorphic Templates (Not Generic/Polymorphic)</a><a href="#8-go-style-structural-interfaces">8. Go-Style Structural Interfaces</a><a href="#9-resultte-before-exceptions">9. Result&lt;T,E&gt; Before Exceptions</a><a href="#10-hand-written-recursive-descent-parser">10. Hand-Written Recursive-Descent Parser</a><a href="#11-for-loop-declaration-scope-fix">11. For-Loop Declaration Scope Fix</a><a href="#12-lazy-template-instantiation">12. Lazy Template Instantiation</a><a href="#13-integer-width-coercion-in-comparisons">13. Integer Width Coercion in Comparisons</a><a href="#14-structured-tytype-ir-and-a-single-type-resolver">14. Structured ty::Type IR and a Single Type Resolver</a><a href="#15-opt-in-memory-safety-zig-flavored">15. Opt-In Memory Safety (Zig-Flavored)</a><a href="#summary">Summary</a></nav>
   </div>
