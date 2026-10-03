@@ -47,8 +47,9 @@ function send(obj) {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
-// Path to eskiuc — try next to this file, then PATH
+// Path to eskiuc: $ESKIUC, else next to this file, else PATH
 function findEskiuc() {
+    if (process.env.ESKIUC) return process.env.ESKIUC;
     const candidates = [
         path.join(__dirname, '..', '..', 'build', 'eskiuc'),
         path.join(__dirname, '..', '..', '..', 'build', 'eskiuc'),

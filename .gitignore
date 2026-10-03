@@ -48,3 +48,6 @@ assets/*.tar.gz
 # Local agent state
 /.claude/settings.local.json
 /.claude/worktrees/
+
+# Editor extension: temporary copy of an unsaved file
+*.eskiu-check.esk

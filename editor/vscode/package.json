@@ -1,23 +1,36 @@
 {
   "name": "eskiu-language",
-  "displayName": "Eskiu Language",
-  "description": "Syntax highlighting and real-time error checking for .esk files",
-  "version": "0.0.28",
+  "displayName": "Eskiu",
+  "description": "Eskiu language support: highlighting, live errors, hover types, go to definition, formatting and Run",
+  "version": "0.1.0",
   "publisher": "doranteseduardo",
-  "engines": { "vscode": "^1.60.0" },
-  "categories": ["Programming Languages"],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/doranteseduardo/eskiu"
   },
-  "activationEvents": ["onLanguage:eskiu"],
+  "activationEvents": [
+    "onLanguage:eskiu",
+    "onCommand:eskiu.runFile"
+  ],
   "main": "./extension.js",
   "contributes": {
     "languages": [
       {
         "id": "eskiu",
-        "aliases": ["Eskiu", "eskiu"],
-        "extensions": [".esk"],
+        "aliases": [
+          "Eskiu",
+          "eskiu"
+        ],
+        "extensions": [
+          ".esk"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -27,6 +40,67 @@
         "scopeName": "source.eskiu",
         "path": "./syntaxes/eskiu.tmLanguage.json"
       }
-    ]
-  }
+    ],
+    "configuration": {
+      "title": "Eskiu",
+      "properties": {
+        "eskiu.compilerPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to `eskiuc`. Empty uses `build/eskiuc` in a checkout of the Eskiu repository, else `eskiuc` on `PATH`. Set it when the editor does not inherit your shell `PATH`."
+        },
+        "eskiu.checkOnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Type-check while typing, not only when a file is opened or saved."
+        },
+        "eskiu.checkDelay": {
+          "type": "number",
+          "default": 400,
+          "minimum": 100,
+          "description": "Milliseconds to wait after the last edit before type-checking."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "eskiu.runFile",
+        "title": "Run File",
+        "category": "Eskiu",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "eskiu.runFile",
+          "when": "editorLangId == eskiu",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "eskiu.runFile",
+          "when": "editorLangId == eskiu"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "[eskiu]": {
+        "editor.defaultFormatter": "doranteseduardo.eskiu-language"
+      }
+    }
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "homepage": "https://eskiu-lang.org",
+  "bugs": {
+    "url": "https://github.com/doranteseduardo/eskiu/issues"
+  },
+  "keywords": [
+    "eskiu",
+    "esk",
+    "systems",
+    "llvm"
+  ]
 }

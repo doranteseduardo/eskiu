@@ -1,12 +1,28 @@
 # Eskiu Language: VS Code Extension
 
-Syntax highlighting, error checking, hover types and go-to-definition for `.esk` files in
-Visual Studio Code and editors built on it (Cursor, Antigravity, VSCodium).
+Eskiu support for Visual Studio Code and editors built on it (Cursor, Antigravity,
+VSCodium): syntax highlighting, errors as you type, hover types, go to definition,
+formatting and a Run command.
 
-Errors from `eskiuc --test-typechecker` appear as underlines when a file is opened or
-saved. Hovering a name shows its type (`--hover-at`), and go-to-definition jumps to where
-it is declared (`--definition-at`). The extension uses the `eskiuc` on your `PATH`, or
-`build/eskiuc` when it runs from a checkout of this repository.
+## Features
+
+- **Errors as you type.** `eskiuc --test-typechecker` runs shortly after you stop typing
+  and when a file is opened or saved; errors and `-Wall`-style warnings show as underlines.
+  An unsaved file is checked through a hidden copy next to it
+  (`.name.esk.<pid>.eskiu-check.esk`, removed right after), so relative imports resolve.
+- **Hover** shows the type of the name under the cursor (`--hover-at`).
+- **Go to definition** jumps to where a name is declared (`--definition-at`).
+- **Format Document** runs `eskiuc fmt` and is the default formatter for `.esk` files.
+- **Eskiu: Run File** (also the play button in the editor title) saves the file and runs
+  `eskiuc run` in a terminal.
+
+## Settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `eskiu.compilerPath` | `""` | Path to `eskiuc`. Empty uses `build/eskiuc` in a checkout of this repository, else `eskiuc` on `PATH`. Set it when the editor does not inherit your shell `PATH` (common for apps opened from the Dock). |
+| `eskiu.checkOnType` | `true` | Type-check while typing, not only on open and save. |
+| `eskiu.checkDelay` | `400` | Milliseconds after the last edit before checking. |
 
 ## Install
 
@@ -14,7 +30,7 @@ Package the extension and install the `.vsix`:
 
 ```bash
 cd editor/vscode
-npx @vscode/vsce package --allow-missing-repository --skip-license
+npx @vscode/vsce package
 code --install-extension eskiu-language-*.vsix    # or cursor / antigravity-ide / codium
 ```
 
@@ -60,17 +76,14 @@ To associate manually, add to VS Code `settings.json`:
 }
 ```
 
-## How error checking works
+## How it works
 
-On every file open and save, `extension.js` runs:
-```
-eskiuc <file.esk> --test-typechecker
-```
-and parses `file:line:col: message` output into VS Code diagnostics.
-No npm packages required; pure VS Code extension API.
+`extension.js` uses only the VS Code API (no npm packages) and shells out to the compiler
+for every feature, parsing its `file:line:col: message` output into diagnostics.
 
-`server.js` is an alternative standalone JSON-RPC LSP server for editors
-that support LSP natively (Neovim, Helix, etc.).
+`server.js` is a standalone JSON-RPC language server that publishes the same diagnostics,
+for editors that speak LSP natively (Neovim, Helix and others). It runs `$ESKIUC` when set,
+else the same lookup as the extension.
 
 ## Limitations
 
