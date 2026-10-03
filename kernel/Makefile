@@ -1,31 +1,38 @@
-# Makefile — Eskiu v0.1 bare-metal kernel (ARM64, QEMU -M virt)
+# Makefile: Eskiu bare-metal kernel (ARM64, QEMU -M virt)
 #
 # Prerequisites (macOS):
 #   brew install lld qemu
 #
 # Build:   make
-# Run:     make run
+# Run:     make run     (interactive; the kernel powers QEMU off when it is done)
+# Check:   make check   (headless boot with a timeout, checks the UART output)
 # Clean:   make clean
 # Setup:   make setup   (installs lld and qemu via Homebrew)
+#
+# Every tool is overridable: make check ESKIUC=... CLANG=... LLD=... QEMU=...
 
-TARGET   = aarch64-unknown-none-elf
+TARGET  ?= aarch64-unknown-none-elf
 ESKIUC  ?= ../build/eskiuc
 CLANG   ?= clang
-LLD      = ld.lld
+LLD     ?= ld.lld
+QEMU    ?= qemu-system-aarch64
+TIMEOUT ?= 30
 
 ESKIU_FLAGS = --target $(TARGET) --freestanding
 AS_FLAGS    = --target=$(TARGET)
 LD_FLAGS    = -T linker.ld -nostdlib -static
+QEMU_FLAGS  = -M virt -cpu cortex-a57 -nographic -kernel kernel.elf
 
 OBJS = boot.o kernel.o
+SRCS = kernel.esk uart.esk cpu.esk alloc.esk
 
-.PHONY: all run clean setup check-deps
+.PHONY: all run check clean setup check-deps
 
 all: check-deps kernel.elf
 
 check-deps:
-	@which $(LLD)      > /dev/null 2>&1 || (echo "error: ld.lld not found — run: brew install lld" && exit 1)
-	@which qemu-system-aarch64 > /dev/null 2>&1 || (echo "warning: qemu not found — run: brew install qemu")
+	@command -v $(LLD) > /dev/null 2>&1 || (echo "error: $(LLD) not found (brew install lld)" && exit 1)
+	@command -v $(QEMU) > /dev/null 2>&1 || echo "warning: $(QEMU) not found (brew install qemu)"
 
 setup:
 	brew install lld qemu
@@ -33,22 +40,17 @@ setup:
 boot.o: boot.s
 	$(CLANG) $(AS_FLAGS) -c $< -o $@
 
-kernel.o: kernel.esk uart.esk alloc.esk
+kernel.o: $(SRCS)
 	$(ESKIUC) $(ESKIU_FLAGS) kernel.esk -o $@
 
-
-kernel.elf: $(OBJS)
-	$(LLD) $(LD_FLAGS) -o $@ $^
-	@echo ""
-	@echo "  kernel.elf built successfully"
-	@llvm-objdump -d kernel.elf | head -30 || true
+kernel.elf: $(OBJS) linker.ld
+	$(LLD) $(LD_FLAGS) -o $@ $(OBJS)
 
 run: kernel.elf
-	qemu-system-aarch64 \
-	  -M virt \
-	  -cpu cortex-a57 \
-	  -nographic \
-	  -kernel kernel.elf
+	$(QEMU) $(QEMU_FLAGS)
+
+check: check-deps kernel.elf
+	QEMU="$(QEMU)" QEMU_FLAGS="$(QEMU_FLAGS)" TIMEOUT="$(TIMEOUT)" ./check.sh
 
 run-window: kernel.elf
 	osascript -e 'tell application "Terminal" to activate' \
