@@ -122,6 +122,7 @@ struct Codegen {
     int uses_threads;        // program calls thread_create → the driver links pthread
     int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
     int safe;                // --safe: emit runtime slice/array index bounds checks (opt-in)
+    int freestanding;        // --freestanding: closure envs use esk_alloc/esk_free, not malloc/free
     int uses_trap;           // a bounds check was emitted → declare @llvm.trap once
     string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
     string cur_lbl;          // label of the basic block being emitted (for phi incoming edges)
@@ -1565,6 +1566,11 @@ void cg_drain_thunks(Codegen* g) {
 
 // Emit a runtime `declare` once for a libc/pthread symbol the codegen calls directly
 // (pthread_create/join, free). Skips it if the symbol is already a declared extern.
+// The heap a closure environment lives on: libc's, or under --freestanding the program's
+// esk_alloc/esk_free (the same pair <mem> uses there).
+string cg_heap_alloc(Codegen* g) { if (g.freestanding == 1) { return "esk_alloc"; } return "malloc"; }
+string cg_heap_free(Codegen* g) { if (g.freestanding == 1) { return "esk_free"; } return "free"; }
+
 void cg_ensure_extern(Codegen* g, string name, string decl) {
     if (cg_is_fn(g, name) == 1) { return; }
     if (cg_seen_inst(g, cg_cat("decl:", name)) == 1) { return; }
@@ -5250,8 +5256,9 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         string fatop = cg_coerce(g, fat, "%closure");     // a bare fn decays to {@__fnptr, null} (env null)
         string env = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fatop); cg_emit(g, ", 1\n");
-        cg_ensure_extern(g, "free", "declare void @free(ptr)\n");
-        cg_emit(g, "  call void @free(ptr "); cg_emit(g, env); cg_emit(g, ")\n");
+        string hf = cg_heap_free(g);
+        cg_ensure_extern(g, hf, cg_cat(cg_cat("declare void @", hf), "(ptr)\n"));
+        cg_emit(g, "  call void @"); cg_emit(g, hf); cg_emit(g, "(ptr "); cg_emit(g, env); cg_emit(g, ")\n");
         v.op = ""; v.ty = "void"; return v;
     }
 
@@ -5328,7 +5335,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
                 string szi = cg_tmp(g);
                 cg_emit(g, "  "); cg_emit(g, szi); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, szg); cg_emit(g, " to i64\n");
                 env = cg_tmp(g);
-                cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @malloc(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
+                cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @"); cg_emit(g, cg_heap_alloc(g)); cg_emit(g, "(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
             }
             int j = 0;
             while (j < nc) {
@@ -9077,9 +9084,12 @@ void cg_program(Codegen* g, *Program prog) {
         cg_drain_thunks(g);
     }
 
-    if (g.uses_heap_env == 1 && cg_seen_inst(g, "fn:malloc") == 0) {   // closures' env malloc
-        String_append(&g.globals, "declare ptr @malloc(i64)\n");
-        List_push<string>(&g.inst_seen, "fn:malloc");
+    if (g.uses_heap_env == 1) {                                         // closures' env allocator
+        string ha = cg_heap_alloc(g);
+        if (cg_seen_inst(g, cg_cat("fn:", ha)) == 0 && cg_is_fn(g, ha) == 0) {
+            String_append(&g.globals, cg_cat(cg_cat("declare ptr @", ha), "(i64)\n"));
+            List_push<string>(&g.inst_seen, cg_cat("fn:", ha));
+        }
     }
 
     if (g.uses_trap == 1 && cg_seen_inst(g, "fn:trap") == 0) {         // --safe bounds-check trap

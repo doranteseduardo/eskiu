@@ -114,8 +114,10 @@ void CodeGen::visit(LambdaExpr* node) {
             // Freed via free_closure (the async transform emits it at the owner
             // boundary; otherwise the owner frees it explicitly).
             uint64_t envSize = module->getDataLayout().getTypeAllocSize(envTy);
+            // Under --freestanding there is no libc: use the program's esk_alloc, the
+            // same allocator <mem> uses there.
             llvm::Function* mallocFn = getOrDeclareFunc(
-                "malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
+                freestanding ? "esk_alloc" : "malloc", ptrTy, {llvm::Type::getInt64Ty(*context)}, false);
             envAlloca = builder->CreateCall(mallocFn,
                 {llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), envSize)},
                 lambdaName + ".env.heap");
@@ -487,7 +489,7 @@ void CodeGen::visit(FreeClosureExpr* node) {
     llvm::Value* fat = evaluateExpr(node->closure);
     llvm::Value* env = builder->CreateExtractValue(fat, 1, "clos.env");
     llvm::Function* freeFn = getOrDeclareFunc(
-        "free", llvm::Type::getVoidTy(*context),
+        freestanding ? "esk_free" : "free", llvm::Type::getVoidTy(*context),
         {llvm::PointerType::get(*context, 0)}, false);
     builder->CreateCall(freeFn, {env});
     exprValueStack.push(llvm::UndefValue::get(llvm::Type::getVoidTy(*context)));

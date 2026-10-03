@@ -393,7 +393,7 @@ fi
 # provides. The same loops in a hosted build may become those calls.
 fs_obj="$work/fs_nb.o"
 if "$ESKIUC" "$here/run_cmd/freestanding_no_builtins.esk" --freestanding --target aarch64-unknown-none-elf \
-       -O2 -c -o "$fs_obj" >/dev/null 2>&1 && [[ -s "$fs_obj" ]] && ! grep -aqE 'memset|memcpy|memmove' "$fs_obj"; then
+       -O2 -c -o "$fs_obj" >/dev/null 2>&1 && [[ -s "$fs_obj" ]] && ! grep -aqE 'memset|memcpy|memmove|malloc' "$fs_obj"; then
     ok "codegen/freestanding-no-builtins"
 else
     bad "codegen/freestanding-no-builtins" "a freestanding -O2 object references memset/memcpy"

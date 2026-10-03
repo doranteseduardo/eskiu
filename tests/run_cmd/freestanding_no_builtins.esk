@@ -9,3 +9,14 @@ void copy(*uint8 d, *uint8 s, int64 n) {
     int64 i = 0;
     while (i < n) { d[i] = s[i]; i = i + 1; }
 }
+
+// An escaping closure's environment comes from the program's esk_alloc, not libc malloc.
+*uint8 esk_alloc(int64 size) { return (*uint8)0; }
+void esk_free(*uint8 p) {}
+fn(int)->int adder(int k) { return int(int x) { return x + k; }; }
+int use_adder(int k) {
+    let f: fn(int)->int = adder(k);
+    int r = f(1);
+    free_closure(f);
+    return r;
+}

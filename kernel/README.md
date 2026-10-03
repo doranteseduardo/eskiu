@@ -171,5 +171,6 @@ clang --target=aarch64-unknown-none-elf -c vectors.s -o vectors.o
 ld.lld -T linker.ld -nostdlib -static -o kernel-O0.elf boot.o vectors.o kernel-O0.o
 ```
 
-The heap closures for tasks are allocated by the compiler through `malloc`, even
-under `--freestanding`, so `alloc.esk` defines a `malloc` that calls `esk_alloc`.
+Under `--freestanding` the compiler allocates the environment of an escaping closure
+(the tasks are closures) with the program's `esk_alloc`, so `alloc.esk` is the kernel's
+only heap.
