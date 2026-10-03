@@ -51,3 +51,8 @@ assets/*.tar.gz
 
 # Editor extension: temporary copy of an unsaved file
 *.eskiu-check.esk
+
+# Gradle (IntelliJ plugin)
+.gradle/
+.kotlin/
+.intellijPlatform/
