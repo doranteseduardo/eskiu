@@ -434,6 +434,9 @@ class ThrowStmt : public Stmt {
 public:
     ExprPtr     value;
     std::string valueType; // filled in by TypeChecker
+    // Synthesized by the async lowering only: `value` is an exception object a capturing
+    // catch clause copied (CatchClause::captureAll), thrown again as is.
+    bool        rethrowCaptured = false;
     explicit ThrowStmt(ExprPtr v) : value(std::move(v)) {}
     void accept(class ASTVisitor* visitor) override;
 };
@@ -447,6 +450,10 @@ public:
         StmtPtr     body;
         int         line = 0;   // of the variable name
         int         col = 0;
+        // Synthesized by the async lowering only: matches any exception and binds `name`
+        // (a `*uint8`) to a copy of the exception object, for a later rethrow
+        // (ThrowStmt::rethrowCaptured).
+        bool        captureAll = false;
     };
     StmtPtr               body;
     std::vector<CatchClause> catches;

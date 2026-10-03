@@ -6595,16 +6595,25 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         return;
     }
     if (st.kind == SK_THROW) {
-        // Itanium ABI: allocate an EskiuEx { [8 reserved], ptr type_name, payload } with
+        // Itanium ABI: allocate an EskiuEx { int64 size, ptr type_name, payload } with
         // the thrown value stored by its own type at offset 16 (a double, an int64 or a
-        // whole struct keep their bits), fill it, and __cxa_throw it (an invoke inside a
-        // try so the landingpad catches it).
+        // whole struct keep their bits) and the object's byte size at offset 0 (a
+        // capturing catch copies that many bytes), fill it, and __cxa_throw it (an invoke
+        // inside a try so the landingpad catches it). is_err = 1 (async lowering only):
+        // the value is an exception object a capturing catch copied, thrown again as is.
         g.uses_eh = 1;
         CgVal val = cg_expr(g, st.expr);
+        if (st.is_err == 1) {
+            cg_emit_callish(g, "void", "@__cxa_throw", cg_cat("ptr ", cg_cat(val.op, ", ptr @_ZTIPv, ptr null")), 1);
+            cg_emit(g, "  unreachable\n");
+            g.terminated = 1;
+            return;
+        }
         string ex = cg_tmp(g);
         int psz = cg_ll_size_of(g, val.ty);
         cg_emit(g, "  "); cg_emit(g, ex); cg_emit(g, " = call ptr @__cxa_allocate_exception(i64 ");
         cg_emit(g, cg_itoa(16 + psz)); cg_emit(g, ")\n");
+        cg_emit(g, "  store i64 "); cg_emit(g, cg_itoa(16 + psz)); cg_emit(g, ", ptr "); cg_emit(g, ex); cg_emit(g, "\n");
         string pslot = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, pslot); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, ex); cg_emit(g, ", i64 16\n");
         cg_emit(g, "  store "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, ", ptr "); cg_emit(g, pslot); cg_emit(g, "\n");
@@ -6675,6 +6684,28 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             *StmtNode c = List_get<*StmtNode>(&st.items, ci);
             string ctype = cg_drop_last_word(c.name);
             string cname = cg_last_word(c.name);
+            if (c.is_err == 1) {
+                // A capturing catch (async lowering only): any exception; copy the object
+                // into a fresh, unthrown exception (its size is at offset 0) for a later
+                // rethrow, and release the caught one.
+                int cbase = List_len<CgLocal>(&g.locals);
+                string esz = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, esz); cg_emit(g, " = load i64, ptr "); cg_emit(g, exdata); cg_emit(g, "\n");
+                string ecp = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, ecp); cg_emit(g, " = call ptr @__cxa_allocate_exception(i64 "); cg_emit(g, esz); cg_emit(g, ")\n");
+                cg_emit(g, "  call void @llvm.memcpy.p0.p0.i64(ptr "); cg_emit(g, ecp); cg_emit(g, ", ptr "); cg_emit(g, exdata);
+                cg_emit(g, ", i64 "); cg_emit(g, esz); cg_emit(g, ", i1 false)\n");
+                string eslot = cg_entry_alloca(g, "ptr");
+                cg_emit(g, "  store ptr "); cg_emit(g, ecp); cg_emit(g, ", ptr "); cg_emit(g, eslot); cg_emit(g, "\n");
+                cg_add_local(g, cname, eslot, "ptr", ctype);
+                cg_emit(g, "  call void @__cxa_end_catch()\n");
+                cg_stmt(g, c.s1);
+                cg_br(g, ldone);
+                while (List_len<CgLocal>(&g.locals) > cbase) { List_remove<CgLocal>(&g.locals, List_len<CgLocal>(&g.locals) - 1); }
+                cg_label(g, cg_lbl(g));
+                ci = ci + 1;
+                continue;
+            }
             string ctg = cg_string_global(g, cg_ex_typename(g, ctype));
             string cmp = cg_tmp(g);
             cg_emit(g, "  "); cg_emit(g, cmp); cg_emit(g, " = call i32 @strcmp(ptr "); cg_emit(g, extype); cg_emit(g, ", ptr "); cg_emit(g, ctg); cg_emit(g, ")\n");
@@ -8749,6 +8780,7 @@ void cg_program(Codegen* g, *Program prog) {
         String_append(&g.globals, "declare ptr @__cxa_begin_catch(ptr)\n");
         String_append(&g.globals, "declare void @__cxa_end_catch()\n");
         String_append(&g.globals, "declare void @__cxa_rethrow()\n");
+        String_append(&g.globals, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
         String_append(&g.globals, "declare i32 @strcmp(ptr, ptr)\n");
     }
 }
