@@ -11,6 +11,7 @@ import "alloc.esk";
 import "gic.esk";
 import "timer.esk";
 import "trap.esk";
+import "shell.esk";
 
 // Bounds of .bss, defined by linker.ld.
 extern uint8 __bss_start;
@@ -22,7 +23,7 @@ enum Event {
     Timer(int64),             // counter frequency in Hz
     Allocated(int64, int64),  // bytes, address
     OutOfMemory(int64),       // bytes requested
-    Uptime(int64),            // microseconds since kernel_main started
+    BootTime(int64),          // microseconds from kernel_main to the shell
     Halt,
 }
 
@@ -32,7 +33,7 @@ void report(Event e) {
         Timer(hz)           -> { uart_puts("Timer:      "); uart_putdec(hz); uart_puts(" Hz"); }
         Allocated(n, addr)  -> { uart_puts("alloc("); uart_putdec(n); uart_puts("): "); uart_puthex(addr); }
         OutOfMemory(n)      -> { uart_puts("alloc("); uart_putdec(n); uart_puts("): out of memory"); }
-        Uptime(us)          -> { uart_puts("Uptime:     "); uart_putdec(us); uart_puts(" us"); }
+        BootTime(us)        -> { uart_puts("Boot time:  "); uart_putdec(us); uart_puts(" us"); }
         Halt                -> uart_puts("Powering off.");
     }
     uart_puts("\r\n");
@@ -126,6 +127,8 @@ void kernel_main() {
     uart_putdec(heap_used());
     uart_puts(" bytes\r\n\r\n");
 
-    const int64 ticks = cpu_timer_count() - start;
-    report(Uptime(ticks * 1000000 / cpu_timer_freq()));
+    const int64 elapsed = cpu_timer_count() - start;
+    report(BootTime(elapsed * 1000000 / cpu_timer_freq()));
+
+    shell();     // returns on `poweroff`
 }

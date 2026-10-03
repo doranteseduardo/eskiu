@@ -1,19 +1,24 @@
 #!/bin/sh
-# check.sh: boot kernel.elf in QEMU headless and check its UART output.
+# check.sh: boot the kernel in QEMU headless, type a scripted shell session on its
+# serial input and check the UART output.
 # Run through `make check`, which passes QEMU, QEMU_FLAGS and TIMEOUT.
-# The kernel ends with PSCI SYSTEM_OFF, so QEMU exits by itself; the timeout only
-# catches a hang.
+# The session ends with `poweroff` (PSCI SYSTEM_OFF), so QEMU exits by itself; the
+# timeout only catches a hang.
 
 QEMU=${QEMU:-qemu-system-aarch64}
 QEMU_FLAGS=${QEMU_FLAGS:-"-M virt,gic-version=2 -cpu cortex-a57 -nographic -kernel kernel-O0.elf"}
 TIMEOUT=${TIMEOUT:-30}
 
 out=$(mktemp)
-trap 'rm -f "$out"' EXIT
+in=$(mktemp)
+trap 'rm -f "$out" "$in"' EXIT
+
+# \177 is DEL, what the Backspace key sends: "echx<DEL>o fixed" is "echo fixed".
+printf 'help\nmem\nuptime\nregs\necho hello, kernel\nechx\177o fixed\nfault\nbogus\npoweroff\n' > "$in"
 
 # A watchdog instead of timeout(1), which macOS does not ship.
 # shellcheck disable=SC2086
-$QEMU $QEMU_FLAGS < /dev/null > "$out" 2>&1 &
+$QEMU $QEMU_FLAGS < "$in" > "$out" 2>&1 &
 qpid=$!
 ( sleep "$TIMEOUT"; kill "$qpid" 2> /dev/null ) &
 wpid=$!
@@ -47,7 +52,28 @@ alloc\(64\): 0x0000000040300000
 alloc\(4096\): 0x0000000040300040
 alloc\(4194304\): out of memory
 Heap used:  4160 bytes
-Uptime:     [0-9]+ us
+Boot time:  [0-9]+ us
+eskiu> help
+  poweroff    switch the machine off
+eskiu> mem
+Heap:       4160 bytes used, 1044416 bytes free
+eskiu> uptime
+Uptime:     [0-9]+\.[0-9]{2} s \([0-9]+ ticks\)
+eskiu> regs
+CurrentEL:  1
+CNTFRQ_EL0: [0-9]+ Hz
+VBAR_EL1:   0x00000000400[0-9A-F]{3}00
+eskiu> echo hello, kernel
+hello, kernel
+fixed
+eskiu> fault
+Reading 0x000000000C000000
+Exception:  data abort \(EC 0x25, IL 1, ISS 0x10\)
+  FAR_EL1:  0x000000000C000000
+Survived the fault\.
+eskiu> bogus
+Unknown command: bogus \(try help\)
+eskiu> poweroff
 Powering off\.'
 
 echo "$expected" | while IFS= read -r pat; do
