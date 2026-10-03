@@ -8,6 +8,8 @@ import <mem>;
 import "uart.esk";
 import "cpu.esk";
 import "alloc.esk";
+import "gic.esk";
+import "timer.esk";
 import "trap.esk";
 
 // Bounds of .bss, defined by linker.ld.
@@ -91,6 +93,22 @@ void kernel_main() {
     uart_puts("Testing a breakpoint (brk #42):\r\n");
     asm("brk #42");
     uart_puts("Back from the breakpoint.\r\n\r\n");
+
+    gic_init();
+    timer_init();
+    cpu_irq_enable();
+    uart_puts("Tick:       ");
+    uart_putdec(TICK_HZ);
+    uart_puts(" Hz on IRQ ");
+    uart_putdec(TIMER_IRQ);
+    uart_puts("\r\n");
+    const int64 t0 = cpu_timer_count();
+    while (ticks < 10) {
+        cpu_wait();
+    }
+    uart_puts("10 ticks:   ");
+    uart_putdec((cpu_timer_count() - t0) * 1000 / cpu_timer_freq());
+    uart_puts(" ms\r\n\r\n");
 
     uart_puts("UART base:  ");
     uart_puthex(UART0_BASE);

@@ -126,6 +126,23 @@ void panic(string why) {
     return f;
 }
 
+*TrapFrame trap_irq(*TrapFrame f) {
+    int64 iar = gic_ack();
+    int64 irq = iar & 0x3FF;
+    if (irq == GIC_SPURIOUS) {
+        return f;
+    }
+    if (irq == TIMER_IRQ) {
+        timer_tick();
+    } else {
+        uart_puts("Unexpected IRQ ");
+        uart_putdec(irq);
+        uart_puts("\r\n");
+    }
+    gic_eoi(iar);
+    return f;
+}
+
 // Any vector slot the kernel does not expect: an FIQ, an SError, or anything from a
 // lower exception level.
 void trap_unexpected(*TrapFrame f, int64 slot) {

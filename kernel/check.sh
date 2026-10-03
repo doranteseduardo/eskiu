@@ -5,7 +5,7 @@
 # catches a hang.
 
 QEMU=${QEMU:-qemu-system-aarch64}
-QEMU_FLAGS=${QEMU_FLAGS:-"-M virt -cpu cortex-a57 -nographic -kernel kernel.elf"}
+QEMU_FLAGS=${QEMU_FLAGS:-"-M virt,gic-version=2 -cpu cortex-a57 -nographic -kernel kernel.elf"}
 TIMEOUT=${TIMEOUT:-30}
 
 out=$(mktemp)
@@ -39,6 +39,8 @@ Exception:  breakpoint \(EC 0x3C, IL 1, ISS 0x2A\)
   ELR_EL1:  0x[0-9A-F]{16}
   Recovered: resuming at the next instruction\.
 Back from the breakpoint\.
+Tick:       100 Hz on IRQ 27
+10 ticks:   [0-9]+ ms
 UART base:  0x0000000009000000
 Heap:       0x0000000040300000 - 0x0000000040400000
 alloc\(64\): 0x0000000040300000

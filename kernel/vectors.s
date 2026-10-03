@@ -48,7 +48,7 @@ exception_vectors:
     SLOT unexpected_2       //                     FIQ
     SLOT unexpected_3       //                     SError
     SLOT el1_sync           // current EL, SP_EL1: sync (the kernel runs here)
-    SLOT unexpected_5       //                     IRQ
+    SLOT el1_irq            //                     IRQ
     SLOT unexpected_6       //                     FIQ
     SLOT unexpected_7       //                     SError
     SLOT unexpected_8       // lower EL, AArch64
@@ -66,6 +66,12 @@ el1_sync:
     bl   trap_sync
     b    trap_return
 
+el1_irq:
+    SAVE_FRAME
+    mov  x0, sp
+    bl   trap_irq
+    b    trap_return
+
 // trap_unexpected(frame, slot) reports the exception and does not return.
 .macro UNEXPECTED n
 unexpected_\n:
@@ -80,7 +86,6 @@ UNEXPECTED 0
 UNEXPECTED 1
 UNEXPECTED 2
 UNEXPECTED 3
-UNEXPECTED 5
 UNEXPECTED 6
 UNEXPECTED 7
 UNEXPECTED 8

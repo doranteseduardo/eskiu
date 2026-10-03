@@ -22,10 +22,10 @@ TIMEOUT ?= 30
 ESKIU_FLAGS = --target $(TARGET) --freestanding --mattr=-fp-armv8,-neon
 AS_FLAGS    = --target=$(TARGET)
 LD_FLAGS    = -T linker.ld -nostdlib -static
-QEMU_FLAGS  = -M virt -cpu cortex-a57 -nographic -kernel kernel.elf
+QEMU_FLAGS  = -M virt,gic-version=2 -cpu cortex-a57 -nographic -kernel kernel.elf
 
 OBJS = boot.o vectors.o kernel.o
-SRCS = kernel.esk uart.esk cpu.esk alloc.esk trap.esk
+SRCS = kernel.esk uart.esk cpu.esk alloc.esk trap.esk gic.esk timer.esk
 
 .PHONY: all run check clean setup check-deps
 
