@@ -57,6 +57,12 @@ cd eskiu && cmake -S . -B build && cmake --build build
 - **`.obj` output.** `-o name.obj` writes an object file, like `.o`, instead of trying to
   link an executable.
 - **Diagnostics** name types as you write them (`'Box'`, not `'struct:Box'`).
+- **Closure environments.** A capturing lambda bound to a local of an async function leaked
+  its environment on every call; the coroutine frame now frees it. Outside async functions a
+  lambda bound to a local that is only called keeps its environment on the stack, as
+  documented, instead of an unfreed heap block.
+- **Generic bitfields.** A bitfield typed by a struct's type parameter (`T a : 3;`) is checked
+  with each instance's type argument.
 - **Self-hosted compiler speed.** Code generation for very deeply nested binary expressions
   was quadratic in the depth (26 s at depth 4000); it is linear now (0.06 s).
 
