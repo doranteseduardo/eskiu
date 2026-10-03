@@ -250,15 +250,16 @@ ty::Type replaceSubtree(const ty::Type& t, const std::string& from, const std::s
     return r;
 }
 
-// The awaited type of `aw` in a generic async function, in terms of the template's type
-// parameters: a spelling S with substType(S, subs) equal to the awaited type in every
-// checked instance. Candidates put a type parameter in place of each subtree spelled as
-// its argument (every subset of the parameters, most first); any consistent one is right
-// for every instance there is. "" when none fits.
-std::string genericAwaitType(const AwaitExpr* aw, const std::vector<std::string>& tps) {
-    if (aw->instanceTypes.empty()) return "";
+// A type in a generic function, in terms of the template's type parameters, from its
+// value in each checked instance (`recs`: the instance's bindings and the type there): a
+// spelling S with substType(S, subs) equal to the type in every instance. Candidates put
+// a type parameter in place of each subtree spelled as its argument (every subset of the
+// parameters, most first); any consistent one is right for every instance there is. ""
+// when none fits.
+std::string generalizeType(const AsyncTransform::InstanceTypes& recs, const std::vector<std::string>& tps) {
+    if (recs.empty()) return "";
     auto canon = [](const std::string& s) { return ty::Type::parse(s).str(); };
-    const auto& first = aw->instanceTypes.front();
+    const auto& first = recs.front();
     size_t n = tps.size();
     std::vector<unsigned> masks;
     for (unsigned m = 0; m < (1u << n); ++m) masks.push_back(m);
@@ -273,11 +274,16 @@ std::string genericAwaitType(const AwaitExpr* aw, const std::vector<std::string>
         }
         std::string cand = c.str();
         bool ok = true;
-        for (const auto& inst : aw->instanceTypes)
+        for (const auto& inst : recs)
             if (canon(substType(cand, inst.first)) != canon(inst.second)) { ok = false; break; }
         if (ok) return cand;
     }
     return "";
+}
+
+// The awaited type of `aw` in a generic async function, in terms of its type parameters.
+std::string genericAwaitType(const AwaitExpr* aw, const std::vector<std::string>& tps) {
+    return generalizeType(aw->instanceTypes, tps);
 }
 
 // The closure  void() { fr.st = <state>; __<name>_resume(fr); }  used as a waker.
@@ -535,15 +541,34 @@ void AsyncTransform::run(Program* program) {
             return std::runtime_error(fn->sourceFile + ":" + std::to_string(ln) + ":" +
                 std::to_string(cl) + ": async function '" + name + "': " + msg);
         };
-        // The checked type of `e` ("" when unknown: a generic body's per-instance types
-        // are not kept).
+        // Whether a checked type is one a temporary can be declared with.
+        auto knownType = [](const std::string& t) {
+            return !(t.empty() || t == "unknown" || t == "null" || t == "void");
+        };
+        // A generic body's type from its per-instance records, generalized over `tps`.
+        auto generalized = [&](const AsyncTransform::InstanceTypes& recs) -> std::string {
+            AsyncTransform::InstanceTypes dr;
+            for (const auto& [subs, t] : recs) {
+                if (!knownType(t)) return "";
+                std::map<std::string, std::string> ds;
+                for (const auto& [k, v] : subs) ds[k] = declType(v);
+                dr.push_back({ds, declType(t)});
+            }
+            return generalizeType(dr, tps);
+        };
+        // The checked type of `e` ("" when unknown). In a generic function it is spelled
+        // with the type parameters.
         auto typeOf = [&](Expr* e) -> std::string {
-            if (generic || !exprTypes || !e) return "";
+            if (!e) return "";
+            if (generic) {
+                if (!instanceExprTypes) return "";
+                auto it = instanceExprTypes->find(e);
+                return it == instanceExprTypes->end() ? "" : generalized(it->second);
+            }
+            if (!exprTypes) return "";
             auto it = exprTypes->find(e);
-            if (it == exprTypes->end()) return "";
-            const std::string& t = it->second;
-            if (t.empty() || t == "unknown" || t == "null" || t == "void") return "";
-            return declType(t);
+            if (it == exprTypes->end() || !knownType(it->second)) return "";
+            return declType(it->second);
         };
         auto boolLit = [](bool v) { return std::make_shared<LiteralExpr>(LiteralExpr::Kind::BOOL, v ? "true" : "false"); };
         auto blockOf = [](std::vector<BlockItem> its) -> StmtPtr { return std::make_shared<BlockStmt>(std::move(its)); };
@@ -1431,7 +1456,19 @@ void AsyncTransform::run(Program* program) {
                 disp->line = m->line; disp->col = m->col;
                 for (int k = 0; k < n; ++k) {
                     const auto& arm = m->arms[k];
-                    if (arm.bindingTypes.size() != arm.bindings.size()) {
+                    std::vector<std::string> bts = arm.bindingTypes;
+                    if (generic) {
+                        bts.clear();
+                        for (size_t b = 0; b < arm.bindings.size(); ++b) {
+                            AsyncTransform::InstanceTypes recs;
+                            for (const auto& [subs, ts] : arm.instanceBindingTypes)
+                                if (b < ts.size()) recs.push_back({subs, ts[b]});
+                            std::string t = recs.size() == arm.instanceBindingTypes.size() ? generalized(recs) : "";
+                            if (t.empty()) break;
+                            bts.push_back(t);
+                        }
+                    }
+                    if (bts.size() != arm.bindings.size()) {
                         std::vector<AwaitExpr*> aws;
                         collectAwaits(s.get(), aws);
                         throw locError(aws.empty() ? (ASTNode*)m : (ASTNode*)aws.front(), "'await' in a 'match' "
@@ -1439,12 +1476,12 @@ void AsyncTransform::run(Program* program) {
                     }
                     MatchStmt::Arm na;
                     na.variant = arm.variant;
-                    na.bindingTypes = arm.bindingTypes;
+                    na.bindingTypes = bts;
                     std::vector<BlockItem> bi;
                     for (size_t b = 0; b < arm.bindings.size(); ++b) {
                         const std::string& bn = arm.bindings[b];
                         if (bn == "_") { na.bindings.push_back(bn); continue; }
-                        if (!vars.count(bn)) { vars.insert(bn); fields.push_back({arm.bindingTypes[b], bn}); }
+                        if (!vars.count(bn)) { vars.insert(bn); fields.push_back({bts[b], bn}); }
                         std::string tn = astwalk::freshName("__mb", used);
                         na.bindings.push_back(tn);
                         bi.push_back(assign(fr(bn), ident(tn)));

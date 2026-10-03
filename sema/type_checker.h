@@ -44,6 +44,11 @@ public:
     const std::map<Expr*, std::string>& expressionTypeMap() const { return expressionTypes; }
     // Generic struct / enum instances: mangled name -> (template name, type args).
     const std::map<std::string, std::pair<std::string, std::vector<std::string>>>& instanceArgsMap() const { return templateInstanceArgs; }
+    // In a generic async function's body: per expression, each checked instance's
+    // type-argument bindings and the expression's type there (the async lowering types
+    // its temporaries from these).
+    using InstanceExprTypes = std::map<Expr*, std::vector<std::pair<std::map<std::string, std::string>, std::string>>>;
+    const InstanceExprTypes& instanceExprTypeMap() const { return instanceExprTypes; }
 
     // Visitor methods
     void visit(Program* node) override;
@@ -211,6 +216,7 @@ private:
     std::string instContext;                      // its display name (appended to diagnostics)
     int instDepth = 0;
     bool inInstance = false;
+    InstanceExprTypes instanceExprTypes;
     bool substituting = false;                    // normalizeType re-entry guard
     // Queue an instance of `fn` (keyed and displayed as `name<args>suffix`), unless already queued.
     void queueInstance(FunctionDecl* fn, const std::vector<std::string>& typeParams,

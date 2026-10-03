@@ -414,6 +414,9 @@ public:
         std::string variant;                 // variant name, or "" for the `_` default
         std::vector<std::string> bindings;   // payload binding names (for this variant)
         std::vector<std::string> bindingTypes;   // stamped by the type checker (the async lowering's frame fields)
+        // In a generic async function: per checked instance, its type-argument bindings
+        // and the binding types (the async lowering generalizes them, as for awaits).
+        std::vector<std::pair<std::map<std::string, std::string>, std::vector<std::string>>> instanceBindingTypes;
         StmtPtr body;
     };
     ExprPtr subject;

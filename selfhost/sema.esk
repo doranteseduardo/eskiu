@@ -4205,6 +4205,21 @@ int sema_any_index_op(Sema* s) {
 
 // ── expression walk ──
 
+// `recs` with a record of type `t` in the generic instance being checked appended: its
+// type arguments joined by '\t', a '\f', the type, a '\n' (al_generalize reads these).
+string sema_inst_rec(Sema* s, string recs, string t) {
+    string r = recs; if (r == null) { r = ""; }
+    int i = 0;
+    while (i < List_len<string>(&s.isub_a)) {
+        if (i > 0) { r = sema_cat(r, "\t"); }
+        r = sema_cat(r, List_get<string>(&s.isub_a, i));
+        i = i + 1;
+    }
+    r = sema_cat(r, "\f");
+    if (t != null) { r = sema_cat(r, t); }
+    return sema_cat(r, "\n");
+}
+
 void sema_binary_chain(Sema* s, *ExprNode e);
 // Check `e` with its position as the current diagnostic location (restored afterwards so
 // the enclosing node's own checks report at the enclosing node).
@@ -4213,7 +4228,10 @@ void sema_expr(Sema* s, *ExprNode e) {
     int pl = s.line; int pc = s.col;
     if (e.line > 0) { s.line = e.line; s.col = e.col; }
     sema_expr_k(s, e);
-    if (s.in_async == 1) { e.aty = sema_infer_type(s, e); }   // the async lowering's temporaries
+    if (s.in_async == 1) {                 // the async lowering's temporaries
+        e.aty = sema_infer_type(s, e);
+        if (s.in_inst == 1) { e.ainst = sema_inst_rec(s, e.ainst, e.aty); }
+    }
     // The callee may assign any global: a global's narrowing ends after the call.
     // alloc_with calls the allocator's method and thread_create starts code that may run
     // at once, so they end it too.
@@ -6599,6 +6617,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             bi = bi + 1;
         }
         st.arm_types = ats;
+        if (s.in_async == 1 && s.in_inst == 1) { st.arm_inst = sema_inst_rec(s, st.arm_inst, ats); }
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;

@@ -581,6 +581,8 @@ void TypeChecker::checkPendingInstances() {
         inInstance = true;
         inst.accept(this);
         inInstance = false;
+        if (p.fn->isAsync)
+            for (const auto& [e, t] : expressionTypes) instanceExprTypes[e].push_back({p.subs, t});
         instRawReturnType.clear();
         instDepth = 0;
         instContext.clear();

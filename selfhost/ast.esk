@@ -276,6 +276,7 @@ struct ExprNode {
     string cg_ety;         // EK_MEMBER: codegen's type of this member, valid while cg_stamp is active
     int cg_stamp;
     string aty;            // in an async function: the type sema inferred (the async lowering types its temporaries by it)
+    string ainst;          // in a generic async function: per checked instance, its type arguments and the type there (sema_inst_rec)
     string sm_ety;         // EK_TERNARY: sema's type of this node, valid while sm_epoch is current
     int sm_epoch;
     int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
@@ -300,6 +301,7 @@ struct StmtNode {
     string resolved_iter;  // SK_FORIN: the iterable's type stamped by sema (the async lowering holds a non-place iterable in a local)
     string label;          // loop's own label (SK_FOR/WHILE/DOWHILE/FORIN) or target label (SK_BREAK/CONTINUE); null/"" = unlabeled
     string arm_types;      // SK_ARM: its payload bindings' types, ';'-separated, stamped by sema (null = not stamped)
+    string arm_inst;       // SK_ARM in a generic async function: arm_types per checked instance (sema_inst_rec)
     int line;              // source position for diagnostics (0 = unknown)
     int col;
 }

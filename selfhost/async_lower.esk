@@ -1078,15 +1078,103 @@ string al_arm_split(string lb, List<string>* binds, int* paren) {
     return v;
 }
 // `a;b;c` → [a, b, c] (a null or empty string → []).
-void al_split_semi(string s, List<string>* out) {
+// The `ch`-separated parts of `s` (none when `s` is empty).
+void al_split_ch(string s, int ch, List<string>* out) {
     if (s == null) { return; }
     int n = cstr_len(s);
     if (n == 0) { return; }
     int st = 0; int i = 0;
     while (i <= n) {
-        if (i == n || (int)s[i] == 59) { List_push<string>(out, al_substr(s, st, i)); st = i + 1; }
+        if (i == n || (int)s[i] == ch) { List_push<string>(out, al_substr(s, st, i)); st = i + 1; }
         i = i + 1;
     }
+}
+void al_split_semi(string s, List<string>* out) { al_split_ch(s, 59, out); }
+int al_is_idc(int c) {
+    if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { return 1; }
+    return 0;
+}
+// `t` with each subtree spelled `from` (an occurrence not joined to an identifier on
+// either side) spelled `to`.
+string al_replace_type(string t, string from, string to) {
+    int n = cstr_len(t); int m = cstr_len(from);
+    if (m == 0) { return t; }
+    string out = ""; int st = 0; int i = 0;
+    while (i + m <= n) {
+        int hit = 1;
+        int j = 0; while (j < m) { if (t[i + j] != from[j]) { hit = 0; break; } j = j + 1; }
+        if (hit == 1 && i > 0 && al_is_idc((int)t[i - 1]) == 1 && al_is_idc((int)from[0]) == 1) { hit = 0; }
+        if (hit == 1 && i + m < n && al_is_idc((int)t[i + m]) == 1 && al_is_idc((int)from[m - 1]) == 1) { hit = 0; }
+        if (hit == 1) {
+            out = str_concat(str_concat(out, al_substr(t, st, i)), to);
+            i = i + m; st = i;
+        } else { i = i + 1; }
+    }
+    return str_concat(out, al_substr(t, st, n));
+}
+int al_popcount(int m) { int c = 0; while (m > 0) { c = c + (m & 1); m = m >> 1; } return c; }
+// A type in generic function `c.curfn`, in terms of its type parameters, from its value
+// in each checked instance (`recs`, from sema_inst_rec; `part` >= 0 picks that
+// ';'-separated part of each record's type): a spelling S that al_subst turns into the
+// type of every instance. Candidates put a type parameter in place of each subtree
+// spelled as its argument (every subset of the parameters, most first), as the C++
+// generalizeType does. "" when none fits.
+string al_generalize(*AlCtx c, string recs, int part) {
+    List<TypeParam>* tps = &c.curfn.type_params;
+    int n = List_len<TypeParam>(tps);
+    List<string> lines; List_init<string>(&lines, 4);
+    al_split_ch(recs, 10, &lines);
+    int nr = List_len<string>(&lines);
+    if (nr > 0 && cstr_len(List_get<string>(&lines, nr - 1)) == 0) { nr = nr - 1; }   // after the last '\n'
+    if (nr == 0) { return ""; }
+    List<List<string>> args; List_init<List<string>>(&args, nr);
+    List<string> tys; List_init<string>(&tys, nr);
+    int r = 0;
+    while (r < nr) {
+        string ln = List_get<string>(&lines, r);
+        int f = 0; while (ln[f] != 0 && (int)ln[f] != 12) { f = f + 1; }
+        if (ln[f] == 0) { return ""; }
+        List<string> as; List_init<string>(&as, 2);
+        al_split_ch(al_substr(ln, 0, f), 9, &as);
+        if (List_len<string>(&as) != n) { return ""; }
+        string t = al_substr(ln, f + 1, cstr_len(ln));
+        if (part >= 0) {
+            List<string> ps; List_init<string>(&ps, 2);
+            al_split_semi(t, &ps);
+            if (part >= List_len<string>(&ps)) { return ""; }
+            t = List_get<string>(&ps, part);
+        }
+        if (t[0] == 0 || str_eq(t, "unknown") == 1 || str_eq(t, "null") == 1 || str_eq(t, "void") == 1) { return ""; }
+        List_push<List<string>>(&args, as);
+        List_push<string>(&tys, t);
+        r = r + 1;
+    }
+    List<string> a0 = List_get<List<string>>(&args, 0);
+    int pc = n;
+    while (pc >= 0) {
+        int m = 0;
+        while (m < (1 << n)) {
+            if (al_popcount(m) == pc) {
+                string cand = List_get<string>(&tys, 0);
+                int i = 0;
+                while (i < n) {
+                    if (((m >> i) & 1) == 1) { cand = al_replace_type(cand, List_get<string>(&a0, i), List_get<TypeParam>(tps, i).name); }
+                    i = i + 1;
+                }
+                int ok = 1;
+                r = 0;
+                while (r < nr) {
+                    List<string> ar = List_get<List<string>>(&args, r);
+                    if (str_eq(al_subst(cand, tps, &ar), List_get<string>(&tys, r)) == 0) { ok = 0; break; }
+                    r = r + 1;
+                }
+                if (ok == 1) { return cand; }
+            }
+            m = m + 1;
+        }
+        pc = pc - 1;
+    }
+    return "";
 }
 // A catch label `Type name` → its type / its variable.
 string al_catch_type(string lb) {
@@ -1145,9 +1233,22 @@ int al_lower_match(*AlCtx c, *StmtNode m, int cur) {
         int paren = 0;
         string v = al_arm_split(arm.name, &binds, &paren);
         List<string> tys; List_init<string>(&tys, 2);
-        al_split_semi(arm.arm_types, &tys);
+        string ats = arm.arm_types;
+        if (generic == 1) {               // in terms of the type parameters
+            ats = null;
+            int b = 0;
+            while (b < List_len<string>(&binds)) {
+                string t = al_generalize(c, arm.arm_inst, b);
+                if (t[0] == 0) { break; }
+                List_push<string>(&tys, t);
+                if (b == 0) { ats = t; } else { ats = str_concat(str_concat(ats, ";"), t); }
+                b = b + 1;
+            }
+        } else {
+            al_split_semi(ats, &tys);
+        }
         if (arm.arm_types == null && generic == 0) { al_variant_types(c, m.expr, v, &tys); }   // not stamped
-        if (List_len<string>(&binds) > 0 && (generic == 1 || List_len<string>(&tys) != List_len<string>(&binds))) {
+        if (List_len<string>(&binds) > 0 && List_len<string>(&tys) != List_len<string>(&binds)) {
             *ExprNode fa = al_any_await_s(m);
             int fl = m.line; int fc = m.col;
             if (fa != null) { fl = fa.line; fc = fa.col; }
@@ -1172,7 +1273,7 @@ int al_lower_match(*AlCtx c, *StmtNode m, int cur) {
         if (paren == 1) { lb = str_concat(lb, ")"); }
         List_push<*StmtNode>(&bi, al_assign(al_fr(al_fst), al_int(List_get<int>(&entry, k))));
         *StmtNode na = ast_new_stmt();
-        na.kind = SK_ARM; na.name = lb; na.s1 = al_block(&bi); na.arm_types = arm.arm_types;
+        na.kind = SK_ARM; na.name = lb; na.s1 = al_block(&bi); na.arm_types = ats;
         na.line = arm.line; na.col = arm.col;
         List_push<*StmtNode>(&disp.items, na);
         k = k + 1;
@@ -1393,7 +1494,7 @@ int al_has_side(*ExprNode e) {
 // The type sema inferred for `e` ("" when unknown, and inside a generic function, whose
 // instances differ; mirrors the C++).
 string al_type_of(*AlCtx c, *ExprNode e) {
-    if (List_len<TypeParam>(&c.curfn.type_params) > 0) { return ""; }
+    if (List_len<TypeParam>(&c.curfn.type_params) > 0) { return al_generalize(c, e.ainst, 0 - 1); }
     string t = e.aty;
     if (t == null || t[0] == 0) { t = al_expr_type(c.prog, c.curfn, e); }   // not stamped (the codegen-only driver)
     if (t == null || t[0] == 0 || str_eq(t, "unknown") == 1 || str_eq(t, "null") == 1 || str_eq(t, "void") == 1) { return ""; }
