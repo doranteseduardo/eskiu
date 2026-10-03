@@ -161,6 +161,9 @@ and inspecting real compiled programs in about 30 minutes.</p>
 <p>All code blocks in this document compile and run with <strong>Eskiu v0.9.2</strong>.</p>
 <hr>
 <h2 id="installation">Installation</h2>
+<p>Prebuilt releases for macOS and Linux install with one command; see the
+<a href="https://github.com/doranteseduardo/eskiu/blob/main/README.md#install">README</a>. To build from source, follow the steps below
+(more detail, Windows and troubleshooting are in <a href="build.html">build.md</a>).</p>
 <h3 id="prerequisites">Prerequisites</h3>
 <div class="tablewrap"><table>
 <thead>
@@ -184,12 +187,12 @@ and inspecting real compiled programs in about 30 minutes.</p>
 <tr>
 <td>C++ compiler</td>
 <td>C++17</td>
-<td>GCC 7+, Clang 5+, or Apple Clang</td>
+<td>clang++ or g++</td>
 </tr>
 <tr>
-<td>clang</td>
+<td>C compiler</td>
 <td>any recent</td>
-<td>Used to link the final binary</td>
+<td><code>cc</code>, <code>clang</code> or <code>gcc</code>, used to link executables</td>
 </tr>
 </tbody>
 </table></div>
@@ -204,7 +207,9 @@ cmake -S . -B build
 cmake --build build -j$(sysctl -n hw.ncpu)
 </code></pre>
 <h3 id="linux-ubuntu-debian">Linux (Ubuntu / Debian)</h3>
-<pre><code class="language-bash">sudo apt-get install -y cmake llvm-22-dev clang-22 build-essential
+<pre><code class="language-bash">sudo apt-get install -y git cmake llvm-22-dev clang-22 build-essential
+git clone https://github.com/doranteseduardo/eskiu.git
+cd eskiu
 cmake -S . -B build -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
 cmake --build build -j$(nproc)
 </code></pre>
@@ -267,15 +272,21 @@ would emit:</p>
 <pre><code class="language-bash">eskiuc hello.esk --test-codegen
 </code></pre>
 <p>Abridged output:</p>
-<pre><code class="language-llvm">@0 = private unnamed_addr constant [19 x i8] c&quot;Hello from Eskiu!\0A\00&quot;
-@1 = private unnamed_addr constant [12 x i8] c&quot;Result: %d\0A\00&quot;
+<pre><code class="language-llvm">@0 = private unnamed_addr constant [19 x i8] c&quot;Hello from Eskiu!\0A\00&quot;, align 1
+@1 = private unnamed_addr constant [12 x i8] c&quot;Result: %d\0A\00&quot;, align 1
 
 declare i32 @printf(ptr, ...)
 
 define i32 @add(i32 %a, i32 %b) {
 entry:
-  %0 = add i32 %a, %b
-  ret i32 %0
+  %b2 = alloca i32, align 4
+  %a1 = alloca i32, align 4
+  store i32 %a, ptr %a1, align 4
+  store i32 %b, ptr %b2, align 4
+  %0 = load i32, ptr %a1, align 4
+  %1 = load i32, ptr %b2, align 4
+  %2 = add i32 %0, %1
+  ret i32 %2
 }
 
 define i32 @main() {
@@ -287,8 +298,9 @@ entry:
   ret i32 0
 }
 </code></pre>
-<p>String literals become private globals. Local variables are stack slots
-(<code>alloca</code>). The <code>add</code> function compiles down to a single <code>add i32</code> instruction.</p>
+<p>String literals become private globals. At the default <code>-O0</code>, parameters and local
+variables are stack slots (<code>alloca</code>). Add <code>-O2</code> to see the optimized IR, where <code>add</code>
+is a single <code>add i32</code> instruction.</p>
 <hr>
 <h2 id="variables-and-types">Variables and Types</h2>
 <h3 id="declaring-variables">Declaring variables</h3>
@@ -604,11 +616,11 @@ extern double sqrt(double x);
 <p><code>extern</code> also declares a <strong>global variable</strong> defined in another translation unit.
 Drop the parentheses and end with a semicolon; the variable resolves at link time,
 so Eskiu can read and write state shared with a C library:</p>
-<pre><code class="language-eskiu">extern int   errno;        // a C global; read and assign it like any variable
-extern float g_volume;
+<pre><code class="language-eskiu">extern int   opterr;       // libc's getopt flag; read and assign it like any variable
+extern float g_volume;     // a global defined in your own C code
 
-void reset() {
-    errno = 0;
+void quiet_getopt() {
+    opterr = 0;
 }
 </code></pre>
 <h3 id="declaration-order">Declaration order</h3>
@@ -807,7 +819,7 @@ T max&lt;T: Ord&gt;(T a, T b) {
     return b;
 }
 </code></pre>
-<p>Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a <code>struct Num</code> with <code>int cmp(*Num other)</code> satisfies <code>Ord</code>. Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int a, *int b)</code> makes <code>int</code> satisfy the <code>Ord</code> above (the interface's <code>*Ord</code> becomes <code>*int</code>). See spec §10.6 for the full rules.</p>
+<p>Inside an interface, a type spelled with the interface's own name stands for the implementing type, so a <code>struct Num</code> with <code>int cmp(*Num other)</code> satisfies <code>Ord</code>. Use <code>+</code> to require several interfaces at once (<code>&lt;K: Hashable + Eq, V&gt;</code>). A struct satisfies a constraint by defining the interface's methods. A primitive type has no methods, so it satisfies a constraint through a <strong>free function</strong> named like the interface method whose first parameter is that primitive, e.g. <code>int cmp(int a, *int b)</code> makes <code>int</code> satisfy the <code>Ord</code> above (the interface's <code>*Ord</code> becomes <code>*int</code>), so <code>max(3, 9)</code> works. See spec §10.6 for the full rules.</p>
 <hr>
 <h2 id="interfaces">Interfaces</h2>
 <p>Interfaces declare a set of method signatures. Any struct that provides matching
@@ -913,7 +925,6 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>Pointer comparisons use integer equality, not floating-point equality.</p>
 <p>For checked null safety, declare the pointer <code>?*T</code>. The compiler then rejects a
 dereference until a check proves the pointer is not null. The check can be an
 <code>if (p != null)</code>, an early exit (<code>if (p == null) { return 0; }</code>), a loop condition,
@@ -936,7 +947,7 @@ int val = *ptr;   // read through pointer, val == 200
 <pre><code class="language-eskiu">import &lt;result&gt;;      // stdlib module, resolved by the compiler
 import &quot;utils.esk&quot;;   // local file, relative to the current file
 </code></pre>
-<p><code>import &lt;name&gt;</code> looks up the module in the Eskiu installation's stdlib directory. No path required. <code>import "path"</code> is relative to the importing file, as before.</p>
+<p><code>import &lt;name&gt;</code> looks up the module in the Eskiu installation's stdlib directory. No path required. <code>import "path"</code> is relative to the importing file.</p>
 <p>Each file is parsed only once regardless of how many times it is imported.</p>
 <h3 id="example-layout">Example layout</h3>
 <pre><code>project/
@@ -1005,6 +1016,10 @@ import &lt;math&gt;;
 <td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code></td>
 </tr>
 <tr>
+<td><code>&lt;ctype&gt;</code></td>
+<td>ASCII character classes: <code>is_space</code>, <code>is_digit</code>, <code>is_hex</code>, <code>is_alpha</code>, <code>is_alnum</code>, <code>is_ident_start</code>, <code>is_ident_cont</code></td>
+</tr>
+<tr>
 <td><code>&lt;math&gt;</code></td>
 <td><code>sqrt</code>, <code>fabs</code>, <code>pow</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code></td>
 </tr>
@@ -1050,7 +1065,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;fs&gt;</code></td>
-<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_read</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code></td>
+<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_flush</code>, <code>fs_read</code>, <code>fs_readline</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code></td>
 </tr>
 <tr>
 <td><code>&lt;net&gt;</code></td>
@@ -1148,7 +1163,7 @@ flag:</p>
 <pre><code class="language-bash">eskiuc file.esk -o file
 </code></pre>
 <h3 id="standard-library-highlights">Standard library highlights</h3>
-<p>A few of the newer modules. See the language spec §14 for the full reference.</p>
+<p>A few of the modules. See the <a href="spec.html#14-stdlib">language spec §14</a> for the full reference.</p>
 <p><strong><code>&lt;alloc&gt;</code>: allocators over a caller buffer.</strong> <code>alloc_with(&amp;a, T, n)</code> carves a
 typed <code>*T</code> out of any struct that exposes a <code>_alloc</code> method. Bump is the
 simplest: individual frees are no-ops; one <code>free</code> of the backing buffer releases
@@ -1253,7 +1268,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>Under the hood, <code>fn(T)-&gt;R</code> is a fat pointer <code>{fn_ptr, env_ptr}</code>. Non-capturing lambdas have <code>env_ptr = null</code> and behave identically to before.</p>
+<p>Under the hood, <code>fn(T)-&gt;R</code> is a fat pointer <code>{fn_ptr, env_ptr}</code>. Non-capturing lambdas have <code>env_ptr = null</code> and behave like plain function pointers.</p>
 <hr>
 <h2 id="threads">Threads</h2>
 <p><code>thread_create</code> and <code>thread_join</code> are language keywords. Pass any <code>fn()-&gt;void</code> value, including a closure, to spawn a thread.</p>
@@ -1277,7 +1292,7 @@ int main() {
     return 0;
 }
 </code></pre>
-<p>The closure fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair: no trampoline is generated. The driver links pthread by itself where the platform needs it:</p>
+<p>A closure value's fat pointer maps directly to pthread's <code>(start_routine, arg)</code> pair. A lambda written in the call goes through a small trampoline that frees its environment when the thread ends. The driver links pthread by itself where the platform needs it:</p>
 <pre><code class="language-bash">eskiuc threads.esk -o threads
 ./threads
 </code></pre>
@@ -1335,9 +1350,12 @@ cleanup
 <h2 id="ide-tooling-vs-code">IDE Tooling (VS Code)</h2>
 <p>The <code>editor/vscode/</code> directory contains a VS Code extension for Eskiu.</p>
 <h3 id="install">Install</h3>
-<pre><code class="language-bash">ln -s $(pwd)/editor/vscode ~/.vscode/extensions/eskiu-language
+<p>Package the extension and install the <code>.vsix</code> (from the repository root):</p>
+<pre><code class="language-bash">cd editor/vscode
+npx @vscode/vsce package --allow-missing-repository --skip-license
+code --install-extension eskiu-language-*.vsix
 </code></pre>
-<p>Restart VS Code. <code>.esk</code> files will have syntax highlighting immediately.</p>
+<p>For development, link the folder instead: <code>ln -s "$PWD/editor/vscode" ~/.vscode/extensions/eskiu-language</code>, then reload the window. The extension uses the <code>eskiuc</code> on your <code>PATH</code>. See <code>editor/vscode/README.md</code> for details.</p>
 <h3 id="features">Features</h3>
 <div class="tablewrap"><table>
 <thead>
@@ -1472,26 +1490,34 @@ asm(&quot;nop&quot;);
 </code></pre>
 <p>The string is passed verbatim to the assembler. Use this form for instructions that take no operands.</p>
 <h3 id="inline-assembly-extended-form">Inline assembly: extended form</h3>
-<p>The extended form passes values in and out of the asm template using GCC-compatible constraints:</p>
+<p>The extended form passes values in and out of the asm template. Its layout follows GCC, but the constraints are LLVM constraint codes:</p>
 <pre><code class="language-eskiu">// Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
-    asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+    asm(&quot;outb ${0:b}, $1&quot; :: &quot;{ax}&quot;(val), &quot;N{dx}&quot;(port) : &quot;memory&quot;);
+}
+
+// Add two registers on x86-64 and read the result back
+int64 add(int64 a, int64 b) {
+    int64 acc = a;
+    asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));
+    return acc;
 }
 </code></pre>
-<p>Syntax: <code>asm("template" :: inputs : clobbers);</code></p>
+<p>Syntax: <code>asm("template" : outputs : inputs : clobbers);</code> (empty sections may be left blank, as in <code>::</code>).</p>
 <ul>
-<li>Inputs are <code>"constraint"(expression)</code> pairs.</li>
-<li>Output operands are not supported: the output section stays empty, so the extended form starts with <code>::</code>. Pass results back through memory (a pointer input plus the <code>"memory"</code> clobber).</li>
+<li>Operands are <code>"constraint"(expression)</code> pairs, referenced in the template as <code>$0</code>, <code>$1</code>, ... (outputs first, then inputs).</li>
+<li>An output constraint starts with <code>=</code> (written) or <code>+</code> (read and written), and its operand must be a writable variable, field, element or dereference.</li>
 <li><code>"memory"</code> in the clobber list acts as a compiler barrier.</li>
-<li>Common constraints: <code>"a"</code> → rax/eax, <code>"Nd"</code> → 8-bit immediate or dx, <code>"r"</code> → any register.</li>
+<li>Common constraints: <code>"r"</code> → any register, <code>"m"</code> → memory, a register named in braces such as <code>"{ax}"</code> (al/ax/eax/rax by width), <code>"N{dx}"</code> → 8-bit immediate or dx. GCC's single-letter register classes such as <code>"a"</code> are not accepted.</li>
 </ul>
+<p>See spec §15 for the full rules.</p>
 <h3 id="freestanding-mode">Freestanding mode</h3>
-<p>When targeting bare metal or a kernel, pass <code>--freestanding</code> to the compiler. This redirects the built-in <code>alloc</code> and <code>free</code> to user-provided <code>esk_alloc</code> / <code>esk_free</code> symbols instead of the libc <code>malloc</code> / <code>free</code>:</p>
+<p>When targeting bare metal or a kernel, pass <code>--freestanding</code> to the compiler. This makes <code>&lt;mem&gt;</code>'s <code>alloc&lt;T&gt;</code> and <code>free</code> call user-provided <code>esk_alloc</code> / <code>esk_free</code> symbols instead of libc <code>calloc</code> / <code>free</code>:</p>
 <pre><code class="language-bash">eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
 </code></pre>
 <p>You must provide <code>esk_alloc</code> and <code>esk_free</code> in your own source or a C shim:</p>
 <pre><code class="language-eskiu">// kernel_alloc.esk, linked together with kernel.esk
-*void esk_alloc(int size) { return bump_alloc(size); }
+*void esk_alloc(int64 nbytes) { return bump_alloc(nbytes); }   // must return zeroed memory
 void  esk_free(*void ptr)  { bump_free(ptr); }
 </code></pre>
 <h3 id="safe-mode">Safe mode</h3>
@@ -1568,10 +1594,11 @@ them, as in C: with <code>let q: *int = buf + 3;</code>, <code>q - buf</code> is
 <hr>
 <h2 id="whats-next">What's Next</h2>
 <ul>
-<li>Full language reference: <code>docs/lang/spec.md</code></li>
-<li>Standard library source: <code>stdlib/</code></li>
-<li>Worked examples: <code>examples/</code></li>
-<li>Contributing guide: <code>docs/dev/</code></li>
+<li>Full language reference: <a href="spec.html">spec.md</a></li>
+<li>Formal grammar: <a href="grammar.html">grammar.md</a></li>
+<li>Standard library source: <a href="../../stdlib/"><code>stdlib/</code></a></li>
+<li>Worked examples: <a href="../../examples/"><code>examples/</code></a></li>
+<li>Contributing guide: <a href="contributing.html">contributing.md</a></li>
 </ul>
     </main>
     <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#installation">Installation</a><a href="#your-first-program">Your First Program</a><a href="#variables-and-types">Variables and Types</a><a href="#operators">Operators</a><a href="#control-flow">Control Flow</a><a href="#functions">Functions</a><a href="#structs">Structs</a><a href="#enums-and-match">Enums and match</a><a href="#templates">Templates</a><a href="#interfaces">Interfaces</a><a href="#memory">Memory</a><a href="#multi-file-projects">Multi-file Projects</a><a href="#lambdas">Lambdas</a><a href="#threads">Threads</a><a href="#exception-handling">Exception Handling</a><a href="#ide-tooling-vs-code">IDE Tooling (VS Code)</a><a href="#using-the-test-modes">Using the Test Modes</a><a href="#inline-assembly-and-volatile">Inline Assembly and volatile</a><a href="#sizeof">sizeof</a><a href="#unions">Unions</a><a href="#typed-pointer-arithmetic">Typed Pointer Arithmetic</a><a href="#whats-next">What&#x27;s Next</a></nav>

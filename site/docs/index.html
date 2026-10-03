@@ -190,7 +190,7 @@ the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">ch
 </tr>
 <tr>
 <td><a href="build.html">build.md</a></td>
-<td>Install the compiler on macOS / Linux</td>
+<td>Build the compiler from source on macOS, Linux and Windows</td>
 <td>You need to set up a dev environment</td>
 </tr>
 <tr>
@@ -212,7 +212,7 @@ the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">ch
 <tbody>
 <tr>
 <td><strong>Types</strong></td>
-<td><code>int</code>, <code>int8</code>–<code>int64</code>, <code>uint</code>–<code>uint64</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>void</code>, <code>*T</code> pointers, <code>T[N]</code> fixed arrays, <code>union</code></td>
+<td><code>int</code>, <code>int8</code>–<code>int64</code>, <code>uint</code>–<code>uint64</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>void</code>, <code>*T</code> pointers, <code>?*T</code> checked nullable pointers, <code>T[N]</code> fixed arrays, <code>T[]</code> slices, <code>union</code>, <code>type</code> aliases</td>
 </tr>
 <tr>
 <td><strong>Literals</strong></td>
@@ -220,11 +220,11 @@ the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">ch
 </tr>
 <tr>
 <td><strong>Operators</strong></td>
-<td>Arithmetic <code>+ - * / %</code>, bitwise <code>&amp; \| ^ ~ &lt;&lt; &gt;&gt;</code>, comparison, logical, compound <code>+= -=</code> etc., typed pointer arith <code>ptr+n</code> (advances by <code>sizeof(*ptr)</code>), <code>sizeof(T)</code></td>
+<td>Arithmetic <code>+ - * / %</code>, bitwise <code>&amp; \| ^ ~ &lt;&lt; &gt;&gt;</code>, comparison, logical, compound <code>+= -=</code> etc., <code>++</code>/<code>--</code>, ternary <code>c ? a : b</code>, typed pointer arith <code>ptr+n</code> (advances by <code>sizeof(*ptr)</code>), <code>sizeof(T)</code>, user-defined <code>operator</code> overloads</td>
 </tr>
 <tr>
 <td><strong>Control flow</strong></td>
-<td><code>if</code>/<code>else</code>, <code>for</code> (with decl init), <code>while</code>, <code>switch</code>/<code>case</code>, <code>break</code>, <code>continue</code>, <code>return</code></td>
+<td><code>if</code>/<code>else</code>, <code>for</code> (with decl init), <code>for (x in ...)</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>switch</code>/<code>case</code>, <code>match</code>, <code>break</code>/<code>continue</code> (optionally labeled), <code>return</code>, <code>defer</code>/<code>errdefer</code></td>
 </tr>
 <tr>
 <td><strong>Functions</strong></td>
@@ -276,7 +276,7 @@ the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">ch
 </tr>
 <tr>
 <td><strong>Inline asm</strong></td>
-<td><code>asm("cli");</code> simple form; <code>asm("outb ${0:b}, $1" :: "a"(v), "Nd"(p) : "memory");</code> extended form (LLVM operands are <code>$0</code>/<code>$1</code>)</td>
+<td><code>asm("cli");</code> simple form; <code>asm("outb ${0:b}, $1" :: "{ax}"(v), "N{dx}"(p) : "memory");</code> extended form (LLVM operand references <code>$0</code>/<code>$1</code> and LLVM constraint codes)</td>
 </tr>
 <tr>
 <td><strong>Freestanding</strong></td>
@@ -284,7 +284,7 @@ the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">ch
 </tr>
 <tr>
 <td><strong>Cross-compile</strong></td>
-<td><code>--target TRIPLE</code> (AArch64, x86-64, 32-bit ARM), plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>; hard-float ARM for the 3DS, COFF for Windows. See <a href="cross-compile.html">cross-compile.md</a></td>
+<td><code>--target TRIPLE</code> (AArch64, x86-64, 32-bit ARM, 32-bit x86), plus <code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code>; hard-float ARM for the 3DS, COFF for Windows. See <a href="cross-compile.html">cross-compile.md</a></td>
 </tr>
 <tr>
 <td><strong>Multi-file</strong></td>
@@ -366,7 +366,8 @@ the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">ch
 </tbody>
 </table></div>
 <h3 id="operator-precedence-lowest-highest">Operator precedence (lowest → highest)</h3>
-<pre><code>assignment  = += -= *= /= %=
+<pre><code>assignment  = += -= *= /= %= &amp;= |= ^= &lt;&lt;= &gt;&gt;=
+ternary     ?:
 logical     || &amp;&amp;
 bitwise     | ^ &amp;
 equality    == !=
@@ -374,8 +375,8 @@ relational  &lt; &gt; &lt;= &gt;=
 shift       &lt;&lt; &gt;&gt;
 additive    + -
 multiplicative * / %
-unary       ! - ~ &amp; * (TYPE)
-postfix     f() a[i] a.b
+unary       ! - ~ &amp; * ++ -- (TYPE)
+postfix     f() a[i] a.b ++ -- ?
 </code></pre>
 <h3 id="cli-flags">CLI flags</h3>
 <div class="tablewrap"><table>
@@ -403,12 +404,20 @@ postfix     f() a[i] a.b
 <td>Pass library / search-path flags to the linker</td>
 </tr>
 <tr>
-<td><code>eskiuc run file.esk</code></td>
+<td><code>--link-arg=ARG</code></td>
+<td>Pass an extra argument to the linker</td>
+</tr>
+<tr>
+<td><code>--no-default-libs</code></td>
+<td>Link only the <code>-l</code> libraries given (no <code>#pragma link</code>, no implied runtimes)</td>
+</tr>
+<tr>
+<td><code>eskiuc run file.esk [-- args]</code></td>
 <td>Compile to a temp executable and run it</td>
 </tr>
 <tr>
-<td><code>eskiuc fmt file.esk</code></td>
-<td>Reformat source in place</td>
+<td><code>eskiuc fmt [--check] file.esk</code></td>
+<td>Reindent source in place</td>
 </tr>
 <tr>
 <td><code>-Wall</code> / <code>-Wextra</code></td>
@@ -419,8 +428,16 @@ postfix     f() a[i] a.b
 <td>AddressSanitizer / trapping bounds checks</td>
 </tr>
 <tr>
+<td><code>--safe</code></td>
+<td>Runtime index and slice bounds checks (trap on violation)</td>
+</tr>
+<tr>
 <td><code>--target TRIPLE</code></td>
 <td>Cross-compile for the given target triple</td>
+</tr>
+<tr>
+<td><code>--mcpu</code> / <code>--mattr</code> / <code>--reloc</code></td>
+<td>Target CPU, feature string, relocation model</td>
 </tr>
 <tr>
 <td><code>--freestanding</code></td>

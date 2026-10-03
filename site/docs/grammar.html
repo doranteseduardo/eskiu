@@ -157,7 +157,7 @@ a:hover { color: var(--ink); }
       <details class="side-m"><summary>Language · Grammar</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html" aria-current="page">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
 <h1 id="eskiu-grammar">Eskiu Grammar</h1>
 <p>A formal grammar for Eskiu, reflecting the actual recursive-descent parser
-(<code>parser/parser.cpp</code>) and lexer (<code>lexer/lexer.cpp</code>). It is the authoritative
+(<code>parser/</code>) and lexer (<code>lexer/lexer.cpp</code>). It is the authoritative
 syntax reference; the prose in <a href="spec.html">spec.md</a> explains semantics.</p>
 <p>Notation (EBNF):</p>
 <div class="tablewrap"><table>
@@ -253,10 +253,10 @@ directive lines become blank lines so source line numbers are preserved.</p>
   | '#else'  |  '#endif'
   | '#pragma' …                          // passed through to the compiler (pack, link)
   | '#error'  text                       // aborts compilation on an active branch
-  | '#!' …                               // shebang: ignored (see __FILE__/__LINE__ ref)
+  | '#!' …                               // shebang on the first line: ignored
 </code></pre>
-<p>Predefined macros: <code>__FILE__</code>, <code>__LINE__</code>, a host-OS macro
-(<code>__APPLE__</code>/<code>__linux__</code>), an architecture macro (<code>__aarch64__</code>/<code>__x86_64__</code>/<code>__arm__</code>),
+<p>Predefined macros: <code>__FILE__</code>, <code>__LINE__</code>, a target-OS macro
+(<code>__APPLE__</code>/<code>__linux__</code>/<code>_WIN32</code> and <code>_WIN64</code>), an architecture macro (<code>__aarch64__</code>/<code>__x86_64__</code>/<code>__arm__</code>),
 and <code>__ESKIU_FREESTANDING__</code> under <code>--freestanding</code>.</p>
 <hr>
 <h2 id="program">Program</h2>
@@ -273,7 +273,11 @@ import      = 'import' STRING_LIT ';'           // relative path
   | type-alias  | extern-decl  | intrinsic-decl | var-decl
 
 function-decl   = ('async' | 'must_use')? type IDENT type-params? '(' param-list? ')' ( block | ';' )
+                | type 'operator' overload-op '(' param-list ')' block   // operator overload
+overload-op     = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '&lt;' | '&gt;' | '&lt;=' | '&gt;='
+                | '&amp;' | '|' | '^' | '&lt;&lt;' | '&gt;&gt;' | '!' | '~' | '[' ']'
 extern-decl     = 'extern'    type IDENT '(' param-list? ')' ';'
+                | 'extern' 'const'? type IDENT ';'                       // C global variable
 intrinsic-decl  = 'intrinsic' type IDENT '(' param-list? ')' ';'
 
 type-params     = '&lt;' type-param (',' type-param)* '&gt;'
@@ -315,7 +319,7 @@ base        = scalar-type
             | 'fn' '(' (type (',' type)*)? ')' '-&gt;' type   // function-pointer type
 ptr         = '*' '?'?                               // leading-pointer (spec) spelling; `*?*T` (a `?`
                                                      // before another '*') points to a nullable pointer
-array       = '[' (INT_LIT | IDENT)? ']'             // IDENT = a named const dim; empty = slice `T[]`
+array       = '[' const-expr? ']'                    // integer constant expression; empty = slice `T[]`
 
 scalar-type = 'int' | 'int8' | 'int16' | 'int32' | 'int64'
             | 'uint' | 'uint8' | 'uint16' | 'uint32' | 'uint64'
@@ -348,7 +352,7 @@ continue-stmt = 'continue' IDENT? ';'   // IDENT = a labeled enclosing loop (def
 throw-stmt    = 'throw' expr ';'
 expr-stmt     = expr ';'
 
-switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, `default` may repeat
+switch-stmt   = 'switch' '(' expr ')' '{' (switch-case | default-case)* '}'   // any order, at most one `default`
 switch-case   = 'case' expr ':' ( declaration | statement )*   // the switch body is one scope
 default-case  = 'default' ':' ( declaration | statement )*
 

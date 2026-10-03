@@ -209,7 +209,7 @@ declarations. There is no separate Eskiu calling convention.</p>
 <td><code>char</code></td>
 <td><code>i8</code></td>
 <td>unsigned</td>
-<td></td>
+<td>as a value; at an <code>extern</code> boundary its extension follows the target's C <code>char</code> (see <em>Narrow integers</em>)</td>
 </tr>
 <tr>
 <td><code>float</code></td>
@@ -240,8 +240,8 @@ declarations. There is no separate Eskiu calling convention.</p>
 <p>Signedness is not part of the LLVM type (both <code>int</code> and <code>uint</code> are <code>i32</code>); it
 is carried by the operations. Integer <strong>widening</strong> chooses the extension by the
 <em>source</em> type: <code>uint*</code>, <code>char</code> and <code>bool</code> zero-extend; signed integers
-sign-extend. Narrowing truncates. <code>int</code>↔float uses signed conversions
-(<code>sitofp</code>/<code>fptosi</code>).</p>
+sign-extend. Narrowing truncates. Integer↔float conversions follow the integer's
+signedness (<code>sitofp</code>/<code>fptosi</code> for signed, <code>uitofp</code>/<code>fptoui</code> for unsigned).</p>
 <hr>
 <h2 id="pointers-and-const">Pointers and <code>const</code></h2>
 <p>All pointers lower to LLVM's opaque <code>ptr</code> (address space 0), regardless of
@@ -489,9 +489,14 @@ mangling: in the instance type, spaces are removed and <code>&lt;</code>, <code>
 </tr>
 </tbody>
 </table></div>
-<p>Struct methods are emitted as <code>Struct_method</code>; interface vtable entries as
-<code>Interface_method</code>. Non-template top-level functions keep their source names
-(Eskiu does not overload, so no signature mangling is needed). <code>extern</code> and
+<p>A pointer type argument mangles its star as <code>_P</code> and an array dimension as <code>_AN</code>
+(<code>List&lt;int[3]*&gt;</code> is <code>List_int_A3_P</code>). Struct methods are emitted as
+<code>Struct_method</code>; an interface's vtable for a struct is the private constant
+<code>Interface_vtable_Struct</code>, whose entries point at the <code>Struct_method</code> functions.
+Non-template top-level functions keep their source names: Eskiu has no function
+overloading, so no signature mangling is needed. The one exception is an operator
+overload, which compiles to a function named after the operator and its operand
+types (<code>operator +(V3 a, V3 b)</code> is <code>__op_add_V3_V3</code>). <code>extern</code> and
 <code>intrinsic</code> declarations use their exact C symbol names: that is how Eskiu
 calls into C.</p>
 <hr>

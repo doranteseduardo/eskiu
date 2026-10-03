@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contributing · Eskiu docs</title>
-  <meta name="description" content="Read architecture.md(architecture.md) before diving in. Understanding the pipeline (lexer → parser → type checker → async transform → type checker re-run (" />
+  <meta name="description" content="Read architecture.md(architecture.md) first. It walks through the pipeline (lexer," />
   <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/contributing.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
@@ -156,64 +156,71 @@ a:hover { color: var(--ink); }
     <main class="content">
       <details class="side-m"><summary>Compiler internals · Contributing</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html" aria-current="page">Contributing</a></nav></div></details>
 <h1 id="contributing-to-eskiu">Contributing to Eskiu</h1>
-<p>Read <a href="architecture.html">architecture.md</a> before diving in. Understanding the pipeline (lexer → parser → type checker → async transform → type checker re-run (single resolver) → codegen) is the prerequisite for any meaningful contribution.</p>
-<h2 id="getting-started">Getting Started</h2>
-<h3 id="clone-build-verify">Clone, build, verify</h3>
-<p>...
+<p>Read <a href="architecture.html">architecture.md</a> first. It walks through the pipeline (lexer,
+parser, type checker, async lowering, a second type-checker pass, codegen), which every
+change touches in some way.</p>
+<h2 id="build-and-check">Build and check</h2>
+<pre><code class="language-bash">git clone https://github.com/doranteseduardo/eskiu &amp;&amp; cd eskiu
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-make -C build -j4
-./build/eskiuc --version</p>
-<h3 id="run-the-test-modes">Run the test modes</h3>
-<p>All four flags on examples/hello.esk before touching anything:
---test-lexer / --test-parser / --test-typechecker / --test-codegen</p>
-<h3 id="recommended-reading">Recommended reading</h3>
-<p>docs/dev/architecture.md, docs/dev/phases.md, ast/ast.h, sema/type_checker.cpp + sema/typecheck_{decl,stmt,expr,type}.cpp, sema/type.{h,cpp} (the <code>ty::Type</code> IR), codegen/codegen_*.cpp (the codegen split)</p>
-<h2 id="development-workflow">Development Workflow</h2>
-<p>Branch naming: feat/ fix/ refactor/
-Commit style: imperative subject line, no trailing period
-Issue vs PR: issue first when crossing phase boundaries or proposing design; direct PR for scoped fixes</p>
-<h2 id="adding-a-new-language-feature">Adding a New Language Feature</h2>
-<p>Checklist: Lexer → Parser → AST → ASTVisitor → Type checker → Codegen → Test file
-Visitor propagation: declare in ASTVisitor, build failure drives implementation in ASTPrinter/TypeChecker/CodeGen
-parseType() and parseBlockStatement() are the single dispatch points for types and statement keywords
-New type spellings go in sema/type.cpp (<code>ty::Type::parse</code>, the one grammar interpreter shared by sema and codegen) and the typecheck split files (typecheck_type.cpp et al.); do not add a second type-string evaluator
-Template note: bodies are not type-checked at declaration time; each instance is checked with its concrete type arguments after the main pass (<code>queueInstance</code> / <code>checkPendingInstances</code>, and <code>sema_queue_inst</code> / <code>sema_check_insts</code> in the self-host)</p>
-<h2 id="code-style">Code Style</h2>
-<p>C++17, no deps beyond LLVM
-camelCase methods/members, snake_case locals
-No comments unless WHY is non-obvious
-shared_ptr for all AST nodes via ExprPtr/StmtPtr/DeclPtr aliases
-No RTTI except existing dynamic_cast sites</p>
-<h2 id="testing">Testing</h2>
-<p>There IS an automated suite: run it before any PR.
-- <code>tests/run.sh</code>: the regression harness over the <code>.esk</code> test corpus (the four <code>--test-*</code> modes plus end-to-end compile/run).
-- Generative + mutation fuzzer <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: it compiles each generated program at <code>-O0</code> and <code>-O2</code> and flags any divergence in output. This is how miscompiles are caught.
-- C oracle (<code>eskiu_fuzz.py --oracle</code>, <code>tests/fuzz/c_oracle.py</code>): generated programs also emitted as C; both Eskiu compilers must print what clang prints. Negative corpus <code>tests/fuzz/neg_fuzz.py</code>: one injected error per program, both compilers must reject it with a located diagnostic. <code>tests/fuzz/stdlib_fuzz.py</code>: the stdlib parsers under ASan. All three have CI gates; usage in <code>tests/README.md</code>.
-- Golden-IR oracle <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code>: captures/checks the emitted IR for the type zoo; the codegen-regression guard.
-- <code>--asan</code> / <code>--ubsan</code> gates in CI for runtime memory errors and undefined behavior.
-- A formatter-idempotency pass (<code>eskiuc fmt --check</code>) over every test.
-Manual checks still apply per feature:
-Per feature: test/<feature>.esk
-Multi-file: test/<feature>/ directory with entry + imports
-Type errors: *_error.esk with // expect: error: ... comment header
-Codegen checks: single alloca per var, every branch terminated, no undef, correct pointer types</p>
-<h2 id="commit-checklist">Commit Checklist</h2>
+cmake --build build -j&quot;$(getconf _NPROCESSORS_ONLN)&quot;
+./build/eskiuc --version
+tests/run.sh
+</code></pre>
+<p>On macOS, pass <code>-DLLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm</code> if CMake cannot find LLVM.
+The build also produces <code>build/eskiuc-esk</code>, the compiler written in Eskiu, when <code>clang</code>
+is available.</p>
+<p>The <code>--test-lexer</code>, <code>--test-parser</code>, <code>--test-typechecker</code> and <code>--test-codegen</code> modes print
+the output of each stage and are the quickest way to see what a change does.</p>
+<p>Worth reading before a larger change: <a href="architecture.html">architecture.md</a>,
+<a href="design.html">design.md</a>, <code>ast/ast.h</code>, <code>sema/type.{h,cpp}</code> (the <code>ty::Type</code> representation
+shared by sema and codegen) and <a href="self-hosting.html">self-hosting.md</a>.</p>
+<h2 id="two-compilers">Two compilers</h2>
+<p>Eskiu has a C++ compiler (the released <code>eskiuc</code>) and a second one written in Eskiu under
+<code>selfhost/</code>. A change to the language, its semantics or its diagnostics has to land in
+both, in the same commit, and the parity checks in <code>tests/selfhost/</code> have to stay green.
+Changes to the stdlib, the docs or the C++ driver alone usually do not touch <code>selfhost/</code>.</p>
+<h2 id="adding-a-language-feature">Adding a language feature</h2>
+<ol>
+<li>Lexer and parser (<code>lexer/</code>, <code>parser/parse_{decl,stmt,expr}.cpp</code>). New type spellings go
+   through <code>ty::Type::parse</code> in <code>sema/type.cpp</code>; do not add a second type-string parser.</li>
+<li>A new AST node goes in <code>ast/ast.h</code> with a <code>visit</code> method on <code>ASTVisitor</code>; the build then
+   fails until <code>ASTPrinter</code>, <code>TypeChecker</code> and <code>CodeGen</code> handle it.</li>
+<li>Type checking in <code>sema/typecheck_*.cpp</code>, code generation in <code>codegen/codegen_*.cpp</code>.</li>
+<li>The same steps in <code>selfhost/</code> (<code>parser.esk</code>, <code>sema.esk</code>, <code>codegen.esk</code>).</li>
+<li>Tests in <code>tests/</code> (see below) and the docs that describe the behavior
+   (<code>docs/lang/spec.md</code>, the book on the site, the VS Code grammar if the syntax changed).</li>
+</ol>
+<p>Generic function bodies are not checked where they are declared. Each instance is checked
+with its concrete type arguments after the main pass.</p>
+<h2 id="tests">Tests</h2>
+<p><code>tests/run.sh</code> runs the whole regression suite. Each <code>.esk</code> file is classified
+automatically: a file with a <code>NAME.expected</code> must print exactly that, one without it must
+compile and exit 0, a file in <code>tests/errors/</code> must be rejected with the message on its
+<code>EXPECT-ERROR:</code> line, and a file in <code>tests/warnings/</code> must produce the <code>-Wall</code> warnings
+listed in it. Details are in <a href="https://github.com/doranteseduardo/eskiu/blob/main/tests/README.md"><code>tests/README.md</code></a>.</p>
+<p>Every fix comes with a regression test. CI also runs:</p>
 <ul>
-<li>[ ] make -C build -j4 passes</li>
-<li>[ ] All four test modes work on examples/hello.esk</li>
-<li>[ ] New .esk test file added if applicable</li>
-<li>[ ] Docs updated if behavior changed</li>
+<li>the parity checks between the two compilers (<code>tests/selfhost/*.sh</code>) and the three-stage
+  bootstrap;</li>
+<li>an <code>-O0</code> against <code>-O2</code> differential over the corpus (<code>tests/opt_differential.sh</code>);</li>
+<li>the fuzzers in <code>tests/fuzz/</code>: a generator whose programs are also emitted as C and
+  compared with clang, a negative corpus with one injected error per program, and the
+  stdlib parsers under AddressSanitizer;</li>
+<li>AddressSanitizer and UBSan builds, and a Windows job.</li>
 </ul>
-<h2 id="current-focus">Current Focus</h2>
-<p>v0.9.2 (a full-project correctness and hardening audit, about 500 fixes), over the v0.9.1 correctness campaign, the v0.9.0 labeled-<code>break</code>/<code>continue</code> release and the v0.8.0 Windows-parity and language-surface release (operator overloading, exhaustive plain-enum <code>match</code>), the v0.7.0 cross-compilation release, the v0.6.0 memory-safety + stdlib release, the v0.5 basic-C surface release, and the v0.3 self-hosting milestone. The whole compiler is reimplemented in Eskiu under <code>selfhost/</code>, parity-gated against the C++ <code>eskiuc</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus. The focus stays on correctness and completing the C surface, not open-ended language growth:
-- v0.6.0 is a memory-safety + stdlib release, in the Zig spirit (compile-time checks and opt-in runtime guards, no borrow checker): <code>defer</code>/<code>errdefer</code> for leak-proof cleanup, the slice type <code>T[]</code>, the <code>must_use</code> qualifier, the <code>--safe</code> bounds-checking build mode, and the checked nullable pointer <code>?*T</code>; plus the <code>&lt;random&gt;</code>, <code>&lt;regex&gt;</code>, <code>&lt;sort&gt;</code>, <code>&lt;url&gt;</code>, and <code>&lt;uuid&gt;</code> stdlib modules and a UTC civil calendar in <code>&lt;time&gt;</code>.
-- v0.5.0 filled the last common C constructs the language was missing (<code>do</code>/<code>while</code>, prefix/postfix <code>++</code>/<code>--</code>, array-literal initializers, <code>static</code> locals, multidimensional arrays <code>T[N][M]</code>, and the ternary <code>cond ? a : b</code>), each landed in lockstep across both compilers so idiomatic C ports compile without workarounds.
-- v0.4.0 was a four-front bug hunt (behavioral differential, sema soundness, synthesized-default audit, feature edges) that fixed a batch of miscompiles and crashes across both compilers and tightened the type system (floating-point to integer needs an explicit cast; out-of-range literals, division by a literal zero, uninitialized reads, dangling <code>&amp;local</code>, function redefinition, and non-void fall-through are errors). The self-host sema's matching checks are deferred to the promotion track.
-- Earlier 0.3.1 correctness work (via the <code>-O</code> optimization levels): a float-closure return-type miscompile, a rejected fn-type ABI mismatch, the <code>*T[N]</code> parse fix, and correct <code>size_t</code> externs.
-- A <code>-O0</code>-vs-<code>-O2</code> behavioral differential (<code>tests/opt_differential.sh</code>) guards the whole corpus against optimization-path miscompiles.</p>
-<p>The promotion of the Eskiu-written compiler is complete (<code>docs/dev/self-hosting.md</code>): CMake builds it as <code>eskiuc-esk</code> next to the shipped C++ <code>eskiuc</code>, and CI gates their equivalence. What remains for v1.0 is a package manager. See docs/dev/phases.md for the roadmap. New feature proposals require an issue.</p>
+<h2 id="code-style">Code style</h2>
+<ul>
+<li>C++17, no dependencies beyond LLVM and the standard library.</li>
+<li><code>camelCase</code> methods and members, <code>snake_case</code> locals.</li>
+<li>Comments only where the reason is not obvious from the code.</li>
+<li>AST nodes are <code>shared_ptr</code> (<code>ExprPtr</code>, <code>StmtPtr</code>, <code>DeclPtr</code>); see <code>AGENTS.md</code> for why.</li>
+<li>Commit subjects are short and imperative, with no trailing period.</li>
+</ul>
+<h2 id="proposals">Proposals</h2>
+<p>Open an issue before a new language feature or a design change; scoped fixes can go
+straight to a pull request. The roadmap is in <a href="https://github.com/doranteseduardo/eskiu/blob/main/docs/dev/phases.md">phases.md</a>.</p>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#getting-started">Getting Started</a><a href="#development-workflow">Development Workflow</a><a href="#adding-a-new-language-feature">Adding a New Language Feature</a><a href="#code-style">Code Style</a><a href="#testing">Testing</a><a href="#commit-checklist">Commit Checklist</a><a href="#current-focus">Current Focus</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#build-and-check">Build and check</a><a href="#two-compilers">Two compilers</a><a href="#adding-a-language-feature">Adding a language feature</a><a href="#tests">Tests</a><a href="#code-style">Code style</a><a href="#proposals">Proposals</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

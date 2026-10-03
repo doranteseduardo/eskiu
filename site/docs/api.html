@@ -171,7 +171,8 @@ that can be driven on its own.</p>
 public:
     explicit Lexer(const std::string&amp; source,
                    std::map&lt;std::string, Macro&gt;* macros = nullptr,
-                   const std::string&amp; filename = &quot;&quot;);
+                   const std::string&amp; filename = &quot;&quot;,
+                   const PPImportHook* importHook = nullptr);
 
     Token next_token();          // produce the next token; returns EOF_TOKEN at end
     void  print_all_tokens();    // debugging dump (drives --test-lexer)
@@ -182,10 +183,13 @@ public:
 <p>The lexer runs a small preprocessor pass before tokenizing. The optional <code>macros</code>
 table is shared across files so <code>#define</code>s propagate through <code>import</code> and
 multi-file builds; <code>filename</code> is exposed to the preprocessor as <code>__FILE__</code> and
-labels the lexer's diagnostics. The pass itself is a free function in
-<code>lexer/preprocessor.h</code>:</p>
+labels the lexer's diagnostics. <code>importHook</code>, when given, is called for each
+<code>import</code> on an active line, in textual order, so the driver can preprocess the
+imported file at that point and macros follow C's <code>#include</code> order. The pass itself
+is a free function in <code>lexer/preprocessor.h</code>:</p>
 <pre><code class="language-cpp">void preprocess(const std::string&amp; src, std::map&lt;std::string, Macro&gt;&amp; defines,
-                std::string&amp; result, const std::string&amp; filename, bool&amp; hadErr);
+                std::string&amp; result, const std::string&amp; filename, bool&amp; hadErr,
+                const PPImportHook* importHook = nullptr);
 </code></pre>
 <p>A streaming lexer: call <code>next_token()</code> until it returns a <code>Token</code> of type
 <code>TokenType::EOF_TOKEN</code>. Callers collect the tokens into a <code>std::vector&lt;Token&gt;</code> for
@@ -229,6 +233,7 @@ public:
     std::string                stdlibPath;          // stdlib root (&lt;module&gt; imports)
     std::set&lt;std::string&gt;*     importedFiles = nullptr;   // shared dedup set (canonical paths)
     std::map&lt;std::string,Macro&gt;* macros = nullptr;        // shared macro table
+    ImportCache*               importCache = nullptr;     // shared import prescan (preprocessed imports)
     std::set&lt;std::string&gt;*     sharedTypeNames = nullptr; // type names across all files
 
     static std::string canonicalPath(const std::string&amp; path);   // importedFiles key
@@ -260,11 +265,16 @@ public:
 
     std::string getExpressionType(Expr* expr);
 
+    const std::map&lt;Expr*, std::string&gt;&amp; expressionTypeMap() const;   // resolved type per expression
+    const std::map&lt;std::string, std::pair&lt;std::string, std::vector&lt;std::string&gt;&gt;&gt;&amp;
+        instanceArgsMap() const;           // generic instances: mangled name -&gt; template + args
+
     bool warnAll   = false;                // -Wall: lint warnings
     bool warnExtra = false;                // -Wextra: signed/unsigned mismatch, etc.
 
     // LSP / tooling
     std::string sourceFile = &quot;unknown&quot;;    // file name for diagnostics
+    std::string targetTriple;              // --target (empty = host): sizeof folds to its layout
     std::string getTypeAtPosition(int line, int col) const;   // --hover-at
     std::string getDefinitionAt(int line, int col) const;     // --definition-at
 };
@@ -279,7 +289,8 @@ and accumulates errors with <code>file:line:col: message</code> locations. <code
 <code>getTypeAtPosition(line, col)</code> returns the inferred type of the expression (or
 declared name) under a 1-based cursor, and <code>getDefinitionAt(line, col)</code> returns
 the definition location of the symbol there. <code>getExpressionType(Expr*)</code> returns
-the cached type of an already-visited expression node.</p>
+the cached type of an already-visited expression node, and <code>expressionTypeMap()</code>
+exposes the whole table (the async transform and codegen consume it).</p>
 <p>As an <code>ASTVisitor</code>, the type checker overrides a <code>visit</code> method for every node
 kind (declarations, statements, expressions); these are the traversal mechanism
 and are not normally called directly.</p>
@@ -288,6 +299,9 @@ and are not normally called directly.</p>
 <p>Header: <code>sema/async_transform.h</code></p>
 <pre><code class="language-cpp">class AsyncTransform {
 public:
+    using InstanceArgs = std::map&lt;std::string, std::pair&lt;std::string, std::vector&lt;std::string&gt;&gt;&gt;;
+    AsyncTransform(const std::map&lt;Expr*, std::string&gt;* exprTypes = nullptr,
+                   const InstanceArgs* instanceArgs = nullptr);
     void run(Program* program);
 };
 </code></pre>
@@ -295,10 +309,14 @@ public:
 checking and before code generation: each async function is replaced by a frame
 struct, a <code>__&lt;name&gt;_resume</code> function (an if-chain over the resume state), and a
 constructor that returns <code>*Future&lt;T&gt;</code>. Awaits are lowered across all control flow
-(<code>if</code>/<code>else</code>, <code>while</code>, C-style <code>for</code>, <code>switch</code>, and <code>for</code>-<code>in</code>), including
-<code>break</code>/<code>continue</code> and early <code>return</code>. The output is ordinary Eskiu AST that
+(<code>if</code>/<code>else</code>, <code>while</code>, <code>do</code>/<code>while</code>, C-style <code>for</code>, <code>switch</code>, <code>match</code>, <code>for</code>-<code>in</code>
+and <code>try</code>/<code>catch</code>), including <code>break</code>/<code>continue</code> and early <code>return</code>, and an await
+may appear anywhere in an expression. The constructor takes the type checker's
+<code>expressionTypeMap()</code> and <code>instanceArgsMap()</code>, which the lowering uses to type the
+temporaries and frame fields it creates. The output is ordinary Eskiu AST that
 normal code generation handles, so the pass mutates the <code>Program</code> in place and
-returns nothing.</p>
+returns nothing; a lowering error is thrown as <code>std::runtime_error</code> with a
+<code>file:line:col</code> location.</p>
 <hr>
 <h2 id="code-generation">Code Generation</h2>
 <p>Header: <code>codegen/codegen.h</code></p>
@@ -320,6 +338,10 @@ public:
     bool safe  = false;           // --safe: runtime slice/array bounds checks (trap on OOB)
     unsigned optLevel = 0;        // -O level; 1..3 run the LLVM middle-end (0 = none)
 
+    const std::map&lt;Expr*, std::string&gt;* resolvedExprTypes = nullptr;  // the type checker's table
+    const std::map&lt;std::string, std::pair&lt;std::string, std::vector&lt;std::string&gt;&gt;&gt;*
+        semaInstanceArgs = nullptr;                                    // its generic instances
+
     void printIR() const;                            // print IR to stdout (--test-codegen)
     void optimizeModule();                           // run the middle-end pipeline at optLevel
     bool emitObjectFile(const std::string&amp; filename); // write a native object file
@@ -334,16 +356,20 @@ non-owningly.</p>
 <li><code>targetTriple</code>: set to cross-compile for a given triple; empty targets the host.
   A hard-float ARM triple (one ending in <code>hf</code>, e.g. <code>armv6k-none-eabihf</code>) selects the
   hard-float ABI so the object carries the <code>Tag_ABI_VFP_args</code> build attribute needed to
-  link against hard-float libraries. A non-hosted triple (OS <code>none</code>) predefines neither
-  <code>__APPLE__</code> nor <code>__linux__</code>.</li>
+  link against hard-float libraries. For a non-hosted triple (OS <code>none</code>) the driver
+  (<code>seedPredefinedMacros</code>) predefines no OS macro.</li>
 <li><code>targetCPU</code> / <code>targetFeatures</code>: <code>--mcpu</code> / <code>--mattr</code> overrides, forwarded to the
   <code>TargetMachine</code> (e.g. <code>mpcore</code> + <code>+vfp2</code> for the 3DS's ARM11). Empty CPU means
   the target baseline for native builds too, as in clang: <code>apple-m1</code> on arm64 Apple targets, <code>generic</code> elsewhere (pass <code>--mcpu</code> to tune for a CPU).</li>
 <li><code>relocModel</code>: <code>--reloc</code> selects the relocation model. <code>static</code> (or <code>dynamic-no-pic</code>)
   instead of the default PIC; the 3DS <code>.3dsx</code> loader applies static relocations and has
   no dynamic loader to populate a GOT.</li>
-<li><code>freestanding</code>: predefines <code>__ESKIU_FREESTANDING__</code> and routes heap allocation
-  to user-supplied <code>esk_alloc</code>/<code>esk_free</code>.</li>
+<li><code>freestanding</code>: records <code>--freestanding</code>. The allocator routing itself happens in
+  <code>&lt;mem&gt;</code>, which targets the user-supplied <code>esk_alloc</code>/<code>esk_free</code> when
+  <code>__ESKIU_FREESTANDING__</code> is defined (<code>seedPredefinedMacros</code> defines it).</li>
+<li><code>resolvedExprTypes</code> / <code>semaInstanceArgs</code>: point at the <code>expressionTypeMap()</code> and
+  <code>instanceArgsMap()</code> of the type checker run on the transformed AST. Codegen reads
+  expression types from this table instead of re-deriving them.</li>
 <li><code>asan</code> / <code>ubsan</code>: apply the corresponding LLVM instrumentation pass to the
   module before object emission.</li>
 <li><code>safe</code>: inject a bounds check on every slice and fixed-array index; an
@@ -358,8 +384,10 @@ returning <code>true</code> on success.</p>
 <hr>
 <h2 id="driver-support">Driver Support</h2>
 <p>Header: <code>main_support.h</code> (the <code>cl::opt</code>-free half of the driver, in <code>main_support.cpp</code>)</p>
-<pre><code class="language-cpp">std::shared_ptr&lt;Program&gt; loadProgram(const std::string&amp; filename, const std::string&amp; triple,
-                                     bool freestanding);
+<pre><code class="language-cpp">std::shared_ptr&lt;Program&gt; loadProgram(const std::vector&lt;std::string&gt;&amp; inputs, const std::string&amp; triple,
+                                     bool freestanding,
+                                     std::map&lt;std::string, Macro&gt;* macrosOut = nullptr,
+                                     bool* lexFailed = nullptr);
 void seedPredefinedMacros(std::map&lt;std::string, Macro&gt;&amp; macros, const std::string&amp; triple,
                           bool freestanding);
 std::vector&lt;std::string&gt; implicitLinkLibs(const std::map&lt;std::string, Macro&gt;&amp; macros,
@@ -371,10 +399,11 @@ bool linkExecutable(const std::string&amp; obj, const std::string&amp; out,
                     bool sanitized = false);
 int runExecutable(const std::string&amp; exe, const std::vector&lt;std::string&gt;&amp; progArgs);
 </code></pre>
-<p><code>loadProgram</code> reads, lexes and parses one file the way a build does (the macros
+<p><code>loadProgram</code> reads, lexes and parses the input files the way a build does (the macros
 <code>seedPredefinedMacros</code> puts in for <code>triple</code>, <code>__FILE__</code>, imports resolved against
-the stdlib root) and returns <code>nullptr</code> after printing a diagnostic. The <code>--test-*</code>,
-<code>--hover-at</code> and <code>--definition-at</code> modes use it. <code>implicitLinkLibs</code> returns the
+the stdlib root, declarations of all inputs merged into one <code>Program</code>) and returns
+<code>nullptr</code> after printing a diagnostic; <code>macrosOut</code> receives the final macro table. The
+build, the <code>--test-*</code>, <code>--hover-at</code> and <code>--definition-at</code> modes all use it. <code>implicitLinkLibs</code> returns the
 runtime libraries a program implies on the target the macros describe (<code>c++</code> or
 <code>stdc++</code> for exceptions, <code>pthread</code> for threads); <code>linkExecutable</code> invokes the C
 driver (<code>findCDriver</code>: <code>$CC</code>, then <code>cc</code>/<code>clang</code>/<code>gcc</code>) with <code>-l</code> libraries, <code>-L</code>
@@ -382,7 +411,8 @@ paths and extra arguments. <code>runExecutable</code> backs <code>eskiuc run</co
 program's status, or <code>128+N</code> when signal <code>N</code> killed it.</p>
 <hr>
 <h2 id="pipeline-example">Pipeline Example</h2>
-<p>The passes compose as the driver (<code>main.cpp</code>) uses them:</p>
+<p>The passes compose as the driver (<code>main.cpp</code>) uses them. Steps 1 and 2 are what
+<code>loadProgram</code> does for you (plus macro seeding and import handling):</p>
 <pre><code class="language-cpp">// 1. Lex
 Lexer lexer(source, &amp;macros, filename);
 std::vector&lt;Token&gt; tokens;
@@ -404,16 +434,19 @@ TypeChecker checker;
 checker.sourceFile = filename;
 if (!checker.check(program.get())) return 1;   // raw pointer; checker does not own the AST
 
-// 4. Lower async → state machine
-AsyncTransform().run(program.get());
+// 4. Lower async → state machine (may throw std::runtime_error)
+AsyncTransform(&amp;checker.expressionTypeMap(), &amp;checker.instanceArgsMap()).run(program.get());
 
 // 4b. Re-run the type checker on the transformed AST: codegen consumes its
 //     resolved per-expression types (the type checker is the single resolver).
 TypeChecker postCheck;
-postCheck.check(program.get());
+postCheck.sourceFile = filename;
+if (!postCheck.check(program.get())) return 1;   // an internal error
 
 // 5. Code-generate
 CodeGen codegen;
+codegen.resolvedExprTypes = &amp;postCheck.expressionTypeMap();
+codegen.semaInstanceArgs  = &amp;postCheck.instanceArgsMap();
 codegen.targetTriple = ...;          // optional
 codegen.freestanding = freestanding; // optional
 if (!codegen.generateCode(program)) return 1;   // shared_ptr

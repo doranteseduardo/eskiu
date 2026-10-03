@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HTTP/2 design · Eskiu docs</title>
-  <meta name="description" content="&lt;http2&gt; brings HTTP/2 (RFC 7540) to Eskiu over the async &lt;eventloop&gt;. HTTP/2 is" />
+  <meta name="description" content="&lt;http2&gt; brings HTTP/2 (RFC 7540, as revised by RFC 9113) to Eskiu over the async &lt;eventloop&gt;. HTTP/2 is" />
   <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/http2-design.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
@@ -156,7 +156,7 @@ a:hover { color: var(--ink); }
     <main class="content">
       <details class="side-m"><summary>Compiler internals · HTTP/2 design</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html" aria-current="page">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
 <h1 id="http2-architecture">HTTP/2 architecture</h1>
-<p><code>&lt;http2&gt;</code> brings HTTP/2 (RFC 7540) to Eskiu over the async <code>&lt;eventloop&gt;</code>. HTTP/2 is
+<p><code>&lt;http2&gt;</code> brings HTTP/2 (RFC 7540, as revised by RFC 9113) to Eskiu over the async <code>&lt;eventloop&gt;</code>. HTTP/2 is
 a binary, multiplexed protocol: one TCP (TLS) connection carries many concurrent
 request/response <em>streams</em>, each a sequence of <em>frames</em>, with header compression
 and flow control. The implementation is split across a stack of stdlib modules,
@@ -268,13 +268,13 @@ the <code>&lt;http2_server&gt;</code> request/response glue) over the encrypted 
   of their deadline whenever OpenSSL asks for <code>WANT_READ</code>/<code>WANT_WRITE</code>. A socket
   timeout (<code>SO_RCVTIMEO</code>) cannot bound them: OpenSSL loops <code>recv()</code> inside one
   <code>SSL_read</code> until a record is complete, and each trickled byte restarts it.</li>
-<li>Both drive the same <code>H2Server</code> engine as the h2c server.</li>
 <li><strong>Async</strong>, many TLS connections on one event-loop thread:
   <code>http2_tls_serve_async</code>. A non-blocking SSL pump
   (<code>tls_accept_async</code>/<code>tls_read_async</code>/<code>tls_write_all_async</code>) retries <code>SSL_*</code> on
   <code>WANT_READ</code>/<code>WANT_WRITE</code> and parks on the matching readiness via the reactor's
   <code>EventLoop_add_read</code>/<code>EventLoop_add_write</code>.</li>
 </ul>
+<p>Both drive the same <code>H2Server</code> engine as the h2c server.</p>
 <p>Verified end-to-end against <code>curl --http2</code>: ALPN negotiates h2 and the request is
 served as <code>HTTP/2 200</code>, including multiple concurrent connections on the async
 server's single thread. See <code>examples/http2_tls_server.esk</code>. (The TLS path is

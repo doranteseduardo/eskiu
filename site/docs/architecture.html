@@ -236,13 +236,13 @@ a:hover { color: var(--ink); }
 </tr>
 <tr>
 <td>Codegen</td>
-<td><code>codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt}.cpp</code>, <code>codegen.h</code></td>
-<td>Visitor over the validated AST; emits LLVM IR via <code>IRBuilder&lt;&gt;</code>; emits native <code>.o</code></td>
+<td><code>codegen/codegen_{module,type,scope,decl,stmt,expr,call,closure,adt,cabi}.cpp</code>, <code>codegen.h</code></td>
+<td>Visitor over the validated AST; emits LLVM IR via <code>IRBuilder&lt;&gt;</code>; lowers <code>extern</code> aggregates to the target C ABI (<code>codegen_cabi.cpp</code>); emits native <code>.o</code></td>
 <td>Complete</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>How they compose.</strong> <code>main.cpp</code> runs each stage in sequence. The lexer is driven to exhaustion first: the full token stream is materialized into <code>std::vector&lt;Token&gt;</code> and handed to <code>Parser</code>. The parser returns <code>shared_ptr&lt;Program&gt;</code>. The type checker takes <code>Program*</code> and walks the tree through the visitor interface. The async transform then rewrites the AST. The type checker is <strong>re-run on the transformed AST</strong> and its resolved per-expression types are handed to codegen, so the type checker is the single resolver and codegen consumes its types rather than re-deriving them. Codegen takes <code>shared_ptr&lt;Program&gt;</code>, generates IR, verifies it with <code>llvm::verifyModule</code>, and calls <code>emitObjectFile()</code> which uses <code>llvm::TargetMachine</code> + <code>legacy::PassManager</code> to produce the <code>.o</code>. None of the stages modify the AST after the transform; they only read it and produce output.</p>
+<p><strong>How they compose.</strong> <code>main.cpp</code> runs each stage in sequence. The lexer is driven to exhaustion first: the full token stream is materialized into <code>std::vector&lt;Token&gt;</code> and handed to <code>Parser</code>. The parser returns <code>shared_ptr&lt;Program&gt;</code>. The type checker takes <code>Program*</code> and walks the tree through the visitor interface. The async transform then rewrites the AST. The type checker is <strong>re-run on the transformed AST</strong> and its resolved per-expression types are handed to codegen, so the type checker is the single resolver and codegen consumes its types rather than re-deriving them. Codegen takes <code>shared_ptr&lt;Program&gt;</code>, generates IR, verifies it with <code>llvm::verifyModule</code>, and calls <code>emitObjectFile()</code> which uses <code>llvm::TargetMachine</code> + <code>legacy::PassManager</code> to produce the <code>.o</code>. For an executable, the driver then links that object with the system C compiler (<code>linkExecutable</code> in <code>main_support.cpp</code>). None of the stages modify the AST after the transform; they only read it and produce output.</p>
 <p><strong>Tooling CLI flags.</strong> <code>--hover-at LINE:COL</code> runs the full pipeline through the type checker, then walks <code>program-&gt;declarations</code> to find the innermost AST node whose source range contains the given position and prints its inferred Eskiu type (from <code>expressionTypes</code>). <code>--definition-at LINE:COL</code> similarly finds the symbol at the given position and prints the <code>file:line:col</code> where that symbol was declared (from <code>functionSignatures</code>, <code>structs</code>, or the scope where the <code>VarDecl</code> was registered). Both flags are consumed by the VS Code extension for hover tooltips and go-to-definition navigation.</p>
 <hr>
 <h2 id="visitor-pattern">Visitor Pattern</h2>
@@ -262,7 +262,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 <li>Implement <code>accept</code> in <code>ast/ast.cpp</code>: <code>visitor-&gt;visit(this);</code>.</li>
 <li>Add <code>virtual void visit(MyNewNode* node) = 0;</code> to <code>ASTVisitor</code> in <code>ast/ast.h</code>.</li>
 <li>Add an implementation to every <code>ASTVisitor</code> subclass: <code>ASTPrinter</code>, <code>TypeChecker</code>, <code>CodeGen</code>.</li>
-<li>Wire the parse rule in <code>parser/parser.cpp</code> to construct and return the new node. Stamp the position with <code>withPos(node, tok)</code> so <code>node-&gt;line</code> and <code>node-&gt;col</code> are populated.</li>
+<li>Wire the parse rule in the matching <code>parser/parse_{decl,stmt,expr}.cpp</code> to construct and return the new node. Stamp the position with <code>withPos(node, tok)</code> so <code>node-&gt;line</code> and <code>node-&gt;col</code> are populated.</li>
 </ol>
 <hr>
 <h2 id="lexer-lexer">Lexer (<code>lexer/</code>)</h2>
@@ -291,15 +291,19 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 </tr>
 <tr>
 <td>Control keywords</td>
-<td><code>FOR</code>, <code>WHILE</code>, <code>DO</code>, <code>IF</code>, <code>ELSE</code>, <code>SWITCH</code>, <code>CASE</code>, <code>DEFAULT</code>, <code>BREAK</code>, <code>CONTINUE</code>, <code>RETURN</code></td>
+<td><code>FOR</code>, <code>IN</code>, <code>WHILE</code>, <code>DO</code>, <code>IF</code>, <code>ELSE</code>, <code>SWITCH</code>, <code>MATCH</code>, <code>CASE</code>, <code>DEFAULT</code>, <code>BREAK</code>, <code>CONTINUE</code>, <code>RETURN</code>, <code>DEFER</code>, <code>ERRDEFER</code></td>
 </tr>
 <tr>
 <td>Declaration keywords</td>
-<td><code>LET</code>, <code>STRUCT</code>, <code>INTERFACE</code>, <code>EXTERN</code>, <code>FN</code>, <code>IMPORT</code>, <code>ENUM</code></td>
+<td><code>LET</code>, <code>CONST</code>, <code>STRUCT</code>, <code>PACKED</code>, <code>UNION</code>, <code>INTERFACE</code>, <code>ENUM</code>, <code>EXTERN</code>, <code>INTRINSIC</code>, <code>FN</code>, <code>OPERATOR</code>, <code>IMPORT</code></td>
 </tr>
 <tr>
-<td>Memory keywords</td>
-<td><code>ALLOC</code>, <code>FREE</code></td>
+<td>Qualifier keywords</td>
+<td><code>VOLATILE</code>, <code>STATIC</code>, <code>ESCAPING</code>, <code>MUST_USE</code>, <code>ASYNC</code></td>
+</tr>
+<tr>
+<td>Built-in keywords</td>
+<td><code>SIZEOF</code>, <code>ALLOC_WITH</code>, <code>FREE_CLOSURE</code>, <code>AWAIT</code>, <code>ASM</code></td>
 </tr>
 <tr>
 <td>Literal keywords</td>
@@ -314,16 +318,8 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 <td><code>THREAD_CREATE</code>, <code>THREAD_JOIN</code></td>
 </tr>
 <tr>
-<td>Other keywords</td>
-<td><code>SIZEOF</code>, <code>VOLATILE</code>, <code>STATIC</code>, <code>ASM</code></td>
-</tr>
-<tr>
-<td>Reserved (future)</td>
-<td><code>THREAD</code>, <code>SPAWN</code>, <code>MUTEX</code>, <code>IN</code></td>
-</tr>
-<tr>
 <td>Arithmetic operators</td>
-<td><code>PLUS</code>, <code>MINUS</code>, <code>STAR</code>, <code>SLASH</code>, <code>PERCENT</code></td>
+<td><code>PLUS</code>, <code>MINUS</code>, <code>STAR</code>, <code>SLASH</code>, <code>PERCENT</code>, <code>PLUS_PLUS</code>, <code>MINUS_MINUS</code></td>
 </tr>
 <tr>
 <td>Compound assignments</td>
@@ -351,7 +347,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 </tr>
 <tr>
 <td>Delimiters</td>
-<td><code>LBRACE</code>, <code>RBRACE</code>, <code>LPAREN</code>, <code>RPAREN</code>, <code>LBRACKET</code>, <code>RBRACKET</code>, <code>SEMICOLON</code>, <code>COMMA</code>, <code>DOT</code>, <code>COLON</code>, <code>ARROW</code>, <code>ELLIPSIS</code></td>
+<td><code>LBRACE</code>, <code>RBRACE</code>, <code>LPAREN</code>, <code>RPAREN</code>, <code>LBRACKET</code>, <code>RBRACKET</code>, <code>SEMICOLON</code>, <code>COMMA</code>, <code>DOT</code>, <code>RANGE</code> (<code>..</code>), <code>COLON</code>, <code>ARROW</code>, <code>ELLIPSIS</code>, <code>QUESTION</code></td>
 </tr>
 <tr>
 <td>Literals</td>
@@ -363,11 +359,11 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 </tr>
 <tr>
 <td>Special</td>
-<td><code>EOF_TOKEN</code>, <code>UNKNOWN</code></td>
+<td><code>PRAGMA</code> (a <code>#pragma</code> line passed through by the preprocessor), <code>EOF_TOKEN</code>, <code>UNKNOWN</code></td>
 </tr>
 </tbody>
 </table></div>
-<p>The keywords map is a <code>static std::unordered_map&lt;std::string, TokenType&gt;</code> with 45 entries initialized at program start. After <code>read_identifier()</code> accumulates an alphanumeric/underscore run, it does a single map lookup; any identifier not in the map becomes <code>IDENT</code>.</p>
+<p><code>alloc&lt;T&gt;</code> and <code>free</code> are ordinary stdlib functions (<code>&lt;mem&gt;</code>), not keywords. The keywords map is a <code>static std::unordered_map&lt;std::string, TokenType&gt;</code> (<code>Lexer::keywords</code>, 62 entries) initialized at program start. After <code>read_identifier()</code> accumulates an alphanumeric/underscore run, it does a single map lookup; any identifier not in the map becomes <code>IDENT</code>.</p>
 <h3 id="hex-literal-tokenization">Hex literal tokenization</h3>
 <p><code>read_number()</code> detects the <code>0x</code>/<code>0X</code> prefix after consuming the leading <code>0</code> digit. It then accumulates <code>std::isxdigit()</code> characters and returns <code>TokenType::INT_LIT</code> with the full raw string (e.g. <code>"0xFF"</code>). <code>visit(LiteralExpr*)</code> in codegen calls <code>std::stoll(value, nullptr, 0)</code> (base 0 = auto-detect) to parse both decimal and hex correctly.</p>
 <h3 id="linecolumn-tracking">Line/column tracking</h3>
@@ -375,7 +371,7 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
 <hr>
 <h2 id="parser-parser">Parser (<code>parser/</code>)</h2>
 <h3 id="recursive-descent-with-controlled-backtracking-via-saveposcatch">Recursive descent with controlled backtracking via savePos/catch</h3>
-<p>The parser is purely recursive descent with no grammar table and no PEG memoization. Lookahead is limited to <code>peek()</code> (current token) and <code>peek_ahead(1)</code> (one token ahead). Backtracking occurs in three controlled places, each marked <code>size_t savePos = current</code>:</p>
+<p>The parser is purely recursive descent with no grammar table and no PEG memoization. Lookahead uses <code>peek()</code> (current token) and <code>peek_ahead(k)</code> (k tokens ahead). Backtracking occurs in a few controlled places, each marked <code>size_t savePos = current</code>; the main ones are:</p>
 <ul>
 <li><code>parseDeclaration()</code>: speculatively parses the type and checks for <code>LPAREN</code> or <code>LT</code> after the name to distinguish function declaration from variable declaration; resets <code>current = savePos</code> and re-parses if it is a function.</li>
 <li><code>parseBlockStatement()</code>: tries <code>parseDeclaration()</code> in a <code>try/catch(...)</code>; resets <code>current = savePos</code> on throw and falls through to <code>parseStatement()</code>.</li>
@@ -391,9 +387,9 @@ void BinaryExpr::accept(ASTVisitor* visitor) {
   4. consume any trailing STAR tokens, append &quot;*&quot; for each
   5. prepend &quot;*&quot; for each leading star
   6. consume &quot;[&quot; size_tokens &quot;]&quot; sequences, append &quot;[N]&quot; to type string
-     → array size is captured (not discarded) e.g. &quot;uint8[858]&quot;
+     → array size is captured (not discarded) e.g. &quot;uint8[64]&quot;
 </code></pre>
-<p>The resulting type string examples: <code>"*Point"</code>, <code>"int**"</code>, <code>"uint8[858]"</code>, <code>"Result&lt;int,string&gt;"</code>, <code>"List&lt;int&gt;*"</code>.</p>
+<p>The resulting type string examples: <code>"*Point"</code>, <code>"int**"</code>, <code>"uint8[64]"</code>, <code>"Result&lt;int,string&gt;"</code>, <code>"List&lt;int&gt;*"</code>.</p>
 <h3 id="template-parsing">Template parsing</h3>
 <p><strong>Template struct:</strong> <code>struct Result&lt;T, E&gt; { ... }</code>, <code>parseStructDecl()</code> checks for <code>LT</code> after the struct name and accumulates <code>typeParams</code> as a <code>vector&lt;string&gt;</code> of identifier names. Stored in <code>StructDecl::typeParams</code>.</p>
 <p><strong>Template function:</strong> <code>T max&lt;T&gt;(T a, T b) { ... }</code>, <code>parseFunctionDecl()</code> checks for <code>LT</code> after the function name and accumulates <code>typeParams</code>. Stored in <code>FunctionDecl::typeParams</code>.</p>
@@ -481,7 +477,7 @@ the limit.</p>
 │   ├── SwitchStmt         (subject:ExprPtr, cases[{value:ExprPtr?,stmts[StmtPtr]}])
 │   ├── MatchStmt          (subject:ExprPtr, arms[{variant,bindings,body}], default?)
 │   ├── ExprStmt           (expr)
-│   ├── AsmStmt            (asmString, inputs[(constraint,expr)], clobbers)  (no outputs; `::` form only)
+│   ├── AsmStmt            (asmString, outputs[(constraint,expr)], inputs[(constraint,expr)], clobbers)
 │   ├── ThreadJoinStmt     (handle:ExprPtr)
 │   ├── ThrowStmt          (value:ExprPtr)
 │   ├── TryStmt            (body, catches[{type,name,body}], finallyBody?)
@@ -503,7 +499,7 @@ the limit.</p>
     ├── AllocWithExpr      (allocator:ExprPtr, elemType:string, count:ExprPtr)
     ├── TemplateCallExpr   (templateName, typeArgs[], args[])
     ├── LambdaExpr         (returnType:string, params[(type,name)], body:StmtPtr, escapes, captures[])
-    ├── SizeofExpr         (type:string)
+    ├── SizeofExpr         (typeName:string, operand:ExprPtr?)  (`sizeof(T)` or `sizeof(expr)`)
     ├── ThreadCreateExpr   (fn:ExprPtr)
     ├── FreeClosureExpr    (operand:ExprPtr)  (frees an escaping closure's heap env)
     └── AwaitExpr          (operand:ExprPtr)  (requires *Future&lt;T&gt;, yields T)
@@ -511,7 +507,7 @@ the limit.</p>
 Program                    (declarations: vector&lt;DeclPtr&gt;)  (root node)
 </code></pre>
 <p><code>ASTVisitor</code> declares 47 pure-virtual <code>visit()</code> overloads (one per concrete class: <code>Program</code>, 9 <code>Decl</code> subtypes, 17 <code>Stmt</code> subtypes, 20 <code>Expr</code> subtypes). The <code>alloc&lt;T&gt;(n)</code> / <code>free</code> primitives are stdlib generic functions (<code>&lt;mem&gt;</code>), not AST nodes; the explicit-allocator form <code>alloc_with(&amp;a, T, n)</code> is the <code>AllocWithExpr</code> node.</p>
-<p><code>LambdaExpr</code> carries the full function signature and body inline. During codegen, <code>visit(LambdaExpr*)</code> saves the current insert point, emits a new private <code>llvm::Function</code> with a synthesized unique name (e.g. <code>__lambda_0</code>, <code>__lambda_1</code>), restores the insert point, and pushes the <code>llvm::Function*</code> onto <code>exprValueStack</code> as the expression value. The <code>fn(T,...)-&gt;R</code> type is stored in <code>expressionTypes</code> for that node so the type checker can validate assignments and call sites.</p>
+<p><code>LambdaExpr</code> carries the full function signature and body inline. During codegen, <code>visit(LambdaExpr*)</code> saves the current insert point, emits a new private <code>llvm::Function</code> with a synthesized unique name (e.g. <code>__lambda0</code>, <code>__lambda1</code>), restores the insert point, and pushes the <code>llvm::Function*</code> onto <code>exprValueStack</code> as the expression value. The <code>fn(T,...)-&gt;R</code> type is stored in <code>expressionTypes</code> for that node so the type checker can validate assignments and call sites.</p>
 <h3 id="blockitem-stdvariantdeclptr-stmtptr-why-unified"><code>BlockItem = std::variant&lt;DeclPtr, StmtPtr&gt;</code>: why unified</h3>
 <p>C allows variables to be declared at any point in a block, not just at the top. Rather than forcing declarations to precede statements (Pascal-style) or treating <code>VarDecl</code> as a <code>Stmt</code> subtype, <code>BlockStmt</code> uses <code>std::variant&lt;DeclPtr, StmtPtr&gt;</code>. Visitors iterate over items and dispatch with <code>std::holds_alternative</code> / <code>std::get</code>. This preserves the semantic distinction between declarations and statements throughout all passes.</p>
 <h3 id="source-location-on-ast-nodes">Source location on AST nodes</h3>
@@ -567,7 +563,7 @@ std::vector&lt;std::map&lt;std::string, Symbol&gt;&gt; scopes;
 <h3 id="the-tytype-ir-sematypehcpp">The <code>ty::Type</code> IR (<code>sema/type.{h,cpp}</code>)</h3>
 <p>Type spellings are interpreted through a structured IR, <code>ty::Type</code>, rather than ad-hoc string manipulation. It is the single grammar interpreter for the type language, used by both the type checker and codegen:</p>
 <ul>
-<li><code>ty::Type::parse(spelling)</code>, the one grammar interpreter: turns a surface type string (<code>"Result&lt;int,string&gt;"</code>, <code>"List&lt;int&gt;*"</code>, <code>"*Point"</code>, <code>"uint8[858]"</code>) into structured form (nominal name, type arguments, pointer levels, array extents).</li>
+<li><code>ty::Type::parse(spelling)</code>, the one grammar interpreter: turns a surface type string (<code>"Result&lt;int,string&gt;"</code>, <code>"List&lt;int&gt;*"</code>, <code>"*Point"</code>, <code>"uint8[64]"</code>) into structured form (nominal name, type arguments, pointer levels, array extents).</li>
 <li><code>str()</code>: render a <code>ty::Type</code> back to its canonical spelling.</li>
 <li><code>substitute(subs)</code>: apply a type-parameter → concrete-type map (template/generic instantiation), recursing through type arguments and pointer levels.</li>
 <li><code>nominalName()</code>: extract the underlying nominal name, peeling pointers/qualifiers; the canonical replacement for the older ad-hoc strip sites (these ad-hoc strips were the origin of the two-evaluator divergence).</li>
@@ -611,7 +607,7 @@ std::unique_ptr&lt;llvm::IRBuilder&lt;&gt;&gt; builder;
 4. Creates <code>llvm::StructType::create(*context, fieldTypes, mangled)</code>.
 5. Stores in <code>structTypes[mangled]</code> and <code>structFields[mangled]</code>.</p>
 <h3 id="template-function-instantiation-typeparamoverride-map">Template function instantiation: <code>typeParamOverride</code> map</h3>
-<p><code>visit(TemplateCallExpr*)</code> mangles the instantiated name as <code>templateName_arg1_arg2</code>, saves/restores the current insert point and <code>currentFunction</code>, sets <code>typeParamOverride = subs</code>, and re-visits the <code>FunctionDecl</code> AST node with the mangled name. <code>getTypeFromString()</code> consults <code>typeParamOverride</code> via <code>substType()</code> at the start of every type resolution, so all parameter and local variable types are correctly substituted. After the body is emitted, <code>typeParamOverride</code> is cleared.</p>
+<p><code>visit(TemplateCallExpr*)</code> mangles the instantiated name as <code>templateName_arg1_arg2</code>, saves/restores the current insert point and <code>currentFunction</code>, sets <code>typeParamOverride = subs</code>, and re-visits the <code>FunctionDecl</code> AST node with the mangled name. <code>getTypeFromString()</code> consults <code>typeParamOverride</code> via <code>substType()</code> at the start of every type resolution, so all parameter and local variable types are correctly substituted. After the body is emitted, <code>typeParamOverride</code> is restored to its saved value (not cleared), so a template instantiated from inside another template's body keeps the outer substitutions.</p>
 <h3 id="interface-vtable-layout">Interface vtable layout</h3>
 <p><code>visit(InterfaceDecl* node)</code> builds:
 - <code>ifaceVtableTypes[name]</code>, <code>llvm::StructType</code> with one <code>ptr</code> per method: <code>%I_vtable = type { ptr, ptr, ... }</code>
@@ -622,7 +618,7 @@ std::unique_ptr&lt;llvm::IRBuilder&lt;&gt;&gt; builder;
 2. Inserts <code>structPtr</code> into field 0 (data) and the vtable global into field 1 of an <code>%I_fat</code> value.
 3. Returns that first-class <code>{ ptr, ptr }</code> value.</p>
 <p>An interface value is held <strong>by value</strong> as <code>%I_fat</code> wherever it lives: a local's alloca, a struct field, a parameter, a return value. <code>evalForType(expr, targetType)</code> is the single conversion point used by initializers, assignments, call arguments, struct-literal fields and <code>return</code>: an interface value of the same interface passes through, <code>null</code> becomes the zero <code>{null, null}</code>, and a pointer to a conforming struct is boxed with <code>boxAsInterface</code>.</p>
-<p>Interface vtable dispatch in <code>visit(CallExpr*)</code>: loads <code>data_ptr</code> and <code>vtable_ptr</code> from the fat struct, computes the method index from <code>ifaceMethodOrder</code>, <code>CreateStructGEP</code> into the vtable, loads the function pointer, and calls it with a <code>FunctionType</code> of all-<code>ptr</code> parameters returning <code>void</code>. This correctly dispatches <code>void</code> methods. Methods with non-void return types share the same dispatch mechanism: the return value is pushed to <code>exprValueStack</code>.</p>
+<p>Interface vtable dispatch in <code>visit(CallExpr*)</code>: loads <code>data_ptr</code> and <code>vtable_ptr</code> from the fat struct, computes the method index from <code>ifaceMethodOrder</code>, <code>CreateStructGEP</code> into the vtable, loads the function pointer, and calls it with a <code>FunctionType</code> built from the method's declared return and parameter types (<code>ifaceMethodReturnTypes</code> / <code>ifaceMethodParamEskiuTypes</code>); each argument is coerced to the declared parameter type. A non-void result is pushed to <code>exprValueStack</code>.</p>
 <p><code>funcEskiuParamTypes</code> stores the Eskiu parameter type strings per function name. At a call site, an argument whose parameter type is an interface registered in <code>ifaceFatPtrTypes</code> goes through <code>evalForType()</code>, so it is boxed when it is a struct pointer.</p>
 <h3 id="pointer-arithmetic">Pointer arithmetic</h3>
 <p><code>ptr + n</code> and <code>ptr - n</code> in <code>visit(BinaryExpr*)</code>:</p>
@@ -680,15 +676,16 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <p><code>visit(BinaryExpr*)</code> checks <code>isFloatingPointTy()</code> first; if true, uses ordered float comparisons (<code>FCmpOEQ</code>, <code>FCmpONE</code>, <code>FCmpOLT</code>, etc.). Otherwise it emits integer comparisons, selecting signed (<code>ICmpSLT</code>/<code>SGT</code>/…) or unsigned (<code>ICmpULT</code>/<code>UGT</code>/…) relational predicates from the operands' Eskiu signedness; <code>==</code>/<code>!=</code> are sign-agnostic (<code>ICmpEQ</code>/<code>ICmpNE</code>). Pointer comparisons fall through the integer path since LLVM opaque pointers satisfy <code>!isFloatingPointTy()</code>.</p>
 <h3 id="emitobjectfile-llvm-targetmachine-legacy-passmanager"><code>emitObjectFile()</code>: LLVM TargetMachine + legacy PassManager</h3>
 <pre><code class="language-cpp">bool CodeGen::emitObjectFile(const std::string&amp; filename) {
-    // InitializeNativeTarget + InitializeNativeTargetAsmPrinter
-    // getDefaultTargetTriple → lookupTarget → createTargetMachine (PIC relocation)
+    // initCodegenTargets (AArch64, X86, ARM backends + asm printers)
+    // --target triple or getDefaultTargetTriple → makeTargetMachine
     // setDataLayout from TargetMachine
+    // optional --asan / --ubsan instrumentation (new pass manager)
     // raw_fd_ostream to filename
     // legacy::PassManager pm; tm-&gt;addPassesToEmitFile(pm, dest, nullptr, ObjectFile)
     // pm.run(*module); dest.flush();
 }
 </code></pre>
-<p>The data layout is set twice: once in <code>generateCode()</code> (for <code>sizeof</code> queries during codegen) and once in <code>emitObjectFile()</code> (for the final emission pass). Both use <code>getHostCPUName()</code> and <code>Reloc::PIC_</code>. The function returns <code>true</code> on success, <code>false</code> on any error (unknown target, cannot open file, target cannot emit object file).</p>
+<p>The data layout is set twice: once in <code>generateCode()</code> (for <code>sizeof</code> queries during codegen) and once in <code>emitObjectFile()</code> (for the final emission pass). Every code-emitting path builds its <code>TargetMachine</code> through <code>makeTargetMachine</code>, which applies <code>--mcpu</code> (default: the target baseline, <code>apple-m1</code> on arm64 Apple targets and <code>generic</code> elsewhere, never the host CPU name), <code>--mattr</code>, <code>--reloc</code>, the hard-float ABI for triples ending in <code>hf</code>, and the backend optimization level from <code>-O</code>. The function returns <code>true</code> on success, <code>false</code> on any error (unknown target, cannot open file, target cannot emit object file).</p>
 <h3 id="vardecl-type-coercion">VarDecl type coercion</h3>
 <p><code>visit(VarDecl*)</code> allocates an <code>AllocaInst</code> for the declared type, evaluates the initializer, then coerces if types differ:</p>
 <div class="tablewrap"><table>
@@ -841,7 +838,22 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <tr>
 <td><code>T[N]</code> (fixed-size array)</td>
 <td><code>[N x T]</code> (<code>llvm::ArrayType</code>)</td>
-<td>e.g. <code>uint8[858]</code> → <code>[858 x i8]</code></td>
+<td>e.g. <code>uint8[64]</code> → <code>[64 x i8]</code></td>
+</tr>
+<tr>
+<td><code>T[]</code> (slice)</td>
+<td><code>{ ptr, i64 }</code></td>
+<td>Data pointer + length</td>
+</tr>
+<tr>
+<td><code>fn(T)-&gt;R</code> (closure)</td>
+<td><code>{ ptr, ptr }</code></td>
+<td>Function pointer + environment pointer</td>
+</tr>
+<tr>
+<td><code>?*T</code></td>
+<td><code>ptr</code></td>
+<td>Same representation as <code>*T</code>; the check is compile-time only</td>
 </tr>
 </tbody>
 </table></div>
@@ -852,7 +864,7 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <ul>
 <li><strong>Golden-IR oracle</strong>, <code>tests/type_zoo/snapshot.sh</code> + <code>tests/type_zoo/golden/</code>: emits IR for the type-zoo corpus and diffs it against the checked-in baseline. A behavior-preserving change must produce byte-identical IR; this is the codegen-regression guard.</li>
 <li><strong>Generative + mutation fuzzer</strong>, <code>tests/fuzz/eskiu_fuzz.py</code> with an <strong>O0-vs-O2 differential oracle</strong>: synthesized programs are run at both optimization levels and any divergence is a miscompile. This catches accidentally-<code>-O0</code>-correct IR (undef, wrong width, missing extension).</li>
-<li><strong><code>-O0</code>-vs-<code>-O2</code> corpus differential</strong> (<code>tests/opt_differential.sh</code>, v0.3.1): compiles every <code>tests/*.esk</code> with <code>eskiuc -O0</code> and <code>eskiuc -O2</code> (the LLVM middle-end the <code>-O</code> flag runs) and fails on any exit/stdout divergence. Where the fuzzer exercises synthesized programs, this exercises the real corpus. It caught the v0.3.1 float-closure return-type miscompile.</li>
+<li><strong><code>-O0</code>-vs-<code>-O2</code> corpus differential</strong> (<code>tests/opt_differential.sh</code>): compiles every <code>tests/*.esk</code> with <code>eskiuc -O0</code> and <code>eskiuc -O2</code> (the LLVM middle-end the <code>-O</code> flag runs) and fails on any exit/stdout divergence. Where the fuzzer exercises synthesized programs, this exercises the real corpus. It caught a float-closure return-type miscompile.</li>
 <li><strong>C oracle</strong>, <code>tests/fuzz/c_oracle.py</code> (<code>eskiu_fuzz.py --oracle</code>): generates programs in a C-translatable subset, emits each as C too, and requires the C++ <code>eskiuc</code> (at <code>-O0</code> and <code>-O2</code>) and the self-hosted <code>eskiuc-esk</code> to print what <code>clang -O0 -fwrapv</code> prints. It is the only check outside the two Eskiu compilers, so it catches a bug they share (the 0.9.2 C conversion and constant-folding fixes came from it).</li>
 <li><strong>Negative corpus</strong>, <code>tests/fuzz/neg_fuzz.py</code>: injects one error into a generated program and requires both compilers to reject it with a diagnostic located on that line, without crashing.</li>
 <li><strong>Stdlib parser fuzzer</strong>, <code>tests/fuzz/stdlib_fuzz.py</code>: mutates inputs for the stdlib parsers (JSON, base64, URL, regex, HPACK, HTTP, multipart, UUID/time), built with <code>--asan</code>, and fails on a crash, an ASan report or a broken round trip.</li>
@@ -864,7 +876,7 @@ result = builder-&gt;CreateGEP(ptrElemType(), left, neg, &quot;ptr.sub&quot;);
 <ul>
 <li><strong>Source line numbers at <code>0:0</code></strong>: nodes not stamped by <code>withPos()</code> in the parser (including internally synthesized nodes like desugared compound assignments' outer <code>BinaryExpr</code>, some <code>BlockStmt</code> wrappers) report <code>line=0, col=0</code> in error messages. All primary expressions, operators, and control-flow statements are stamped correctly.</li>
 </ul>
-<p>(Two former limitations are resolved: float-literal handling (literals are <code>double</code> and coerce to <code>float</code> on assignment, which is correct, see "Type lowering" above) and non-<code>void</code> interface-method dispatch, which uses the method's real return type via <code>ifaceMethodReturnTypes</code> / <code>ifaceMethodParamEskiuTypes</code> to build the indirect-call <code>FunctionType</code>.)</p>
+<p>(Two former limitations are resolved: float-literal handling (literals are <code>double</code> and coerce to <code>float</code> on assignment, which is correct, see "Type Mappings" above) and non-<code>void</code> interface-method dispatch, which uses the method's real return type via <code>ifaceMethodReturnTypes</code> / <code>ifaceMethodParamEskiuTypes</code> to build the indirect-call <code>FunctionType</code>.)</p>
     </main>
     <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#pipeline-overview">Pipeline Overview</a><a href="#visitor-pattern">Visitor Pattern</a><a href="#lexer-lexer">Lexer (lexer/)</a><a href="#parser-parser">Parser (parser/)</a><a href="#ast-ast">AST (ast/)</a><a href="#type-checker-sema">Type Checker (sema/)</a><a href="#codegen-codegen">Codegen (codegen/)</a><a href="#symbol-table">Symbol Table</a><a href="#type-mappings">Type Mappings</a><a href="#hardening-apparatus">Hardening Apparatus</a><a href="#known-limitations">Known Limitations</a></nav>
   </div>

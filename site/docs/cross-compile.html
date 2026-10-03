@@ -184,8 +184,11 @@ a:hover { color: var(--ink); }
 </tr>
 </tbody>
 </table></div>
-<p>The registered backends are AArch64, x86-64, and 32-bit ARM. <code>eskiuc</code> only produces the
-object file; link it with a cross toolchain that targets the same platform.</p>
+<p>The registered backends are AArch64, x86 (x86-64 and 32-bit i686), and 32-bit ARM. For a
+cross target, emit an object file (<code>-c</code>, or an output ending in <code>.o</code>) and link it with a
+cross toolchain for the same platform. An executable output makes <code>eskiuc</code> link through
+<code>$CC</code> (else <code>cc</code>, <code>clang</code> or <code>gcc</code>), which only works for another target when <code>CC</code> points
+at a C driver for it.</p>
 <h2 id="platform-macros">Platform macros</h2>
 <p>The preprocessor predefines a platform macro so <code>import</code>ed stdlib code can branch per OS:</p>
 <ul>
@@ -235,9 +238,9 @@ Eskiu object against hard-float libctru.</p>
 <p>Eskiu declarations compile to C-ABI symbols, so a <code>main.c</code> can call an Eskiu function by
 declaring it <code>extern</code>. In the other direction, a struct passed to or returned from an
 <code>extern</code> C function by value follows the target's C calling convention (AArch64, x86-64
-System V, Windows x64 and 32-bit ARM, including the hard-float HFA rules); see
-<code>docs/dev/abi.md</code>. The self-hosted compiler does not yet forward <code>--mcpu</code>/<code>--mattr</code>/
-<code>--reloc</code>, so 3DS builds use the reference <code>eskiuc</code>.</p>
+System V, Windows x64, 32-bit ARM including the hard-float HFA rules, and 32-bit x86); see
+<a href="abi.html"><code>abi.md</code></a>. The self-hosted compiler forwards <code>--mcpu</code> but not <code>--mattr</code>/<code>--reloc</code>,
+so 3DS builds use the C++ <code>eskiuc</code>.</p>
 <h2 id="example-windows-x86-64">Example: Windows (x86-64)</h2>
 <p>The x86 backend emits COFF objects for a Windows triple with no extra flags; LLVM lowers
 the Microsoft x64 calling convention (first integer arguments in <code>rcx</code>/<code>rdx</code>/<code>r8</code>/<code>r9</code>)
@@ -264,7 +267,7 @@ produces a working <code>.exe</code>. This is exercised end to end on a native W
 <code>VirtualAlloc</code>/<code>VirtualFree</code> (no <code>mmap</code>), <code>&lt;time&gt;</code> uses the Win32 clocks (<code>GetTickCount64</code>,
 <code>GetSystemTimeAsFileTime</code>, <code>Sleep</code>), <code>&lt;threading&gt;</code> links against winpthreads, and <code>&lt;net&gt;</code>
 (blocking TCP: listen/accept/connect/send/recv) uses the Winsock backend (<code>WSAStartup</code> +
-<code>closesocket</code>, link <code>-lws2_32</code>). A blocking, thread-per-connection server works on Windows
+<code>closesocket</code>; <code>ws2_32</code> is linked automatically through the module's <code>#pragma link</code>). A blocking, thread-per-connection server works on Windows
 with these. Each has an end-to-end check on a native Windows runner in
 <code>.github/workflows/windows.yml</code>.</p>
 <p>The <strong>async</strong> stack runs on Windows too. <code>&lt;eventloop&gt;</code> swaps its epoll/kqueue reactor for

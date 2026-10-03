@@ -164,7 +164,7 @@ a:hover { color: var(--ink); }
 <ul>
 <li>Statically typed with explicit type annotations</li>
 <li>Manual memory management, no garbage collector</li>
-<li>Compiles to native object files via LLVM (arm64 and x86-64)</li>
+<li>Compiles to native code via LLVM: AArch64 and x86-64 (macOS, Linux, Windows), plus cross-compilation to 32-bit ARM and 32-bit x86</li>
 <li>Structs with methods, monomorphic templates, and structural interfaces</li>
 <li>Lambdas and <code>fn(T)-&gt;R</code> function pointer types</li>
 <li>Multi-file programs via <code>import</code></li>
@@ -406,7 +406,7 @@ errors located at the backslash. As in C, an octal escape takes at most three di
 </tr>
 <tr>
 <td><code>string</code></td>
-<td><code>i8*</code></td>
+<td><code>ptr</code></td>
 <td>pointer</td>
 <td>Immutable C-string literal</td>
 </tr>
@@ -516,8 +516,7 @@ a[1][2];                                    // 6  (row 1, column 2)
 <h3 id="331-slice-types">3.3.1 Slice Types</h3>
 <p>A <strong>slice</strong> <code>T[]</code> (empty brackets) is a view into a contiguous run of <code>T</code>: a fat pointer
 carrying both a data pointer and a length. Unlike a fixed array, a slice's length travels
-with it, so a function that takes a <code>T[]</code> never needs a separate count argument, killing
-the classic "pointer without its length" bug.</p>
+with it, so a function that takes a <code>T[]</code> never needs a separate count argument.</p>
 <p>Create a slice by <strong>slicing</strong> a fixed array <em>or a raw pointer</em> with a half-open range
 (reusing the <code>..</code> operator): <code>a[lo..hi]</code> is a view of elements <code>lo</code> through <code>hi-1</code>.
 Slicing a <code>*T</code> (for example a heap buffer from <code>alloc&lt;T&gt;(n)</code>) yields a <code>T[]</code> over that
@@ -934,7 +933,7 @@ next();   // 3
 </tr>
 </tbody>
 </table></div>
-<p>The compound bitwise/shift operators are desugared by the parser: <code>x op= e</code> is equivalent to <code>x = x op e</code>.</p>
+<p><code>x op= e</code> is equivalent to <code>x = x op e</code>, except that <code>x</code> is evaluated only once (see below).</p>
 <p>The left-hand side must be an lvalue: a named variable, a pointer dereference (<code>*ptr = value</code>), or a field access. A field or element of a temporary (<code>mk().x</code>, <code>arr()[0]</code>) is not an lvalue: it can be read, but not assigned, have its address taken, or (an array) be sliced. Assigning through a dereferenced pointer parameter works correctly. <code>*ptr = value</code> stores through the pointer as expected.</p>
 <p>Evaluation order: the address of the left-hand side is computed first (its index, pointer and call subexpressions run), then the right-hand side, then the store. So <code>a[f()] = g()</code> calls <code>f</code> before <code>g</code>, and <code>getp().x = g()</code> calls <code>getp</code> first. A compound assignment <code>x op= e</code> evaluates the address of <code>x</code> once, in the same order.</p>
 <h3 id="551-increment-and-decrement">5.5.1 Increment and Decrement</h3>
@@ -965,7 +964,7 @@ int b = ++j;   // j incremented, then b = new j
 </tr>
 </tbody>
 </table></div>
-<p><code>&amp;x</code> returns the <code>alloca</code> pointer for the stack variable <code>x</code>.</p>
+<p>For a local variable, <code>&amp;x</code> is the address of its stack slot.</p>
 <pre><code class="language-eskiu">int val = 42;
 *int ptr = &amp;val;
 *ptr = 100;       // val is now 100
@@ -1354,7 +1353,7 @@ take typed futures with no cast at the call site, <code>&lt;timer&gt;</code> <co
 leaf future for deadlines (so <code>select2(read, timer_after(...))</code> is a real timeout; dropping
 a combinator before it resolves drops its inputs with it), and
 <code>&lt;http_async&gt;</code> is a non-blocking HTTP server built on the accept loop. See
-<code>docs/dev/async-design.md</code> for the runtime contract and the lowering design.</p>
+<a href="async-design.html">async-design.md</a> for the runtime contract and the lowering design.</p>
 <h3 id="69-exception-handling">6.9 Exception Handling</h3>
 <p>Eskiu supports structured exception handling via <code>try</code>, <code>catch</code>, <code>finally</code>, and <code>throw</code>.</p>
 <h4 id="syntax">Syntax</h4>
@@ -1527,7 +1526,7 @@ must name an enclosing loop, otherwise the program is rejected at compile time.<
 <p>Labeled <code>break</code> and <code>continue</code> run the same <code>defer</code>/<code>errdefer</code> cleanups as the unlabeled
 forms: every deferred statement between the jump and the target loop runs, innermost
 first, before control leaves. A labeled jump may not escape a <code>defer</code> body, and labeled
-<code>break</code>/<code>continue</code> is not supported inside an <code>async fn</code>.</p>
+<code>break</code>/<code>continue</code> is not supported inside an <code>async</code> function.</p>
 <h3 id="74-switch-case-default-break">7.4 switch / case / default / break</h3>
 <pre><code class="language-eskiu">switch (x) {
     case 1:
@@ -1552,7 +1551,7 @@ first, before control leaves. A labeled jump may not escape a <code>defer</code>
 }
 </code></pre>
 <h3 id="76-break">7.6 break</h3>
-<p>Exits the innermost enclosing <code>for</code>, <code>while</code>, or <code>switch</code> immediately.</p>
+<p>Exits the innermost enclosing loop (<code>for</code>, <code>for ... in</code>, <code>while</code>, <code>do</code>/<code>while</code>) or <code>switch</code> immediately.</p>
 <pre><code class="language-eskiu">while (true) {
     if (done) break;
 }
@@ -1734,7 +1733,7 @@ printf(&quot;%f\n&quot;, v.f);  // reinterprets the 4 bytes of v.i as a float
 <p>A <code>union</code> variable is declared exactly like a struct variable:</p>
 <pre><code class="language-eskiu">let u: Value;
 u.i = 0x3F800000;   // bit pattern for 1.0f
-printf(&quot;%f\n&quot;, u.f); // prints 1.0
+printf(&quot;%f\n&quot;, u.f); // prints 1.000000
 </code></pre>
 <p><code>sizeof(Value)</code> returns the size of the largest field: <code>sizeof(*uint8)</code> = 8 on a 64-bit target in this example.</p>
 <p>A union literal initializes exactly one member, named or positional (<code>Value{f: 1.5}</code>, <code>Value{7}</code> sets <code>i</code>); the remaining bytes are zero. Naming two members is an error. A union literal is a constant initializer for a global or <code>static</code> when its member value is constant.</p>
@@ -1878,7 +1877,7 @@ render(&amp;c);   // &amp;c is auto-boxed into a Drawable fat pointer
 <p><code>null</code> converts to an interface, giving the empty value <code>{null, null}</code> (in a declaration, an assignment, a return, an argument or a field). An interface value compares with <code>null</code> (<code>d == null</code>, <code>d != null</code>) and is a condition that is true when it refers to a struct (<code>if (d)</code>, <code>!d</code>, <code>d &amp;&amp; ...</code>); it compares with nothing else. Calling a method through an empty interface value crashes, so test it first. A global or <code>static</code> interface is initialized with <code>null</code> or the address of a global struct (<code>Drawable d = &amp;gc;</code>), a link-time constant.</p>
 <h3 id="95-implementation-detail-fat-pointer">9.5 Implementation Detail: Fat Pointer</h3>
 <p>Under the hood, an interface value is a two-word fat pointer:</p>
-<pre><code>{ i8* data_ptr, i8* vtable_ptr }
+<pre><code>{ ptr data_ptr, ptr vtable_ptr }
 </code></pre>
 <p>The vtable is a struct of function pointers, one per interface method, generated per concrete type. This is transparent to user code.</p>
 <hr>
@@ -2084,9 +2083,9 @@ if (p != null) {
 </tr>
 </tbody>
 </table></div>
-<p>In freestanding mode the user must provide <code>esk_alloc</code> and <code>esk_free</code> in their own code (typically in a kernel or bare-metal runtime); <code>&lt;mem&gt;</code> declares them <code>extern</code> and the linker resolves them from the user-supplied object file. To keep <code>alloc&lt;T&gt;</code>'s zero-initialization guarantee, <code>esk_alloc</code> must return zeroed memory (the in-repo <code>kernel/alloc.esk</code> bump allocator does this). Code that needs heap allocation still just writes <code>import &lt;mem&gt;</code> and calls <code>alloc&lt;T&gt;</code>/<code>free</code>. The same source compiles for both modes.</p>
+<p>In freestanding mode the user must provide <code>esk_alloc</code> and <code>esk_free</code> in their own code (typically in a kernel or bare-metal runtime); <code>&lt;mem&gt;</code> declares them <code>extern</code> and the linker resolves them from the user-supplied object file. To keep <code>alloc&lt;T&gt;</code>'s zero-initialization guarantee, <code>esk_alloc</code> must return zeroed memory (the bump allocator in the repository's <code>kernel/alloc.esk</code> does this). Code that needs heap allocation still just writes <code>import &lt;mem&gt;</code> and calls <code>alloc&lt;T&gt;</code>/<code>free</code>. The same source compiles for both modes.</p>
 <pre><code class="language-eskiu">// user-provided in kernel.esk or a C shim
-*void esk_alloc(int size) { return buddy_alloc(size); }
+*void esk_alloc(int64 nbytes) { return buddy_alloc(nbytes); }
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 </code></pre>
 <p>Freestanding mode does not remove any other language features. The standard library modules (<code>stdlib/result.esk</code>, etc.) remain available but must not import libc functions that are absent from the target.</p>
@@ -2150,7 +2149,7 @@ import &quot;stdlib/result.esk&quot;;   // local file, path relative to the impo
 import &quot;../shared/types.esk&quot;;
 </code></pre>
 <p><code>import &lt;name&gt;</code> resolves the module from the Eskiu installation's stdlib directory. The compiler locates the stdlib either via the <code>ESKIU_ROOT</code> environment variable (if set) or by auto-detecting it from the compiler binary's location. No path prefix is required.</p>
-<p><code>import "path"</code> resolves the path relative to the directory of the importing file, as before.</p>
+<p><code>import "path"</code> resolves the path relative to the directory of the importing file.</p>
 <p>All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.</p>
 <h3 id="122-deduplication">12.2 Deduplication</h3>
 <p>Each file is parsed and processed at most once per compilation, regardless of how many files import it. Files are identified by their canonical path, so two different relative spellings of the same file (a diamond import) count as one. Circular imports are detected and do not cause infinite loops.</p>
@@ -2177,14 +2176,14 @@ extern void exit(int code);
 </code></pre>
 <h3 id="132-extern-variables">13.2 Extern Variables</h3>
 <p>An <code>extern</code> declaration with no parameter list (a type, a name, and a semicolon) names a global variable defined in another translation unit. It emits an external-linkage global with no initializer; reads and writes resolve at link time.</p>
-<pre><code class="language-eskiu">extern int   errno;
-extern float g_volume;
+<pre><code class="language-eskiu">extern int   opterr;       // libc's getopt flag
+extern float g_volume;     // defined in your own C code
 
-void clear_error() {
-    errno = 0;              // assign a C global
+void quiet_getopt() {
+    opterr = 0;             // assign a C global
 }
-int last_error() {
-    return errno;           // read a C global
+int getopt_reports() {
+    return opterr;          // read a C global
 }
 </code></pre>
 <p>An extern variable lives at the top level and carries no initializer (its definition, and value, live in the other object). <code>extern const &lt;type&gt; &lt;name&gt;;</code> declares a read-only C global.</p>
@@ -2199,18 +2198,18 @@ int main() {
 }
 </code></pre>
 <h3 id="134-c-abi-compatibility">13.4 C ABI Compatibility</h3>
-<p><code>extern</code> declarations emit standard C-ABI-compatible LLVM IR <code>call</code> instructions. Any function exported from a C library, including system libraries, OpenSSL, zxing-cpp, or any other C-compatible library, may be called this way.</p>
+<p><code>extern</code> declarations emit standard C-ABI-compatible LLVM IR <code>call</code> instructions. Any function exported from a C library, including system libraries, OpenSSL, or any other C-compatible library, may be called this way.</p>
 <p>For functions that accept or return <code>void*</code>, use <code>*void</code> on the Eskiu side:</p>
 <pre><code class="language-eskiu">extern *void malloc(int64 size);
 extern *void memcpy(*void dst, *void src, int64 n);
 extern *void memset(*void ptr, int value, int64 n);
 </code></pre>
 <p>(For heap allocation, prefer <code>import &lt;mem&gt;</code> and <code>alloc&lt;T&gt;</code>/<code>free</code> over declaring <code>malloc</code>/<code>free</code> as <code>extern</code> yourself; see §11.2.)</p>
-<p>A struct or union may be passed to or returned from an <code>extern</code> function <strong>by value</strong>. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64 and 32-bit ARM, in both compilers (the self-hosted one picks the convention from <code>--target</code>). See <code>docs/dev/abi.md</code> for the per-target rules.</p>
+<p>A struct or union may be passed to or returned from an <code>extern</code> function <strong>by value</strong>. The compiler lowers such a call to the target's C calling convention (register classes, homogeneous float aggregates, hidden return pointer), matching what clang emits for the same C signature, on AArch64, x86-64 System V, Windows x64, 32-bit ARM (AAPCS, soft and hard float) and 32-bit x86 (cdecl), following <code>--target</code>. See <a href="abi.html">abi.md</a> for the per-target rules.</p>
 <pre><code class="language-eskiu">struct Vec2 { double x; double y; }
 extern Vec2 vec2_add(Vec2 a, Vec2 b);   // a C function taking and returning structs
 </code></pre>
-<h3 id="134-passing-an-eskiu-function-as-a-c-callback">13.4 Passing an Eskiu function as a C callback</h3>
+<h3 id="135-passing-an-eskiu-function-as-a-c-callback">13.5 Passing an Eskiu function as a C callback</h3>
 <p>Many C APIs take a function pointer (<code>qsort</code>, <code>signal</code>, OpenSSL's ALPN selector,
 …). Casting a <strong>top-level</strong> Eskiu function to a pointer type yields its bare C
 function-pointer address, the raw symbol, not the <code>{fn, env}</code> closure fat
@@ -2219,7 +2218,8 @@ pointer a function name otherwise decays to:</p>
 
 int cmp(*void a, *void b) { return *(*int)a - *(*int)b; }
 
-qsort((*void)arr, (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
+int[5] arr = {5, 3, 1, 4, 2};
+qsort((*void)&amp;arr[0], (int64)5, (int64)4, (*void)cmp);   // (*void)cmp is the raw C pointer
 </code></pre>
 <p>The callback's signature must match what the C side expects (C ABI). This works
 only for top-level functions (a closure or fn-pointer variable still carries an
@@ -2231,7 +2231,7 @@ spell the callback's signature and the call passes a top-level function by name
 (or <code>null</code>), with no cast:</p>
 <pre><code class="language-eskiu">extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)-&gt;int cmp);
 
-qsort((*void)arr, (int64)5, (int64)4, cmp);
+qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </code></pre>
 <p>Passing anything else there (a lambda, a fn-typed variable) is a compile error.</p>
 <hr>
@@ -2359,7 +2359,7 @@ qsort((*void)arr, (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/future.esk</code></td>
-<td>The async runtime's <code>Future&lt;T&gt;</code> (the locked compiler↔generated-code contract): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>/<code>free_future_polled</code> (the latter also frees the waker a hand-driven <code>future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
+<td>The async runtime's <code>Future&lt;T&gt;</code> (the interface the compiler's async lowering targets): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>/<code>free_future_polled</code> (the latter also frees the waker a hand-driven <code>future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
 </tr>
 <tr>
 <td><code>stdlib/executor.esk</code></td>
@@ -2570,17 +2570,17 @@ asm(&quot;nop&quot;);
 </code></pre>
 <p>The string is passed verbatim to the assembler. No inputs, outputs, or clobbers are specified.</p>
 <h3 id="152-extended-form">15.2 Extended Form</h3>
-<p>The extended form follows GCC-compatible inline assembly syntax:</p>
+<p>The extended form follows the layout of GCC inline assembly, but the constraint strings are LLVM constraint codes, passed to LLVM as written:</p>
 <pre><code>asm(&quot;template&quot; : outputs : inputs : clobbers);
 </code></pre>
-<pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;a&quot;(val), &quot;Nd&quot;(port) : &quot;memory&quot;);
+<pre><code class="language-eskiu">asm(&quot;outb ${0:b}, $1&quot; :: &quot;{ax}&quot;(val), &quot;N{dx}&quot;(port) : &quot;memory&quot;);   // x86
 asm(&quot;add $0, $1, $2&quot; : &quot;=r&quot;(sum) : &quot;r&quot;(a), &quot;r&quot;(b));     // AArch64
 asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));                // x86-64
 </code></pre>
 <ul>
 <li><strong>Template</strong>: the assembly instruction string; operands are referenced LLVM-style by <code>$0</code>, <code>$1</code>, … (with modifiers like <code>${0:b}</code> for a sub-register), not <code>%0</code>/<code>%1</code>. The outputs are numbered first, then the inputs, as in GCC and clang.</li>
-<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs, written by the asm. A constraint starts with <code>=</code> (written only: <code>"=r"</code>, the early-clobber <code>"=&amp;r"</code>, a specific register such as <code>"=a"</code>, or memory <code>"=m"</code>) or <code>+</code> (read and written: <code>"+r"</code>, <code>"+m"</code>). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a <code>const</code>) of an integer type other than <code>bool</code>, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A <code>+r</code> output also feeds the lvalue's current value in through an input tied to it.</li>
-<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs (a constraint may not start with <code>=</code> or <code>+</code>). Common constraints: <code>"a"</code> (eax/rax), <code>"Nd"</code> (8-bit immediate or dx), <code>"r"</code> (any register), <code>"m"</code> (memory).</li>
+<li><strong>Outputs</strong>: list of <code>"constraint"(lvalue)</code> pairs, written by the asm. A constraint starts with <code>=</code> (written only: <code>"=r"</code>, the early-clobber <code>"=&amp;r"</code>, a specific register such as <code>"={ax}"</code>, or memory <code>"=m"</code>) or <code>+</code> (read and written: <code>"+r"</code>, <code>"+m"</code>). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a <code>const</code>) of an integer type other than <code>bool</code>, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A <code>+r</code> output also feeds the lvalue's current value in through an input tied to it.</li>
+<li><strong>Inputs</strong>: list of <code>"constraint"(expr)</code> pairs (a constraint may not start with <code>=</code> or <code>+</code>). Common constraints: <code>"r"</code> (any register), <code>"m"</code> (memory), <code>"i"</code> (an immediate), and a specific register named in braces, such as <code>"{ax}"</code> (al/ax/eax/rax by operand width) or <code>"N{dx}"</code> (an 8-bit immediate or dx). GCC's single-letter register classes such as <code>"a"</code> or <code>"d"</code> are not translated, and LLVM rejects them.</li>
 <li><strong>Clobbers</strong>: comma-separated list of clobbered resources. <code>"memory"</code> tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).</li>
 </ul>
 <p>Sections are separated by <code>:</code>. Trailing sections may be omitted if empty.</p>
@@ -2657,6 +2657,10 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 <td>Link, passing library flags through to the linker</td>
 </tr>
 <tr>
+<td><code>eskiuc file.esk -o prog --link-arg=ARG</code></td>
+<td>Pass an extra argument to the linker (repeatable)</td>
+</tr>
+<tr>
 <td><code>eskiuc file.esk -o prog --no-default-libs</code></td>
 <td>Link only what <code>-l</code> names: skip <code>#pragma link</code> and the implied runtimes</td>
 </tr>
@@ -2675,6 +2679,10 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 <tr>
 <td><code>eskiuc file.esk --target TRIPLE</code></td>
 <td>Cross-compile for the given target triple</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk --mcpu=CPU --mattr=FEATURES --reloc=MODEL</code></td>
+<td>Target CPU, feature string (LLVM <code>-mattr</code> syntax) and relocation model (<code>pic</code>, the default, <code>static</code> or <code>dynamic-no-pic</code>)</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk --freestanding</code></td>
@@ -2721,14 +2729,14 @@ program throws or catches (<code>-lc++</code> on macOS, <code>-lstdc++</code> on
 every object and <code>--link-arg</code>, once each, and a library already given with <code>-l</code>
 is not repeated. <code>--no-default-libs</code> turns all of them off for custom linking.
 Nothing is added when no executable is linked. With <code>--freestanding</code> (or a <code>.o</code> output)
-no linking happens, so bare-metal targets are linked yourself (see the kernel's
-<code>ld.lld</code> invocation).</p>
+no linking happens, so bare-metal targets are linked yourself (see the <code>ld.lld</code>
+invocation in <code>kernel/Makefile</code>).</p>
 <p><strong>Running directly.</strong> <code>eskiuc run file.esk [args...]</code> compiles to a temporary executable, runs it (forwarding <code>args...</code>), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, <code>run</code> exits with <code>128 +</code> the signal number, as a shell does. Compiler flags (including ones that take a value, such as <code>--target TRIPLE</code>) go <em>before</em> the script and program arguments <em>after</em> it; a <code>--</code> right after the script is dropped, so <code>eskiuc run --asan file.esk -- input.txt</code> passes only <code>input.txt</code>. Because a leading <code>#!</code> line is ignored, a script can also start with <code>#!/usr/bin/env eskiuc run</code> and, once <code>chmod +x</code>'d, be executed directly.</p>
 <p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing <code>\</code>, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal, including every line of a string that spans lines) exactly as written and keeps every other blank line, so line numbers (<code>__LINE__</code>, diagnostics) do not move. It never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
 <p><strong>Sanitizers.</strong> <code>--asan</code> instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; <code>--ubsan</code> inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with <code>eskiuc run</code>.</p>
 <p><code>--hover-at</code> and <code>--definition-at</code> accept the format <code>LINE:COL</code> with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.</p>
 <h3 id="cross-compilation">Cross-compilation</h3>
-<p><code>--target TRIPLE</code> sets the LLVM target triple for the output object file. Both the AArch64 and X86 LLVM backends are included in the Eskiu build.</p>
+<p><code>--target TRIPLE</code> sets the LLVM target triple for the output object file. The AArch64, X86 and 32-bit ARM LLVM backends are included in the Eskiu build. <code>--mcpu</code>, <code>--mattr</code> and <code>--reloc</code> select the CPU, the feature string and the relocation model. See <a href="cross-compile.html">cross-compile.md</a> for worked examples.</p>
 <pre><code class="language-bash">eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
 eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 </code></pre>
@@ -2757,6 +2765,18 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 <td><code>x86_64-unknown-none</code></td>
 <td>Bare-metal x86-64</td>
 </tr>
+<tr>
+<td><code>x86_64-pc-windows-gnu</code></td>
+<td>COFF x86-64 (Windows, MinGW)</td>
+</tr>
+<tr>
+<td><code>i686-pc-linux-gnu</code></td>
+<td>ELF 32-bit x86 (Linux)</td>
+</tr>
+<tr>
+<td><code>armv6k-none-eabihf</code></td>
+<td>Bare-metal 32-bit ARM, hard float (e.g. the Nintendo 3DS with <code>--mcpu=mpcore</code>)</td>
+</tr>
 </tbody>
 </table></div>
 <p>When <code>--target</code> is omitted the compiler defaults to the host machine's triple.</p>
@@ -2764,7 +2784,7 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 <h2 id="17-error-reporting">17. Error Reporting</h2>
 <p>The compiler emits diagnostics with full source location information:</p>
 <pre><code>error: file.esk:8:22: undefined variable 'foo'
-error: file.esk:14:5: type mismatch: expected int, got float
+error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 </code></pre>
 <p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>. Every mode, including the <code>--test-*</code> modes, exits with a non-zero status when it reports an error.</p>
 <p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable") when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>

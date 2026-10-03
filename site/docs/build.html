@@ -188,7 +188,8 @@ a:hover { color: var(--ink); }
 </tr>
 </tbody>
 </table></div>
-<p>LLVM is the only non-trivial dependency. The compiler uses the <code>support</code>, <code>core</code>, and <code>irreader</code> component libraries.</p>
+<p>LLVM is the only non-trivial dependency. The compiler links the <code>support</code>, <code>core</code>, <code>irreader</code> and native code generation components, plus the AArch64, X86 and ARM backends used for cross-compilation.</p>
+<p>To use a prebuilt compiler instead, see the install instructions in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/README.md#install">README</a>. A built <code>eskiuc</code> calls the system C compiler (<code>cc</code>, <code>clang</code> or <code>gcc</code>) to link executables, so one must be installed.</p>
 <hr>
 <h2 id="macos">macOS</h2>
 <h3 id="install-dependencies">Install dependencies</h3>
@@ -207,11 +208,12 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -- -j$(sysctl -n hw.logicalcpu)
 </code></pre>
 <p>Expected output (last few lines):</p>
-<pre><code>[ 85%] Building CXX object CMakeFiles/eskiuc.dir/codegen/codegen_expr.cpp.o
-[100%] Linking CXX executable eskiuc
-[100%] Built target eskiuc
+<pre><code>[ 97%] Linking CXX executable eskiuc
+[ 97%] Built target eskiuc
+[100%] Building the Eskiu-written compiler (eskiuc-esk) with the C++ seed
+[100%] Built target eskiuc-selfhost
 </code></pre>
-<p>The compiler binary is at <code>build/eskiuc</code>.</p>
+<p>The compiler binary is at <code>build/eskiuc</code>. When clang is available, the build also produces <code>build/eskiuc-esk</code>, the same compiler written in Eskiu and compiled by <code>build/eskiuc</code>. Pass <code>--target eskiuc</code> to <code>cmake --build</code> to build only the C++ compiler.</p>
 <hr>
 <h2 id="linux-ubuntu-debian">Linux (Ubuntu / Debian)</h2>
 <h3 id="install-dependencies_1">Install dependencies</h3>
@@ -248,6 +250,20 @@ cmake -S . -B build \
 cmake --build build -- -j$(nproc)
 </code></pre>
 <hr>
+<h2 id="windows-msys2">Windows (MSYS2)</h2>
+<p>Windows builds use the MSYS2 MINGW64 environment. From a MINGW64 shell:</p>
+<pre><code class="language-bash">pacman -S --needed git mingw-w64-x86_64-toolchain mingw-w64-x86_64-llvm \
+  mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+git clone https://github.com/doranteseduardo/eskiu.git
+cd eskiu
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_DIR=&quot;$MINGW_PREFIX/lib/cmake/llvm&quot; \
+  -DCMAKE_CXX_COMPILER=g++
+cmake --build build --target eskiuc
+</code></pre>
+<p>The result is <code>build/eskiuc.exe</code>. It links executables through the MinGW <code>gcc</code>.</p>
+<hr>
 <h2 id="build-options">Build Options</h2>
 <h3 id="debug-vs-release">Debug vs Release</h3>
 <pre><code class="language-bash"># Release: optimized binary, suitable for benchmarks
@@ -279,11 +295,15 @@ cmake --build build -- -j$(nproc)
 <pre><code class="language-bash">./build/eskiuc examples/hello.esk --test-codegen
 </code></pre>
 <p>Expected output (LLVM IR for <code>hello.esk</code>):</p>
-<pre><code class="language-llvm">; ModuleID = 'eskiu_module'
-source_filename = &quot;eskiu_module&quot;
+<pre><code class="language-llvm">Generating LLVM IR: examples/hello.esk
+========================================================
+; ModuleID = 'eskiu'
+source_filename = &quot;eskiu&quot;
+target datalayout = &quot;...&quot;
+target triple = &quot;arm64-apple-darwin...&quot;
 
-@0 = private unnamed_addr constant [19 x i8] c&quot;Hello from Eskiu!\0A\00&quot;
-@1 = private unnamed_addr constant [12 x i8] c&quot;Result: %d\0A\00&quot;
+@0 = private unnamed_addr constant [19 x i8] c&quot;Hello from Eskiu!\0A\00&quot;, align 1
+@1 = private unnamed_addr constant [12 x i8] c&quot;Result: %d\0A\00&quot;, align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -297,7 +317,7 @@ entry:
   ...
 }
 </code></pre>
-<p>The exact IR body will vary with LLVM version, but the module must contain <code>@printf</code>, <code>@add</code>, and <code>@main</code>.</p>
+<p>The target lines and the exact IR body vary with the host and the LLVM version, but the module must contain <code>@printf</code>, <code>@add</code>, and <code>@main</code>.</p>
 <hr>
 <h2 id="troubleshooting">Troubleshooting</h2>
 <h3 id="llvm-not-found">LLVM not found</h3>
@@ -343,7 +363,7 @@ entry:
   -DCMAKE_C_COMPILER=clang-22
 </code></pre>
 <h3 id="linker-errors-undefined-llvm-symbols">Linker errors: undefined LLVM symbols</h3>
-<p>The build links <code>support</code>, <code>core</code>, and <code>irreader</code>. If you see undefined symbols from LLVM:</p>
+<p>If you see undefined symbols from LLVM:</p>
 <ol>
 <li>Confirm the installed LLVM version matches the headers used at configure time (<code>llvm-config --version</code>).</li>
 <li>On Ubuntu, ensure you installed <code>llvm-22-dev</code> (not just <code>llvm-22</code>); the <code>-dev</code> package contains the static libraries.</li>
@@ -353,17 +373,19 @@ entry:
 <h2 id="running-tests">Running Tests</h2>
 <p>The automated suite is driven by <code>tests/run.sh</code>, which compiles, links, and runs every
 <code>tests/*.esk</code> case (matching stdout against <code>*.expected</code>, smoke-running the rest, and
-checking that <code>tests/errors/*.esk</code> are rejected). <code>eskiuc</code> links each test itself with
+checking that <code>tests/errors/*.esk</code> are rejected and that <code>tests/warnings/*.esk</code> produce
+their expected <code>-Wall</code> warnings). <code>eskiuc</code> links each test itself with
 no <code>-l</code> flags, so the libraries programs imply (<code>#pragma link</code>, the C++ exception
 runtime, pthread) are exercised too:</p>
 <pre><code class="language-bash">tests/run.sh                       # full suite against build/eskiuc
 ESKIUC=/path/eskiuc tests/run.sh   # point at a specific compiler
 </code></pre>
 <p>CI runs the suite three ways: plain, then under UBSan and ASan (<code>SANITIZE=ubsan</code> /
-<code>SANITIZE=asan</code>) as hardening gates, plus a generative fuzzer
-(<code>tests/fuzz/eskiu_fuzz.py</code>) that mutates programs and fails on any compiler crash,
-IR-verifier failure, or O0-vs-O2 runtime divergence (a differential oracle); a
-golden-IR oracle guards against unintended codegen changes.</p>
+<code>SANITIZE=asan</code>) as hardening gates. It also runs fuzzers from <code>tests/fuzz/</code> (see
+<code>tests/README.md</code>): a generative fuzzer that mutates programs and fails on any compiler
+crash, IR-verifier failure, or O0-vs-O2 runtime divergence, one that checks that invalid
+programs are rejected with a located error, and one that runs the stdlib parsers under
+ASan.</p>
 <p>The four <code>--test-*</code> modes below expose individual compiler phases for manual inspection.</p>
 <h3 id="-test-lexer"><code>--test-lexer</code></h3>
 <p>Tokenizes the input and prints every token with its type, value, and source location.</p>
@@ -418,8 +440,10 @@ Program
 ========================================================
 Type checking succeeded!
 </code></pre>
-<p>Example error output for a type mismatch:</p>
-<pre><code>error: type mismatch in return: expected 'int', got 'float'
+<p>Example error output for <code>int f() { return 1.5; }</code>:</p>
+<pre><code>error: e.esk:1:11: return type mismatch: expected int, got double (cannot assign a floating-point value ('double') to integer type 'int' without an explicit cast (it drops the fraction))
+========================================================
+Type checking failed!
 </code></pre>
 <h3 id="-test-codegen"><code>--test-codegen</code></h3>
 <p>Runs the full pipeline through LLVM IR emission and prints the IR to stdout.</p>
@@ -433,7 +457,7 @@ Type checking succeeded!
 done
 </code></pre>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#requirements">Requirements</a><a href="#macos">macOS</a><a href="#linux-ubuntu-debian">Linux (Ubuntu / Debian)</a><a href="#linux-alpine">Linux (Alpine)</a><a href="#build-options">Build Options</a><a href="#verify-the-build">Verify the Build</a><a href="#troubleshooting">Troubleshooting</a><a href="#running-tests">Running Tests</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#requirements">Requirements</a><a href="#macos">macOS</a><a href="#linux-ubuntu-debian">Linux (Ubuntu / Debian)</a><a href="#linux-alpine">Linux (Alpine)</a><a href="#windows-msys2">Windows (MSYS2)</a><a href="#build-options">Build Options</a><a href="#verify-the-build">Verify the Build</a><a href="#troubleshooting">Troubleshooting</a><a href="#running-tests">Running Tests</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">
