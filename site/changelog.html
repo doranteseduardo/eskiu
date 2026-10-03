@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="" />eskiu<span class="v">v0.9.2</span></a>
+      <a class="brand" href="index.html"><img src="../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
       <nav class="nav" aria-label="Main"><a href="quickstart.html">Learn</a><a href="docs/index.html">Docs</a><a href="index.html#playground">Playground</a><a href="the-book-of-eskiu.html">Book</a><a href="changelog.html" aria-current="page">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="index.html#install">Install 0.9.2</a>
+        <a class="btn-install" href="index.html#install">Install 0.9.3</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -163,6 +163,15 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <h2 id="093-unreleased">[0.9.3] - unreleased</h2>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
+  constraints <code>a</code>, <code>b</code>, <code>c</code>, <code>d</code>, <code>S</code> and <code>D</code>, with their modifiers (<code>=a</code>, <code>+a</code>, <code>=&amp;d</code>)
+  and in combined constraints (<code>Nd</code>). They are translated to LLVM's <code>{ax}</code> form as clang
+  does; before, LLVM failed to allocate them. Test <code>inline_asm_gcc</code>.</li>
+<li>A captured value is read-only inside a lambda, as with a by-value capture in C++.
+  Calling a method with a plain <code>*T self</code> on it, or on a field of it (<code>c.inner.m()</code>), is
+  now an error; before, the method silently changed the closure's copy. A <code>const T* self</code>
+  method and a call through a captured pointer are allowed. Tests
+  <code>errors/closure_captured_method_*</code>, <code>closure_captured_method_ok</code>.</li>
 <li><strong><code>await</code> in generic async functions.</strong> An await in a <code>match</code> arm that binds a
   payload, after an operand with a side effect in the same expression, or inside a <code>?:</code>
   arm now works in a generic async function, as it does in a plain one. The lowering
@@ -172,6 +181,33 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   <code>a + (a + (...))</code> thousands of levels deep took time quadratic in the depth; the type
   checker and the code generator now type each node once, so it is linear (depth 4000:
   26 s before, 0.06 s now). The emitted IR is unchanged.</li>
+<li>On macOS the native target triple carries the macOS product version (<code>macosx27.0</code>)
+  instead of the Darwin one, whose mapping LLVM gets wrong on a new release; the linker
+  no longer warns that every object was built for a newer macOS.</li>
+<li><code>-o name.obj</code> writes an object file, like <code>.o</code>, instead of trying to link an executable.
+  Both drivers.</li>
+<li>Diagnostics name types as written (<code>'Box'</code>, not <code>'struct:Box'</code>), matching the
+  self-hosted compiler. <code>--help</code> for <code>-Wall</code> lists the maybe-uninitialized warning.</li>
+</ul>
+<h3 id="changed">Changed</h3>
+<ul>
+<li>The roadmap (<code>docs/dev/phases.md</code>), the self-hosting overview and the contributor guide
+  are rewritten. Every document was reviewed against the compiler: stale or wrong statements
+  in the spec, the tutorial, the build guide, the architecture, async and ABI notes, the
+  API reference and the READMEs are corrected, and the examples compile and print what
+  they say.</li>
+<li>The playground image downloads the release from GitHub and checks it against
+  <code>SHA256SUMS</code>, instead of a copy of the compiler committed under <code>playground/dist</code>.</li>
+<li><code>kernel/Makefile</code> uses <code>clang</code> from <code>PATH</code>.</li>
+</ul>
+<h3 id="known-issues">Known issues</h3>
+<p>These are open in 0.9.3. None of them miscompiles a valid program.</p>
+<ul>
+<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
+  when a cancelled future is dropped.</li>
+<li>Unnamed bitfields (<code>uint32 : 3;</code>, <code>uint32 : 0;</code>) are not supported: a field needs a
+  name, and a named <code>: 0</code> field is an error. 0.9.2 listed this as a <code>sizeof</code> folding gap,
+  but no valid program can contain such a field.</li>
 </ul>
 <h2 id="092-2026-09-29">[0.9.2] - 2026-09-29</h2>
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
@@ -1200,7 +1236,7 @@ input. What is still open is listed under Known issues.</p>
 <li>An inline asm operand naming a local or parameter of an <code>async</code> function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test <code>asm_async_locals</code>.</li>
 <li>A method call on a non-struct value (<code>x.foo()</code> with <code>x</code> an <code>int</code>) reports one error, <code>undefined method 'foo' on type 'int'</code>, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).</li>
 </ul>
-<h3 id="known-issues">Known issues</h3>
+<h3 id="known-issues_1">Known issues</h3>
 <p>These are open in 0.9.2. None of them miscompiles a valid program.</p>
 <ul>
 <li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
@@ -1328,7 +1364,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
     reject <code>?*T</code> -&gt; <code>*T</code> without a check; <code>codegen.esk</code> lowers <code>?*T</code> exactly like <code>*T</code>).
   Each is gated in CI (<code>tests/selfhost/safe_parity.sh</code>, <code>tests/selfhost/nullable_parity.sh</code>).</li>
 </ul>
-<h3 id="changed">Changed</h3>
+<h3 id="changed_1">Changed</h3>
 <ul>
 <li><strong><code>alloc&lt;T&gt;</code> now zero-initializes.</strong> <code>&lt;mem&gt;</code>'s <code>alloc&lt;T&gt;(n)</code> returns memory that is
   zeroed (hosted mode calls <code>calloc</code> instead of <code>malloc</code>; the <code>--freestanding</code> <code>esk_alloc</code>
@@ -1441,7 +1477,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   C++ and self-hosted code generators (the self-host also gained direct calls through a
   global closure variable).</li>
 </ul>
-<h3 id="changed_1">Changed</h3>
+<h3 id="changed_2">Changed</h3>
 <ul>
 <li>Documentation accuracy pass (from an internal audit): corrected AST node counts and
   added the <code>defer</code> cleanup-stack to the internals docs, regenerated the real
@@ -1620,7 +1656,7 @@ promotion track.</p>
   zero under the C++ back-end, crashing under the self-host). The definite-return check
   now runs on template bodies too.</li>
 </ul>
-<h3 id="changed_2">Changed</h3>
+<h3 id="changed_3">Changed</h3>
 <ul>
 <li><strong>Assigning a floating-point value to an integer needs an explicit cast.</strong> <code>int x =
   3.9;</code> (or any <code>float</code>/<code>double</code> into an integer) is rejected, because it silently drops
@@ -1698,7 +1734,7 @@ promotion track.</p>
   warning. Lambda literals in a <code>let x: fn(...)-&gt;R = ...</code> still coerce (their return type
   is malleable); only non-adaptable fn <em>values</em> are rejected. Test <code>errors/fn_return_mismatch</code>.</li>
 </ul>
-<h3 id="changed_3">Changed</h3>
+<h3 id="changed_4">Changed</h3>
 <ul>
 <li><strong>New CI gate: <code>-O0</code>-vs-<code>-O2</code> behavioral differential</strong> (<code>tests/opt_differential.sh</code>).
   Compiles the whole corpus at both levels and fails on any exit/stdout divergence,

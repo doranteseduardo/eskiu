@@ -47,7 +47,7 @@ first-class in the language without giving up general systems use.
 | 0.6 | Memory safety and stdlib: `defer`, slices, `must_use`, `--safe`, `?*T`, regex, sort, url, uuid |
 | 0.7 | Cross-compilation: 32-bit ARM, Windows objects, `extern` globals |
 | 0.8 | Windows parity, operator overloading |
-| 0.9 | Labeled `break`/`continue`, then two correctness campaigns (0.9.1 and 0.9.2) |
+| 0.9 | Labeled `break`/`continue`, two correctness campaigns (0.9.1 and 0.9.2), and 0.9.3 with a reviewed set of docs and fixes it turned up |
 
 ## Next: 1.0
 

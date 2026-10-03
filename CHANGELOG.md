@@ -9,6 +9,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ---
 
 ## [0.9.3] - unreleased
+
 ### Fixed
 - Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
@@ -28,19 +29,32 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `a + (a + (...))` thousands of levels deep took time quadratic in the depth; the type
   checker and the code generator now type each node once, so it is linear (depth 4000:
   26 s before, 0.06 s now). The emitted IR is unchanged.
+- On macOS the native target triple carries the macOS product version (`macosx27.0`)
+  instead of the Darwin one, whose mapping LLVM gets wrong on a new release; the linker
+  no longer warns that every object was built for a newer macOS.
+- `-o name.obj` writes an object file, like `.o`, instead of trying to link an executable.
+  Both drivers.
+- Diagnostics name types as written (`'Box'`, not `'struct:Box'`), matching the
+  self-hosted compiler. `--help` for `-Wall` lists the maybe-uninitialized warning.
+
+### Changed
+- The roadmap (`docs/dev/phases.md`), the self-hosting overview and the contributor guide
+  are rewritten. Every document was reviewed against the compiler: stale or wrong statements
+  in the spec, the tutorial, the build guide, the architecture, async and ABI notes, the
+  API reference and the READMEs are corrected, and the examples compile and print what
+  they say.
+- The playground image downloads the release from GitHub and checks it against
+  `SHA256SUMS`, instead of a copy of the compiler committed under `playground/dist`.
+- `kernel/Makefile` uses `clang` from `PATH`.
 
 ### Known issues
 These are open in 0.9.3. None of them miscompiles a valid program.
 
 - An `await` inside a `finally` or a `defer` is rejected: both run without suspending
-  when a cancelled future is dropped. Bind the awaited value to a local first.
+  when a cancelled future is dropped.
 - Unnamed bitfields (`uint32 : 3;`, `uint32 : 0;`) are not supported: a field needs a
   name, and a named `: 0` field is an error. 0.9.2 listed this as a `sizeof` folding gap,
   but no valid program can contain such a field.
-- The self-hosted compiler generates code for deeply nested binary expressions
-  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear.
-
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All

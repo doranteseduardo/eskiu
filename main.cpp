@@ -153,7 +153,7 @@ static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::init(0),
     llvm::cl::cat(EskiuCat));
 
-const char* VERSION = "0.9.2";
+const char* VERSION = "0.9.3";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
