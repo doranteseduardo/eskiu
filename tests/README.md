@@ -159,6 +159,7 @@ when you add a test.
 | `async_await_positions` | `await` in a match arm, a switch subject, a for-in iterable, a range bound, a compound assignment (target once), larger expressions and call arguments (side-effect order), `&&`/`||`/`?:`, and while/do/for conditions and steps |
 | `async_await_edges` | awaits in a return and a loop condition inside try, a plain try returning inside a split one, break from a match arm, lambdas in a try and its handler, a catch variable, nested awaits, struct/array literals, a static local, a switch in a try |
 | `async_generic_try` | a generic async function awaiting in a try (with a compound assignment) and a switch subject; a match on a computed subject whose arms await |
+| `async_generic_positions` | a generic async function awaiting in a payload-binding `match` arm, after a side-effecting operand and in a `?:` arm, each with an `int` and a struct instance (also parked, leak-free) |
 | `async_for_in` | `for-in` containing an await, over a fixed-size array and a `List`-like struct (suspending) |
 | `async_timer` | `<timer>` `timer_after` leaf future: a delayed await + read-with-timeout via `select2(read, timer)` |
 | `async_frame_expr` | frame-hoisted locals used in a struct literal / index / call after an await are renamed to `fr.x` (shared child-enumeration) |
@@ -417,7 +418,6 @@ when you add a test.
 | `va_list_c` | a `va_list` handed to `vprintf`/`vsnprintf`, also through an Eskiu `va_list` param |
 | `volatile_access` | volatile loads/stores through a volatile local or global (`*p`, `p[i]`, `p.f`, `++`, `+=`); IR count checked |
 | `run_cmd/await_in_defer` | an `await` in a defer body of an async function: an error located at the await (`run.sh`, `cg_parity.sh`) |
-| `run_cmd/await_in_generic_match` | an `await` in a payload-binding `match` arm of a generic async function: an error located at the await |
 | `run_cmd/net_timeval` | `<net>`'s socket timeouts pass a `struct timeval` of two C `long`s with its own size: `{i32, i32}` and optlen 8 on 32-bit ARM, `{i64, i64}` and 16 on x86-64 (it was always 16 bytes); IR checked by `run.sh` per target |
 | `inline_asm_ext` | extended inline asm with inputs and a clobber (AArch64 and x86-64 spellings) |
 | `async_arm_locals` | an async fn declaring locals in `match` arms and `try`/`catch`/`finally` bodies |

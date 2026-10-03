@@ -97,12 +97,6 @@ if [ "$#" -eq 0 ]; then
         *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"*) echo "ok    await_in_defer  (located error)" ;;
         *) echo "FAIL  await_in_defer  ($aw)"; fail=1 ;;
     esac
-    total=$((total + 1))
-    aw="$(ESKIU_ROOT="$(pwd)" "$CGBIN" --test-codegen tests/run_cmd/await_in_generic_match.esk 2>&1 >/dev/null)"
-    case "$aw" in
-        *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"*) echo "ok    await_in_generic_match  (located error)" ;;
-        *) echo "FAIL  await_in_generic_match  ($aw)"; fail=1 ;;
-    esac
 fi
 
 echo "----"

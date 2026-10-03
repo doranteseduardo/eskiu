@@ -302,18 +302,12 @@ else
 fi
 
 # An await the async lowering cannot place is an error located at the await (a defer
-# body, or a payload-binding match arm in a generic async function).
+# body).
 aw_out="$("$ESKIUC" "$here/run_cmd/await_in_defer.esk" -o "$work/await_in_defer" 2>&1)"
 if [[ "$aw_out" == *"await_in_defer.esk:8:17: async function 'worker': 'await' is not supported inside a defer"* ]]; then
     ok "cli/await-in-defer-located"
 else
     bad "cli/await-in-defer-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
-fi
-aw_out="$("$ESKIUC" "$here/run_cmd/await_in_generic_match.esk" -o "$work/await_in_generic_match" 2>&1)"
-if [[ "$aw_out" == *"await_in_generic_match.esk:9:29: async function 'w': 'await' in a 'match' arm that binds a payload"* ]]; then
-    ok "cli/await-in-generic-match-located"
-else
-    bad "cli/await-in-generic-match-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
 
 # A successful compile prints nothing to stdout (no output-file echo).
