@@ -666,6 +666,19 @@ void CodeGen::layoutBitfieldStruct(const std::vector<StructDecl::Field>& fields,
                 s.accessType = llvm::IntegerType::get(*context, (unsigned)(span * 8));
                 s.accessAlign = 1;
                 if (!f.unnamed) units.push_back({s.byteOffset, s.byteOffset + span, nullptr});
+            } else if (align < size) {
+                // A type aligned below its size (int64 on 32-bit x86 SysV): the bitfield
+                // may not cross its type's size from an alignment boundary, and its storage
+                // is the bytes it spans from that boundary (clang's rule).
+                uint64_t alignBits = align * 8;
+                if (bitpos % alignBits + w > unitBits)
+                    bitpos = (bitpos + alignBits - 1) / alignBits * alignBits;
+                s.byteOffset = bitpos / alignBits * align;
+                s.bitOffset = (unsigned)(bitpos - s.byteOffset * 8);
+                uint64_t span = (s.bitOffset + w + 7) / 8;
+                s.accessType = llvm::IntegerType::get(*context, (unsigned)(span * 8));
+                s.accessAlign = (unsigned)align;
+                if (!f.unnamed) units.push_back({s.byteOffset, s.byteOffset + span, nullptr});
             } else {
                 if (bitpos / unitBits != (bitpos + w - 1) / unitBits)
                     bitpos = (bitpos + unitBits - 1) / unitBits * unitBits;

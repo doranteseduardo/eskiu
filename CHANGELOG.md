@@ -30,6 +30,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `bitfield_unnamed`, `bitfield_unnamed_c` (+ `.c`), `errors/bitfield_unnamed_*`.
 
 ### Fixed
+- An `int64`/`uint64` bitfield on 32-bit x86 Linux and Darwin (where `int64` is aligned to
+  4) follows clang's layout: it may start at any 4-byte boundary as long as it fits in 8
+  bytes from there, and it takes no more storage than the bytes it spans. Before, it was
+  placed as if aligned to 8 (`struct { uint64 f : 22; }` was 8 bytes instead of 4). Both
+  compilers; `tests/run.sh` checks the sizes of `tests/run_cmd/bitfield_targets.esk`
+  against clang's for six targets.
 - Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
   and in combined constraints (`Nd`). They are translated to LLVM's `{ax}` form as clang

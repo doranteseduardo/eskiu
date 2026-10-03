@@ -1,0 +1,26 @@
+// Bitfield layouts whose C rules differ by target (checked against clang's sizes per
+// target in tests/run.sh, and between the two compilers in tests/selfhost/cabi_parity.sh):
+// an int64 bitfield on 32-bit x86 SysV (aligned to 4, so it may start mid-word), and
+// unnamed bitfields (alignment only on AAPCS; a `: 0` after a normal field ignored on
+// Windows). `sz_*` is a size, `al_*` an alignment.
+struct L1 { uint64 f : 22; }
+struct L2 { uint32 a : 20; uint64 b : 40; }
+struct L3 { char c; uint64 x : 60; }
+struct U1 { char c; uint32 : 0; char d; }
+struct U2 { char c; int : 4; char d; }
+union U3 { char c; int : 9; }
+struct U4 { uint8 a : 3; uint32 : 0; uint8 b : 2; }
+struct WL3 { char c; L3 s; }
+struct WU2 { char c; U2 s; }
+struct WU3 { char c; U3 s; }
+int sz_l1 = (int)sizeof(L1);
+int sz_l2 = (int)sizeof(L2);
+int sz_l3 = (int)sizeof(L3);
+int sz_u1 = (int)sizeof(U1);
+int sz_u2 = (int)sizeof(U2);
+int sz_u3 = (int)sizeof(U3);
+int sz_u4 = (int)sizeof(U4);
+int al_l3 = (int)(sizeof(WL3) - sizeof(L3));
+int al_u2 = (int)(sizeof(WU2) - sizeof(U2));
+int al_u3 = (int)(sizeof(WU3) - sizeof(U3));
+int main() { return 0; }

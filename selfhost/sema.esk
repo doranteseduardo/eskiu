@@ -1015,7 +1015,11 @@ int64 sema_decl_layout(Sema* s, *DeclNode d, List<string>* targs, int64* al, int
             if ((unnamed == 0 || s.bfal == 1) && fal > maxal) { maxal = fal; }
             if (bw > 0) {
                 int64 ub = fsz * (int64)8;
-                if (d.is_packed == 0 && packn == (int64)0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
+                if (d.is_packed == 0 && packn == (int64)0 && fal < fsz) {
+                    // Aligned below its size (int64 on 32-bit x86 SysV): may not cross its
+                    // size from an alignment boundary.
+                    if (bitpos % (fal * (int64)8) + (int64)bw > ub) { bitpos = sema_up(bitpos, fal * (int64)8); }
+                } else if (d.is_packed == 0 && packn == (int64)0 && bitpos / ub != (bitpos + (int64)bw - (int64)1) / ub) { bitpos = sema_up(bitpos, ub); }
                 bitpos = bitpos + (int64)bw;
             } else {
                 int64 fo = sema_up((bitpos + (int64)7) / (int64)8, fal);

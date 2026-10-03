@@ -7212,6 +7212,17 @@ void cg_bf_layout(Codegen* g, *DeclNode d) {
                 slot.aty = cg_cat("i", cg_itoa(span * 8)); slot.aal = 1;
                 let u: CgSpan; u.off = slot.boffs; u.end = slot.boffs + span; u.ty = "";
                 if (named == 1) { cg_span_insert(&units, u, 1); }
+            } else if (al < size) {
+                // A type aligned below its size (int64 on 32-bit x86 SysV): the bitfield may
+                // not cross its type's size from an alignment boundary, and its storage is
+                // the bytes it spans from that boundary (clang's rule).
+                int ab = al * 8;
+                if (bitpos % ab + bw > size * 8) { bitpos = cg_align_up(bitpos, ab); }
+                slot.boffs = bitpos / ab * al; slot.boff = bitpos - slot.boffs * 8;
+                int aspan = (slot.boff + bw + 7) / 8;
+                slot.aty = cg_cat("i", cg_itoa(aspan * 8)); slot.aal = al;
+                let au: CgSpan; au.off = slot.boffs; au.end = slot.boffs + aspan; au.ty = "";
+                if (named == 1) { cg_span_insert(&units, au, 1); }
             } else {
                 int ub = size * 8;
                 if (bitpos / ub != (bitpos + bw - 1) / ub) { bitpos = cg_align_up(bitpos, ub); }

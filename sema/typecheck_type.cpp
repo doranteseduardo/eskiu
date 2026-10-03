@@ -465,8 +465,13 @@ bool TypeChecker::bitfieldLayout(const StructInfo& si, unsigned long long& size,
         if (!f.unnamed || layoutInfo.unnamedBitfieldsAlign) structAlign = std::max(structAlign, fa);
         if (f.bitWidth > 0) {
             unsigned long long w = (unsigned long long)f.bitWidth, unitBits = fs * 8;
-            if (!contiguous && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits)
+            if (!contiguous && fa < fs) {
+                // Aligned below its size (int64 on 32-bit x86 SysV): may not cross its
+                // size from an alignment boundary.
+                if (bitpos % (fa * 8) + w > unitBits) bitpos = up(bitpos, fa * 8);
+            } else if (!contiguous && unitBits && bitpos / unitBits != (bitpos + w - 1) / unitBits) {
                 bitpos = up(bitpos, unitBits);
+            }
             bitpos += w;
         } else {
             unsigned long long off = up((bitpos + 7) / 8, fa);

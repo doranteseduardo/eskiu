@@ -301,6 +301,24 @@ else
     bad "codegen/net-timeval-width" "timeval layout or optlen wrong for armv7 or x86-64"
 fi
 
+# Bitfield layouts that differ by target (an int64 bitfield on 32-bit x86 SysV, unnamed
+# bitfields): the sizes and alignments clang gives each target.
+bt_fail=""
+while read -r bt_t bt_want; do
+    bt_got="$("$ESKIUC" --target "$bt_t" --test-codegen "$here/run_cmd/bitfield_targets.esk" 2>/dev/null \
+        | sed -nE 's/^@((sz|al)_[a-z0-9]+) = .*global i32 ([0-9]+).*/\1=\3/p' | tr '\n' ' ')"
+    [[ "$bt_got" == "$bt_want " ]] || bt_fail="$bt_fail $bt_t: $bt_got;"
+done <<'EOF'
+x86_64-unknown-linux-gnu sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=5 sz_u2=3 sz_u3=2 sz_u4=5 al_l3=8 al_u2=1 al_u3=1
+i686-pc-linux-gnu sz_l1=4 sz_l2=8 sz_l3=12 sz_u1=5 sz_u2=3 sz_u3=2 sz_u4=5 al_l3=4 al_u2=1 al_u3=1
+aarch64-unknown-linux-gnu sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=8 sz_u2=4 sz_u3=4 sz_u4=8 al_l3=8 al_u2=4 al_u3=4
+armv7-none-linux-gnueabihf sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=8 sz_u2=4 sz_u3=4 sz_u4=8 al_l3=8 al_u2=4 al_u3=4
+x86_64-w64-windows-gnu sz_l1=8 sz_l2=16 sz_l3=16 sz_u1=2 sz_u2=12 sz_u3=4 sz_u4=8 al_l3=8 al_u2=4 al_u3=1
+arm64-apple-darwin sz_l1=8 sz_l2=8 sz_l3=16 sz_u1=5 sz_u2=3 sz_u3=2 sz_u4=5 al_l3=8 al_u2=1 al_u3=1
+EOF
+if [[ -z "$bt_fail" ]]; then ok "codegen/bitfield-target-layouts"
+else bad "codegen/bitfield-target-layouts" "sizes differ from clang's:$bt_fail"; fi
+
 # An await the async lowering cannot place is an error located at the await (an asm
 # input).
 aw_out="$("$ESKIUC" "$here/run_cmd/await_unplaced.esk" -o "$work/await_unplaced" 2>&1)"

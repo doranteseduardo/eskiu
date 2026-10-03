@@ -183,6 +183,12 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>An <code>int64</code>/<code>uint64</code> bitfield on 32-bit x86 Linux and Darwin (where <code>int64</code> is aligned to
+  4) follows clang's layout: it may start at any 4-byte boundary as long as it fits in 8
+  bytes from there, and it takes no more storage than the bytes it spans. Before, it was
+  placed as if aligned to 8 (<code>struct { uint64 f : 22; }</code> was 8 bytes instead of 4). Both
+  compilers; <code>tests/run.sh</code> checks the sizes of <code>tests/run_cmd/bitfield_targets.esk</code>
+  against clang's for six targets.</li>
 <li>Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
   constraints <code>a</code>, <code>b</code>, <code>c</code>, <code>d</code>, <code>S</code> and <code>D</code>, with their modifiers (<code>=a</code>, <code>+a</code>, <code>=&amp;d</code>)
   and in combined constraints (<code>Nd</code>). They are translated to LLVM's <code>{ax}</code> form as clang

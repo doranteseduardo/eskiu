@@ -128,6 +128,19 @@ for t in $TARGETS; do
         echo "ok    $name  ($(tr '\n' ' ' <"$WORK/cpp.sz" | sed -E 's/@sz_([a-z]+) = global i32 /\1=/g'))"
     fi
 done
+# Bitfield layouts that differ by target (tests/run_cmd/bitfield_targets.esk; run.sh checks
+# the C++ sizes against clang's): the same `@sz_*`/`@al_*` in both compilers.
+for t in $TARGETS; do
+    n=$((n + 1))
+    name="bitfield_targets@$t"
+    ESKIU_ROOT="$(pwd)" "$BIN" tests/run_cmd/bitfield_targets.esk --test-codegen --target "$t" 2>&1 | grep -E '^@(sz|al)_' >"$WORK/cpp.sz"
+    ESKIU_ROOT="$(pwd)" "$ESKMAIN" tests/run_cmd/bitfield_targets.esk --test-codegen --target "$t" 2>&1 | grep -E '^@(sz|al)_' >"$WORK/esk.sz"
+    if [ ! -s "$WORK/cpp.sz" ] || ! cmp -s "$WORK/cpp.sz" "$WORK/esk.sz"; then
+        echo "FAIL  $name"; diff "$WORK/cpp.sz" "$WORK/esk.sz" | head -8 | sed 's/^/  /'; fail=1
+    else
+        echo "ok    $name"
+    fi
+done
 echo "----"
 if [ "$fail" = 0 ]; then echo "cabi parity: $n program/target pairs match"; else echo "cabi parity: FAILED"; fi
 exit "$fail"
