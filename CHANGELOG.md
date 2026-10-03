@@ -30,6 +30,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `bitfield_unnamed`, `bitfield_unnamed_c` (+ `.c`), `errors/bitfield_unnamed_*`.
 
 ### Fixed
+- A bitfield typed by a generic struct's type parameter (`struct F<T> { T a : 3; }`) is
+  checked with each instance's type argument: `F<uint8>` works in the self-hosted compiler
+  too (it rejected the declaration), and `F<float>` is an error in the C++ compiler too (it
+  accepted it). Tests `bitfield_generic`, `errors/bitfield_generic_float`.
 - An `int64`/`uint64` bitfield on 32-bit x86 Linux and Darwin (where `int64` is aligned to
   4) follows clang's layout: it may start at any 4-byte boundary as long as it fits in 8
   bytes from there, and it takes no more storage than the bytes it spans. Before, it was

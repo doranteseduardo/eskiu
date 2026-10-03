@@ -1122,6 +1122,44 @@ void sema_check_dims(Sema* s, string t) {
     }
 }
 
+// Whether `t` is one of `d`'s type parameters.
+int sema_names_tparam(*DeclNode d, string t) {
+    int k = 0;
+    while (k < List_len<TypeParam>(&d.type_params)) {
+        if (sema_streq(List_get<TypeParam>(&d.type_params, k).name, t) == 1) { return 1; }
+        k = k + 1;
+    }
+    return 0;
+}
+
+// A generic struct's bitfield typed by a type parameter is checked with the instance's
+// type argument (mirrors the C++ per-instance checkBitfield).
+void sema_check_inst_bitfields(Sema* s, *DeclNode d, List<string>* targs) {
+    if (d.kind != DK_STRUCT) { return; }
+    int i = 0;
+    while (i < List_len<Param>(&d.params) && i < List_len<int>(&d.field_bits)) {
+        Param f = List_get<Param>(&d.params, i);
+        int bw = List_get<int>(&d.field_bits, i);
+        int k = 0;
+        while (bw > 0 && k < List_len<TypeParam>(&d.type_params) && k < List_len<string>(targs)) {
+            if (sema_streq(List_get<TypeParam>(&d.type_params, k).name, f.ty) == 1) {
+                string at = List_get<string>(targs, k);
+                int tb = sema_int_bits(sema_bitfield_base(s, at));
+                if (tb == 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' must have an integer type, got '%s'\n", s.filename, s.line, s.col, f.name, d.name, at);
+                } else if (bw > tb) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' is %d bits wide, more than its type '%s' holds (%d)\n",
+                           s.filename, s.line, s.col, f.name, d.name, bw, at, tb);
+                }
+            }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+}
+
 void sema_check_decl_type(Sema* s, string t) {
     if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
     if ((int)t[0] == 63 && sema_known_type(s, t) == 1 && sema_c_ptr(sema_canon(s, t)) == 0) {   // `?` marks a pointer only
@@ -1149,7 +1187,10 @@ void sema_check_decl_type(Sema* s, string t) {
     }
     int k = 0;
     while (k < got) { sema_check_decl_type(s, List_get<string>(&targs, k)); k = k + 1; }
-    if (d != null && want > 0 && want == got) { sema_check_constraints(s, &d.type_params, &targs); }
+    if (d != null && want > 0 && want == got) {
+        sema_check_constraints(s, &d.type_params, &targs);
+        sema_check_inst_bitfields(s, d, &targs);
+    }
 }
 
 // Name of the struct/union a field of type `ft` holds BY VALUE ("" for a pointer, slice,
@@ -7370,7 +7411,7 @@ void sema_check_fields(Sema* s, *DeclNode d) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: bitfield '%s' of '%s' has zero width (only an unnamed bitfield may be zero-width)\n", s.filename, s.line, s.col, f.name, d.name);
         }
-        if (bw > 0) {
+        if (bw > 0 && sema_names_tparam(d, f.ty) == 0) {   // a type parameter: checked per instance
             int tb = sema_int_bits(sema_bitfield_base(s, f.ty));
             if (tb == 0) {
                 s.had_error = 1;

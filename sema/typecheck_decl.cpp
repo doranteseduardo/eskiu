@@ -1389,6 +1389,10 @@ static int bitfieldTypeWidth(const std::string& normalized) {
 }
 
 void TypeChecker::checkBitfield(ASTNode* at, const std::string& owner, const StructDecl::Field& f) {
+    // `at` is null for a generic struct's instance: report where the type is used.
+    auto errorAt = [&](ASTNode* node, const std::string& m) {
+        if (node) this->errorAt(node, m); else errorAtCtx(m);
+    };
     if (f.bitWidth < 0) {
         errorAt(at, "bitfield '" + f.name + "' of '" + owner + "' has zero width (only an unnamed bitfield may be zero-width)");
         return;

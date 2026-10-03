@@ -1131,6 +1131,14 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
                 // Bounded generics on a struct template (`Map<K: Hashable, V>`):
                 // verify the type args satisfy their constraints, once per instance.
                 checkConstraints(nullptr, templ->second->constraints, subs);
+                // A bitfield typed by a type parameter is checked with the instance's
+                // type argument (the template declaration skips it).
+                for (const auto& f : templ->second->fields) {
+                    if (f.bitWidth <= 0 || !subs.count(f.type)) continue;
+                    StructDecl::Field inst = f;
+                    inst.type = subs[f.type];
+                    checkBitfield(nullptr, tname, inst);
+                }
             }
             return "struct:" + mangled;
         }
