@@ -8,7 +8,25 @@ import <mem>;
 import "uart.esk";
 import "alloc.esk";
 
+// Bounds of .bss, defined by linker.ld.
+extern uint8 __bss_start;
+extern uint8 __bss_end;
+
+// Globals without an initializer live in .bss. QEMU happens to load the kernel into
+// zeroed RAM, but nothing promises that on real hardware, so clear it before any
+// global is read.
+void zero_bss() {
+    *uint8 p = &__bss_start;
+    while (p < &__bss_end) {
+        *p = 0;
+        p++;
+    }
+}
+
 void kernel_main() {
+    zero_bss();
+    heap_init();
+
     uart_puts("\r\n");
     uart_puts("  ___     _    _\r\n");
     uart_puts(" | __|___| | _(_)_  _\r\n");
