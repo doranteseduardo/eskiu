@@ -545,6 +545,33 @@ void CodeGen::visit(ThreadJoinStmt* node) {
     });
 }
 
+// On x86 a GCC single-register constraint letter names one register; LLVM wants it
+// spelled out, as clang emits it: `a` is `{ax}`, `Nd` is `N{dx}`. Modifiers, other
+// letters, digits and `{...}` (also a clobber's `~{...}`) stay as written.
+static std::string x86AsmConstraint(const std::string& c) {
+    std::string out;
+    for (size_t i = 0; i < c.size(); ++i) {
+        char ch = c[i];
+        if (ch == '{') {
+            size_t e = c.find('}', i);
+            if (e == std::string::npos) e = c.size() - 1;
+            out += c.substr(i, e - i + 1);
+            i = e;
+            continue;
+        }
+        switch (ch) {
+            case 'a': out += "{ax}"; break;
+            case 'b': out += "{bx}"; break;
+            case 'c': out += "{cx}"; break;
+            case 'd': out += "{dx}"; break;
+            case 'S': out += "{si}"; break;
+            case 'D': out += "{di}"; break;
+            default: out += ch;
+        }
+    }
+    return out;
+}
+
 // Extended asm (GCC syntax) as LLVM inline asm, numbered like clang: the outputs first
 // (`$0`...), then the inputs. A register output (`=r`, `=&r`) is a result of the call,
 // stored into its lvalue afterwards (several make a struct result); a memory output
@@ -555,9 +582,11 @@ void CodeGen::visit(AsmStmt* node) {
     std::vector<llvm::Value*> argVals;
     std::vector<llvm::Type*> elemTypes;       // per argument: its elementtype (indirect), or null
     std::string constraints;
+    CAbiTarget tgt = cabiTarget();
+    bool x86 = tgt == CAbiTarget::SysV || tgt == CAbiTarget::Win64 || tgt == CAbiTarget::X86;
     auto addConstraint = [&](const std::string& c) {
         if (!constraints.empty()) constraints += ",";
-        constraints += c;
+        constraints += x86 ? x86AsmConstraint(c) : c;
     };
     struct RegOut { llvm::Value* addr; llvm::Type* ty; bool vol; };
     std::vector<RegOut> regOuts;

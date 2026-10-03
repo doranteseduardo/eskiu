@@ -1,0 +1,44 @@
+// GCC register constraints on x86: `a` `b` `c` `d` `S` `D` name one register and
+// lower to LLVM's `{ax}` ... `{di}` (as clang does), keeping modifiers (`=a`, `+a`,
+// `=&d`) and combined letters (`Nd` is `N{dx}`); the explicit `{ax}` form still works.
+// run.sh and cg_parity.sh check the x86-64 IR; other targets compute the same values in C.
+extern int printf(string fmt, ...);
+
+void port_out(uint16 port, uint8 val) {
+#ifdef __x86_64__
+    asm("outb $0, $1" :: "a"(val), "Nd"(port));
+#endif
+}
+
+void cpuid(uint32 leaf, *uint32 out) {
+#ifdef __x86_64__
+    uint32 a = 0;
+    uint32 b = 0;
+    uint32 c = 0;
+    uint32 d = 0;
+    asm("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(leaf));
+    out[0] = a; out[1] = b; out[2] = c; out[3] = d;
+#endif
+}
+
+int main(int argc, string* argv) {
+    int v = 41 + argc;
+    int r = 0;
+    int acc = 10;
+    int64 src = 7;
+    int64 dst = 0;
+    int e = 0;
+#ifdef __x86_64__
+    asm("movl $1, $0" : "=a"(r) : "d"(v));
+    asm("addl $1, $0" : "+a"(acc) : "c"(v));
+    asm("movq $1, $0" : "=D"(dst) : "S"(src));
+    asm("movl $1, $0" : "=&d"(e) : "{ax}"(v));
+#else
+    r = v;
+    acc = acc + v;
+    dst = src;
+    e = v;
+#endif
+    printf("r %d acc %d dst %lld e %d\n", r, acc, dst, e);
+    return 0;
+}

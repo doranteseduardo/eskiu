@@ -8,6 +8,29 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.9.3] - unreleased
+
+### Fixed
+- Inline asm on x86 targets (x86-64 and 32-bit x86) accepts the GCC register
+  constraints `a`, `b`, `c`, `d`, `S` and `D`, with their modifiers (`=a`, `+a`, `=&d`)
+  and in combined constraints (`Nd`). They are translated to LLVM's `{ax}` form as clang
+  does; before, LLVM failed to allocate them. Test `inline_asm_gcc`.
+
+### Known issues
+These are open in 0.9.3. None of them miscompiles a valid program.
+
+- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an `await` is also
+  rejected in a `match` arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
+- A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value); write through a pointer to share state.
+- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so
+  constant-expression checks do not see it (codegen gets its size right).
+- The self-hosted compiler generates code for deeply nested binary expressions
+  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
+  compiler is linear.
+
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All

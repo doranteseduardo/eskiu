@@ -281,6 +281,15 @@ if [[ "$ia" == *"call { i64, i64 } asm sideeffect"* && "$ia" == *'"=r,r,0,~{dirf
 else
     bad "codegen/inline-asm-outputs-x86-64" "asm output constraints or operands differ from clang's lowering"
 fi
+# GCC register letters on x86 become LLVM's explicit registers, as clang spells them.
+ig="$("$ESKIUC" --target x86_64-unknown-linux-gnu --test-codegen "$here/inline_asm_gcc.esk" 2>/dev/null)"
+if [[ "$ig" == *'"{ax},N{dx},~{dirflag}'* && "$ig" == *'"={ax},={bx},={cx},={dx},{ax},~{dirflag}'* \
+   && "$ig" == *'"={ax},{cx},0,~{dirflag}'* && "$ig" == *'"={di},{si},~{dirflag}'* \
+   && "$ig" == *'"=&{dx},{ax},~{dirflag}'* ]]; then
+    ok "codegen/inline-asm-gcc-registers-x86-64"
+else
+    bad "codegen/inline-asm-gcc-registers-x86-64" "GCC register constraints not lowered like clang's"
+fi
 
 # <net>'s struct timeval is two C `long`s: 8 bytes on 32-bit ARM, 16 on 64-bit.
 tv_arm="$("$ESKIUC" --target armv7-unknown-linux-gnueabihf --test-codegen "$here/run_cmd/net_timeval.esk" 2>/dev/null)"

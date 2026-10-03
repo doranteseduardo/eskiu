@@ -408,6 +408,30 @@ void cg_set_target(Codegen* g, string triple) {
     }
 }
 
+// An inline asm constraint as LLVM reads it (mirrors x86AsmConstraint): on x86 a GCC
+// single-register letter is spelled out like clang does (`a` is `{ax}`, `Nd` is
+// `N{dx}`); modifiers, other letters, digits and `{...}` stay. Other targets: as written.
+string cg_asm_cons(Codegen* g, string c) {
+    if (g.abi != 3 && g.abi != 4 && g.abi != 7) { return c; }
+    String out; String_init(&out, 16);
+    int i = 0;
+    int inbr = 0;
+    while (c[i] != 0) {
+        int ch = (int)c[i];
+        i = i + 1;
+        if (inbr == 1) { if (ch == 125) { inbr = 0; } String_push(&out, (char)ch); continue; }
+        if (ch == 123) { inbr = 1; String_push(&out, (char)ch); continue; }
+        if (ch == 97) { String_append(&out, "{ax}"); }
+        else if (ch == 98) { String_append(&out, "{bx}"); }
+        else if (ch == 99) { String_append(&out, "{cx}"); }
+        else if (ch == 100) { String_append(&out, "{dx}"); }
+        else if (ch == 83) { String_append(&out, "{si}"); }
+        else if (ch == 68) { String_append(&out, "{di}"); }
+        else { String_push(&out, (char)ch); }
+    }
+    return (string)String_cstr(&out);
+}
+
 // Reserve a local `alloca <ty>` in the entry block (not inline), so a variable declared in
 // a loop body allocates ONCE, not every iteration (a long loop would otherwise overflow the
 // stack). Returns the slot name. Mirrors the C++ back-end's entryAlloca.
@@ -6742,7 +6766,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                     ntied = ntied + 1;
                 }
             } else {
-                String_append(&cons, "="); String_append(&cons, body);
+                String_append(&cons, "="); String_append(&cons, cg_asm_cons(g, body));
                 List_push<string>(&raddr, addr); List_push<string>(&rty, lty); List_push<string>(&rvol, vol);
                 if (rw == 1) {
                     string cur = cg_tmp(g);
@@ -6764,7 +6788,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             CgVal a = cg_expr(g, inp.expr);
             if (String_len(&cons) > 0) { String_append(&cons, ","); }
             if (nargs > 0) { String_append(&args, ", "); }
-            String_append(&cons, inp.name);
+            String_append(&cons, cg_asm_cons(g, inp.name));
             String_append(&args, a.ty); String_append(&args, " "); String_append(&args, a.op);
             nargs = nargs + 1;
         }

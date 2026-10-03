@@ -2501,21 +2501,21 @@ The string is passed verbatim to the assembler. No inputs, outputs, or clobbers 
 
 ### 15.2 Extended Form
 
-The extended form follows the layout of GCC inline assembly, but the constraint strings are LLVM constraint codes, passed to LLVM as written:
+The extended form follows the layout and constraints of GCC inline assembly. Constraint strings are LLVM constraint codes, which share GCC's common letters; on x86 targets (x86-64 and 32-bit x86) the GCC single-register letters are translated to LLVM's explicit form, as clang does, and every other constraint is passed to LLVM as written:
 
 ```
 asm("template" : outputs : inputs : clobbers);
 ```
 
 ```eskiu
-asm("outb ${0:b}, $1" :: "{ax}"(val), "N{dx}"(port) : "memory");   // x86
+asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");   // x86
 asm("add $0, $1, $2" : "=r"(sum) : "r"(a), "r"(b));     // AArch64
 asm("addq $1, $0" : "+r"(acc) : "r"(b));                // x86-64
 ```
 
 - **Template**: the assembly instruction string; operands are referenced LLVM-style by `$0`, `$1`, … (with modifiers like `${0:b}` for a sub-register), not `%0`/`%1`. The outputs are numbered first, then the inputs, as in GCC and clang.
-- **Outputs**: list of `"constraint"(lvalue)` pairs, written by the asm. A constraint starts with `=` (written only: `"=r"`, the early-clobber `"=&r"`, a specific register such as `"={ax}"`, or memory `"=m"`) or `+` (read and written: `"+r"`, `"+m"`). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a `const`) of an integer type other than `bool`, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A `+r` output also feeds the lvalue's current value in through an input tied to it.
-- **Inputs**: list of `"constraint"(expr)` pairs (a constraint may not start with `=` or `+`). Common constraints: `"r"` (any register), `"m"` (memory), `"i"` (an immediate), and a specific register named in braces, such as `"{ax}"` (al/ax/eax/rax by operand width) or `"N{dx}"` (an 8-bit immediate or dx). GCC's single-letter register classes such as `"a"` or `"d"` are not translated, and LLVM rejects them.
+- **Outputs**: list of `"constraint"(lvalue)` pairs, written by the asm. A constraint starts with `=` (written only: `"=r"`, the early-clobber `"=&r"`, a specific register such as `"=a"` or `"={ax}"`, or memory `"=m"`) or `+` (read and written: `"+r"`, `"+m"`). The operand must be a writable lvalue (a variable, field, element or dereference, not a bitfield or a `const`) of an integer type other than `bool`, a floating-point type or a pointer. A register output is a result of the asm stored into the lvalue afterwards; a memory output passes the lvalue's address. A `+r` output also feeds the lvalue's current value in through an input tied to it.
+- **Inputs**: list of `"constraint"(expr)` pairs (a constraint may not start with `=` or `+`). Common constraints: `"r"` (any register), `"m"` (memory), `"i"` (an immediate), and a specific register. On x86 the GCC letters name one register each: `"a"`, `"b"`, `"c"`, `"d"`, `"S"` and `"D"` become `{ax}`, `{bx}`, `{cx}`, `{dx}`, `{si}` and `{di}` (al/ax/eax/rax by operand width), keeping the modifiers (`"=a"`, `"+a"`, `"=&d"`) and the other letters of a combined constraint (`"Nd"`, an 8-bit immediate or dx, is `"N{dx}"`). LLVM's explicit form, a register in braces such as `"{ax}"` or `"N{dx}"`, is accepted as written. On other targets every constraint is passed to LLVM unchanged.
 - **Clobbers**: comma-separated list of clobbered resources. `"memory"` tells the compiler that the asm may read or write arbitrary memory (acts as a compiler barrier).
 
 Sections are separated by `:`. Trailing sections may be omitted if empty.

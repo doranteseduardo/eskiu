@@ -1416,12 +1416,12 @@ The string is passed verbatim to the assembler. Use this form for instructions t
 
 ### Inline assembly: extended form
 
-The extended form passes values in and out of the asm template. Its layout follows GCC, but the constraints are LLVM constraint codes:
+The extended form passes values in and out of the asm template. Its layout and constraints follow GCC:
 
 ```eskiu
 // Write a byte to an x86 I/O port
 void outb(uint8 val, uint16 port) {
-    asm("outb ${0:b}, $1" :: "{ax}"(val), "N{dx}"(port) : "memory");
+    asm("outb ${0:b}, $1" :: "a"(val), "Nd"(port) : "memory");
 }
 
 // Add two registers on x86-64 and read the result back
@@ -1437,7 +1437,7 @@ Syntax: `asm("template" : outputs : inputs : clobbers);` (empty sections may be 
 - Operands are `"constraint"(expression)` pairs, referenced in the template as `$0`, `$1`, ... (outputs first, then inputs).
 - An output constraint starts with `=` (written) or `+` (read and written), and its operand must be a writable variable, field, element or dereference.
 - `"memory"` in the clobber list acts as a compiler barrier.
-- Common constraints: `"r"` → any register, `"m"` → memory, a register named in braces such as `"{ax}"` (al/ax/eax/rax by width), `"N{dx}"` → 8-bit immediate or dx. GCC's single-letter register classes such as `"a"` are not accepted.
+- Common constraints: `"r"` → any register, `"m"` → memory, `"i"` → an immediate. On x86 the GCC register letters `"a"`, `"b"`, `"c"`, `"d"`, `"S"` and `"D"` pick one register (al/ax/eax/rax by width for `"a"`), and `"Nd"` is an 8-bit immediate or dx. LLVM's explicit form, a register in braces such as `"{ax}"` or `"N{dx}"`, works too; the GCC letters are translated to it.
 
 See spec §15 for the full rules.
 
