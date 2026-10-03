@@ -21,6 +21,19 @@ int64 cpu_timer_count() {
     return v;
 }
 
+// Unmask and mask IRQs (the I bit of DAIF).
+void cpu_irq_enable() {
+    asm("msr daifclr, #2" ::: "memory");
+}
+
+void cpu_irq_disable() {
+    asm("msr daifset, #2" ::: "memory");
+}
+
+void cpu_wait() {
+    asm("wfi" ::: "memory");
+}
+
 // PSCI SYSTEM_OFF. QEMU -M virt starts the kernel at EL1 and implements PSCI itself,
 // reached through `hvc` (its device tree says method = "hvc"). The call does not
 // return when it works; if it does, the core sleeps.

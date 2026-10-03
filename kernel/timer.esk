@@ -1,0 +1,37 @@
+// timer.esk: a periodic tick from the EL1 virtual timer
+//
+// The timer raises its private interrupt (PPI 11, interrupt id 27 on the GIC) once
+// the virtual counter CNTVCT_EL0 reaches the compare value CNTV_CVAL_EL0. Each tick
+// moves the compare value one interval further, which also clears the interrupt.
+// Adding to the previous deadline rather than to "now" keeps the tick from drifting
+// by the time the handler takes to run.
+
+const int64 TIMER_IRQ = 27;
+const int64 TICK_HZ = 100;
+
+volatile int64 ticks;      // written by the IRQ handler, read everywhere else
+int64 tick_interval;       // counter cycles per tick
+int64 next_deadline;
+
+void timer_set_deadline(int64 when) {
+    next_deadline = when;
+    asm("msr CNTV_CVAL_EL0, $0" :: "r"(when));
+}
+
+void timer_init() {
+    tick_interval = cpu_timer_freq() / TICK_HZ;
+    timer_set_deadline(cpu_timer_count() + tick_interval);
+    int64 enable = 1;
+    asm("msr CNTV_CTL_EL0, $0" :: "r"(enable));
+    gic_enable(TIMER_IRQ);
+}
+
+void timer_tick() {
+    timer_set_deadline(next_deadline + tick_interval);
+    ticks++;
+}
+
+// Milliseconds since timer_init, from the tick count.
+int64 uptime_ms() {
+    return ticks * 1000 / TICK_HZ;
+}
