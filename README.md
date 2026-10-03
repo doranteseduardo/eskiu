@@ -40,7 +40,7 @@ curl -fsSL https://eskiu-lang.org/install.sh | sh
 ```
 
 It downloads the prebuilt binary for your platform, verifies its checksum, and installs it.
-Prebuilt binaries (macOS arm64, Linux x86-64, Windows x86-64) are on the
+Prebuilt binaries (macOS arm64, Linux x86-64 and arm64, Windows x86-64) are on the
 [releases page](https://github.com/doranteseduardo/eskiu/releases). Or build from source:
 
 ```bash
@@ -78,12 +78,14 @@ int main() {
 
 ## Building from source
 
-Installing a release needs no toolchain, but building the compiler does:
+Building the compiler needs:
 
 - LLVM 21+ (tested with LLVM 22 and 23)
 - C++17 compiler
 - CMake 3.20+
-- A C toolchain (`cc`/`clang`/`gcc`): `eskiuc` invokes it to link executables (not needed for `--freestanding`). This one is a runtime requirement too, since compiling any program links through it.
+- A C toolchain (`cc`/`clang`/`gcc`)
+
+A released `eskiuc` needs only the C toolchain, which it calls to link executables (not needed for `--freestanding` or `-c`).
 
 ## Documentation
 
@@ -94,6 +96,6 @@ Installing a release needs no toolchain, but building the compiler does:
 | [docs/lang/spec.md](docs/lang/spec.md) | Full language reference |
 | [docs/dev/phases.md](docs/dev/phases.md) | Roadmap |
 
-## Licence
+## License
 
 MIT. See [LICENSE](LICENSE). A [ReactVision](https://reactvision.xyz) project.

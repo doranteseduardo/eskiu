@@ -1,26 +1,29 @@
 # Eskiu Language: VS Code Extension
 
-Syntax highlighting **and real-time error checking** for `.esk` files in Visual Studio Code.
+Syntax highlighting, error checking, hover types and go-to-definition for `.esk` files in
+Visual Studio Code and editors built on it (Cursor, Antigravity, VSCodium).
 
-Errors from `eskiuc --test-typechecker` appear as red underlines as you save.
+Errors from `eskiuc --test-typechecker` appear as underlines when a file is opened or
+saved. Hovering a name shows its type (`--hover-at`), and go-to-definition jumps to where
+it is declared (`--definition-at`). The extension uses the `eskiuc` on your `PATH`, or
+`build/eskiuc` when it runs from a checkout of this repository.
 
 ## Install
 
-**Option A: symlink (development, updates automatically):**
+Package the extension and install the `.vsix`:
 
 ```bash
-ln -s /path/to/eskiu/editor/vscode \
-      ~/.vscode/extensions/eskiu-language
+cd editor/vscode
+npx @vscode/vsce package --allow-missing-repository --skip-license
+code --install-extension eskiu-language-*.vsix    # or cursor / antigravity-ide / codium
 ```
 
-**Option B: copy:**
+For development, link the folder into the extensions directory instead, so edits apply
+after a window reload:
 
 ```bash
-cp -r /path/to/eskiu/editor/vscode \
-      ~/.vscode/extensions/eskiu-language
+ln -s "$PWD/editor/vscode" ~/.vscode/extensions/eskiu-language
 ```
-
-Restart VS Code after installing.
 
 ## What it highlights
 
@@ -69,7 +72,6 @@ No npm packages required; pure VS Code extension API.
 `server.js` is an alternative standalone JSON-RPC LSP server for editors
 that support LSP natively (Neovim, Helix, etc.).
 
-## Future work
+## Limitations
 
-- Snippets: `struct`, `Result<T,E>`, `extern`, `interface`
-- Go-to-definition for struct fields (currently works for functions and variables)
+Go-to-definition works for functions and variables, not yet for struct fields.

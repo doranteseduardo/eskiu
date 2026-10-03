@@ -2,7 +2,7 @@
 
 A correctness and hardening release. A full-project audit, three fuzzers and eight blind
 audit rounds on frozen trees found and fixed about 500 latent bugs across both compilers,
-the standard library and the docs, each with a regression test and lockstep in the C++ and
+the standard library and the docs, each with a regression test and fixed in both the C++ and
 self-hosted compilers. The type checker is stricter, so some programs that compiled before
 are now rejected with a located error; see "Upgrade" below.
 
