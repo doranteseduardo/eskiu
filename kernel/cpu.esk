@@ -1,0 +1,34 @@
+// cpu.esk: system registers and power control
+//
+// Each register is read with an inline-asm output operand: `"=r"(v)` asks for a
+// general-purpose register and stores it into `v` after the `mrs`.
+
+int64 cpu_current_el() {
+    int64 v = 0;
+    asm("mrs $0, CurrentEL" : "=r"(v));
+    return (v >> 2) & 3;      // the exception level is in bits [3:2]
+}
+
+int64 cpu_timer_freq() {
+    int64 v = 0;
+    asm("mrs $0, CNTFRQ_EL0" : "=r"(v));
+    return v;
+}
+
+int64 cpu_timer_count() {
+    int64 v = 0;
+    asm("isb\n\tmrs $0, CNTVCT_EL0" : "=r"(v));
+    return v;
+}
+
+// PSCI SYSTEM_OFF. QEMU -M virt starts the kernel at EL1 and implements PSCI itself,
+// reached through `hvc` (its device tree says method = "hvc"). The call does not
+// return when it works; if it does, the core sleeps.
+const int64 PSCI_SYSTEM_OFF = 0x84000008;
+
+void cpu_power_off() {
+    asm("mov x0, $0\n\thvc #0" :: "r"(PSCI_SYSTEM_OFF) : "x0", "memory");
+    while (true) {
+        asm("wfi");
+    }
+}
