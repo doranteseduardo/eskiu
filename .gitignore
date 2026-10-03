@@ -44,3 +44,7 @@ __pycache__/
 /.cache
 assets/*.tar.gz
 **/.DS_Store
+
+# Local agent state
+/.claude/settings.local.json
+/.claude/worktrees/
