@@ -49,8 +49,9 @@ assets/*.tar.gz
 /.claude/settings.local.json
 /.claude/worktrees/
 
-# Editor extension: temporary copy of an unsaved file
+# Editor extension: temporary copy of an unsaved file and packages
 *.eskiu-check.esk
+*.vsix
 
 # Gradle (IntelliJ plugin)
 .gradle/

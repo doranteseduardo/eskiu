@@ -13,6 +13,7 @@
     { "include": "#type-alias" },
     { "include": "#operator-decl" },
     { "include": "#function-decl" },
+    { "include": "#closure-type" },
     { "include": "#struct-decl" },
     { "include": "#union-decl" },
     { "include": "#interface-decl" },
@@ -141,20 +142,40 @@
     "function-decl": {
       "patterns": [
         {
+          "comment": "Function with closure return type: fn(params)->ret name(params)",
+          "match": "\\b(fn)\\s*(\\([^)]*\\))\\s*(->)\\s*(\\*?[a-zA-Z_][a-zA-Z0-9_*]*)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?:<([^>]+)>)?\\s*\\(",
+          "captures": {
+            "1": { "name": "keyword.declaration.eskiu" },
+            "2": { "name": "punctuation.parenthesis.eskiu" },
+            "3": { "name": "keyword.operator.arrow.eskiu" },
+            "4": { "name": "support.type.primitive.eskiu" },
+            "5": { "name": "entity.name.function.eskiu" },
+            "6": { "name": "entity.name.type.parameter.eskiu" }
+          }
+        },
+        {
           "comment": "Function declaration: [modifiers] [type] name<generics>(params)",
-          "match": "(?:\\b(async|static|extern|intrinsic|must_use|const)\\s+)?(?:(fn\\s*\\([^)]*\\)\\s*->\\s*[a-zA-Z_][a-zA-Z0-9_*]*)|(\\*+\\s*)?(?:(void|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|double|bool|char|string|va_list)|([A-Z][a-zA-Z0-9_]*(?:<[^>]+>)?))(\\s*\\*+)?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?:<([^>]+)>)?\\s*\\(",
+          "match": "(?:\\b(async|static|extern|intrinsic|must_use|const)\\s+)?(?:(\\*+\\s*)?(?:(void|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|double|bool|char|string|va_list)|([A-Z][a-zA-Z0-9_]*(?:<[^>]+>)?))(\\s*\\*+)?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?:<([^>]+)>)?\\s*\\(",
           "captures": {
             "1": { "name": "storage.modifier.eskiu" },
-            "2": { "name": "support.type.eskiu" },
-            "3": { "name": "keyword.operator.dereference.eskiu" },
-            "4": { "name": "support.type.primitive.eskiu" },
-            "5": { "name": "entity.name.type.eskiu" },
-            "6": { "name": "keyword.operator.dereference.eskiu" },
-            "7": { "name": "entity.name.function.eskiu" },
-            "8": { "name": "entity.name.type.parameter.eskiu" }
+            "2": { "name": "keyword.operator.dereference.eskiu" },
+            "3": { "name": "support.type.primitive.eskiu" },
+            "4": { "name": "entity.name.type.eskiu" },
+            "5": { "name": "keyword.operator.dereference.eskiu" },
+            "6": { "name": "entity.name.function.eskiu" },
+            "7": { "name": "entity.name.type.parameter.eskiu" }
           }
         }
       ]
+    },
+
+    "closure-type": {
+      "match": "\\b(fn)\\s*(\\([^)]*\\))\\s*(->)",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "punctuation.parenthesis.eskiu" },
+        "3": { "name": "keyword.operator.arrow.eskiu" }
+      }
     },
 
     "struct-decl": {
