@@ -21,26 +21,68 @@ function config() {
     return vscode.workspace.getConfiguration('eskiu');
 }
 
-// The compiler: the `eskiu.compilerPath` setting, else a `build/eskiuc` next to this
-// extension when it runs from a checkout of the repository, else `eskiuc` on PATH.
-function findEskiuc() {
+// Extra flags configured by user, e.g. ["--freestanding"]
+function getCompilerFlags() {
+    const flags = config().get('compilerFlags');
+    if (Array.isArray(flags)) return flags.filter(Boolean);
+    if (typeof flags === 'string' && flags.trim()) return flags.trim().split(/\s+/);
+    return [];
+}
+
+// The compiler: the `eskiu.compilerPath` setting, else `build22/eskiuc` or `build/eskiuc`
+// in workspace folders or above hintPath, else `eskiuc` on PATH.
+function findEskiuc(hintPath) {
     const configured = (config().get('compilerPath') || '').trim();
     if (configured) return configured;
-    const candidates = [
+    if (process.env.ESKIUC) {
+        try { fs.accessSync(process.env.ESKIUC, fs.constants.X_OK); return process.env.ESKIUC; } catch {}
+    }
+
+    const buildNames = ['build22', 'build', 'build-debug', 'build-release'];
+
+    // 1. Check workspace folders
+    const wfs = vscode.workspace.workspaceFolders || [];
+    for (const wf of wfs) {
+        for (const b of buildNames) {
+            const c = path.join(wf.uri.fsPath, b, 'eskiuc');
+            try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
+        }
+    }
+
+    // 2. Check hintPath walking up directory tree
+    if (hintPath) {
+        let cur = path.dirname(path.resolve(hintPath));
+        for (let i = 0; i < 6; i++) {
+            for (const b of buildNames) {
+                const c = path.join(cur, b, 'eskiuc');
+                try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
+            }
+            const parent = path.dirname(cur);
+            if (parent === cur) break;
+            cur = parent;
+        }
+    }
+
+    // 3. Check relative to extension installation / checkout
+    const relCandidates = [
+        path.join(__dirname, '..', '..', 'build22', 'eskiuc'),
         path.join(__dirname, '..', '..', 'build', 'eskiuc'),
+        path.join(__dirname, '..', '..', '..', 'build22', 'eskiuc'),
         path.join(__dirname, '..', '..', '..', 'build', 'eskiuc'),
     ];
-    for (const c of candidates) {
+    for (const c of relCandidates) {
         try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
     }
+
     return 'eskiuc';
 }
 
-function runCompiler(args, timeout) {
+function runCompiler(args, timeout, cwd, hintPath) {
+    const compiler = findEskiuc(hintPath);
     return new Promise((resolve) => {
-        execFile(findEskiuc(), args, { timeout }, (err, stdout, stderr) => {
+        execFile(compiler, args, { timeout, cwd }, (err, stdout, stderr) => {
             if (err && err.code === 'ENOENT') {
-                reportMissingCompiler();
+                reportMissingCompiler(compiler);
                 resolve({ ok: false, stdout: '', stderr: '' });
                 return;
             }
@@ -50,56 +92,164 @@ function runCompiler(args, timeout) {
 }
 
 let missingReported = false;
-function reportMissingCompiler() {
+function reportMissingCompiler(name) {
     if (missingReported) return;
     missingReported = true;
     vscode.window.showWarningMessage(
-        `Eskiu: could not run '${findEskiuc()}'. Install eskiuc or set "eskiu.compilerPath".`,
+        `Eskiu: could not run '${name || 'eskiuc'}'. Install eskiuc or set "eskiu.compilerPath".`,
         'Open Settings'
     ).then((choice) => {
         if (choice) vscode.commands.executeCommand('workbench.action.openSettings', 'eskiu.compilerPath');
     });
 }
 
-// Run `fn(filePath)` on the document's current text. A saved document is used as is;
-// an unsaved one is written to a hidden file next to it (same directory, so relative
-// imports resolve) that is removed afterwards. Returns fn's result and the path used.
-async function withCurrentText(document, fn) {
-    if (!document.isDirty && !document.isUntitled) {
-        return { result: await fn(document.uri.fsPath), checked: document.uri.fsPath };
+// Find an entry point (e.g. kernel.esk or main.esk) that imports docPath,
+// so multi-file symbols are resolved without spurious 'undefined variable/function' errors.
+function findEntryPoint(docPath) {
+    if (!docPath) return null;
+    const configured = (config().get('entryPoint') || '').trim();
+    if (configured) {
+        if (path.isAbsolute(configured) && fs.existsSync(configured)) return configured;
+        const wfs = vscode.workspace.workspaceFolders || [];
+        for (const wf of wfs) {
+            const p = path.join(wf.uri.fsPath, configured);
+            if (fs.existsSync(p)) return p;
+        }
+        const rel = path.join(path.dirname(docPath), configured);
+        if (fs.existsSync(rel)) return rel;
     }
-    const dir = document.isUntitled ? os.tmpdir() : path.dirname(document.uri.fsPath);
-    const base = document.isUntitled ? 'untitled.esk' : path.basename(document.uri.fsPath);
-    const tmp = path.join(dir, `.${base}.${process.pid}.eskiu-check.esk`);
+
+    const docDir = path.dirname(docPath);
+    const docBase = path.basename(docPath);
+
+    // Common root names to prioritize
+    const rootNames = ['kernel.esk', 'main.esk', 'app.esk', 'index.esk', 'root.esk'];
+    for (const r of rootNames) {
+        const rootPath = path.join(docDir, r);
+        if (rootPath !== docPath && fs.existsSync(rootPath)) {
+            try {
+                const text = fs.readFileSync(rootPath, 'utf8');
+                if (text.includes(`"${docBase}"`) || text.includes(`<${docBase}>`)) {
+                    return rootPath;
+                }
+            } catch {}
+        }
+    }
+
+    // Check sibling .esk files in the same directory
+    try {
+        const files = fs.readdirSync(docDir);
+        for (const f of files) {
+            if (!f.endsWith('.esk') || f.startsWith('.')) continue;
+            const full = path.join(docDir, f);
+            if (full === docPath) continue;
+            try {
+                const text = fs.readFileSync(full, 'utf8');
+                if (text.includes(`"${docBase}"`)) {
+                    return full;
+                }
+            } catch {}
+        }
+    } catch {}
+
+    return null;
+}
+
+// Run `fn(filePath, cwd)` on the document's current text.
+// When standalone is false, multi-file entry points (e.g. kernel.esk, main.esk)
+// are used to resolve imports and prevent false errors.
+async function withCurrentText(document, fn, standalone = false) {
+    const origPath = document.uri.fsPath;
+    const entryPoint = standalone ? null : findEntryPoint(origPath);
+    const dir = document.isUntitled ? os.tmpdir() : path.dirname(origPath);
+    const base = document.isUntitled ? 'untitled.esk' : path.basename(origPath);
+
+    if (!document.isDirty && !document.isUntitled) {
+        if (entryPoint && fs.existsSync(entryPoint)) {
+            const res = await fn(entryPoint, path.dirname(entryPoint));
+            return { result: res, checked: origPath, orig: origPath };
+        }
+        const res = await fn(origPath, dir);
+        return { result: res, checked: origPath, orig: origPath };
+    }
+
+    const tmp = path.join(dir, `.${base}.${process.pid}.${Date.now()}.eskiu-check.esk`);
     try {
         fs.writeFileSync(tmp, document.getText());
     } catch {
-        return { result: await fn(document.uri.fsPath), checked: document.uri.fsPath };
+        const fallbackTarget = entryPoint || origPath;
+        const res = await fn(fallbackTarget, path.dirname(fallbackTarget));
+        return { result: res, checked: origPath, orig: origPath };
     }
+
+    let tmpEntry = null;
     try {
-        return { result: await fn(tmp), checked: tmp };
+        if (entryPoint && fs.existsSync(entryPoint)) {
+            try {
+                const entryContent = fs.readFileSync(entryPoint, 'utf8');
+                const relTmp = path.basename(tmp);
+                const replaced = entryContent.replace(
+                    new RegExp(`(import\\s+["'][^"']*?)\\b${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(["'])`, 'g'),
+                    `$1${relTmp}$2`
+                );
+                if (replaced !== entryContent) {
+                    tmpEntry = path.join(path.dirname(entryPoint), `.${path.basename(entryPoint)}.${process.pid}.${Date.now()}.eskiu-check.esk`);
+                    fs.writeFileSync(tmpEntry, replaced);
+                }
+            } catch {}
+        }
+
+        const targetFile = tmpEntry || (entryPoint ? null : tmp);
+        if (targetFile) {
+            const res = await fn(targetFile, path.dirname(targetFile));
+            return { result: res, checked: tmp, orig: origPath };
+        } else {
+            const res = await fn(entryPoint || tmp, dir);
+            return { result: res, checked: tmp, orig: origPath };
+        }
     } finally {
         fs.rm(tmp, { force: true }, () => {});
+        if (tmpEntry) {
+            fs.rm(tmpEntry, { force: true }, () => {});
+        }
     }
 }
 
-// Diagnostics located in the checked file belong to this document (an error inside an
-// imported module names that module's file).
-function parseErrors(text, checkedPath) {
+// Diagnostics located in the checked file or original file belong to this document.
+function parseErrors(text, checkedPath, origPath, document) {
     const diagnostics = [];
     const re = /^(?:error:\s*)?(.+?):(\d+):(\d+):\s*(.+)$/gm;
-    const want = path.resolve(checkedPath);
+    const wantChecked = path.resolve(checkedPath);
+    const wantOrig = origPath ? path.resolve(origPath) : null;
     let m;
     while ((m = re.exec(text)) !== null) {
         const [, file, line, col, msg] = m;
-        if (path.resolve(file) !== want) continue;
+        const resFile = path.resolve(file);
+        const isMatch = (resFile === wantChecked) ||
+                        (wantOrig && resFile === wantOrig) ||
+                        (path.basename(resFile) === path.basename(wantChecked)) ||
+                        (wantOrig && path.basename(resFile) === path.basename(wantOrig));
+        if (!isMatch) continue;
+
         const ln = Math.max(0, parseInt(line, 10) - 1);
         const ch = Math.max(0, parseInt(col,  10) - 1);
+
+        // Find token end for a precise range squiggle
+        let endCh = ch + 1;
+        if (document && ln < document.lineCount) {
+            const lineText = document.lineAt(ln).text;
+            if (ch < lineText.length) {
+                while (endCh < lineText.length && /[a-zA-Z0-9_]/.test(lineText[endCh])) {
+                    endCh++;
+                }
+            }
+        }
+
         const severity = msg.startsWith('warning')
             ? vscode.DiagnosticSeverity.Warning
             : vscode.DiagnosticSeverity.Error;
-        const d = new vscode.Diagnostic(new vscode.Range(ln, ch, ln, ch + 1),
-            msg.replace(/^(error|warning):\s*/, ''), severity);
+        const cleanMsg = msg.replace(/^(error|warning):\s*/, '');
+        const d = new vscode.Diagnostic(new vscode.Range(ln, ch, ln, endCh), cleanMsg, severity);
         d.source = 'eskiuc';
         diagnostics.push(d);
     }
@@ -109,10 +259,11 @@ function parseErrors(text, checkedPath) {
 async function validate(document) {
     if (document.languageId !== 'eskiu') return;
     const version = document.version;
-    const { result, checked } = await withCurrentText(document, (file) =>
-        runCompiler([file, '--test-typechecker'], 10000));
-    if (document.isClosed || document.version !== version) return;   // a newer check follows
-    diagnosticCollection.set(document.uri, parseErrors(result.stdout + result.stderr, checked));
+    const extraFlags = getCompilerFlags();
+    const { result, checked, orig } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...extraFlags, '--test-typechecker'], 10000, cwd, document.uri.fsPath));
+    if (document.isClosed || document.version !== version) return;
+    diagnosticCollection.set(document.uri, parseErrors(result.stdout + result.stderr, checked, orig, document));
 }
 
 function scheduleValidate(document) {
@@ -127,21 +278,27 @@ function scheduleValidate(document) {
 
 async function hover(document, position) {
     const at = `${position.line + 1}:${position.character + 1}`;
-    const { result } = await withCurrentText(document, (file) =>
-        runCompiler([file, '--hover-at', at], 5000));
-    const type = result.stdout.trim();
-    if (!type || type.startsWith('(')) return null;
-    return new vscode.Hover(new vscode.MarkdownString(`\`\`\`eskiu\n${type}\n\`\`\``));
+    const extraFlags = getCompilerFlags();
+    const { result } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...extraFlags, '--hover-at', at], 5000, cwd, document.uri.fsPath), true);
+    const lines = result.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+    const lastLine = lines[lines.length - 1] || '';
+    if (!lastLine || lastLine.startsWith('(') || lastLine.startsWith('error:')) return null;
+    return new vscode.Hover(new vscode.MarkdownString(`\`\`\`eskiu\n${lastLine}\n\`\`\``));
 }
 
 async function definition(document, position) {
     const at = `${position.line + 1}:${position.character + 1}`;
-    const { result, checked } = await withCurrentText(document, (file) =>
-        runCompiler([file, '--definition-at', at], 5000));
-    const m = result.stdout.trim().match(/^(.+):(\d+):(\d+)$/);
+    const extraFlags = getCompilerFlags();
+    const { result, checked } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...extraFlags, '--definition-at', at], 5000, cwd, document.uri.fsPath), true);
+    const m = result.stdout.trim().match(/^(.+):(\d+):(\d+)$/m);
     if (!m) return null;
     const [, file, line, col] = m;
-    const target = path.resolve(file) === path.resolve(checked) ? document.uri : vscode.Uri.file(file);
+    const target = path.resolve(file) === path.resolve(checked) ||
+                   path.basename(file) === path.basename(document.uri.fsPath)
+        ? document.uri
+        : vscode.Uri.file(path.resolve(path.dirname(checked), file));
     return new vscode.Location(target, new vscode.Position(
         Math.max(0, parseInt(line, 10) - 1), Math.max(0, parseInt(col, 10) - 1)));
 }
@@ -152,7 +309,7 @@ async function format(document) {
     const tmp = path.join(os.tmpdir(), `eskiu-fmt-${process.pid}-${Date.now()}.esk`);
     try {
         fs.writeFileSync(tmp, document.getText());
-        const r = await runCompiler(['fmt', tmp], 10000);
+        const r = await runCompiler(['fmt', tmp], 10000, undefined, document.uri.fsPath);
         if (!r.ok) return [];
         const formatted = fs.readFileSync(tmp, 'utf8');
         if (formatted === document.getText()) return [];
@@ -186,7 +343,8 @@ async function runFile(uri) {
     let terminal = vscode.window.terminals.find((t) => t.name === 'Eskiu');
     if (!terminal) terminal = vscode.window.createTerminal('Eskiu');
     terminal.show(true);
-    terminal.sendText(`${quote(findEskiuc())} run ${quote(document.uri.fsPath)}`);
+    const compiler = findEskiuc(document.uri.fsPath);
+    terminal.sendText(`${quote(compiler)} run ${quote(document.uri.fsPath)}`);
 }
 
 function activate(context) {
@@ -203,7 +361,7 @@ function activate(context) {
             diagnosticCollection.delete(doc.uri);
         }),
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('eskiu.compilerPath')) {
+            if (e.affectsConfiguration('eskiu')) {
                 missingReported = false;
                 vscode.workspace.textDocuments.forEach(validate);
             }

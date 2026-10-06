@@ -47,13 +47,32 @@ function send(obj) {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
-// Path to eskiuc: $ESKIUC, else next to this file, else PATH
-function findEskiuc() {
-    if (process.env.ESKIUC) return process.env.ESKIUC;
+// Path to eskiuc: $ESKIUC, else build22/build walking upwards or next to this file, else PATH
+function findEskiuc(hintPath) {
+    if (process.env.ESKIUC) {
+        try { fs.accessSync(process.env.ESKIUC, fs.constants.X_OK); return process.env.ESKIUC; } catch {}
+    }
+
+    const buildNames = ['build22', 'build', 'build-debug', 'build-release'];
+
+    if (hintPath) {
+        let cur = path.dirname(path.resolve(hintPath));
+        for (let i = 0; i < 6; i++) {
+            for (const b of buildNames) {
+                const c = path.join(cur, b, 'eskiuc');
+                try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
+            }
+            const parent = path.dirname(cur);
+            if (parent === cur) break;
+            cur = parent;
+        }
+    }
+
     const candidates = [
+        path.join(__dirname, '..', '..', 'build22', 'eskiuc'),
         path.join(__dirname, '..', '..', 'build', 'eskiuc'),
+        path.join(__dirname, '..', '..', '..', 'build22', 'eskiuc'),
         path.join(__dirname, '..', '..', '..', 'build', 'eskiuc'),
-        'eskiuc',
     ];
     for (const c of candidates) {
         try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
@@ -61,7 +80,43 @@ function findEskiuc() {
     return 'eskiuc'; // rely on PATH
 }
 
-const ESKIUC = findEskiuc();
+// Find an entry point (e.g. kernel.esk or main.esk) that imports filePath,
+// so multi-file symbols are resolved without spurious 'undefined variable/function' errors.
+function findEntryPoint(filePath) {
+    if (!filePath) return null;
+    const docDir = path.dirname(filePath);
+    const docBase = path.basename(filePath);
+
+    const rootNames = ['kernel.esk', 'main.esk', 'app.esk', 'index.esk', 'root.esk'];
+    for (const r of rootNames) {
+        const rootPath = path.join(docDir, r);
+        if (rootPath !== filePath && fs.existsSync(rootPath)) {
+            try {
+                const text = fs.readFileSync(rootPath, 'utf8');
+                if (text.includes(`"${docBase}"`) || text.includes(`<${docBase}>`)) {
+                    return rootPath;
+                }
+            } catch {}
+        }
+    }
+
+    try {
+        const files = fs.readdirSync(docDir);
+        for (const f of files) {
+            if (!f.endsWith('.esk') || f.startsWith('.')) continue;
+            const full = path.join(docDir, f);
+            if (full === filePath) continue;
+            try {
+                const text = fs.readFileSync(full, 'utf8');
+                if (text.includes(`"${docBase}"`)) {
+                    return full;
+                }
+            } catch {}
+        }
+    } catch {}
+
+    return null;
+}
 
 // The extension's own version (serverInfo), read from package.json next to us.
 const VERSION = (() => {
@@ -69,22 +124,37 @@ const VERSION = (() => {
     catch { return 'unknown'; }
 })();
 
-// Parse "file.esk:8:22: message" → LSP Diagnostic. Only diagnostics located in
-// `filePath` belong to this document (an error inside an imported module names
-// that module's file, and its line numbers mean nothing here).
-function parseErrors(text, filePath) {
+// Parse "file.esk:8:22: message" → LSP Diagnostic.
+function parseErrors(text, checkedPath, origPath, fileContent) {
     const diagnostics = [];
     const re = /^(?:error:\s*)?(.+?):(\d+):(\d+):\s*(.+)$/gm;
-    const want = path.resolve(filePath);
+    const wantChecked = path.resolve(checkedPath);
+    const wantOrig = origPath ? path.resolve(origPath) : null;
+    const lines = fileContent ? fileContent.split('\n') : null;
     let m;
     while ((m = re.exec(text)) !== null) {
         const [, file, line, col, msg] = m;
-        if (path.resolve(file) !== want) continue;
-        const ln  = Math.max(0, parseInt(line, 10) - 1);
-        const ch  = Math.max(0, parseInt(col,  10) - 1);
+        const resFile = path.resolve(file);
+        const isMatch = (resFile === wantChecked) ||
+                        (wantOrig && resFile === wantOrig) ||
+                        (path.basename(resFile) === path.basename(wantChecked)) ||
+                        (wantOrig && path.basename(resFile) === path.basename(wantOrig));
+        if (!isMatch) continue;
+
+        const ln = Math.max(0, parseInt(line, 10) - 1);
+        const ch = Math.max(0, parseInt(col,  10) - 1);
+
+        let endCh = ch + 1;
+        if (lines && ln < lines.length) {
+            const lineText = lines[ln];
+            while (endCh < lineText.length && /[a-zA-Z0-9_]/.test(lineText[endCh])) {
+                endCh++;
+            }
+        }
+
         diagnostics.push({
             range: { start: { line: ln, character: ch },
-                     end:   { line: ln, character: ch + 1 } },
+                     end:   { line: ln, character: endCh } },
             severity: msg.startsWith('warning') ? 2 : 1,
             source:   'eskiuc',
             message:  msg.replace(/^error:\s*/, '').replace(/^warning:\s*/, ''),
@@ -94,11 +164,19 @@ function parseErrors(text, filePath) {
 }
 
 // Run eskiuc and publish diagnostics for a document
-function validate(uri, filePath) {
-    execFile(ESKIUC, [filePath, '--test-typechecker'], { timeout: 10000 },
+function validate(uri, filePath, content) {
+    const compiler = findEskiuc(filePath);
+    const entryPoint = findEntryPoint(filePath);
+    const target = entryPoint || filePath;
+    let fileText = content;
+    if (fileText == null) {
+        try { fileText = fs.readFileSync(filePath, 'utf8'); } catch {}
+    }
+
+    execFile(compiler, [target, '--test-typechecker'], { timeout: 10000, cwd: path.dirname(target) },
         (err, stdout, stderr) => {
             const output = (stdout || '') + (stderr || '');
-            const diagnostics = parseErrors(output, filePath);
+            const diagnostics = parseErrors(output, target, filePath, fileText);
             send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
                    params: { uri, diagnostics } });
         }
@@ -131,8 +209,8 @@ function handleMessage(msg) {
     if (method === 'exit')     { process.exit(0); }
 
     if (method === 'textDocument/didOpen') {
-        const { uri } = params.textDocument;
-        if (uri.endsWith('.esk')) validate(uri, uriToPath(uri));
+        const { uri, text } = params.textDocument;
+        if (uri.endsWith('.esk')) validate(uri, uriToPath(uri), text);
         return;
     }
 
@@ -143,32 +221,52 @@ function handleMessage(msg) {
     }
 
     if (method === 'textDocument/didChange') {
-        // Write content to a temp file and validate
         const uri = params.textDocument && params.textDocument.uri;
         const contentChanges = params.contentChanges;
         if (!uri || !uri.endsWith('.esk')) return;
-        // Full sync: the (last) change holds the whole document.
         const content = contentChanges?.[contentChanges.length - 1]?.text;
         if (content == null) return;
-        // Check the unsaved text from a temp file NEXT TO the original, so relative
-        // imports resolve exactly as they do for the saved file.
+
         const orig = uriToPath(uri);
-        let tmp = path.join(path.dirname(orig), `.eskiu_lsp_${process.pid}_${Date.now()}.esk`);
+        const compiler = findEskiuc(orig);
+        const entryPoint = findEntryPoint(orig);
+        const dir = path.dirname(orig);
+        const base = path.basename(orig);
+
+        let tmp = path.join(dir, `.eskiu_lsp_${process.pid}_${Date.now()}.esk`);
         try { fs.writeFileSync(tmp, content); }
         catch {
-            tmp = path.join(require('os').tmpdir(), `eskiu_lsp_${process.pid}_${Date.now()}.esk`);
+            tmp = path.join(require('os').tmpdir(), `.eskiu_lsp_${process.pid}_${Date.now()}.esk`);
             fs.writeFileSync(tmp, content);
         }
-        execFile(ESKIUC, [tmp, '--test-typechecker'], { timeout: 10000 },
+
+        let tmpEntry = null;
+        if (entryPoint && fs.existsSync(entryPoint)) {
+            try {
+                const entryContent = fs.readFileSync(entryPoint, 'utf8');
+                const relTmp = path.basename(tmp);
+                const replaced = entryContent.replace(
+                    new RegExp(`(import\\s+["'][^"']*?)\\b${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(["'])`, 'g'),
+                    `$1${relTmp}$2`
+                );
+                if (replaced !== entryContent) {
+                    tmpEntry = path.join(path.dirname(entryPoint), `.eskiu_lsp_entry_${process.pid}_${Date.now()}.esk`);
+                    fs.writeFileSync(tmpEntry, replaced);
+                }
+            } catch {}
+        }
+
+        const runTarget = tmpEntry || (entryPoint ? null : tmp) || tmp;
+
+        execFile(compiler, [runTarget, '--test-typechecker'], { timeout: 10000, cwd: path.dirname(runTarget) },
             (err, stdout, stderr) => {
                 try { fs.unlinkSync(tmp); } catch {}
-                // Remap temp file path back to original URI
-                const output = ((stdout || '') + (stderr || '')).replace(
-                    new RegExp(tmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-                    orig
-                );
+                if (tmpEntry) { try { fs.unlinkSync(tmpEntry); } catch {} }
+
+                const output = (stdout || '') + (stderr || '');
+                const diagnostics = parseErrors(output, tmp, orig, content);
                 send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
-                       params: { uri, diagnostics: parseErrors(output, orig) } });
+                       params: { uri, diagnostics } });
             }
         );
         return;

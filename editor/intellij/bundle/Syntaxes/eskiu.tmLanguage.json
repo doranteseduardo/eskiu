@@ -4,23 +4,24 @@
   "scopeName": "source.eskiu",
   "fileTypes": ["esk"],
   "patterns": [
-    { "include": "#preprocessor" },
     { "include": "#comments" },
+    { "include": "#preprocessor" },
     { "include": "#strings" },
     { "include": "#char-literals" },
     { "include": "#numbers" },
-    { "include": "#member-access" },
     { "include": "#import" },
     { "include": "#type-alias" },
+    { "include": "#operator-decl" },
+    { "include": "#function-decl" },
+    { "include": "#struct-decl" },
+    { "include": "#union-decl" },
+    { "include": "#interface-decl" },
+    { "include": "#enum-decl" },
+    { "include": "#member-access" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#constants" },
-    { "include": "#extern-decl" },
-    { "include": "#struct-decl" },
-    { "include": "#interface-decl" },
-    { "include": "#enum-decl" },
-    { "include": "#function-decl" },
-    { "include": "#template-params" },
+    { "include": "#generics" },
     { "include": "#operators" },
     { "include": "#identifiers" }
   ],
@@ -29,7 +30,7 @@
     "preprocessor": {
       "patterns": [
         {
-          "match": "^\\s*(#)\\s*(define|undef|ifdef|ifndef|else|endif|pragma|error)\\b",
+          "match": "^\\s*(#)\\s*(define|undef|ifdef|ifndef|if|elif|else|endif|pragma|error)\\b",
           "captures": {
             "1": { "name": "punctuation.definition.directive.eskiu" },
             "2": { "name": "keyword.control.directive.eskiu" }
@@ -87,7 +88,7 @@
         },
         {
           "name": "constant.numeric.float.eskiu",
-          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b|(?<![\\w.])\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
         },
         {
           "name": "constant.numeric.integer.eskiu",
@@ -96,19 +97,115 @@
       ]
     },
 
-    "constants": {
+    "import": {
       "patterns": [
         {
-          "name": "constant.language.boolean.eskiu",
-          "match": "\\b(true|false)\\b"
+          "comment": "Angle-bracket stdlib import: import <mem>;",
+          "match": "^\\s*(import)\\s+(<)([a-zA-Z0-9_/]+)(>)",
+          "captures": {
+            "1": { "name": "keyword.declaration.eskiu" },
+            "2": { "name": "punctuation.definition.import.begin.eskiu" },
+            "3": { "name": "entity.name.namespace.eskiu" },
+            "4": { "name": "punctuation.definition.import.end.eskiu" }
+          }
         },
         {
-          "name": "constant.language.null.eskiu",
-          "match": "\\bnull\\b"
+          "comment": "Local file import: import \"path.esk\";",
+          "match": "^\\s*(import)\\s+(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "keyword.declaration.eskiu" },
+            "2": { "name": "string.quoted.double.eskiu" }
+          }
+        }
+      ]
+    },
+
+    "type-alias": {
+      "comment": "Contextual: type Alias = Underlying;",
+      "match": "^\\s*(type)\\s+([A-Za-z_][a-zA-Z0-9_]*)\\s*(=)",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "entity.name.type.eskiu" },
+        "3": { "name": "keyword.operator.assignment.eskiu" }
+      }
+    },
+
+    "operator-decl": {
+      "match": "\\b(operator)\\s*(\\+\\+|--|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|==|!=|<=|>=|&&|\\|\\||<<|>>|[+\\-*/%^&|~!=<>]|\\[\\])\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "entity.name.function.eskiu" }
+      }
+    },
+
+    "function-decl": {
+      "patterns": [
+        {
+          "comment": "Function declaration: [modifiers] [type] name<generics>(params)",
+          "match": "(?:\\b(async|static|extern|intrinsic|must_use|const)\\s+)?(?:(fn\\s*\\([^)]*\\)\\s*->\\s*[a-zA-Z_][a-zA-Z0-9_*]*)|(\\*+\\s*)?(?:(void|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|double|bool|char|string|va_list)|([A-Z][a-zA-Z0-9_]*(?:<[^>]+>)?))(\\s*\\*+)?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?:<([^>]+)>)?\\s*\\(",
+          "captures": {
+            "1": { "name": "storage.modifier.eskiu" },
+            "2": { "name": "support.type.eskiu" },
+            "3": { "name": "keyword.operator.dereference.eskiu" },
+            "4": { "name": "support.type.primitive.eskiu" },
+            "5": { "name": "entity.name.type.eskiu" },
+            "6": { "name": "keyword.operator.dereference.eskiu" },
+            "7": { "name": "entity.name.function.eskiu" },
+            "8": { "name": "entity.name.type.parameter.eskiu" }
+          }
+        }
+      ]
+    },
+
+    "struct-decl": {
+      "match": "\\b(struct)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "entity.name.type.eskiu" }
+      }
+    },
+
+    "union-decl": {
+      "match": "\\b(union)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "entity.name.type.eskiu" }
+      }
+    },
+
+    "interface-decl": {
+      "match": "\\b(interface)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "entity.name.type.eskiu" }
+      }
+    },
+
+    "enum-decl": {
+      "match": "\\b(enum)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.eskiu" },
+        "2": { "name": "entity.name.type.eskiu" }
+      }
+    },
+
+    "member-access": {
+      "patterns": [
+        {
+          "comment": "Method call: .method(",
+          "match": "(\\.)\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "punctuation.accessor.eskiu" },
+            "2": { "name": "entity.name.function.call.eskiu" }
+          }
         },
         {
-          "name": "constant.language.preprocessor.eskiu",
-          "match": "\\b(__FILE__|__LINE__)\\b"
+          "comment": "Field access: .field",
+          "match": "(\\.)\\s*([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "punctuation.accessor.eskiu" },
+            "2": { "name": "variable.other.member.eskiu" }
+          }
         }
       ]
     },
@@ -116,10 +213,19 @@
     "keywords": {
       "patterns": [
         {
+          "comment": "Labeled loop: label: for / while / do",
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)(?=\\s*\\b(for|while|do)\\b)",
           "captures": {
             "1": { "name": "entity.name.label.eskiu" },
             "2": { "name": "punctuation.separator.label.eskiu" }
+          }
+        },
+        {
+          "comment": "Labeled jump: break / continue label;",
+          "match": "\\b(break|continue)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.eskiu" },
+            "2": { "name": "entity.name.label.eskiu" }
           }
         },
         {
@@ -150,98 +256,47 @@
       "match": "\\b(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|double|bool|char|string|void|va_list)\\b"
     },
 
-    "import": {
+    "constants": {
       "patterns": [
         {
-          "comment": "Angle-bracket stdlib import: import <mem>;",
-          "match": "^\\s*(import)\\s+(<)([a-zA-Z_][a-zA-Z0-9_]*)(>)",
-          "captures": {
-            "1": { "name": "keyword.declaration.eskiu" },
-            "2": { "name": "punctuation.definition.import.begin.eskiu" },
-            "3": { "name": "entity.name.namespace.eskiu" },
-            "4": { "name": "punctuation.definition.import.end.eskiu" }
-          }
+          "name": "constant.language.boolean.eskiu",
+          "match": "\\b(true|false)\\b"
         },
         {
-          "comment": "Local file import: import \"path.esk\";",
-          "match": "^\\s*(import)\\s+(\"[^\"]*\")",
-          "captures": {
-            "1": { "name": "keyword.declaration.eskiu" },
-            "2": { "name": "string.quoted.double.eskiu" }
-          }
+          "name": "constant.language.null.eskiu",
+          "match": "\\bnull\\b"
+        },
+        {
+          "name": "constant.language.preprocessor.eskiu",
+          "match": "\\b(__FILE__|__LINE__)\\b"
         }
       ]
     },
 
-    "type-alias": {
-      "comment": "Contextual: type Alias = Underlying; ('type' is not a reserved word)",
-      "match": "^\\s*(type)\\s+([A-Za-z_][a-zA-Z0-9_]*)\\s*(=)",
-      "captures": {
-        "1": { "name": "keyword.declaration.eskiu" },
-        "2": { "name": "entity.name.type.eskiu" },
-        "3": { "name": "keyword.operator.assignment.eskiu" }
-      }
-    },
-
-    "extern-decl": {
-      "match": "\\b(extern)\\b",
-      "captures": {
-        "1": { "name": "keyword.declaration.eskiu" }
-      }
-    },
-
-    "struct-decl": {
-      "match": "\\b(struct)\\s+([A-Z][a-zA-Z0-9_]*)(?:<([^>]*)>)?",
-      "captures": {
-        "1": { "name": "keyword.declaration.eskiu" },
-        "2": { "name": "entity.name.type.eskiu" },
-        "3": { "name": "entity.name.type.parameter.eskiu" }
-      }
-    },
-
-    "interface-decl": {
-      "match": "\\b(interface)\\s+([A-Z][a-zA-Z0-9_]*)",
-      "captures": {
-        "1": { "name": "keyword.declaration.eskiu" },
-        "2": { "name": "entity.name.type.eskiu" }
-      }
-    },
-
-    "enum-decl": {
-      "match": "\\b(enum)\\s+([A-Z][a-zA-Z0-9_]*)",
-      "captures": {
-        "1": { "name": "keyword.declaration.eskiu" },
-        "2": { "name": "entity.name.type.eskiu" }
-      }
-    },
-
-    "function-decl": {
+    "generics": {
+      "begin": "(<)(?=[a-zA-Z0-9_*,< >]+>)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.bracket.angle.begin.eskiu" }
+      },
+      "end": ">",
+      "endCaptures": {
+        "0": { "name": "punctuation.bracket.angle.end.eskiu" }
+      },
       "patterns": [
-        {
-          "comment": "Type-qualified function: int foo<T>(T x) { or void foo(",
-          "match": "(?<![\\w.])([a-zA-Z_][a-zA-Z0-9_<>,*\\s]*)\\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:<[^>]*>)?\\s*\\(",
-          "captures": {
-            "2": { "name": "entity.name.function.eskiu" }
-          }
-        }
-      ]
-    },
-
-    "template-params": {
-      "patterns": [
-        {
-          "comment": "Template type arguments: Result<int, string>",
-          "match": "\\b([A-Z][a-zA-Z0-9_]*)(<[^>]+>)",
-          "captures": {
-            "1": { "name": "entity.name.type.eskiu" },
-            "2": { "name": "meta.generic.eskiu" }
-          }
-        }
+        { "include": "#types" },
+        { "include": "#identifiers" },
+        { "include": "#generics" },
+        { "match": ",", "name": "punctuation.separator.comma.eskiu" },
+        { "match": "\\*", "name": "keyword.operator.dereference.eskiu" }
       ]
     },
 
     "operators": {
       "patterns": [
+        {
+          "name": "keyword.operator.increment-decrement.eskiu",
+          "match": "\\+\\+|--"
+        },
         {
           "name": "keyword.operator.assignment.eskiu",
           "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>="
@@ -271,23 +326,12 @@
           "match": "\\.\\."
         },
         {
-          "name": "keyword.operator.assignment.eskiu",
-          "match": "(?<![=!<>])=(?!=)"
-        }
-      ]
-    },
-
-    "member-access": {
-      "patterns": [
-        {
-          "comment": "A name after `.` is a member, even a keyword (`j.int(5)`): a method call",
-          "match": "(?<!\\.)\\.\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
-          "captures": { "1": { "name": "entity.name.function.call.eskiu" } }
+          "name": "keyword.operator.null-coalescing.eskiu",
+          "match": "\\?"
         },
         {
-          "comment": "A name after `.` is a member, even a keyword (`x.int`): a field",
-          "match": "(?<!\\.)\\.\\s*([A-Za-z_][A-Za-z0-9_]*)\\b",
-          "captures": { "1": { "name": "variable.other.member.eskiu" } }
+          "name": "keyword.operator.assignment.eskiu",
+          "match": "(?<![=!<>])=(?!=)"
         }
       ]
     },
@@ -295,14 +339,19 @@
     "identifiers": {
       "patterns": [
         {
-          "comment": "Uppercase-starting names are types",
+          "comment": "ALL_CAPS constants like SPIN_SECONDS, TICK_HZ",
+          "name": "constant.other.caps.eskiu",
+          "match": "\\b[A-Z][A-Z0-9_]+\\b"
+        },
+        {
+          "comment": "Types starting with uppercase like Event, Point, or single-letter T",
           "name": "entity.name.type.eskiu",
           "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
         },
         {
           "comment": "Call expressions: foo(",
           "name": "entity.name.function.call.eskiu",
-          "match": "\\b([a-z_][a-zA-Z0-9_]*)(?=\\s*\\()"
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*\\()"
         }
       ]
     }
