@@ -431,11 +431,12 @@ if command -v node >/dev/null 2>&1; then
     if [[ "$lsp_out" == "ok" ]]; then ok "editor/lsp-server"; else bad "editor/lsp-server" "$lsp_out"; fi
 fi
 
-# ---- go-to-definition -------------------------------------------------------
+# ---- go-to-definition and hover ---------------------------------------------
 # tests/lsp/NAME.esk lists `// DEF L:C L2:C2` queries: --definition-at L:C must
 # resolve to L2:C2 in the same file (the symbol scope lookup picked, not a
 # same-named one elsewhere).
-echo "Go-to-definition:"
+# `// HOVER L:C TYPE` queries: --hover-at L:C must resolve to TYPE.
+echo "Go-to-definition and hover:"
 for esk in "$here"/lsp/*.esk; do
     [[ -e "$esk" ]] || continue
     name="lsp/$(basename "$esk" .esk)"
@@ -447,7 +448,64 @@ for esk in "$here"/lsp/*.esk; do
             bad "$name $q" "expected $want, got '$got'"
         fi
     done < <(grep '^// DEF ' "$esk" | sed 's#^// DEF ##')
+
+    while read -r q want; do
+        got="$("$ESKIUC" "$esk" --hover-at "$q" 2>/dev/null | tail -n 1)"
+        if [[ "$got" == "$want" ]]; then
+            ok "$name hover $q"
+        else
+            bad "$name hover $q" "expected '$want', got '$got'"
+        fi
+    done < <(grep '^// HOVER ' "$esk" | sed 's#^// HOVER ##')
 done
+
+# LSP error handling: parse error, semantic error, and missing symbol
+echo "LSP diagnostics:"
+lsp_tmp="$work/lsp_syntax_err.tmp.esk"
+echo "int f( {" > "$lsp_tmp"
+got_parse="$("$ESKIUC" "$lsp_tmp" --hover-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_parse" == "(parse error)" ]]; then
+    ok "lsp/hover parse error"
+else
+    bad "lsp/hover parse error" "expected '(parse error)', got '$got_parse'"
+fi
+
+got_parse_def="$("$ESKIUC" "$lsp_tmp" --definition-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_parse_def" == "(parse error)" ]]; then
+    ok "lsp/definition parse error"
+else
+    bad "lsp/definition parse error" "expected '(parse error)', got '$got_parse_def'"
+fi
+
+lsp_sema_tmp="$work/lsp_sema_err.tmp.esk"
+echo "int f() { return undefined_var; }" > "$lsp_sema_tmp"
+got_sema="$("$ESKIUC" "$lsp_sema_tmp" --hover-at 1:18 2>/dev/null | tail -n 1)"
+if [[ "$got_sema" == "(semantic error)" ]]; then
+    ok "lsp/hover semantic error"
+else
+    bad "lsp/hover semantic error" "expected '(semantic error)', got '$got_sema'"
+fi
+
+got_sema_def="$("$ESKIUC" "$lsp_sema_tmp" --definition-at 1:18 2>/dev/null | tail -n 1)"
+if [[ "$got_sema_def" == "(semantic error)" ]]; then
+    ok "lsp/definition semantic error"
+else
+    bad "lsp/definition semantic error" "expected '(semantic error)', got '$got_sema_def'"
+fi
+
+got_empty_hover="$("$ESKIUC" "$here/lsp/scoped_defs.esk" --hover-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_empty_hover" == "(no type at 1:1)" ]]; then
+    ok "lsp/hover no symbol"
+else
+    bad "lsp/hover no symbol" "expected '(no type at 1:1)', got '$got_empty_hover'"
+fi
+
+got_empty_def="$("$ESKIUC" "$here/lsp/scoped_defs.esk" --definition-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_empty_def" == "(no definition at 1:1)" ]]; then
+    ok "lsp/definition no symbol"
+else
+    bad "lsp/definition no symbol" "expected '(no definition at 1:1)', got '$got_empty_def'"
+fi
 
 # ---- formatter idempotency ------------------------------------------------
 # `eskiuc fmt` must be idempotent: formatting an already-formatted file is a

@@ -25,6 +25,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   program did not call itself: as with clang `-ffreestanding`, every function is marked
   `"no-builtins"` and the optimizer assumes no C library, so a byte loop stays a loop at
   `-O2` instead of becoming a call that fails to link without libc. Both compilers.
+- In the compiler driver, `--hover-at` and `--definition-at` explicitly differentiate missing
+  symbols (`(no type at L:C)` / `(no definition at L:C)`), semantic errors (`(semantic error)`),
+  and internal compiler crashes (writing to `stderr` and exiting with code 1 and `(internal error)`)
+  rather than catching all exceptions into `(error)` with exit code 0.
 
 ---
 
@@ -104,6 +108,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - The playground image downloads the release from GitHub and checks it against
   `SHA256SUMS`, instead of a copy of the compiler committed under `playground/dist`.
 - `kernel/Makefile` uses `clang` from `PATH`.
+
+### Known issues
+None. There are no known open miscompiles in 0.9.3.
 
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
@@ -1105,20 +1112,19 @@ input. What is still open is listed under Known issues.
 - A method call on a non-struct value (`x.foo()` with `x` an `int`) reports one error, `undefined method 'foo' on type 'int'`, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).
 
 ### Known issues
-These are open in 0.9.2. None of them miscompiles a valid program.
+These were open in 0.9.2 (all resolved in 0.9.3; see [0.9.3] Fixed):
 
 - An `await` inside a `finally` or a `defer` is rejected: both run without suspending
   when a cancelled future is dropped. In a generic async function an `await` is also
   rejected in a `match` arm that binds a payload, after an operand with a side effect in
-  the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
-  (The generic cases are fixed in 0.9.3.)
+  the same expression, and inside a `?:` arm. (Resolved in 0.9.3.)
 - A method that mutates a captured value inside a lambda acts on the closure's copy
-  (captures are by value); write through a pointer to share state.
-- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so
-  constant-expression checks do not see it (codegen gets its size right).
+  (captures are by value). (Made an error in 0.9.3: captured values are read-only.)
+- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield.
+  (Resolved in 0.9.3 with unnamed bitfield support.)
 - The self-hosted compiler generates code for deeply nested binary expressions
-  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear. (Fixed in 0.9.3.)
+  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth.
+  (Resolved in 0.9.3: linear time).
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
