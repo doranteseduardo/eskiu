@@ -57,3 +57,11 @@ tests/selfhost/cg_bootstrap.sh          # three-stage fixpoint
 ```
 
 They take the C++ compiler from `ESKIUC` (default `build/eskiuc`) and clang from `CLANG`.
+
+## Execution backend and distribution model (Roadmap to 1.0)
+
+`eskiuc-esk` serves as a full self-hosting validation engine and bootstrap compiler:
+
+- **Backend mechanism:** It emits structured textual LLVM IR (`.ll`) directly from Eskiu and invokes an external C toolchain (`clang` via `$CLANG`) to assemble machine code and link system libraries.
+- **Runtime prerequisites:** `clang` is required on `$PATH` to produce executable binaries when using `eskiuc-esk`. CMake automatically detects `clang` and gracefully skips the self-hosted build target when clang is unavailable (such as under MSVC).
+- **Distribution strategy for 1.0:** The primary shipped binary release remains the C++ `eskiuc` (which bundles LLVM and links via system `cc`/`clang`/`gcc`). For 1.0, `eskiuc-esk` formally declares `clang` as an explicit runtime requirement for self-hosted execution, keeping the self-hosted compiler lightweight, transparent, and free of heavyweight C++ LLVM library linkage.

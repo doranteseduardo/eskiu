@@ -6,8 +6,9 @@ and the full command line, and it behaves like the C++ `eskiuc` over the entire 
 corpus. [`docs/dev/self-hosting.md`](../docs/dev/self-hosting.md) explains how that is
 checked.
 
-The C++ `eskiuc` is still the released binary: it bundles LLVM, while this compiler writes
-LLVM IR as text and calls `clang` to assemble and link it.
+The C++ `eskiuc` is the released binary distribution (bundling LLVM and linking via the
+system C compiler). This self-hosted compiler writes LLVM IR as text and explicitly relies
+on `clang` (`$CLANG`, default `clang`) at runtime to assemble and link native binaries.
 
 ## Building
 
