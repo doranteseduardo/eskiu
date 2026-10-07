@@ -568,6 +568,16 @@ if [ -f "$rt_src" ]; then
     fi
 fi
 
+# ---- structural LLVM IR assertions ----------------------------------------
+if [ -x "$here/ir_golden.sh" ]; then
+    echo "Structural LLVM IR checks:"
+    if "$here/ir_golden.sh" "$ESKIUC" >"$work/ir_golden.log" 2>&1; then
+        ok "ir/golden_assertions"
+    else
+        bad "ir/golden_assertions" "$(cat "$work/ir_golden.log")"
+    fi
+fi
+
 # ---- summary --------------------------------------------------------------
 echo
 echo "------------------------------------------------------------"
