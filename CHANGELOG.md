@@ -10,10 +10,22 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Added
+
+- A targeted leak-checking test suite in `tests/leaks.sh` validates memory-critical constructs
+  (async coroutine frames, cancellation cleanups, escaping closure envs, channels, defer unwinding,
+  and explicit allocators) under AddressSanitizer with `detect_leaks=1`.
+- Structural LLVM IR assertions in `tests/ir_golden.sh` (integrated into `tests/run.sh`) directly
+  verify ABI attributes (`sret`, `signext`/`zeroext`, `__gxx_personality_v0`, `landingpad`, and
+  `@__cabi_*` callback thunks).
+
 ### Changed
 
 - The bare-metal ARM64 kernel in `kernel/` uses current Eskiu: a `volatile` PL011 driver, `.bss` cleared through `extern` linker symbols, the stdlib `Bump` heap, system registers read with inline-asm outputs, and a PSCI power off at the end. `make -C kernel check` boots it in QEMU and checks its output, and CI runs it on Linux.
 - The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. `make check` types a shell session into it and boots both an `-O0` and an `-O2` build.
+- The recursive-descent parser encapsulates speculative backtracking into explicit `speculate()`
+  and `speculateIf()` templates that specifically catch syntax `ParseError`s rather than unconstrained
+  catch-all blocks, guaranteeing that nesting limits (`NestingError`) and unexpected exceptions propagate immediately.
 
 ### Fixed
 - Under `--freestanding`, the environment of an escaping closure is allocated with the
