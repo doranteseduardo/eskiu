@@ -651,6 +651,7 @@ int main(int argc, char** argv) {
             return args.rc;
         }
     }
+    std::cerr << "warning: could not allocate dedicated stack thread; falling back to caller stack\n";
     return compilerMain(argc, argv);
 #endif
 }
