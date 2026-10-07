@@ -139,6 +139,43 @@ private:
     // Backtrack to a saved position, undoing a `>>` split made at or after it.
     void rewindTo(size_t pos);
 
+    // ParseError represents syntax errors reported by `fail()`. A speculative parse
+    // catches ParseError to rewind and try an alternative reading, while letting
+    // other exceptions (NestingError, std::bad_alloc, internal errors) propagate.
+    struct ParseError : std::runtime_error { using std::runtime_error::runtime_error; };
+
+    // Speculatively execute `fn()`. If `fn()` throws NestingError, it rethrows immediately.
+    // If it throws ParseError, rewinds to `savePos` and returns a default-constructed result.
+    template <typename F>
+    auto speculate(F&& fn) -> decltype(fn()) {
+        size_t savePos = current;
+        try {
+            return fn();
+        } catch (const NestingError&) {
+            throw;
+        } catch (const ParseError&) {
+            rewindTo(savePos);
+            return decltype(fn()){};
+        }
+    }
+
+    // Speculatively execute `fn()` with conditional backtracking: only backtracks if
+    // `shouldBacktrack(startingToken)` is true; otherwise rethrows the ParseError to surface
+    // the accurate error diagnostic.
+    template <typename F, typename ShouldBacktrack>
+    auto speculateIf(F&& fn, ShouldBacktrack&& shouldBacktrack) -> decltype(fn()) {
+        size_t savePos = current;
+        try {
+            return fn();
+        } catch (const NestingError&) {
+            throw;
+        } catch (const ParseError&) {
+            if (!shouldBacktrack(tokens[savePos].type)) throw;
+            rewindTo(savePos);
+            return decltype(fn()){};
+        }
+    }
+
     // Helper methods
     Token peek() const;
     Token peek_ahead(int n = 1) const;

@@ -136,7 +136,7 @@ void Parser::fail(const std::string& message) { fail(message, peek()); }
 void Parser::fail(const std::string& message, const Token& at) {
     errLine = at.line;
     errCol = at.column;
-    throw std::runtime_error(message);
+    throw ParseError(message);
 }
 
 // Does `t` begin a top-level declaration (a type, a qualifier, a decl keyword)?

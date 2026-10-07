@@ -183,26 +183,23 @@ BlockItem Parser::parseBlockItem() {
         check(TokenType::STAR) || check(TokenType::IDENT) ||
         isPrimitiveTypeToken(peek().type))) {
 
-        size_t savePos = current;
-        try {
-            DeclPtr decl = parseDeclaration();
-            if (decl) {
-                if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
-                return decl;
+        DeclPtr decl = speculateIf([&]() -> DeclPtr {
+            DeclPtr d = parseDeclaration();
+            if (d) {
+                if (auto* vd = dynamic_cast<VarDecl*>(d.get())) localVars.push_back(vd->name);
+                return d;
             }
-        } catch (const NestingError&) {
-            throw;
-        } catch (...) {
+            throw ParseError("not a declaration");
+        }, [](TokenType startTok) {
             // Only an identifier or a leading '*' is ambiguous (it can also
             // begin an expression statement); fall back for those. A leading
             // type keyword / const / volatile / let is unambiguously a
             // declaration, so its error is real: surface it instead of
             // masking it with a misleading expression-parse error (keeps the
             // "expected a name, found keyword 'fn'" diagnostic for `int fn;`).
-            TokenType startTok = tokens[savePos].type;
-            if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-            rewindTo(savePos);
-        }
+            return startTok == TokenType::IDENT || startTok == TokenType::STAR;
+        });
+        if (decl) return decl;
     }
     return parseStatement();
 }
@@ -306,19 +303,19 @@ StmtPtr Parser::parseForStatement() {
     StmtPtr init = nullptr;
     if (!check(TokenType::SEMICOLON)) {
         // Try declaration (e.g. int i = 0;) then fall back to expression
-        size_t savePos = current;
-        try {
+        init = speculateIf([&]() -> StmtPtr {
             DeclPtr decl = parseDeclaration();
-            if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
-            init = std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
-        } catch (const NestingError&) {
-            throw;
-        } catch (...) {
+            if (decl) {
+                if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) localVars.push_back(vd->name);
+                return std::make_shared<BlockStmt>(std::vector<BlockItem>{decl});
+            }
+            throw ParseError("not a declaration");
+        }, [](TokenType startTok) {
             // Unambiguous decl starts (type keyword/const/volatile/let) surface
             // their real error; only IDENT/'*' fall back to an expression.
-            TokenType startTok = tokens[savePos].type;
-            if (startTok != TokenType::IDENT && startTok != TokenType::STAR) throw;
-            rewindTo(savePos);
+            return startTok == TokenType::IDENT || startTok == TokenType::STAR;
+        });
+        if (!init) {
             init = parseExpressionStatement();
         }
     } else {
