@@ -124,6 +124,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ### Known issues
 None. There are no known open miscompiles in 0.9.3.
 
+#### Resolved from 0.9.2
+These issues were open in 0.9.2 and resolved in 0.9.3 (see [0.9.3] Fixed):
+
+- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an `await` is also
+  rejected in a `match` arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a `?:` arm.
+- A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value; made an error in 0.9.3: captured values are read-only).
+- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield.
+- The self-hosted compiler generates code for deeply nested binary expressions
+  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth.
+
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
@@ -133,7 +146,7 @@ ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved
 known limitations left from 0.9.1 (R and S). Seven more blind audit rounds followed, each
 on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
 rounds concentrated on the C ABI, generics, `volatile` and the HTTP servers under hostile
-input. What is still open is listed under Known issues.
+input. What was still open at the time was resolved in 0.9.3 (see [0.9.3] Resolved from 0.9.2).
 
 ### Added
 - **`#pragma link("name")`** links the executable with `-lname`. The driver also adds
@@ -1122,21 +1135,6 @@ input. What is still open is listed under Known issues.
 - A generic dot-call on an rvalue receiver (`mk().get(0)`, a call result) passes the address of a temporary holding it, as a struct method call does (the C++ compiler failed with an unlocated error, the self-host emitted invalid IR). Test `generic_dot_call_rvalue`.
 - An inline asm operand naming a local or parameter of an `async` function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test `asm_async_locals`.
 - A method call on a non-struct value (`x.foo()` with `x` an `int`) reports one error, `undefined method 'foo' on type 'int'`, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).
-
-### Known issues
-These were open in 0.9.2 (all resolved in 0.9.3; see [0.9.3] Fixed):
-
-- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
-  when a cancelled future is dropped. In a generic async function an `await` is also
-  rejected in a `match` arm that binds a payload, after an operand with a side effect in
-  the same expression, and inside a `?:` arm. (Resolved in 0.9.3.)
-- A method that mutates a captured value inside a lambda acts on the closure's copy
-  (captures are by value). (Made an error in 0.9.3: captured values are read-only.)
-- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield.
-  (Resolved in 0.9.3 with unnamed bitfield support.)
-- The self-hosted compiler generates code for deeply nested binary expressions
-  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth.
-  (Resolved in 0.9.3: linear time).
 
 ## [0.9.1] - 2026-09-09
 ### Fixed
