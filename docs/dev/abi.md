@@ -191,6 +191,11 @@ The coerced types match what clang emits for the same C signature
 for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
 `va_list` are not C aggregates and keep their own layout.
 
+Where gcc and clang disagree, Eskiu follows clang. The one known case: since GCC 12, gcc on
+x86-64 classifies a struct holding a zero-width bitfield (`uint32 : 0;`) differently when it
+is passed or returned by value, so such a struct crossing an `extern` matches C compiled by
+clang, not by GCC 12 or later.
+
 **Narrow integers.** Like clang, an `extern`'s `int8`/`int16`/`uint8`/`uint16`/
 `bool`/`char` parameters and results are declared `signext` or `zeroext` (by the
 type's signedness; `char` follows the target's C `char`, unsigned on AArch64 and

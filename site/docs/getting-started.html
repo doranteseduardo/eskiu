@@ -1065,11 +1065,15 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;fs&gt;</code></td>
-<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_flush</code>, <code>fs_read</code>, <code>fs_readline</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code></td>
+<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_flush</code>, <code>fs_read</code>, <code>fs_readline</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code>; <code>fs_read_text</code>, <code>fs_write_text</code>, <code>fs_append_text</code>, <code>fs_read_lines</code>, <code>fs_stat</code>, <code>fs_exists</code>, <code>fs_is_dir</code>, <code>fs_is_file</code>, <code>fs_mkdir</code>, <code>fs_mkdir_p</code>, <code>fs_remove</code>, <code>fs_remove_all</code>, <code>fs_rename</code>, <code>fs_copy</code>, <code>fs_list_dir</code>, <code>fs_walk</code>, <code>fs_glob</code>, <code>fs_cwd</code>, <code>fs_chdir</code>, <code>fs_temp_file</code>, <code>fs_temp_dir</code>, <code>fs_last_error</code></td>
 </tr>
 <tr>
 <td><code>&lt;net&gt;</code></td>
-<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
+<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code> (IPv4 address or host name), <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
+</tr>
+<tr>
+<td><code>&lt;dns&gt;</code></td>
+<td><code>dns_resolve</code> (IPv4 and IPv6 addresses of a host), <code>dns_free_list</code>, <code>dns_last_error</code></td>
 </tr>
 <tr>
 <td><code>&lt;http&gt;</code></td>
@@ -1113,7 +1117,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>
-<td><code>env_get</code>, <code>env_has</code>, <code>env_get_or</code>, <code>env_get_int</code></td>
+<td><code>env_get</code>, <code>env_has</code>, <code>env_get_or</code>, <code>env_get_int</code>, <code>env_set</code>, <code>env_unset</code>, <code>env_list</code></td>
+</tr>
+<tr>
+<td><code>&lt;process&gt;</code></td>
+<td><code>process_run</code> (capture output, stdin text, cwd, env, timeout), <code>sh</code>, <code>sh_with</code>, <code>process_spawn</code> + <code>Process_write_stdin</code>/<code>_read</code>/<code>_wait</code>/<code>_kill</code>, <code>process_exit</code>, <code>process_pid</code></td>
 </tr>
 <tr>
 <td><code>&lt;path&gt;</code></td>

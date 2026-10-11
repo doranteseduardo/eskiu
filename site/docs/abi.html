@@ -398,6 +398,10 @@ converts to and from it, so it links against C compiled by clang/gcc:</p>
 (<code>tests/selfhost/cabi_parity.sh</code> checks the 32-bit x86 ones against clang's IR
 for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
 <code>va_list</code> are not C aggregates and keep their own layout.</p>
+<p>Where gcc and clang disagree, Eskiu follows clang. The one known case: since GCC 12, gcc on
+x86-64 classifies a struct holding a zero-width bitfield (<code>uint32 : 0;</code>) differently when it
+is passed or returned by value, so such a struct crossing an <code>extern</code> matches C compiled by
+clang, not by GCC 12 or later.</p>
 <p><strong>Narrow integers.</strong> Like clang, an <code>extern</code>'s <code>int8</code>/<code>int16</code>/<code>uint8</code>/<code>uint16</code>/
 <code>bool</code>/<code>char</code> parameters and results are declared <code>signext</code> or <code>zeroext</code> (by the
 type's signedness; <code>char</code> follows the target's C <code>char</code>, unsigned on AArch64 and

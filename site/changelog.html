@@ -161,10 +161,33 @@ a:hover { color: var(--ink); }
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
 <h2 id="unreleased">[Unreleased]</h2>
+<h3 id="added">Added</h3>
+<ul>
+<li>A targeted leak-checking test suite in <code>tests/leaks.sh</code> validates memory-critical constructs
+  (async coroutine frames, cancellation cleanups, escaping closure envs, channels, defer unwinding,
+  and explicit allocators) under AddressSanitizer with <code>detect_leaks=1</code>.</li>
+<li>Structural LLVM IR assertions in <code>tests/ir_golden.sh</code> (integrated into <code>tests/run.sh</code>) directly
+  verify ABI attributes (<code>sret</code>, <code>signext</code>/<code>zeroext</code>, <code>__gxx_personality_v0</code>, <code>landingpad</code>, and
+  <code>@__cabi_*</code> callback thunks).</li>
+<li><code>&lt;fs&gt;</code>: <code>fs_read_text</code>, <code>fs_write_text</code>, <code>fs_append_text</code>, <code>fs_read_lines</code>, <code>fs_stat</code>/<code>fs_lstat</code>
+  (<code>FileStat</code>), <code>fs_exists</code>, <code>fs_is_dir</code>, <code>fs_is_file</code>, <code>fs_mkdir</code>, <code>fs_mkdir_p</code>, <code>fs_remove</code>,
+  <code>fs_remove_all</code>, <code>fs_rename</code>, <code>fs_copy</code>, <code>fs_list_dir</code> (sorted), <code>fs_walk</code>, <code>fs_glob</code> and
+  <code>fs_match</code>, <code>fs_cwd</code>, <code>fs_chdir</code>, <code>fs_temp_file</code>, <code>fs_temp_dir</code>, and <code>fs_last_error</code>/<code>fs_errno</code>.
+  Actions return 0 or -1. Paths are UTF-8 on Windows too (<code>_wfopen</code> and the wide Win32 calls).</li>
+<li><code>&lt;process&gt;</code>: <code>process_run</code> and <code>sh</code>/<code>sh_with</code> capture stdout and stderr into a <code>ProcessResult</code>
+  (stdin text, cwd, extra environment, timeout); <code>process_spawn</code> with <code>Process_write_stdin</code>,
+  <code>Process_read</code>, <code>Process_wait</code>, <code>Process_kill</code>; <code>process_exit</code>, <code>process_pid</code>.</li>
+<li><code>&lt;env&gt;</code>: <code>env_set</code>, <code>env_unset</code>, <code>env_list</code>.</li>
+<li><code>&lt;dns&gt;</code>: <code>dns_resolve</code> (IPv4 and IPv6 through <code>getaddrinfo</code>). <code>net_tcp_connect</code> accepts a host
+  name or an IPv6 address and tries each address; a dotted IPv4 address works as before.</li>
+</ul>
 <h3 id="changed">Changed</h3>
 <ul>
 <li>The bare-metal ARM64 kernel in <code>kernel/</code> uses current Eskiu: a <code>volatile</code> PL011 driver, <code>.bss</code> cleared through <code>extern</code> linker symbols, the stdlib <code>Bump</code> heap, system registers read with inline-asm outputs, and a PSCI power off at the end. <code>make -C kernel check</code> boots it in QEMU and checks its output, and CI runs it on Linux.</li>
 <li>The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. <code>make check</code> types a shell session into it and boots both an <code>-O0</code> and an <code>-O2</code> build.</li>
+<li>The recursive-descent parser encapsulates speculative backtracking into explicit <code>speculate()</code>
+  and <code>speculateIf()</code> templates that specifically catch syntax <code>ParseError</code>s rather than unconstrained
+  catch-all blocks, guaranteeing that nesting limits (<code>NestingError</code>) and unexpected exceptions propagate immediately.</li>
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
@@ -177,10 +200,14 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   program did not call itself: as with clang <code>-ffreestanding</code>, every function is marked
   <code>"no-builtins"</code> and the optimizer assumes no C library, so a byte loop stays a loop at
   <code>-O2</code> instead of becoming a call that fails to link without libc. Both compilers.</li>
+<li>In the compiler driver, <code>--hover-at</code> and <code>--definition-at</code> explicitly differentiate missing
+  symbols (<code>(no type at L:C)</code> / <code>(no definition at L:C)</code>), semantic errors (<code>(semantic error)</code>),
+  and internal compiler crashes (writing to <code>stderr</code> and exiting with code 1 and <code>(internal error)</code>)
+  rather than catching all exceptions into <code>(error)</code> with exit code 0.</li>
 </ul>
 <hr>
 <h2 id="093-2026-10-02">[0.9.3] - 2026-10-02</h2>
-<h3 id="added">Added</h3>
+<h3 id="added_1">Added</h3>
 <ul>
 <li><strong><code>await</code> inside <code>finally</code> and <code>defer</code></strong> in an async function. The cleanup suspends and
   resumes like any other await: on fall-through, an early <code>return</code> (the value is kept),
@@ -258,6 +285,21 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   <code>SHA256SUMS</code>, instead of a copy of the compiler committed under <code>playground/dist</code>.</li>
 <li><code>kernel/Makefile</code> uses <code>clang</code> from <code>PATH</code>.</li>
 </ul>
+<h3 id="known-issues">Known issues</h3>
+<p>None. There are no known open miscompiles in 0.9.3.</p>
+<h4 id="resolved-from-092">Resolved from 0.9.2</h4>
+<p>These issues were open in 0.9.2 and resolved in 0.9.3 (see [0.9.3] Fixed):</p>
+<ul>
+<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an <code>await</code> is also
+  rejected in a <code>match</code> arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a <code>?:</code> arm.</li>
+<li>A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value; made an error in 0.9.3: captured values are read-only).</li>
+<li>The type checker does not fold <code>sizeof</code> of a struct with an unnamed <code>: 0</code> bitfield.</li>
+<li>The self-hosted compiler generates code for deeply nested binary expressions
+  (<code>a + (a + (...))</code>, thousands of levels) in time quadratic in their depth.</li>
+</ul>
 <h2 id="092-2026-09-29">[0.9.2] - 2026-09-29</h2>
 <p>A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
@@ -267,8 +309,8 @@ ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved
 known limitations left from 0.9.1 (R and S). Seven more blind audit rounds followed, each
 on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
 rounds concentrated on the C ABI, generics, <code>volatile</code> and the HTTP servers under hostile
-input. What is still open is listed under Known issues.</p>
-<h3 id="added_1">Added</h3>
+input. What was still open at the time was resolved in 0.9.3 (see [0.9.3] Resolved from 0.9.2).</p>
+<h3 id="added_2">Added</h3>
 <ul>
 <li><strong><code>#pragma link("name")</code></strong> links the executable with <code>-lname</code>. The driver also adds
   the libraries a program implies: the stdlib's own pragmas (<code>libm</code> on Linux, <code>pthread</code>,
@@ -1285,22 +1327,6 @@ input. What is still open is listed under Known issues.</p>
 <li>An inline asm operand naming a local or parameter of an <code>async</code> function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test <code>asm_async_locals</code>.</li>
 <li>A method call on a non-struct value (<code>x.foo()</code> with <code>x</code> an <code>int</code>) reports one error, <code>undefined method 'foo' on type 'int'</code>, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).</li>
 </ul>
-<h3 id="known-issues">Known issues</h3>
-<p>These are open in 0.9.2. None of them miscompiles a valid program.</p>
-<ul>
-<li>An <code>await</code> inside a <code>finally</code> or a <code>defer</code> is rejected: both run without suspending
-  when a cancelled future is dropped. In a generic async function an <code>await</code> is also
-  rejected in a <code>match</code> arm that binds a payload, after an operand with a side effect in
-  the same expression, and inside a <code>?:</code> arm. Bind the awaited value to a local first.
-  (The generic cases are fixed in 0.9.3.)</li>
-<li>A method that mutates a captured value inside a lambda acts on the closure's copy
-  (captures are by value); write through a pointer to share state.</li>
-<li>The type checker does not fold <code>sizeof</code> of a struct with an unnamed <code>: 0</code> bitfield, so
-  constant-expression checks do not see it (codegen gets its size right).</li>
-<li>The self-hosted compiler generates code for deeply nested binary expressions
-  (<code>a + (a + (...))</code>, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear. (Fixed in 0.9.3.)</li>
-</ul>
 <h2 id="091-2026-09-09">[0.9.1] - 2026-09-09</h2>
 <h3 id="fixed_3">Fixed</h3>
 <p>A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
@@ -1329,7 +1355,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   miscompile.</li>
 </ul>
 <h2 id="090-2026-09-08">[0.9.0] - 2026-09-08</h2>
-<h3 id="added_2">Added</h3>
+<h3 id="added_3">Added</h3>
 <ul>
 <li><strong>Labeled <code>break</code> and <code>continue</code>.</strong> A loop can be named with a leading label
   (<code>outer: for (...) { ... }</code>), and <code>break outer</code> / <code>continue outer</code> act on that loop
@@ -1385,7 +1411,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   (<code>windows.yml</code>): a <code>try</code>/<code>catch</code> program compiles, links with the mingw C++ runtime, and
   catches the throw.</li>
 </ul>
-<h3 id="added_3">Added</h3>
+<h3 id="added_4">Added</h3>
 <ul>
 <li><strong><code>match</code> on classic (payload-less) enums.</strong> A plain <code>enum Dir { N, E, S, W }</code> can now be
   <code>match</code>ed with exhaustiveness checking, the same guarantee algebraic enums already had:
@@ -1424,7 +1450,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   whose raw heap is not already zero (Linux), while working on those whose is (macOS).</li>
 </ul>
 <h2 id="070">[0.7.0]</h2>
-<h3 id="added_4">Added</h3>
+<h3 id="added_5">Added</h3>
 <ul>
 <li><strong><code>extern</code> variables.</strong> <code>extern &lt;type&gt; &lt;name&gt;;</code> declares a global defined in another
   translation unit (a C global), emitting an external-linkage declaration with no
@@ -1466,7 +1492,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="062">[0.6.2]</h2>
-<h3 id="added_5">Added</h3>
+<h3 id="added_6">Added</h3>
 <ul>
 <li><strong>Cross-compilation targets the right platform.</strong> The <code>--target</code> triple now drives the
   predefined platform macro (<code>__APPLE__</code> / <code>__linux__</code>), so <code>eskiuc --target x86_64-linux-gnu</code>
@@ -1498,7 +1524,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 </ul>
 <hr>
 <h2 id="061">[0.6.1]</h2>
-<h3 id="added_6">Added</h3>
+<h3 id="added_7">Added</h3>
 <ul>
 <li><strong><code>\xNN</code> hex escape</strong> in string and character literals: one or two hex digits decode
   to a raw byte, so byte-precise strings are possible (e.g. <code>"\xC3\x91"</code> is <code>Ñ</code> in UTF-8,
@@ -1535,7 +1561,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   spec section and a <code>--safe</code> flag row, and corrected glossary token-type names.</li>
 </ul>
 <h2 id="060">[0.6.0]</h2>
-<h3 id="added_7">Added</h3>
+<h3 id="added_8">Added</h3>
 <ul>
 <li><strong><code>&lt;sort&gt;</code> stdlib module.</strong> Generic in-place <code>sort&lt;T&gt;(a, n, cmp)</code> (heapsort, a
   guaranteed O(n log n) worst case) and <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> over a <code>*T</code> array,
@@ -1602,7 +1628,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 <p>Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.</p>
-<h3 id="added_8">Added</h3>
+<h3 id="added_9">Added</h3>
 <ul>
 <li><strong><code>do</code>/<code>while</code> loops.</strong> <code>do { ... } while (cond);</code> runs the body once before testing
   the condition, as in C.</li>
@@ -1820,7 +1846,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
   4 GB. They are now <code>int64</code>, matching <code>size_t</code>. Behavior is unchanged for the common
   sub-4 GB case (the value zero-extends into the argument register either way).</li>
 </ul>
-<h3 id="added_9">Added</h3>
+<h3 id="added_10">Added</h3>
 <ul>
 <li><strong><code>-O</code> optimization levels.</strong> <code>eskiuc -O1</code>/<code>-O2</code>/<code>-O3</code> now runs the LLVM middle-end
   pipeline (mem2reg/SROA/instcombine/inlining/GVN/...) over the module before code
@@ -2004,7 +2030,7 @@ corpus</strong> (a full feature sweep is clean). All parity/self-host/bootstrap 
 </ul>
 <hr>
 <h2 id="025">[0.2.5]</h2>
-<h3 id="added_10">Added</h3>
+<h3 id="added_11">Added</h3>
 <ul>
 <li><strong><code>&lt;ctype&gt;</code> stdlib module.</strong> Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): <code>is_space</code>, <code>is_digit</code>, <code>is_hex</code>, <code>is_alpha</code>, <code>is_alnum</code>,
@@ -2374,7 +2400,7 @@ thread_join(t);
 <li><code>volatile</code> MMIO, <code>asm(...)</code> with GCC-compatible constraints</li>
 </ul>
 <h2 id="0014-alpha">[0.0.14-alpha]</h2>
-<h3 id="added_11">Added</h3>
+<h3 id="added_12">Added</h3>
 <p><strong>Inline assembly</strong>
 - <code>asm("cli");</code>: simple form; passes the string verbatim to the assembler with no inputs, outputs, or clobbers
 - <code>asm("outb %0, %1" :: "a"(val), "Nd"(port) : "memory");</code>: extended form with GCC-compatible constraint syntax; supports input operands and clobber lists (no output operands)
@@ -2397,7 +2423,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0012-alpha">[0.0.12-alpha]</h2>
-<h3 id="added_12">Added</h3>
+<h3 id="added_13">Added</h3>
 <p><strong>Lambdas and function pointer types</strong>
 - <code>fn(T,...)-&gt;R</code> function pointer type syntax: first-class function types usable in variable declarations, struct fields, and parameter lists
 - Anonymous function expressions: <code>int(int x) { return x * 2; }</code>, C-like syntax producing a function pointer value
@@ -2413,7 +2439,7 @@ thread_join(t);
 <p><strong>switch/case type checking</strong>
 - The type checker now validates that each <code>case</code> value is compatible with the <code>switch</code> subject expression type; mismatched case types are reported as errors at the <code>case</code> token position</p>
 <h2 id="0011-alpha">[0.0.11-alpha]</h2>
-<h3 id="added_13">Added</h3>
+<h3 id="added_14">Added</h3>
 <p><strong>Crypto pipeline demo rewritten in Eskiu (no C pipeline code)</strong>
 - AES-256-CBC + RSA-8192 pipeline, hex/base64 decoders and the JSON output stage moved from C to Eskiu calling OpenSSL via <code>extern</code> (the demo has since been removed from the repository)</p>
 <p><strong>String literal adjacent concatenation</strong>
@@ -2430,7 +2456,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="0010-alpha">[0.0.10-alpha]</h2>
-<h3 id="added_14">Added</h3>
+<h3 id="added_15">Added</h3>
 <p><strong>Global variables</strong>
 - <code>VarDecl</code> at module scope now emits <code>llvm::GlobalVariable</code> instead of <code>alloca</code>
 - Constant initializers folded at compile time: <code>int</code>, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>, <code>null</code>
@@ -2457,7 +2483,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="009-alpha">[0.0.9-alpha]</h2>
-<h3 id="added_15">Added</h3>
+<h3 id="added_16">Added</h3>
 <ul>
 <li><strong>Crypto pipeline demo</strong>: a QR extraction + AES-256-CBC + RSA-8192 pipeline ported to Eskiu, 74.4 ms total vs. 188.9 ms for the reference C (since removed from the repository)</li>
 </ul>
@@ -2468,7 +2494,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="008-alpha">[0.0.8-alpha]</h2>
-<h3 id="added_16">Added</h3>
+<h3 id="added_17">Added</h3>
 <ul>
 <li><strong><code>import "file.esk"</code></strong>: multi-file support with paths resolved relative to the importing file's directory; recursive imports with deduplication (a file imported more than once is parsed only once); <code>Parser.basedir</code> + <code>importedFiles</code> set propagated to sub-parsers</li>
 <li><strong>Interface vtable dispatch</strong>: <code>interface I { void method(); }</code> generates <code>%I_vtable = type { ptr, ... }</code> and <code>%I_fat = type { ptr data, ptr vtable }</code> LLVM types; structs are auto-boxed at call sites via <code>boxAsInterface()</code>; method dispatch loads the vtable pointer from the fat pointer and calls indirectly; <code>getExprEskiuType</code> extended to handle <code>UnaryExpr("&amp;", ...)</code> and <code>UnaryExpr("*", ...)</code> for boxing detection</li>
@@ -2481,7 +2507,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="007-alpha">[0.0.7-alpha]</h2>
-<h3 id="added_17">Added</h3>
+<h3 id="added_18">Added</h3>
 <ul>
 <li><strong>Bitwise operators</strong></li>
 <li>Binary: <code>&amp;</code>, <code>|</code>, <code>^</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>, new precedence levels in parser (bitwiseOr → bitwiseXor → bitwiseAnd → equality → shift → comparison → additive)</li>
@@ -2505,7 +2531,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="006-alpha">[0.0.6-alpha]</h2>
-<h3 id="added_18">Added</h3>
+<h3 id="added_19">Added</h3>
 <ul>
 <li><strong>Source locations in errors</strong>: <code>ASTNode</code> now carries <code>line</code>/<code>col</code>; parser stamps all expression and statement nodes; errors now report <code>file.esk:line:col:</code> instead of <code>file.esk:0:0:</code>; filename taken from the CLI input path</li>
 <li><strong><code>&amp;</code> address-of operator</strong>: correctly returns the lvalue pointer (alloca), enabling <code>fn(&amp;localVar)</code> patterns and template method calls via <code>self</code> pointer</li>
@@ -2523,7 +2549,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="005-alpha">[0.0.5-alpha]</h2>
-<h3 id="added_19">Added</h3>
+<h3 id="added_20">Added</h3>
 <ul>
 <li><strong><code>switch</code>/<code>case</code></strong>: <code>SwitchStmt</code> AST node with <code>Case { value, stmts }</code> list; full visitor chain; parser handles <code>switch (expr) { case val: stmts break; default: stmts }</code> with fallthrough support; codegen emits LLVM <code>switch</code> instruction with <code>ConstantInt</code> case values; <code>break</code> branches to <code>switch.end</code> via existing <code>breakTarget</code> mechanism</li>
 <li><strong>Function templates</strong>: <code>fn Name&lt;T, E&gt;(T x) -&gt; RetType&lt;T,E&gt; { ... }</code>; <code>FunctionDecl.typeParams</code> field; <code>TemplateCallExpr</code> AST node parsed in <code>parsePostfix()</code>; lazy instantiation via <code>typeParamOverride</code> map that intercepts all type lookups during template body emission; context save/restore preserves insert point and <code>currentFunction</code> when instantiating inside another function's body; <code>substType</code> handles <code>Name&lt;T,E&gt;</code> nested substitution recursively</li>
@@ -2542,7 +2568,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="004-alpha">[0.0.4-alpha]</h2>
-<h3 id="added_20">Added</h3>
+<h3 id="added_21">Added</h3>
 <ul>
 <li><strong>Template struct declaration</strong>: <code>struct Result&lt;T, E&gt; { ... }</code>; <code>StructDecl</code> gains <code>typeParams</code> field; template declarations are stored in a separate registry and not emitted to LLVM until first use</li>
 <li><strong>Template type references</strong>: <code>Result&lt;int, string&gt;</code> parsed in <code>parseType()</code> via <code>IDENT &lt; TYPE, ... &gt;</code> lookahead; stored as <code>"Result&lt;int,string&gt;"</code> in the AST</li>
@@ -2559,7 +2585,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="003-alpha">[0.0.3-alpha]</h2>
-<h3 id="added_21">Added</h3>
+<h3 id="added_22">Added</h3>
 <ul>
 <li><strong><code>alloc(T, N)</code></strong>: new <code>AllocExpr</code> AST node; emits <code>call @malloc(i64 N * sizeof(T))</code>; <code>sizeof(T)</code> resolved via <code>DataLayout</code> initialized at the start of <code>generateCode()</code></li>
 <li><strong><code>free(ptr)</code></strong>: parsed as a regular call; <code>free</code> pre-registered in the type checker as variadic; auto-declared in the LLVM module on first use, no explicit <code>extern</code> required</li>
@@ -2573,7 +2599,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="002-alpha">[0.0.2-alpha]</h2>
-<h3 id="added_22">Added</h3>
+<h3 id="added_23">Added</h3>
 <ul>
 <li><strong>Struct codegen</strong>: <code>llvm::StructType::create</code> per <code>StructDecl</code>; <code>alloca %StructType</code> for locals; field read/write via <code>getelementptr</code></li>
 <li><strong>Fixed-size array fields</strong>: <code>uint8[858]</code> → <code>[858 x i8]</code>; parser now captures the array size (was previously discarded); <code>IndexExpr</code> codegen via GEP for both <code>T[N]</code> and <code>*T</code></li>
@@ -2595,7 +2621,7 @@ thread_join(t);
 </ul>
 <hr>
 <h2 id="001-alpha">[0.0.1-alpha]</h2>
-<h3 id="added_23">Added</h3>
+<h3 id="added_24">Added</h3>
 <ul>
 <li><strong>Phase 0: Build system and CLI</strong>. CMake build with LLVM 17+ integration; <code>--version</code> flag; <code>--test-lexer</code>, <code>--test-parser</code>, <code>--test-typechecker</code>, <code>--test-codegen</code> modes; <code>file:line:col</code> error reporting</li>
 <li><strong>Phase 1: Lexer</strong>. Complete tokenizer with line/col tracking; all Eskiu keywords (<code>int</code>, <code>float</code>, <code>uint8</code>–<code>uint64</code>, <code>int8</code>–<code>int64</code>, <code>struct</code>, <code>interface</code>, <code>enum</code>, <code>alloc</code>, <code>free</code>, <code>extern</code>, <code>thread</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, and more); <code>COLON</code> token for type annotations</li>
