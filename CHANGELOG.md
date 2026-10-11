@@ -50,6 +50,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   catch-all blocks, guaranteeing that nesting limits (`NestingError`) and unexpected exceptions propagate immediately.
 
 ### Fixed
+- The self-hosted compiler resolves a dot-call on a generic instance to a non-generic function
+  named after the instance (`w.count(10)` with `w: List<string>` calls `List_string_count`), as
+  the C++ compiler does; it reported "undefined method". Test `generic_instance_method_free`.
 - Under `--freestanding`, the environment of an escaping closure is allocated with the
   program's `esk_alloc` and `free_closure` releases it with `esk_free`, the pair `<mem>`
   uses there; before, they called libc's `malloc` and `free`. Both compilers.

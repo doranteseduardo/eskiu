@@ -5257,6 +5257,15 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 }
             }
             *DeclNode ffn = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mem.sval));
+            if (ffn == null) {
+                // On a generic instance a non-generic `G_int_m(G<int>* self, ...)` serves the
+                // call too (the instance's flat name, as the C++ method lookup tries).
+                string ibt = sema_strip_const(sema_dealias(s, bt));
+                while ((int)ibt[0] == 42) { ibt = sema_sub_str(ibt, 1, sema_slen(ibt)); }
+                while (sema_slen(ibt) > 0 && (int)ibt[sema_slen(ibt) - 1] == 42) { ibt = sema_sub_str(ibt, 0, sema_slen(ibt) - 1); }
+                string iflat = sema_flat_name(ibt);
+                if (sema_streq(iflat, sn) == 0) { ffn = sema_find_fndecl(s, sema_cat(sema_cat(iflat, "_"), mem.sval)); }
+            }
             // Arguments against the method's parameters (self excluded), with the same
             // count + assignability rules as a bare call (mirrors the C++ method path).
             string mwhat = sema_cat(sema_cat("method '", mem.sval), "'");
