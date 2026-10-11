@@ -1,0 +1,7 @@
+localhost: resolved 1, has 127.0.0.1 or ::1: 1
+numeric v4: 1 127.0.0.1
+numeric v6: 1 ::1
+bad name: -1 message: 1
+localhost: echoed localhost
+127.0.0.1: echoed 127.0.0.1
+refused: 1

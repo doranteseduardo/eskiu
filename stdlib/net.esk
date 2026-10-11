@@ -11,6 +11,7 @@
 //   net_close(c);
 
 import <time>;
+import <dns>;    // host names in net_tcp_connect
 
 extern int   socket(int domain, int type, int protocol);
 extern int   bind(int fd, *void addr, int len);
@@ -130,15 +131,39 @@ int net_accept_addr(int listen_fd, *uint32 peer_ip) {
     return c;
 }
 
-// Connect to a dotted-quad host (e.g. "127.0.0.1") and port. Returns fd, or -1.
+// Connect to `host` and port. Returns the fd, or -1. `host` is a dotted IPv4
+// address ("127.0.0.1"), used as is, or a host name or IPv6 address, resolved
+// with getaddrinfo (<dns>) and tried address by address until one connects.
 int net_tcp_connect(string host, uint16 port) {
     net_wsa_init();
-    const int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { return -1; }
-    let a: sockaddr_in;
-    net_fill_addr(&a, inet_addr(host), port);
-    if (connect(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
-    net_nosigpipe(fd);
+    const uint32 ip = inet_addr(host);
+    if (ip != (uint32)4294967295 || strcmp(host, "255.255.255.255") == 0) {
+        const int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) { return -1; }
+        let a: sockaddr_in;
+        net_fill_addr(&a, ip, port);
+        if (connect(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
+        net_nosigpipe(fd);
+        return fd;
+    }
+    char[8] ps;
+    int pv = (int)port;
+    int k = 6;
+    ps[7] = 0;
+    ps[k] = (char)(48 + pv % 10);
+    pv = pv / 10;
+    while (pv > 0) { k--; ps[k] = (char)(48 + pv % 10); pv = pv / 10; }
+    *_dns_addrinfo res = null;
+    if (_dns_lookup(host, (string)&ps[k], &res) != 0) { return -1; }
+    int fd = -1;
+    for (*_dns_addrinfo ai = res; ai != null && fd < 0; ai = ai.ai_next) {
+        const int s = socket(ai.ai_family, ai.ai_socktype, ai.ai_protocol);
+        if (s < 0) { continue; }
+        if (connect(s, ai.ai_addr, (int)ai.ai_addrlen) != 0) { net_close_fd(s); continue; }
+        net_nosigpipe(s);
+        fd = s;
+    }
+    freeaddrinfo(res);
     return fd;
 }
 
