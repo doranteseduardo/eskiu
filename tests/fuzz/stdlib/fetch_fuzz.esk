@@ -1,0 +1,41 @@
+// Fuzz target: the <fetch> response parser (FetchParser) on arbitrary bytes,
+// as a server's answer. The input is fed whole, then again in pieces of 1 to 7
+// bytes; both runs must agree on the result, the status and the body (the
+// parser's verdict must not depend on how the bytes were split into reads),
+// and a complete body never exceeds the cap.
+import "harness.esk";
+import <fetch>;
+
+int parse(*uint8 data, int len, int piece, Response* r) {
+    let p: FetchParser;
+    FetchParser_init(&p, 4096, 0);
+    int st = 0;
+    int off = 0;
+    while (st == 0 && off < len) {
+        int n = piece == 0 ? len - off : piece;
+        if (n > len - off) { n = len - off; }
+        st = FetchParser_feed(&p, r, data + off, (int64)n);
+        off += n;
+    }
+    if (st == 0) { st = FetchParser_finish(&p, r); }
+    FetchParser_free(&p);
+    return st;
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    let a: Response;  Response_init(&a);
+    let b: Response;  Response_init(&b);
+    const int sa = parse(data, len, 0, &a);
+    const int sb = parse(data, len, 1 + len % 7, &b);
+    if (sa != sb) { fuzz_fail("fetch parser: verdict depends on the split"); }
+    if (sa == 1) {
+        if (a.status != b.status) { fuzz_fail("fetch parser: status depends on the split"); }
+        if (Bytes_eq(&a.body, &b.body) != 1) { fuzz_fail("fetch parser: body depends on the split"); }
+        if (a.body.len > 4096) { fuzz_fail("fetch parser: body over the cap"); }
+        let v: String;  String_init(&v, 16);
+        Response_header(&a, "content-type", &v);
+        String_free(&v);
+    }
+    Response_free(&a);
+    Response_free(&b);
+}

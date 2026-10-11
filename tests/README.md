@@ -852,10 +852,11 @@ python3 tests/fuzz/neg_fuzz.py --repro 7:123               # print one program
 ```
 
 **`stdlib_fuzz.py`** fuzzes the stdlib parsers under AddressSanitizer. Each target in
-`tests/fuzz/stdlib/` (`json`, `base64`, `url`, `regex`, `hpack`, `http`, `multipart`,
+`tests/fuzz/stdlib/` (`json`, `base64`, `url`, `regex`, `hpack`, `http`, `fetch`, `multipart`,
 `uuid_time`) is an Eskiu program built with `eskiuc --asan` that reads a batch of inputs
 and runs them through the parser, checking round trips where there is one (base64 and
-url encode/decode, hpack encode/decode, epoch/calendar conversion). The driver mutates a
+url encode/decode and url_parse, hpack encode/decode, epoch/calendar conversion, and the
+fetch response parser fed whole and in small pieces). The driver mutates a
 seed corpus (hand-written seeds plus string literals from the matching tests) and fails
 on a crash, an ASan report, a broken invariant, a hang or a memory blowup, saving the
 input to `stdlib_<target>_<seed>_<n>.bin`.
