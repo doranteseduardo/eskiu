@@ -13,6 +13,8 @@
 // The algorithm is heapsort: in place, no extra allocation, and a guaranteed
 // O(n log n) worst case (no quicksort pathological input). It is not stable.
 
+import <list>;   // List_sort_by
+
 // Restore the max-heap property at `root` within the first `n` elements.
 void heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
     while (true) {
@@ -41,6 +43,12 @@ void sort<T>(*T a, int n, fn(*T, *T)->int cmp) {
         a[end] = tmp;
         heap_sift<T>(a, 0, end, cmp);
     }
+}
+
+// Sort a List<T> in place by `cmp` (same convention as sort<T>; not stable).
+// Callable as `list.sort_by(cmp)`.
+void List_sort_by<T>(List<T>* self, fn(*T, *T)->int cmp) {
+    sort<T>(self.data, self.size, cmp);
 }
 
 // Find `key` in the first `n` elements of `a`, which must already be sorted by

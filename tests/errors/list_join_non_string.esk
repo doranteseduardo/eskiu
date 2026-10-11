@@ -1,0 +1,11 @@
+// EXPECT-ERROR: in instantiation of List_join<int>
+// List_join only joins a List<string>: an int element is not a string.
+import <string>;
+
+int main() {
+    let l: List<int>;  List_init<int>(&l, 4);
+    l.push(1);
+    let out: String;  out.init(8);
+    l.join(",", &out);
+    return 0;
+}
