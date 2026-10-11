@@ -13,6 +13,7 @@
 //   Map_free<int>(&m);
 
 import <mem>;
+import <list>;   // Map_keys / Map_values / Set_items fill a List
 
 struct Map<V> {
     **char keys;    // owned key copies; null marks an empty slot
@@ -115,6 +116,90 @@ int Map_get<V>(Map<V>* m, string key, *V out) {
         i = (i + 1) % m.cap;
     }
     return 0;
+}
+
+// Slot index of `key`, or -1.
+int _map_slot<V>(Map<V>* m, string key) {
+    if (m.cap == 0) { return -1; }
+    int i = map_hash(key) % m.cap;
+    for (int n = 0; m.keys[i] != null && n < m.cap; n++) {
+        if (map_streq(m.keys[i], key) == 1) { return i; }
+        i = (i + 1) % m.cap;
+    }
+    return -1;
+}
+
+// 1 if `key` is present, else 0.
+int Map_has<V>(Map<V>* m, string key) {
+    return _map_slot<V>(m, key) >= 0 ? 1 : 0;
+}
+
+// The value for `key`, or `dflt` when it is absent.
+V Map_get_or<V>(Map<V>* m, string key, V dflt) {
+    const int i = _map_slot<V>(m, key);
+    if (i < 0) { return dflt; }
+    return m.vals[i];
+}
+
+// Number of entries.
+int Map_len<V>(Map<V>* m) {
+    return m.count;
+}
+
+// 1 if slot `home` lies cyclically in (hole, j]: the entry at j, whose probe
+// started at `home`, cannot move back into `hole`.
+int _map_home_between(int home, int hole, int j) {
+    if (hole <= j) { return (home > hole && home <= j) ? 1 : 0; }
+    return (home > hole || home <= j) ? 1 : 0;
+}
+
+// Remove `key`, freeing the map's copy of it. Returns 1 if it was present, else
+// 0. A value that owns memory is not freed (read it first with Map_get). The
+// later entries of the probe run move back one by one (backward-shift
+// deletion, no tombstones), so a pointer from Map_at is invalid after a remove.
+int Map_remove<V>(Map<V>* m, string key) {
+    int hole = _map_slot<V>(m, key);
+    if (hole < 0) { return 0; }
+    free((*void)m.keys[hole]);
+    m.keys[hole] = null;
+    m.count--;
+    int j = (hole + 1) % m.cap;
+    while (m.keys[j] != null) {
+        const int home = map_hash(m.keys[j]) % m.cap;
+        if (_map_home_between(home, hole, j) == 0) {
+            m.keys[hole] = m.keys[j];
+            m.vals[hole] = m.vals[j];
+            m.keys[j] = null;
+            hole = j;
+        }
+        j = (j + 1) % m.cap;
+    }
+    return 1;
+}
+
+// Append every key to `out` (an initialised List<string>), in table order. The
+// strings are the map's own copies: valid until the entry is removed or the map
+// freed.
+void Map_keys<V>(Map<V>* m, List<string>* out) {
+    for (i in 0..m.cap) {
+        if (m.keys[i] != null) { List_push<string>(out, (string)m.keys[i]); }
+    }
+}
+
+// Append every value to `out` (an initialised List<V>), in table order (the
+// same order as Map_keys).
+void Map_values<V>(Map<V>* m, List<V>* out) {
+    for (i in 0..m.cap) {
+        if (m.keys[i] != null) { List_push<V>(out, m.vals[i]); }
+    }
+}
+
+// Call f(key, value) for every entry, in table order. f must not insert into or
+// remove from the map.
+void Map_each<V>(Map<V>* m, fn(string, V)->void f) {
+    for (i in 0..m.cap) {
+        if (m.keys[i] != null) { f((string)m.keys[i], m.vals[i]); }
+    }
 }
 
 // ── HashMap<K,V> — generic over the key type ────────────────────────────────────
@@ -220,3 +305,149 @@ int HashMap_get<K, V>(HashMap<K, V>* m, K key, *V out) {
 // Built-in hash/eq for int keys (Knuth multiplicative hash).
 uint64 int_hash(*int k) { return (uint64)k[0] * 2654435761; }
 int    int_eq(*int a, *int b) { return a[0] == b[0] ? 1 : 0; }
+
+// Hash/eq for `string` keys by content (FNV-1a). The map stores the pointer,
+// not a copy: the text must outlive its entry (use Map<V> for owned keys).
+uint64 cstr_hash(*string k) {
+    string s = k[0];
+    uint64 h = (uint64)14695981039346656037;
+    for (int i = 0; s[i] != 0; i++) {
+        h = (h ^ (uint64)((int)s[i] & 255)) * (uint64)1099511628211;
+    }
+    return h;
+}
+int cstr_eq(*string a, *string b) { return map_streq((*char)a[0], b[0]); }
+
+// Slot index of `key`, or -1.
+int _hashmap_slot<K, V>(HashMap<K, V>* m, K key) {
+    if (m.cap == 0) { return -1; }
+    let hashfn: fn(*K)->uint64  = m.hash;
+    let eqfn:   fn(*K, *K)->int = m.eq;
+    int i = (int)(hashfn(&key) % (uint64)m.cap);
+    for (int n = 0; m.used[i] == 1 && n < m.cap; n++) {
+        if (eqfn(&key, &m.keys[i]) == 1) { return i; }
+        i = (i + 1) % m.cap;
+    }
+    return -1;
+}
+
+// 1 if `key` is present, else 0.
+int HashMap_has<K, V>(HashMap<K, V>* m, K key) {
+    return _hashmap_slot<K, V>(m, key) >= 0 ? 1 : 0;
+}
+
+// The value for `key`, or `dflt` when it is absent.
+V HashMap_get_or<K, V>(HashMap<K, V>* m, K key, V dflt) {
+    const int i = _hashmap_slot<K, V>(m, key);
+    if (i < 0) { return dflt; }
+    return m.vals[i];
+}
+
+// Number of entries.
+int HashMap_len<K, V>(HashMap<K, V>* m) {
+    return m.count;
+}
+
+// Remove `key`. Returns 1 if it was present, else 0. Neither the key nor the
+// value is freed. Uses backward-shift deletion like Map_remove, so a pointer
+// from HashMap_at is invalid after a remove.
+int HashMap_remove<K, V>(HashMap<K, V>* m, K key) {
+    int hole = _hashmap_slot<K, V>(m, key);
+    if (hole < 0) { return 0; }
+    let hashfn: fn(*K)->uint64 = m.hash;
+    m.used[hole] = 0;
+    m.count--;
+    int j = (hole + 1) % m.cap;
+    while (m.used[j] == 1) {
+        const int home = (int)(hashfn(&m.keys[j]) % (uint64)m.cap);
+        if (_map_home_between(home, hole, j) == 0) {
+            m.keys[hole] = m.keys[j];
+            m.vals[hole] = m.vals[j];
+            m.used[hole] = 1;
+            m.used[j] = 0;
+            hole = j;
+        }
+        j = (j + 1) % m.cap;
+    }
+    return 1;
+}
+
+// Append every key to `out` (an initialised List<K>), in table order.
+void HashMap_keys<K, V>(HashMap<K, V>* m, List<K>* out) {
+    for (i in 0..m.cap) {
+        if (m.used[i] == 1) { List_push<K>(out, m.keys[i]); }
+    }
+}
+
+// Append every value to `out` (an initialised List<V>), in table order (the same
+// order as HashMap_keys).
+void HashMap_values<K, V>(HashMap<K, V>* m, List<V>* out) {
+    for (i in 0..m.cap) {
+        if (m.used[i] == 1) { List_push<V>(out, m.vals[i]); }
+    }
+}
+
+// Call f(key, value) for every entry, in table order. f must not insert into or
+// remove from the map.
+void HashMap_each<K, V>(HashMap<K, V>* m, fn(K, V)->void f) {
+    for (i in 0..m.cap) {
+        if (m.used[i] == 1) { f(m.keys[i], m.vals[i]); }
+    }
+}
+
+// ── Set<T>: a hash set over HashMap ─────────────────────────────────────────────
+//
+// Elements are stored by value and compared with the hash/eq given at init (the
+// same callbacks as HashMap: int_hash/int_eq, cstr_hash/cstr_eq, or your own).
+//
+//   let s: Set<int>;  Set_init<int>(&s, 16, int_hash, int_eq);
+//   s.add(3);  s.add(3);          // the second add returns 0
+//   if (s.has(3) == 1) { ... }
+//   s.free();
+
+struct Set<T> {
+    HashMap<T, uint8> table;
+}
+
+void Set_init<T>(Set<T>* s, int cap, fn(*T)->uint64 hash, fn(*T, *T)->int eq) {
+    HashMap_init<T, uint8>(&s.table, cap, hash, eq);
+}
+
+void Set_free<T>(Set<T>* s) {
+    HashMap_free<T, uint8>(&s.table);
+}
+
+// Add `item`. Returns 1 if it was new, 0 if it was already there.
+int Set_add<T>(Set<T>* s, T item) {
+    int created = 0;
+    *uint8 slot = HashMap_at<T, uint8>(&s.table, item, &created);
+    slot[0] = (uint8)1;
+    return created;
+}
+
+// 1 if `item` is in the set, else 0.
+int Set_has<T>(Set<T>* s, T item) {
+    return HashMap_has<T, uint8>(&s.table, item);
+}
+
+// Remove `item`. Returns 1 if it was there, else 0.
+int Set_remove<T>(Set<T>* s, T item) {
+    return HashMap_remove<T, uint8>(&s.table, item);
+}
+
+// Number of elements.
+int Set_len<T>(Set<T>* s) {
+    return s.table.count;
+}
+
+// Call f(item) for every element, in table order. f must not add or remove.
+void Set_each<T>(Set<T>* s, fn(T)->void f) {
+    for (i in 0..s.table.cap) {
+        if (s.table.used[i] == 1) { f(s.table.keys[i]); }
+    }
+}
+
+// Append every element to `out` (an initialised List<T>), in table order.
+void Set_items<T>(Set<T>* s, List<T>* out) {
+    HashMap_keys<T, uint8>(&s.table, out);
+}
