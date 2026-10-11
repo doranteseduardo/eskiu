@@ -1,0 +1,138 @@
+// <process> with real commands: exit codes, stdout/stderr capture, stdin text,
+// output over 64 KiB on both pipes at once, a timeout kill, cwd, extra env,
+// a command that is not found, merged stderr, and spawn with pipes.
+import <process>;
+import <io>;
+
+void show(string label, ProcessResult* r) {
+    printf("%s: code=%d timed_out=%d out=[%s] err=[%s]\n", label, r.exit_code,
+        r.timed_out ? 1 : 0, r.stdout.data, r.stderr.data);
+}
+
+int main() {
+    let r: ProcessResult;
+
+    sh("echo hello", &r);
+    show("echo", &r);
+    ProcessResult_free(&r);
+
+    sh("exit 3", &r);
+    show("exit 3", &r);
+    ProcessResult_free(&r);
+
+    sh("echo out; echo err 1>&2; exit 1", &r);
+    show("both", &r);
+    ProcessResult_free(&r);
+
+    sh("kill -9 $$", &r);
+    show("signal", &r);
+    ProcessResult_free(&r);
+
+    // argv without a shell: spaces stay inside one argument.
+    let argv: List<string>;  List_init<string>(&argv, 4);
+    argv.push("printf");
+    argv.push("[%s] [%s]");
+    argv.push("a b");
+    argv.push("c");
+    process_run(&argv, null, &r);
+    show("argv", &r);
+    ProcessResult_free(&r);
+    List_free<string>(&argv);
+
+    // stdin text.
+    let opts: ProcessOptions;
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.stdin_text = "line one\nline two\n";
+    sh_with("wc -l | tr -d ' '", &opts, &r);
+    show("stdin", &r);
+    ProcessResult_free(&r);
+
+    // Large output on both pipes at once (a deadlock if they were read in turn).
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    sh_with("i=0; while [ $i -lt 3000 ]; do echo 0123456789012345678901234567890123456789; echo abcdefghijabcdefghijabcdefghijabcdefghij 1>&2; i=$((i+1)); done", &opts, &r);
+    printf("large: code=%d out=%lld err=%lld\n", r.exit_code, r.stdout.len, r.stderr.len);
+    ProcessResult_free(&r);
+
+    // Large stdin through cat while its output comes back.
+    let big: String;  big.init(200000);
+    for (i in 0..5000) { big.append("0123456789012345678901234567890123456789\n"); }
+    opts.stdin_text = big.cstr();
+    sh_with("cat", &opts, &r);
+    printf("cat: code=%d same=%d\n", r.exit_code, r.stdout.eq(&big));
+    ProcessResult_free(&r);
+    big.free();
+
+    // Timeout: the shell and its child sleep are both killed.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.timeout_ms = 300;
+    const int64 t0 = time_monotonic_ms();
+    sh_with("echo started; sleep 5; echo never", &opts, &r);
+    const int64 took = time_monotonic_ms() - t0;
+    show("timeout", &r);
+    printf("timeout fast: %d\n", took < 3000 ? 1 : 0);
+    ProcessResult_free(&r);
+
+    // cwd and extra environment.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.cwd = "/";
+    let extra: List<string>;  List_init<string>(&extra, 2);
+    extra.push("ESKIU_PROC_A=alpha");
+    extra.push("HOME=/nowhere");
+    opts.env = &extra;
+    sh_with("pwd; echo $ESKIU_PROC_A $HOME", &opts, &r);
+    show("cwd+env", &r);
+    ProcessResult_free(&r);
+    List_free<string>(&extra);
+
+    // Merged stderr.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.merge_stderr = true;
+    sh_with("echo a; echo b 1>&2", &opts, &r);
+    show("merged", &r);
+    ProcessResult_free(&r);
+
+    // Not found: -1 and an error message.
+    List_init<string>(&argv, 2);
+    argv.push("eskiu-no-such-command-xyz");
+    const int rc = process_run(&argv, null, &r);
+    let msg: String;  msg.init(16);
+    process_last_error(&msg);
+    printf("not found: rc=%d code=%d msg=%s\n", rc, r.exit_code, msg.data);
+    ProcessResult_free(&r);
+    msg.free();
+    List_free<string>(&argv);
+
+    // Bad cwd.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.cwd = "/eskiu/no/such/dir";
+    printf("bad cwd: rc=%d\n", sh_with("true", &opts, &r));
+    ProcessResult_free(&r);
+
+    // Spawn: write to stdin, read the reply, wait.
+    List_init<string>(&argv, 2);
+    argv.push("tr");
+    argv.push("a-z");
+    argv.push("A-Z");
+    let p: Process;
+    printf("spawn %d\n", process_spawn(&argv, null, &p));
+    Process_write_stdin(&p, "shout this\n");
+    Process_close_stdin(&p);
+    let got: String;  got.init(16);
+    Process_read_all(&p, 1, &got);
+    printf("spawned out=[%s] code=%d\n", got.data, Process_wait(&p));
+    Process_free(&p);
+    got.free();
+    List_free<string>(&argv);
+
+    // Spawn and kill.
+    List_init<string>(&argv, 2);
+    argv.push("sleep");
+    argv.push("10");
+    process_spawn(&argv, null, &p);
+    printf("kill %d code=%d\n", Process_kill(&p), Process_wait(&p));
+    Process_free(&p);
+    List_free<string>(&argv);
+
+    printf("pid positive %d\n", process_pid() > 0 ? 1 : 0);
+    return 0;
+}
