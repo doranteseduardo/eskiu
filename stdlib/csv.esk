@@ -1,0 +1,230 @@
+// csv.esk: RFC 4180 CSV reading and writing.
+//
+//   let t: CsvTable;
+//   if (csv_parse(text, &t) != 0) {
+//       let msg: String;  msg.init(64);
+//       CsvTable_error(&t, &msg);            // "line 3, col 7: unterminated quoted field"
+//       ...
+//   }
+//   const int name = CsvTable_col(&t, "name");          // header column, or -1
+//   for (r in 1..CsvTable_len(&t)) {
+//       printf("%s\n", CsvTable_get(&t, r, "name"));    // row r, column "name"
+//   }
+//   CsvTable_free(&t);
+//
+// Reading: fields are separated by the delimiter (',' by default, or any byte
+// such as ';' or '\t' through csv_parse_with). A field may be quoted with `"`;
+// inside quotes the delimiter, CR and LF are data and `""` is one quote. Lines
+// end with LF or CRLF (a lone CR too); a final line ending does not start an
+// empty row, but a blank line elsewhere is a row with one empty field. A quote
+// inside an unquoted field is kept as data. An unterminated quoted field, or a
+// character other than the delimiter or a line ending right after a closing
+// quote, is an error with its line and column.
+//
+// Row indices count every row, so with a header row the data starts at row 1.
+// The table owns its strings: CsvTable_row, CsvTable_cell and CsvTable_get
+// return borrowed values that live until CsvTable_free.
+//
+// Writing: csv_write_row appends one row to a String, quoting only the fields
+// that need it (the delimiter, a quote, CR or LF inside), and ends it with "\n".
+
+import <string>;
+import <list>;
+
+struct CsvTable {
+    List<List<String>> rows;
+    int    err_line;   // 1-based position of the error (0 when none)
+    int    err_col;
+    string err_msg;    // static text, or null
+}
+
+void _csv_end_row(CsvTable* t, List<String>* row) {
+    List_push<List<String>>(&t.rows, *row);
+    List_init<String>(row, 8);
+}
+
+void _csv_end_field(List<String>* row, String* field) {
+    List_push<String>(row, *field);
+    field.init(16);
+}
+
+void _csv_fail(CsvTable* t, int line, int64 col, string msg) {
+    t.err_line = line;
+    t.err_col = (int)col;
+    t.err_msg = msg;
+}
+
+// Parse `n` bytes at `data` (which may hold NULs) with delimiter `delim` into
+// `t`, which this initialises (any previous contents are not freed). Returns 0,
+// or -1 on an error: `t` then holds the rows completed before it, and
+// CsvTable_error describes it. Free `t` with CsvTable_free either way.
+int csv_parse_buf(*uint8 data, int64 n, char delim, CsvTable* t) {
+    List_init<List<String>>(&t.rows, 16);
+    t.err_line = 0;
+    t.err_col = 0;
+    t.err_msg = null;
+    if (delim == '"' || delim == '\n' || delim == '\r') {
+        _csv_fail(t, 1, 1, "the delimiter cannot be a quote or a line ending");
+        return -1;
+    }
+    if (n <= 0) { return 0; }
+    *char p = (*char)data;
+    let row: List<String>;   List_init<String>(&row, 8);
+    let field: String;       field.init(16);
+    int line = 1;
+    int64 line_start = 0;
+    int64 i = 0;
+    while (true) {
+        if (i < n && p[i] == '"') {
+            const int qline = line;
+            const int64 qcol = i - line_start + 1;
+            i++;
+            while (true) {
+                if (i >= n) {
+                    _csv_fail(t, qline, qcol, "unterminated quoted field");
+                    field.free();
+                    String_split_free(&row);
+                    return -1;
+                }
+                const char c = p[i];
+                if (c == '"') {
+                    if (i + 1 < n && p[i + 1] == '"') { field.push('"'); i += 2; continue; }
+                    i++;
+                    break;
+                }
+                if (c == '\n') { line++; line_start = i + 1; }
+                field.push(c);
+                i++;
+            }
+            if (i < n && p[i] != delim && p[i] != '\n' && p[i] != '\r') {
+                _csv_fail(t, line, i - line_start + 1, "unexpected character after a closing quote");
+                field.free();
+                String_split_free(&row);
+                return -1;
+            }
+        } else {
+            const int64 start = i;
+            while (i < n && p[i] != delim && p[i] != '\n' && p[i] != '\r') { i++; }
+            _string_append_bytes(&field, p + start, i - start);
+        }
+        _csv_end_field(&row, &field);
+        if (i >= n) { break; }
+        const char c = p[i];
+        i++;
+        if (c == delim) { continue; }
+        if (c == '\r' && i < n && p[i] == '\n') { i++; }
+        line++;
+        line_start = i;
+        _csv_end_row(t, &row);
+        if (i >= n) { break; }
+    }
+    field.free();
+    if (List_len<String>(&row) > 0) { _csv_end_row(t, &row); }
+    String_split_free(&row);
+    return 0;
+}
+
+// csv_parse_buf over the C string `text` with delimiter `delim`.
+int csv_parse_with(string text, char delim, CsvTable* t) {
+    return csv_parse_buf((*uint8)text, strlen(text), delim, t);
+}
+
+// csv_parse_buf over the C string `text` with ',' as the delimiter.
+int csv_parse(string text, CsvTable* t) {
+    return csv_parse_buf((*uint8)text, strlen(text), ',', t);
+}
+
+// Describe the last parse error into `out` (cleared first) as
+// "line L, col C: what"; empty when there was none.
+void CsvTable_error(CsvTable* t, String* out) {
+    out.clear();
+    if (t.err_msg == null) { return; }
+    String_appendf(out, "line %d, col %d: %s", t.err_line, t.err_col, t.err_msg);
+}
+
+void CsvTable_free(CsvTable* t) {
+    for (i in 0..List_len<List<String>>(&t.rows)) {
+        let r: List<String> = List_get<List<String>>(&t.rows, i);
+        String_split_free(&r);
+    }
+    List_free<List<String>>(&t.rows);
+}
+
+// Number of rows (the header row included).
+int CsvTable_len(CsvTable* t) { return List_len<List<String>>(&t.rows); }
+
+// Row `r` (borrowed), or null when out of range.
+*List<String> CsvTable_row(CsvTable* t, int r) {
+    if (r < 0 || r >= List_len<List<String>>(&t.rows)) { return null; }
+    return &t.rows.data[r];
+}
+
+// Field `c` of row `r` as a C string (borrowed), or null when either is out of
+// range.
+string CsvTable_cell(CsvTable* t, int r, int c) {
+    *List<String> row = CsvTable_row(t, r);
+    if (row == null || c < 0 || c >= List_len<String>(row)) { return null; }
+    return (string)row.data[c].data;
+}
+
+// Index of the column named `name` in the header (row 0), or -1.
+int CsvTable_col(CsvTable* t, string name) {
+    *List<String> head = CsvTable_row(t, 0);
+    if (head == null) { return -1; }
+    for (c in 0..List_len<String>(head)) {
+        if (head.data[c].eq_cstr(name) == 1) { return c; }
+    }
+    return -1;
+}
+
+// Field of row `r` in the column named `name` (borrowed), or null when the
+// column, the row or the field is missing.
+string CsvTable_get(CsvTable* t, int r, string name) {
+    const int c = CsvTable_col(t, name);
+    if (c < 0) { return null; }
+    return CsvTable_cell(t, r, c);
+}
+
+// Append the `n` bytes at `p` as one field, quoted when needed.
+void _csv_write_field(String* out, *char p, int64 n, char delim) {
+    bool quote = false;
+    for (int64 i = 0; i < n; i++) {
+        const char c = p[i];
+        if (c == delim || c == '"' || c == '\n' || c == '\r') { quote = true; break; }
+    }
+    if (!quote) { _string_append_bytes(out, p, n); return; }
+    out.push('"');
+    for (int64 i = 0; i < n; i++) {
+        if (p[i] == '"') { out.push('"'); }
+        out.push(p[i]);
+    }
+    out.push('"');
+}
+
+// Append one row of `fields` separated by `delim` to `out` (not cleared),
+// ending it with "\n".
+void csv_write_row_with(List<string>* fields, char delim, String* out) {
+    for (i in 0..List_len<string>(fields)) {
+        if (i > 0) { out.push(delim); }
+        string f = List_get<string>(fields, i);
+        _csv_write_field(out, (*char)f, strlen(f), delim);
+    }
+    out.push('\n');
+}
+
+// csv_write_row_with with ',' as the delimiter.
+void csv_write_row(List<string>* fields, String* out) { csv_write_row_with(fields, ',', out); }
+
+// Write the whole table into `out` (cleared first) with delimiter `delim`.
+// Fields may hold any bytes, NUL included.
+void CsvTable_write(CsvTable* t, char delim, String* out) {
+    out.clear();
+    for (r in 0..List_len<List<String>>(&t.rows)) {
+        *List<String> row = &t.rows.data[r];
+        for (c in 0..List_len<String>(row)) {
+            if (c > 0) { out.push(delim); }
+            _csv_write_field(out, row.data[c].data, row.data[c].len, delim);
+        }
+        out.push('\n');
+    }
+}

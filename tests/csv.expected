@@ -1,0 +1,47 @@
+rc 0
+basic: 4 rows
+  [name][age][city]
+  [Ada][36][London]
+  [Hopper, Grace][85][New
+York]
+  [say "hi"][][]
+col 0 2 -1
+get Hopper, Grace | 36 | 
+missing 1 1 1
+written:
+name,age,city
+Ada,36,London
+"Hopper, Grace",85,"New
+York"
+"say ""hi""",,
+reparsed: 4 rows
+  [name][age][city]
+  [Ada][36][London]
+  [Hopper, Grace][85][New
+York]
+  [say "hi"][][]
+semicolon: 5 rows
+  [a][b][c]
+  [1][x"y][3]
+  []
+  [][][]
+  [last][q;q][end]
+tab: 2 rows
+  [k][v]
+  [x][1]
+empty: 0 rows
+newline: 1 rows
+  []
+cr: 2 rows
+  [a]
+  [b]
+emptyquoted: 1 rows
+  []
+unterminated: -1 line 2, col 3: unterminated quoted field (kept 1 rows)
+after-quote: -1 line 2, col 4: unexpected character after a closing quote (kept 1 rows)
+first: -1 line 1, col 1: unterminated quoted field (kept 0 rows)
+bad delim -1
+plain,"with,comma","with ""quote""","multi
+line",
+plain;with,comma;"with ""quote""";"multi
+line";
