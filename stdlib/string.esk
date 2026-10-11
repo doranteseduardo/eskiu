@@ -280,3 +280,294 @@ void String_split_free(List<String>* parts) {
     }
     List_free<String>(parts);
 }
+
+// ── Scripting helpers ─────────────────────────────────────────────────────────
+//
+// Text-producing functions follow the stdlib rule: a String passed as `out` is
+// cleared and refilled (the caller initialised it and frees it), and a String
+// passed as `self` is edited in place. Split results are Lists of owned Strings,
+// freed with String_split_free. Case mapping and padding work on bytes: only
+// ASCII letters change case, and a multi-byte UTF-8 character counts as its
+// byte length.
+
+extern int vsnprintf(*char buf, int64 n, string fmt, va_list ap);
+extern double strtod(string s, *string end);
+
+// Make room for at least `need` bytes (the trailing NUL included). Contents are
+// kept. Works on a freed String too (it gets a fresh buffer).
+void String_reserve(String* self, int64 need) {
+    if (self.data != null && self.cap >= need) { return; }
+    int64 newcap = self.cap * 2;
+    if (newcap < need) { newcap = need; }
+    if (newcap < 8) { newcap = 8; }
+    let nb: *char = alloc<char>(newcap);
+    if (self.data != null) {
+        memcpy(nb, self.data, self.len);
+        free(self.data);
+    } else {
+        self.len = 0;
+    }
+    nb[self.len] = 0;
+    self.data = nb;
+    self.cap = newcap;
+}
+
+// Append `n` bytes starting at `p` (which may hold NULs).
+void _string_append_bytes(String* self, *char p, int64 n) {
+    if (n <= 0) { return; }
+    const int64 so = (int64)p - (int64)self.data;
+    const bool inside = self.data != null && so >= 0 && so <= self.len;
+    String_reserve(self, self.len + n + 1);
+    if (inside) { p = self.data + so; }
+    memmove(self.data + self.len, p, n);
+    self.len = self.len + n;
+    self.data[self.len] = 0;
+}
+
+// First index at or after `from` where `needle` starts, or -1. An empty needle
+// matches at `from` (clamped to 0..len).
+int64 String_find(String* self, string needle, int64 from) {
+    if (from < 0) { from = 0; }
+    if (from > self.len) { return -1; }
+    const int64 nl = strlen(needle);
+    if (nl == 0) { return from; }
+    for (int64 i = from; i + nl <= self.len; i++) {
+        int64 k = 0;
+        while (k < nl && self.data[i + k] == needle[k]) { k++; }
+        if (k == nl) { return i; }
+    }
+    return -1;
+}
+
+// 1 if `needle` occurs in this String, else 0 (an empty needle always occurs).
+int String_contains(String* self, string needle) {
+    return String_find(self, needle, 0) >= 0 ? 1 : 0;
+}
+
+// Replace up to `limit` non-overlapping occurrences of `from`, scanning left to
+// right (limit < 0: all). Returns the number replaced.
+int64 _string_replace(String* self, string from, string to, int64 limit) {
+    const int64 fl = strlen(from);
+    if (fl == 0 || self.len == 0) { return 0; }
+    if (String_find(self, from, 0) < 0) { return 0; }
+    // `from` or `to` may point into our own buffer; the old buffer stays alive
+    // until the result is built.
+    let r: String;  r.init(self.len + 1);
+    int64 count = 0;
+    int64 i = 0;
+    while (i < self.len && (limit < 0 || count < limit)) {
+        const int64 j = String_find(self, from, i);
+        if (j < 0) { break; }
+        _string_append_bytes(&r, self.data + i, j - i);
+        r.append(to);
+        i = j + fl;
+        count++;
+    }
+    _string_append_bytes(&r, self.data + i, self.len - i);
+    free(self.data);
+    self.data = r.data;
+    self.len = r.len;
+    self.cap = r.cap;
+    return count;
+}
+
+// Replace the first occurrence of `from` with `to`, in place. Returns 1 if one
+// was replaced, else 0. An empty `from` replaces nothing.
+int String_replace(String* self, string from, string to) {
+    return (int)_string_replace(self, from, to, 1);
+}
+
+// Replace every non-overlapping occurrence of `from` (left to right: "aaa" with
+// "aa" -> "b" gives "ba"), in place. Returns the count. An empty `from` replaces
+// nothing.
+int64 String_replace_all(String* self, string from, string to) {
+    return _string_replace(self, from, to, -1);
+}
+
+// Push a copy of self[from..to) onto a List<String>.
+void _string_push_part(String* self, int64 from, int64 to, List<String>* out) {
+    let part: String;  part.init(to - from + 1);
+    _string_append_bytes(&part, self.data + from, to - from);
+    List_push<String>(out, part);
+}
+
+// Split on the string `sep`, appending each part to `out` (a List<String> the
+// caller has initialised) as a String the list owns. Like String_split,
+// adjacent separators and separators at either end give empty parts. An empty
+// `sep` gives the whole String as one part. Free with String_split_free.
+void String_split_str(String* self, string sep, List<String>* out) {
+    const int64 sl = strlen(sep);
+    if (sl == 0) { _string_push_part(self, 0, self.len, out); return; }
+    int64 i = 0;
+    while (true) {
+        const int64 j = String_find(self, sep, i);
+        if (j < 0) { break; }
+        _string_push_part(self, i, j, out);
+        i = j + sl;
+    }
+    _string_push_part(self, i, self.len, out);
+}
+
+// Split into lines, appending each to `out` (an initialised List<String>; free
+// with String_split_free). Lines end at "\n" or "\r\n"; the terminator is not
+// kept. A final terminator does not start an extra empty line, and an empty
+// String has no lines.
+void String_lines(String* self, List<String>* out) {
+    int64 i = 0;
+    while (i < self.len) {
+        int64 j = i;
+        while (j < self.len && self.data[j] != '\n') { j++; }
+        int64 end = j;
+        if (end > i && self.data[end - 1] == '\r') { end--; }
+        _string_push_part(self, i, end, out);
+        i = j + 1;
+    }
+}
+
+// Clear `out` and fill it with the parts joined by `sep`. The list keeps its
+// strings (nothing is freed).
+void str_join(List<string>* parts, string sep, String* out) {
+    out.clear();
+    for (i in 0..List_len<string>(parts)) {
+        if (i > 0) { out.append(sep); }
+        out.append(List_get<string>(parts, i));
+    }
+}
+
+// Same as str_join, callable as `parts.join(sep, &out)`. Generic so the dot-call
+// reaches it from a List<string>; only T = string type-checks.
+void List_join<T>(List<T>* self, string sep, String* out) {
+    out.clear();
+    for (i in 0..List_len<T>(self)) {
+        if (i > 0) { out.append(sep); }
+        out.append(List_get<T>(self, i));
+    }
+}
+
+// Clear self and fill it with the Strings in `parts` joined by `sep` (the
+// inverse of String_split / String_split_str).
+void String_join(String* self, List<String>* parts, string sep) {
+    self.clear();
+    for (i in 0..List_len<String>(parts)) {
+        if (i > 0) { self.append(sep); }
+        let p: String = List_get<String>(parts, i);
+        _string_append_bytes(self, p.data, p.len);
+    }
+}
+
+// ASCII lowercase, in place. Bytes outside 'A'..'Z' (UTF-8 included) are kept.
+void String_lower(String* self) {
+    for (int64 i = 0; i < self.len; i++) {
+        const char c = self.data[i];
+        if (c >= 'A' && c <= 'Z') { self.data[i] = (char)((int)c + 32); }
+    }
+}
+
+// ASCII uppercase, in place. Bytes outside 'a'..'z' (UTF-8 included) are kept.
+void String_upper(String* self) {
+    for (int64 i = 0; i < self.len; i++) {
+        const char c = self.data[i];
+        if (c >= 'a' && c <= 'z') { self.data[i] = (char)((int)c - 32); }
+    }
+}
+
+// Replace self with `n` copies of itself, in place (n <= 0 leaves it empty).
+void String_repeat(String* self, int64 n) {
+    if (n <= 0 || self.len == 0) { self.clear(); return; }
+    const int64 one = self.len;
+    String_reserve(self, one * n + 1);
+    for (int64 k = 1; k < n; k++) {
+        memcpy(self.data + k * one, self.data, one);
+    }
+    self.len = one * n;
+    self.data[self.len] = 0;
+}
+
+// Prepend `fill` until the String is `width` bytes long (no change if it
+// already is), in place.
+void String_pad_left(String* self, int64 width, char fill) {
+    if (self.len >= width) { return; }
+    const int64 add = width - self.len;
+    String_reserve(self, width + 1);
+    memmove(self.data + add, self.data, self.len);
+    for (int64 i = 0; i < add; i++) { self.data[i] = fill; }
+    self.len = width;
+    self.data[width] = 0;
+}
+
+// Append `fill` until the String is `width` bytes long, in place.
+void String_pad_right(String* self, int64 width, char fill) {
+    while (self.len < width) { self.push(fill); }
+}
+
+// Parse a leading floating-point number (C strtod syntax: "3.5", "-1e3",
+// "inf"); 0.0 when there is none.
+double String_to_double(String* self) {
+    if (self.data == null) { return 0.0; }
+    return strtod((string)self.data, null);
+}
+
+// Parse the whole String as a floating-point number, allowing surrounding
+// ASCII whitespace. Stores it in *out and returns 1, or returns 0 (and leaves
+// *out alone) when the String is not exactly one number.
+int String_parse_double(String* self, *double out) {
+    if (self.data == null || self.len == 0) { return 0; }
+    string end = null;
+    const double v = strtod((string)self.data, &end);
+    int64 p = (int64)end - (int64)self.data;
+    if (p == 0) { return 0; }
+    while (p < self.len && _string_ws(self.data[p]) == 1) { p++; }
+    if (p != self.len) { return 0; }
+    out[0] = v;
+    return 1;
+}
+
+// vsnprintf into the spare room after the current contents; returns the length
+// the formatted text needs (it may not all fit).
+int _string_vwrite(String* self, string fmt, va_list ap) {
+    return vsnprintf(self.data + self.len, self.cap - self.len, fmt, ap);
+}
+
+// printf-style append: `s.appendf("%s=%d\n", k, v)`. Uses the C library's
+// vsnprintf, so the format follows C (pass `int64` with %lld, a String as
+// `s.cstr()` with %s, floats arrive as double).
+void String_appendf(String* self, string fmt, ...) {
+    String_reserve(self, self.len + 128);
+    va_list ap;
+    va_start(ap);
+    const int n = _string_vwrite(self, fmt, ap);
+    va_end(ap);
+    if (n < 0) { self.data[self.len] = 0; return; }
+    if (self.len + (int64)n >= self.cap) {
+        String_reserve(self, self.len + (int64)n + 1);
+        va_start(ap);
+        _string_vwrite(self, fmt, ap);
+        va_end(ap);
+    }
+    self.len = self.len + (int64)n;
+}
+
+// printf-style formatting into `out` (cleared first). See String_appendf.
+void str_format(String* out, string fmt, ...) {
+    out.clear();
+    String_reserve(out, 128);
+    va_list ap;
+    va_start(ap);
+    const int n = _string_vwrite(out, fmt, ap);
+    va_end(ap);
+    if (n < 0) { out.data[0] = 0; return; }
+    if ((int64)n >= out.cap) {
+        String_reserve(out, (int64)n + 1);
+        va_start(ap);
+        _string_vwrite(out, fmt, ap);
+        va_end(ap);
+    }
+    out.len = (int64)n;
+}
+
+// Render a double into self: the shortest of %.15g / %.17g that reads back as
+// the same value ("0.1", "3", "1e+20", "inf", "nan").
+void String_from_double(String* self, double d) {
+    str_format(self, "%.15g", d);
+    if (strtod((string)self.data, null) != d) { str_format(self, "%.17g", d); }
+}

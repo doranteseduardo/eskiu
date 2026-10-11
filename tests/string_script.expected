@@ -1,0 +1,42 @@
+5 9 -1
+3 -1
+1 0 1
+1 a cat sat on the mat
+3 a cog sog on the mog
+0 a cog sog on the mog
+0
+2 bb
+1 ba
+2 xx.xx
+2 abc
+6: [] [a] [b] [] [c] []
+1: [::a::b::::c::]
+1: []
+4: [one] [two] [] [four]
+0:
+[]
+[red, green, blue]
+[red/green/blue]
+[usr > local > bin]
+HELLO, WöRLD! ÀÉ 123
+hello, wörld! ÀÉ 123
+[ababab]
+[] 0
+[0007]
+[0007...]
+[0007...]
+3000 1
+-125.00
+0 1.00
+1 0.25
+0 0.25 0.00
+0.1
+3
+-2.5e-07
+0.33333333333333331
+inf
+[x=42 (2.500) 9000000000 z] 25
+[x=42 (2.500) 9000000000 z +00007]
+[] 0
+6005 1
+690 1

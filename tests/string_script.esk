@@ -1,0 +1,157 @@
+// <string> scripting helpers: find/contains, replace, split_str, lines, join,
+// case, repeat, pad, number parsing and printf-style formatting.
+import <string>;
+extern int printf(string fmt, ...);
+
+void show_parts(List<String>* parts) {
+    printf("%d:", List_len<String>(parts));
+    for (i in 0..List_len<String>(parts)) {
+        let p: String = List_get<String>(parts, i);
+        printf(" [%s]", p.cstr());
+    }
+    printf("\n");
+}
+
+int main() {
+    let s: String;  s.from("the cat sat on the mat");
+    defer s.free();
+    printf("%lld %lld %lld\n", s.find("at", 0), s.find("at", 6), s.find("dog", 0));
+    printf("%lld %lld\n", s.find("", 3), s.find("t", 99));
+    printf("%d %d %d\n", s.contains("sat"), s.contains("dog"), s.contains(""));
+
+    // replace: first only, then all; returns what changed
+    printf("%d %s\n", s.replace("the", "a"), s.cstr());
+    printf("%lld %s\n", s.replace_all("at", "og"), s.cstr());
+    printf("%lld %s\n", s.replace_all("xyz", "q"), s.cstr());
+    printf("%lld\n", s.replace_all("", "q"));
+    // overlapping matches are taken left to right without overlap
+    let o: String;  o.from("aaaa");
+    defer o.free();
+    printf("%lld %s\n", o.replace_all("aa", "b"), o.cstr());
+    o.clear();  o.append("aaa");
+    printf("%lld %s\n", o.replace_all("aa", "b"), o.cstr());
+    // the replacement may contain the pattern; it is not rescanned
+    o.clear();  o.append("x.x");
+    printf("%lld %s\n", o.replace_all("x", "xx"), o.cstr());
+    // replace with the empty string deletes
+    o.clear();  o.append("a-b-c");
+    printf("%lld %s\n", o.replace_all("-", ""), o.cstr());
+
+    // split_str: separators at the ends and next to each other give empty parts
+    let csv: String;  csv.from("::a::b::::c::");
+    defer csv.free();
+    let parts: List<String>;  List_init<String>(&parts, 4);
+    csv.split_str("::", &parts);
+    show_parts(&parts);
+    String_split_free(&parts);
+    let one: List<String>;  List_init<String>(&one, 4);
+    csv.split_str("", &one);
+    show_parts(&one);
+    String_split_free(&one);
+    let none: List<String>;  List_init<String>(&none, 4);
+    let empty: String;  empty.init(4);
+    defer empty.free();
+    empty.split_str(",", &none);
+    show_parts(&none);
+    String_split_free(&none);
+
+    // lines: \n and \r\n, no extra line for a final terminator
+    let txt: String;  txt.from("one\r\ntwo\n\nfour\n");
+    defer txt.free();
+    let ls: List<String>;  List_init<String>(&ls, 4);
+    txt.lines(&ls);
+    show_parts(&ls);
+    String_split_free(&ls);
+    let ls2: List<String>;  List_init<String>(&ls2, 4);
+    empty.lines(&ls2);
+    show_parts(&ls2);
+    String_split_free(&ls2);
+
+    // join: List<string> and List<String>
+    let words: List<string>;  List_init<string>(&words, 4);
+    defer List_free<string>(&words);
+    let out: String;  out.init(8);
+    defer out.free();
+    str_join(&words, ", ", &out);
+    printf("[%s]\n", out.cstr());
+    List_push<string>(&words, "red");
+    List_push<string>(&words, "green");
+    List_push<string>(&words, "blue");
+    str_join(&words, ", ", &out);
+    printf("[%s]\n", out.cstr());
+    words.join("/", &out);
+    printf("[%s]\n", out.cstr());
+    let path: String;  path.from("usr/local/bin");
+    defer path.free();
+    let segs: List<String>;  List_init<String>(&segs, 4);
+    path.split_str("/", &segs);
+    out.join(&segs, " > ");
+    printf("[%s]\n", out.cstr());
+    String_split_free(&segs);
+
+    // case: ASCII only, UTF-8 bytes kept
+    let u: String;  u.from("Hello, Wörld! ÀÉ 123");
+    defer u.free();
+    u.upper();
+    printf("%s\n", u.cstr());
+    u.lower();
+    printf("%s\n", u.cstr());
+
+    // repeat and pad
+    let r: String;  r.from("ab");
+    defer r.free();
+    r.repeat(3);
+    printf("[%s]\n", r.cstr());
+    r.repeat(0);
+    printf("[%s] %lld\n", r.cstr(), r.len);
+    r.append("7");
+    r.pad_left(4, '0');
+    printf("[%s]\n", r.cstr());
+    r.pad_right(7, '.');
+    printf("[%s]\n", r.cstr());
+    r.pad_left(3, '#');
+    printf("[%s]\n", r.cstr());
+    let big: String;  big.from("xyz");
+    defer big.free();
+    big.repeat(1000);
+    printf("%lld %d\n", big.len, big.ends_with("zxyz"));
+
+    // numbers
+    let n: String;  n.from("  -12.5e1xyz");
+    defer n.free();
+    printf("%.2f\n", n.to_double());
+    double d = 1.0;
+    printf("%d %.2f\n", n.parse_double(&d), d);
+    n.clear();  n.append(" 0.25 ");
+    printf("%d %.2f\n", n.parse_double(&d), d);
+    n.clear();
+    printf("%d %.2f %.2f\n", n.parse_double(&d), d, n.to_double());
+    n.from_double(0.1);
+    printf("%s\n", n.cstr());
+    n.from_double(3.0);
+    printf("%s\n", n.cstr());
+    n.from_double(-2.5e-7);
+    printf("%s\n", n.cstr());
+    n.from_double(1.0 / 3.0);
+    printf("%s\n", n.cstr());
+    n.from_double(1e300 * 1e300);
+    printf("%s\n", n.cstr());
+
+    // format
+    let f: String;  f.init(4);
+    defer f.free();
+    str_format(&f, "%s=%d (%.3f) %lld %c", "x", 42, 2.5, (int64)9000000000, 'z');
+    printf("[%s] %lld\n", f.cstr(), f.len);
+    f.appendf(" +%05d", 7);
+    printf("[%s]\n", f.cstr());
+    str_format(&f, "");
+    printf("[%s] %lld\n", f.cstr(), f.len);
+    // longer than the first-pass room: formatted again after growing
+    str_format(&f, "%s|%s|%s", big.cstr(), "mid", big.cstr());
+    printf("%lld %d\n", f.len, f.find("|mid|", 0) == 3000 ? 1 : 0);
+    let acc: String;  acc.init(1);
+    defer acc.free();
+    for (i in 0..200) { acc.appendf("%d,", i); }
+    printf("%lld %d\n", acc.len, acc.ends_with("198,199,"));
+    return 0;
+}
