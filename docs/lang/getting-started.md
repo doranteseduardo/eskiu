@@ -989,10 +989,10 @@ Available modules:
 | Module              | Contents                                              |
 | ------------------- | ----------------------------------------------------- |
 | `<result>`   | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
-| `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free` |
-| `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers |
+| `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free`; `map`, `filter`, `reduce`, `find`, `any`, `all`, `contains`, `index_of`, `reverse`, `slice`, `unique`, `clear`, `pop`, `insert` |
+| `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers; both with `has`, `get_or`, `len`, `remove`, `keys`, `values`, `each`; `Set<T>`: hash set (`add`/`has`/`remove`/`len`/`each`/`items`) |
 | `<bytes>`    | `Bytes`: growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
-| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
+| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `str_join`, `str_format` |
 | `<ctype>`    | ASCII character classes: `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
@@ -1014,7 +1014,7 @@ Available modules:
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
 | `<regex>`    | linear-time regex (Thompson NFA) over UTF-8: `regex_match`, `regex_compile`/`Regex_search` with capture groups (`Match_group`), `\d \w \s`, `\p{L}` Unicode classes, `* + ? {m,n}`, `|`, `( )`, `(?:)`, `(?i)`, `^ $`, `\b \B`, `\Q..\E` (RE2 syntax, as Go's regexp) |
-| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function |
+| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
 | `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
 | `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`) |

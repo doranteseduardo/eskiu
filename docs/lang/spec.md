@@ -2321,8 +2321,8 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | File                  | Contents                                                         |
 |-----------------------|------------------------------------------------------------------|
 | `stdlib/result.esk`   | `Result<T,E>` template struct; `Ok<T,E>(value)` and `Err<T,E>(err)` constructor functions |
-| `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free` |
-| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
+| `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free`; scripting helpers `List_map`, `List_filter`, `List_reduce`, `List_find`, `List_any`, `List_all`, `List_contains`, `List_index_of`, `List_reverse`, `List_slice`, `List_unique`, `List_clear`, `List_pop`, `List_insert` (see [List helpers](#list-helpers)) |
+| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`); scripting helpers `String_find`, `String_contains`, `String_replace`, `String_replace_all`, `String_split_str`, `String_lines`, `String_join`, `str_join`, `List_join`, `String_lower`, `String_upper`, `String_repeat`, `String_pad_left`, `String_pad_right`, `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, `String_appendf`, `str_format` (see [String scripting helpers](#string-scripting-helpers)). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
 | `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only, no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `fmod`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar` |
@@ -2333,7 +2333,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`) |
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
 | `stdlib/regex.esk`    | A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): `regex_compile(pattern) -> Regex` (check `.ok` / `.err`), `Regex_search(&re, text, &m)` for the leftmost match with capture groups, `Match_group`, `Match_free`, `Regex_free`, and the one-shot `regex_match(pattern, text)`. RE2 syntax and semantics (as Go's regexp) over UTF-8: `.`, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, `.`, classes `[a-z]`/`[^...]` with POSIX names inside (`[[:alpha:]]`, `[[:^space:]]`), the ASCII shorthands `\d \w \s` (and negations; `\s` is `[\t\n\f\r ]`), Unicode classes `\pL`, `\p{Lu}`, `\p{Greek}`, `\P{..}`, `\p{^..}` (general categories, scripts, `Any`; the Unicode 15 tables are `stdlib/regex_unicode.esk`), `* + ? {m} {m,} {m,n}` (lazy with `?`; any other `{` is a literal), `|`, groups, non-capturing `(?:...)`, named `(?P<name>...)` / `(?<name>...)`, the flags `(?i)` (simple case folding) `(?m)` `(?s)` `(?U)` for the rest of a group or scoped `(?flags:...)`, `^` / `$`, `\A` / `\z`, the ASCII word boundaries `\b` / `\B`, `\xHH` / `\x{10FFFF}` and octal escapes, literal text `\Q...\E` (any other escaped letter or digit is an error) |
-| `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive) |
+| `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive); `List_sort_by(&list, cmp)` sorts a `List<T>` in place |
 | `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space) |
 | `stdlib/uuid.esk`     | `uuid_v4(&rng, &out)`: an RFC 4122 version-4 UUID string (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) drawn from a `<random>` `Rng` |
 | `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` (process environment; CLI args come from `main`'s `argc`/`argv`) |
@@ -2344,7 +2344,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `stdlib/http.esk`     | HTTP/1.1: `HttpRequest` + `HttpRequest_parse`/`_parse_status`/`_header` (RFC 9112 framing, the same as `http_recv`: `_parse_status` is 0 for a complete request, -1 when more bytes are needed, else the HTTP error status), `HttpResponse` + `HttpResponse_header`/`_set_body`/`_render`/`_render_head` (a HEAD response: Content-Length, no body; a 1xx, 204 or 304 has neither; `HttpResponse_header` returns 1, or 0 and adds nothing for a name that is not a token or a value with a CR or LF, which would inject a header line; a Content-Length the handler sets is not sent next to the automatic one, only a 1xx, 204 or 304 keeps it), and a threaded worker pool `http_serve(port, nworkers, handler)` where `handler` is `fn(HttpRequest*, HttpResponse*)->void` (`http_serve_with(port, nworkers, handler, lim)` takes an `HttpLimits`); it reads each request until complete (`HttpConnBuf_feed`, incremental: the head is parsed once and a chunked body decoded as it arrives), answering a bad one 400, 413, 501 or 505 without the handler (limits: a head over `HTTP_SERVE_MAX_HEAD`, 64 KiB, is 400, a body over `HTTP_SERVE_MAX_BODY`, 1 MiB, 413). `HttpLimits` (`HttpLimits_init` / `http_limits()` give the defaults) holds every server's timeouts in ms, 0 turning one off: `header_ms` (`HTTP_HEADER_TIMEOUT_MS`, 10 s: the whole head; trickled bytes do not extend it), `body_ms` (`HTTP_BODY_TIMEOUT_MS`, 60 s: the body once the head is in), `idle_ms` (`HTTP_IDLE_TIMEOUT_MS`, 60 s: an HTTP/2 connection with no open stream), `write_ms` (`HTTP_WRITE_TIMEOUT_MS`, 30 s: the client must take the answer; an HTTP/2 stream counts it from the last response data sent), `write_total_ms` (`HTTP_WRITE_TOTAL_MS`, 5 min: an HTTP/2 stream's whole response must be sent within it from when it is ready, however the peer paces its window updates; past it the stream is reset with CANCEL and its buffered response freed, the connection stays open), and `max_open` (`HTTP_MAX_OPEN_CONNS`, 1024: connections an async server holds at once; one past it is closed at once). A request cut by `header_ms` or `body_ms` after some of it arrived is answered 408; a peer that sent nothing is just closed. `http_serve` applies them with `SO_RCVTIMEO` (set to what is left of the deadline before each read) and `SO_SNDTIMEO`. `http_chunked_step` decodes a chunked body incrementally; a chunk-size or trailer line longer than `HTTP_CHUNK_LINE_MAX` (8192 bytes, CRLF included) is malformed however it was split into reads. The servers and `http_recv` drop the chunked input they have decoded, so their buffer holds the head and one unfinished chunk or line, and they reject a trailer section longer than `HTTP_CHUNK_TRAILER_MAX` (64 KiB) with 400. Plus a binary-safe full-body reader `HttpReq` + `http_recv` (loops until the Content-Length body arrives, or decodes a chunked body, into a `*uint8` body; RFC 9112 framing: `Transfer-Encoding` with `Content-Length`, a missing, repeated or invalid `Host` (not uri-host [":" port]), whitespace before a header colon, an obsolete line fold or a bad version is 400, a coding other than `chunked` 501), `HttpReq_header`, `http_reply`, `http_reply_error`: for uploads a single-recv String body would corrupt binary bytes |
 | `stdlib/multipart.esk`| Extract a named part from a `multipart/form-data` body over raw bytes: `multipart_boundary(ct, out)` and `multipart_part(body, len, boundary, name, *out_ptr, *out_len)` (the part whose `Content-Disposition` `name` parameter is `name`; returns a slice into the body) |
-| `stdlib/map.esk`      | `Map<V>`, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`, `Map_at` (get-or-insert → `*V` slot, sets `*created`), `Map_get`, `Map_free`. Plus `HashMap<K,V>`, keyed on any value type via `hash`/`eq` function pointers passed to `HashMap_init` (built-in `int_hash`/`int_eq`); same `_at`/`_get`/`_free` shape |
+| `stdlib/map.esk`      | `Map<V>`, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`, `Map_at` (get-or-insert → `*V` slot, sets `*created`), `Map_get`, `Map_free`. Plus `HashMap<K,V>`, keyed on any value type via `hash`/`eq` function pointers passed to `HashMap_init` (built-in `int_hash`/`int_eq`, and `cstr_hash`/`cstr_eq` for `string` keys by content); same `_at`/`_get`/`_free` shape. Both have `_has`, `_get_or`, `_len`, `_remove`, `_keys`, `_values`, `_each`. `Set<T>` is a hash set over `HashMap`: `Set_init`, `Set_add`, `Set_has`, `Set_remove`, `Set_len`, `Set_each`, `Set_items`, `Set_free` (see [Map, HashMap and Set](#map-hashmap-and-set)) |
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
 | `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `EventLoop_add_read`, `EventLoop_add_write`, `EventLoop_del`, `EventLoop_run`, `EventLoop_stop`, `EventLoop_free`, plus a timer wheel (`EventLoop_add_timer`/`EventLoop_del_timer`). Callback is `fn(EventLoop*, int)->void` |
 | `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
@@ -2435,6 +2435,104 @@ String_init(&n, 8);
 String_from_int(&n, -2026);            // "-2026"
 printf("%d\n", String_to_int(&n));     // -2026
 String_free(&n);
+```
+
+### String scripting helpers
+
+These follow the stdlib ownership rule: a `String* out` is cleared and refilled
+(the caller initialised it and frees it), a `self` String is edited in place, and
+split results are `List<String>`s of owned Strings released with
+`String_split_free`. Lengths, widths and indices count bytes; case mapping
+changes ASCII letters only and leaves every other byte (UTF-8 included) as is.
+
+| Function | Behavior |
+|---|---|
+| `int64 String_find(String* self, string needle, int64 from)` | First index at or after `from`, or `-1`; an empty needle matches at `from` |
+| `int String_contains(String* self, string needle)` | 1 or 0 |
+| `int String_replace(String* self, string from, string to)` | Replace the first occurrence in place; 1 if replaced. An empty `from` replaces nothing |
+| `int64 String_replace_all(String* self, string from, string to)` | Replace every non-overlapping occurrence, left to right (`"aaa"`, `"aa"` to `"b"` gives `"ba"`); returns the count |
+| `void String_split_str(String* self, string sep, List<String>* out)` | Split on a string; separators at the ends or side by side give empty parts, an empty `sep` gives one part |
+| `void String_lines(String* self, List<String>* out)` | Split on `\n` or `\r\n`; a final terminator adds no empty line, an empty String has none |
+| `void str_join(List<string>* parts, string sep, String* out)` | Join C strings into `out`; `parts.join(sep, &out)` (`List_join`) does the same |
+| `void String_join(String* self, List<String>* parts, string sep)` | Join Strings (the inverse of a split) into `self` |
+| `void String_lower(String* self)`, `void String_upper(String* self)` | ASCII case mapping in place |
+| `void String_repeat(String* self, int64 n)` | `n` copies of itself; `n <= 0` empties it |
+| `void String_pad_left(String* self, int64 width, char fill)`, `String_pad_right` | Pad to `width` bytes; a longer String is unchanged |
+| `double String_to_double(String* self)` | Leading number in C `strtod` syntax, 0.0 if none |
+| `int String_parse_double(String* self, *double out)` | The whole String (surrounding whitespace allowed) as one number: 1 and `*out` set, or 0 |
+| `void String_from_double(String* self, double d)` | Shortest of `%.15g` / `%.17g` that reads back as `d` (`0.1`, `3`, `1e+20`) |
+| `void str_format(String* out, string fmt, ...)` | `printf`-style formatting into `out`, through the C library's `vsnprintf` (C rules: `%lld` for `int64`, `s.cstr()` for a String) |
+| `void String_appendf(String* self, string fmt, ...)` | The same, appending |
+| `void String_reserve(String* self, int64 need)` | Grow the buffer to at least `need` bytes |
+
+```eskiu
+let s: String;  s.from("a=1;b=2;;c=3");
+let parts: List<String>;  List_init<String>(&parts, 4);
+s.split_str(";", &parts);                   // [a=1] [b=2] [] [c=3]
+String_split_free(&parts);
+s.replace_all(";", ", ");                   // "a=1, b=2, , c=3"
+let out: String;  out.init(16);
+str_format(&out, "%s has %d bytes", s.cstr(), (int)s.len);
+out.free();
+s.free();
+```
+
+### List helpers
+
+Predicates and mappers take the element by value (`fn(T)->bool`, `fn(T)->U`,
+`fn(A, T)->A`), so a lambda fits directly. Equality takes two pointers and
+returns 1 or 0 (`fn(*T, *T)->int`), the shape `HashMap` and `<sort>` use, so
+`int_eq` from `<map>` works. A function that builds a list appends to an `out`
+List the caller initialised. Elements are copied by value.
+
+| Function | Behavior |
+|---|---|
+| `List_map<T,U>(self, fn(T)->U f, List<U>* out)` | Append `f(x)` for each element |
+| `List_filter<T>(self, fn(T)->bool keep, List<T>* out)` | Append the elements `keep` accepts |
+| `A List_reduce<T,A>(self, A init, fn(A, T)->A f)` | Left fold |
+| `int List_find<T>(self, fn(T)->bool pred)` | Index of the first match, or `-1` |
+| `int List_any<T>`, `int List_all<T>(self, fn(T)->bool pred)` | 1 or 0; `all` of an empty list is 1 |
+| `int List_index_of<T>(self, T item, fn(*T,*T)->int eq)`, `int List_contains<T>(...)` | Index or `-1`; 1 or 0 |
+| `void List_reverse<T>(self)` | In place |
+| `void List_slice<T>(self, int start, int end, List<T>* out)` | Append `[start, end)`, clamped to the list |
+| `void List_unique<T>(self, fn(*T,*T)->int eq)` | Keep the first of each run of equal elements, in place (O(n^2)) |
+| `void List_clear<T>(self)` | Empty it, keeping the buffer |
+| `T List_pop<T>(self)` | Remove and return the last element (a zeroed `T` when empty) |
+| `void List_insert<T>(self, int i, T item)` | Insert before `i` (clamped) |
+| `void List_sort_by<T>(self, fn(*T,*T)->int cmp)` | In `<sort>`: heapsort the list in place (not stable) |
+| `void List_join<T>(self, string sep, String* out)` | In `<string>`: join a `List<string>` |
+
+```eskiu
+let nums: List<int>;  List_init<int>(&nums, 8);
+for (i in 1..11) { nums.push(i); }
+int limit = 4;
+let big: List<int>;  List_init<int>(&big, 8);
+nums.filter(bool(int x) { return x > limit; }, &big);          // 5..10
+int sum = big.reduce(0, int(int acc, int x) { return acc + x; });  // 45
+```
+
+### Map, HashMap and Set
+
+`Map<V>` and `HashMap<K,V>` gain `_has`, `_get_or(key, dflt)`, `_len`,
+`_remove`, `_keys(List*)`, `_values(List*)` and `_each(fn(K, V)->void)`.
+Iteration is in table order, which is unspecified; the callback of `_each` must
+not insert or remove. `Map_remove` frees the map's copy of the key but not the
+value. Removal uses backward-shift deletion (the later entries of the probe run
+move back, no tombstones), so a slot pointer from `_at` is invalid after a
+remove as well as after a growing insert. The strings `Map_keys` returns are the
+map's own copies, valid until their entry is removed or the map freed.
+
+`Set<T>` is a hash set over `HashMap<T, uint8>`, initialised with the same
+`hash`/`eq` callbacks (`int_hash`/`int_eq`, `cstr_hash`/`cstr_eq` for `string`
+elements by content, which stores the pointer and not a copy):
+
+```eskiu
+let seen: Set<string>;  Set_init<string>(&seen, 16, cstr_hash, cstr_eq);
+seen.add("a");  seen.add("b");
+int fresh = seen.add("a");                // 0: already there
+printf("%d %d\n", seen.len(), seen.has("b"));   // 2 1
+seen.remove("a");
+seen.free();
 ```
 
 ### Networking (`<net>`)

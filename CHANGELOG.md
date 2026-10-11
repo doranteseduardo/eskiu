@@ -29,6 +29,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<env>`: `env_set`, `env_unset`, `env_list`.
 - `<dns>`: `dns_resolve` (IPv4 and IPv6 through `getaddrinfo`). `net_tcp_connect` accepts a host
   name or an IPv6 address and tries each address; a dotted IPv4 address works as before.
+- `<string>`: `String_find`, `String_contains`, `String_replace`, `String_replace_all`,
+  `String_split_str`, `String_lines`, `String_join`, `str_join` / `List_join`, `String_lower` /
+  `String_upper` (ASCII), `String_repeat`, `String_pad_left` / `String_pad_right`,
+  `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, and
+  printf-style `str_format` / `String_appendf` over `vsnprintf`.
+- `<list>`: `List_map`, `List_filter`, `List_reduce`, `List_find`, `List_any`, `List_all`,
+  `List_contains`, `List_index_of`, `List_reverse`, `List_slice`, `List_unique`, `List_clear`,
+  `List_pop`, `List_insert`; `List_sort_by` in `<sort>`.
+- `<map>`: `_has`, `_get_or`, `_len`, `_remove` (backward-shift deletion), `_keys`, `_values` and
+  `_each` for `Map<V>` and `HashMap<K,V>`; `cstr_hash` / `cstr_eq` for `string` keys; `Set<T>`.
+- Examples `text_report.esk` and `word_count.esk`.
 
 ### Changed
 

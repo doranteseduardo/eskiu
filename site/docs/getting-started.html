@@ -1001,11 +1001,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;list&gt;</code></td>
-<td><code>List&lt;T&gt;</code>: <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code></td>
+<td><code>List&lt;T&gt;</code>: <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code>; <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>find</code>, <code>any</code>, <code>all</code>, <code>contains</code>, <code>index_of</code>, <code>reverse</code>, <code>slice</code>, <code>unique</code>, <code>clear</code>, <code>pop</code>, <code>insert</code></td>
 </tr>
 <tr>
 <td><code>&lt;map&gt;</code></td>
-<td><code>Map&lt;V&gt;</code>: string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code>: keyed on any type via <code>hash</code>/<code>eq</code> function pointers</td>
+<td><code>Map&lt;V&gt;</code>: string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code>: keyed on any type via <code>hash</code>/<code>eq</code> function pointers; both with <code>has</code>, <code>get_or</code>, <code>len</code>, <code>remove</code>, <code>keys</code>, <code>values</code>, <code>each</code>; <code>Set&lt;T&gt;</code>: hash set (<code>add</code>/<code>has</code>/<code>remove</code>/<code>len</code>/<code>each</code>/<code>items</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;bytes&gt;</code></td>
@@ -1013,7 +1013,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;string&gt;</code></td>
-<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code></td>
+<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code>; <code>find</code>, <code>contains</code>, <code>replace</code>, <code>replace_all</code>, <code>split_str</code>, <code>lines</code>, <code>join</code>, <code>lower</code>, <code>upper</code>, <code>repeat</code>, <code>pad_left</code>, <code>pad_right</code>, <code>to_double</code>, <code>parse_double</code>, <code>from_double</code>, <code>appendf</code>; <code>str_join</code>, <code>str_format</code></td>
 </tr>
 <tr>
 <td><code>&lt;ctype&gt;</code></td>
@@ -1101,7 +1101,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;sort&gt;</code></td>
-<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function</td>
+<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function; <code>List_sort_by</code> sorts a <code>List&lt;T&gt;</code></td>
 </tr>
 <tr>
 <td><code>&lt;url&gt;</code></td>

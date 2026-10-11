@@ -2262,11 +2262,11 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/list.esk</code></td>
-<td><code>List&lt;T&gt;</code> template struct; <code>List_init</code>, <code>List_push</code>, <code>List_get</code>, <code>List_set</code>, <code>List_remove</code>, <code>List_len</code>, <code>List_free</code></td>
+<td><code>List&lt;T&gt;</code> template struct; <code>List_init</code>, <code>List_push</code>, <code>List_get</code>, <code>List_set</code>, <code>List_remove</code>, <code>List_len</code>, <code>List_free</code>; scripting helpers <code>List_map</code>, <code>List_filter</code>, <code>List_reduce</code>, <code>List_find</code>, <code>List_any</code>, <code>List_all</code>, <code>List_contains</code>, <code>List_index_of</code>, <code>List_reverse</code>, <code>List_slice</code>, <code>List_unique</code>, <code>List_clear</code>, <code>List_pop</code>, <code>List_insert</code> (see <a href="#list-helpers">List helpers</a>)</td>
 </tr>
 <tr>
 <td><code>stdlib/string.esk</code></td>
-<td><code>String</code> struct; <code>String_init</code>, <code>String_from</code>, <code>String_append</code>, <code>String_concat</code>, <code>String_push</code>, <code>String_char_at</code>, <code>String_set</code>, <code>String_clear</code>, <code>String_index_of</code>, <code>String_eq</code>, <code>String_eq_cstr</code>, <code>String_reverse</code>, <code>String_substring</code>, <code>String_from_int</code>, <code>String_to_int</code>, <code>String_cstr</code>, <code>String_len</code>, <code>String_free</code>, <code>String_starts_with</code>, <code>String_ends_with</code>, <code>String_trim</code>, <code>String_next_token</code> (streaming split), <code>String_split</code>/<code>String_split_free</code> (into a <code>List&lt;String&gt;</code>). <code>String_to_int</code> accepts a leading sign and saturates at the <code>int</code> range. <code>String_is_space</code> is deprecated; use <code>is_space</code> from <code>&lt;ctype&gt;</code></td>
+<td><code>String</code> struct; <code>String_init</code>, <code>String_from</code>, <code>String_append</code>, <code>String_concat</code>, <code>String_push</code>, <code>String_char_at</code>, <code>String_set</code>, <code>String_clear</code>, <code>String_index_of</code>, <code>String_eq</code>, <code>String_eq_cstr</code>, <code>String_reverse</code>, <code>String_substring</code>, <code>String_from_int</code>, <code>String_to_int</code>, <code>String_cstr</code>, <code>String_len</code>, <code>String_free</code>, <code>String_starts_with</code>, <code>String_ends_with</code>, <code>String_trim</code>, <code>String_next_token</code> (streaming split), <code>String_split</code>/<code>String_split_free</code> (into a <code>List&lt;String&gt;</code>); scripting helpers <code>String_find</code>, <code>String_contains</code>, <code>String_replace</code>, <code>String_replace_all</code>, <code>String_split_str</code>, <code>String_lines</code>, <code>String_join</code>, <code>str_join</code>, <code>List_join</code>, <code>String_lower</code>, <code>String_upper</code>, <code>String_repeat</code>, <code>String_pad_left</code>, <code>String_pad_right</code>, <code>String_to_double</code>, <code>String_parse_double</code>, <code>String_from_double</code>, <code>String_reserve</code>, <code>String_appendf</code>, <code>str_format</code> (see <a href="#string-scripting-helpers">String scripting helpers</a>). <code>String_to_int</code> accepts a leading sign and saturates at the <code>int</code> range. <code>String_is_space</code> is deprecated; use <code>is_space</code> from <code>&lt;ctype&gt;</code></td>
 </tr>
 <tr>
 <td><code>stdlib/ctype.esk</code></td>
@@ -2310,7 +2310,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/sort.esk</code></td>
-<td>Generic in-place heapsort <code>sort&lt;T&gt;(a, n, cmp)</code> and binary search <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> (index or <code>-1</code>) over a <code>*T</code> array; <code>cmp</code> is <code>fn(*T, *T)-&gt;int</code> (negative / zero / positive)</td>
+<td>Generic in-place heapsort <code>sort&lt;T&gt;(a, n, cmp)</code> and binary search <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> (index or <code>-1</code>) over a <code>*T</code> array; <code>cmp</code> is <code>fn(*T, *T)-&gt;int</code> (negative / zero / positive); <code>List_sort_by(&amp;list, cmp)</code> sorts a <code>List&lt;T&gt;</code> in place</td>
 </tr>
 <tr>
 <td><code>stdlib/url.esk</code></td>
@@ -2354,7 +2354,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/map.esk</code></td>
-<td><code>Map&lt;V&gt;</code>, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): <code>Map_init</code>, <code>Map_at</code> (get-or-insert → <code>*V</code> slot, sets <code>*created</code>), <code>Map_get</code>, <code>Map_free</code>. Plus <code>HashMap&lt;K,V&gt;</code>, keyed on any value type via <code>hash</code>/<code>eq</code> function pointers passed to <code>HashMap_init</code> (built-in <code>int_hash</code>/<code>int_eq</code>); same <code>_at</code>/<code>_get</code>/<code>_free</code> shape</td>
+<td><code>Map&lt;V&gt;</code>, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): <code>Map_init</code>, <code>Map_at</code> (get-or-insert → <code>*V</code> slot, sets <code>*created</code>), <code>Map_get</code>, <code>Map_free</code>. Plus <code>HashMap&lt;K,V&gt;</code>, keyed on any value type via <code>hash</code>/<code>eq</code> function pointers passed to <code>HashMap_init</code> (built-in <code>int_hash</code>/<code>int_eq</code>, and <code>cstr_hash</code>/<code>cstr_eq</code> for <code>string</code> keys by content); same <code>_at</code>/<code>_get</code>/<code>_free</code> shape. Both have <code>_has</code>, <code>_get_or</code>, <code>_len</code>, <code>_remove</code>, <code>_keys</code>, <code>_values</code>, <code>_each</code>. <code>Set&lt;T&gt;</code> is a hash set over <code>HashMap</code>: <code>Set_init</code>, <code>Set_add</code>, <code>Set_has</code>, <code>Set_remove</code>, <code>Set_len</code>, <code>Set_each</code>, <code>Set_items</code>, <code>Set_free</code> (see <a href="#map-hashmap-and-set">Map, HashMap and Set</a>)</td>
 </tr>
 <tr>
 <td><code>stdlib/threading.esk</code></td>
@@ -2489,6 +2489,198 @@ String_init(&amp;n, 8);
 String_from_int(&amp;n, -2026);            // &quot;-2026&quot;
 printf(&quot;%d\n&quot;, String_to_int(&amp;n));     // -2026
 String_free(&amp;n);
+</code></pre>
+<h3 id="string-scripting-helpers">String scripting helpers</h3>
+<p>These follow the stdlib ownership rule: a <code>String* out</code> is cleared and refilled
+(the caller initialised it and frees it), a <code>self</code> String is edited in place, and
+split results are <code>List&lt;String&gt;</code>s of owned Strings released with
+<code>String_split_free</code>. Lengths, widths and indices count bytes; case mapping
+changes ASCII letters only and leaves every other byte (UTF-8 included) as is.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int64 String_find(String* self, string needle, int64 from)</code></td>
+<td>First index at or after <code>from</code>, or <code>-1</code>; an empty needle matches at <code>from</code></td>
+</tr>
+<tr>
+<td><code>int String_contains(String* self, string needle)</code></td>
+<td>1 or 0</td>
+</tr>
+<tr>
+<td><code>int String_replace(String* self, string from, string to)</code></td>
+<td>Replace the first occurrence in place; 1 if replaced. An empty <code>from</code> replaces nothing</td>
+</tr>
+<tr>
+<td><code>int64 String_replace_all(String* self, string from, string to)</code></td>
+<td>Replace every non-overlapping occurrence, left to right (<code>"aaa"</code>, <code>"aa"</code> to <code>"b"</code> gives <code>"ba"</code>); returns the count</td>
+</tr>
+<tr>
+<td><code>void String_split_str(String* self, string sep, List&lt;String&gt;* out)</code></td>
+<td>Split on a string; separators at the ends or side by side give empty parts, an empty <code>sep</code> gives one part</td>
+</tr>
+<tr>
+<td><code>void String_lines(String* self, List&lt;String&gt;* out)</code></td>
+<td>Split on <code>\n</code> or <code>\r\n</code>; a final terminator adds no empty line, an empty String has none</td>
+</tr>
+<tr>
+<td><code>void str_join(List&lt;string&gt;* parts, string sep, String* out)</code></td>
+<td>Join C strings into <code>out</code>; <code>parts.join(sep, &amp;out)</code> (<code>List_join</code>) does the same</td>
+</tr>
+<tr>
+<td><code>void String_join(String* self, List&lt;String&gt;* parts, string sep)</code></td>
+<td>Join Strings (the inverse of a split) into <code>self</code></td>
+</tr>
+<tr>
+<td><code>void String_lower(String* self)</code>, <code>void String_upper(String* self)</code></td>
+<td>ASCII case mapping in place</td>
+</tr>
+<tr>
+<td><code>void String_repeat(String* self, int64 n)</code></td>
+<td><code>n</code> copies of itself; <code>n &lt;= 0</code> empties it</td>
+</tr>
+<tr>
+<td><code>void String_pad_left(String* self, int64 width, char fill)</code>, <code>String_pad_right</code></td>
+<td>Pad to <code>width</code> bytes; a longer String is unchanged</td>
+</tr>
+<tr>
+<td><code>double String_to_double(String* self)</code></td>
+<td>Leading number in C <code>strtod</code> syntax, 0.0 if none</td>
+</tr>
+<tr>
+<td><code>int String_parse_double(String* self, *double out)</code></td>
+<td>The whole String (surrounding whitespace allowed) as one number: 1 and <code>*out</code> set, or 0</td>
+</tr>
+<tr>
+<td><code>void String_from_double(String* self, double d)</code></td>
+<td>Shortest of <code>%.15g</code> / <code>%.17g</code> that reads back as <code>d</code> (<code>0.1</code>, <code>3</code>, <code>1e+20</code>)</td>
+</tr>
+<tr>
+<td><code>void str_format(String* out, string fmt, ...)</code></td>
+<td><code>printf</code>-style formatting into <code>out</code>, through the C library's <code>vsnprintf</code> (C rules: <code>%lld</code> for <code>int64</code>, <code>s.cstr()</code> for a String)</td>
+</tr>
+<tr>
+<td><code>void String_appendf(String* self, string fmt, ...)</code></td>
+<td>The same, appending</td>
+</tr>
+<tr>
+<td><code>void String_reserve(String* self, int64 need)</code></td>
+<td>Grow the buffer to at least <code>need</code> bytes</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-eskiu">let s: String;  s.from(&quot;a=1;b=2;;c=3&quot;);
+let parts: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;parts, 4);
+s.split_str(&quot;;&quot;, &amp;parts);                   // [a=1] [b=2] [] [c=3]
+String_split_free(&amp;parts);
+s.replace_all(&quot;;&quot;, &quot;, &quot;);                   // &quot;a=1, b=2, , c=3&quot;
+let out: String;  out.init(16);
+str_format(&amp;out, &quot;%s has %d bytes&quot;, s.cstr(), (int)s.len);
+out.free();
+s.free();
+</code></pre>
+<h3 id="list-helpers">List helpers</h3>
+<p>Predicates and mappers take the element by value (<code>fn(T)-&gt;bool</code>, <code>fn(T)-&gt;U</code>,
+<code>fn(A, T)-&gt;A</code>), so a lambda fits directly. Equality takes two pointers and
+returns 1 or 0 (<code>fn(*T, *T)-&gt;int</code>), the shape <code>HashMap</code> and <code>&lt;sort&gt;</code> use, so
+<code>int_eq</code> from <code>&lt;map&gt;</code> works. A function that builds a list appends to an <code>out</code>
+List the caller initialised. Elements are copied by value.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>List_map&lt;T,U&gt;(self, fn(T)-&gt;U f, List&lt;U&gt;* out)</code></td>
+<td>Append <code>f(x)</code> for each element</td>
+</tr>
+<tr>
+<td><code>List_filter&lt;T&gt;(self, fn(T)-&gt;bool keep, List&lt;T&gt;* out)</code></td>
+<td>Append the elements <code>keep</code> accepts</td>
+</tr>
+<tr>
+<td><code>A List_reduce&lt;T,A&gt;(self, A init, fn(A, T)-&gt;A f)</code></td>
+<td>Left fold</td>
+</tr>
+<tr>
+<td><code>int List_find&lt;T&gt;(self, fn(T)-&gt;bool pred)</code></td>
+<td>Index of the first match, or <code>-1</code></td>
+</tr>
+<tr>
+<td><code>int List_any&lt;T&gt;</code>, <code>int List_all&lt;T&gt;(self, fn(T)-&gt;bool pred)</code></td>
+<td>1 or 0; <code>all</code> of an empty list is 1</td>
+</tr>
+<tr>
+<td><code>int List_index_of&lt;T&gt;(self, T item, fn(*T,*T)-&gt;int eq)</code>, <code>int List_contains&lt;T&gt;(...)</code></td>
+<td>Index or <code>-1</code>; 1 or 0</td>
+</tr>
+<tr>
+<td><code>void List_reverse&lt;T&gt;(self)</code></td>
+<td>In place</td>
+</tr>
+<tr>
+<td><code>void List_slice&lt;T&gt;(self, int start, int end, List&lt;T&gt;* out)</code></td>
+<td>Append <code>[start, end)</code>, clamped to the list</td>
+</tr>
+<tr>
+<td><code>void List_unique&lt;T&gt;(self, fn(*T,*T)-&gt;int eq)</code></td>
+<td>Keep the first of each run of equal elements, in place (O(n^2))</td>
+</tr>
+<tr>
+<td><code>void List_clear&lt;T&gt;(self)</code></td>
+<td>Empty it, keeping the buffer</td>
+</tr>
+<tr>
+<td><code>T List_pop&lt;T&gt;(self)</code></td>
+<td>Remove and return the last element (a zeroed <code>T</code> when empty)</td>
+</tr>
+<tr>
+<td><code>void List_insert&lt;T&gt;(self, int i, T item)</code></td>
+<td>Insert before <code>i</code> (clamped)</td>
+</tr>
+<tr>
+<td><code>void List_sort_by&lt;T&gt;(self, fn(*T,*T)-&gt;int cmp)</code></td>
+<td>In <code>&lt;sort&gt;</code>: heapsort the list in place (not stable)</td>
+</tr>
+<tr>
+<td><code>void List_join&lt;T&gt;(self, string sep, String* out)</code></td>
+<td>In <code>&lt;string&gt;</code>: join a <code>List&lt;string&gt;</code></td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-eskiu">let nums: List&lt;int&gt;;  List_init&lt;int&gt;(&amp;nums, 8);
+for (i in 1..11) { nums.push(i); }
+int limit = 4;
+let big: List&lt;int&gt;;  List_init&lt;int&gt;(&amp;big, 8);
+nums.filter(bool(int x) { return x &gt; limit; }, &amp;big);          // 5..10
+int sum = big.reduce(0, int(int acc, int x) { return acc + x; });  // 45
+</code></pre>
+<h3 id="map-hashmap-and-set">Map, HashMap and Set</h3>
+<p><code>Map&lt;V&gt;</code> and <code>HashMap&lt;K,V&gt;</code> gain <code>_has</code>, <code>_get_or(key, dflt)</code>, <code>_len</code>,
+<code>_remove</code>, <code>_keys(List*)</code>, <code>_values(List*)</code> and <code>_each(fn(K, V)-&gt;void)</code>.
+Iteration is in table order, which is unspecified; the callback of <code>_each</code> must
+not insert or remove. <code>Map_remove</code> frees the map's copy of the key but not the
+value. Removal uses backward-shift deletion (the later entries of the probe run
+move back, no tombstones), so a slot pointer from <code>_at</code> is invalid after a
+remove as well as after a growing insert. The strings <code>Map_keys</code> returns are the
+map's own copies, valid until their entry is removed or the map freed.</p>
+<p><code>Set&lt;T&gt;</code> is a hash set over <code>HashMap&lt;T, uint8&gt;</code>, initialised with the same
+<code>hash</code>/<code>eq</code> callbacks (<code>int_hash</code>/<code>int_eq</code>, <code>cstr_hash</code>/<code>cstr_eq</code> for <code>string</code>
+elements by content, which stores the pointer and not a copy):</p>
+<pre><code class="language-eskiu">let seen: Set&lt;string&gt;;  Set_init&lt;string&gt;(&amp;seen, 16, cstr_hash, cstr_eq);
+seen.add(&quot;a&quot;);  seen.add(&quot;b&quot;);
+int fresh = seen.add(&quot;a&quot;);                // 0: already there
+printf(&quot;%d %d\n&quot;, seen.len(), seen.has(&quot;b&quot;));   // 2 1
+seen.remove(&quot;a&quot;);
+seen.free();
 </code></pre>
 <h3 id="networking-net">Networking (<code>&lt;net&gt;</code>)</h3>
 <p><code>&lt;net&gt;</code> wraps the POSIX BSD socket API for TCP. The <code>net_*</code> helpers cover the

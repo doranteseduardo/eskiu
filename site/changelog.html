@@ -180,6 +180,17 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li><code>&lt;env&gt;</code>: <code>env_set</code>, <code>env_unset</code>, <code>env_list</code>.</li>
 <li><code>&lt;dns&gt;</code>: <code>dns_resolve</code> (IPv4 and IPv6 through <code>getaddrinfo</code>). <code>net_tcp_connect</code> accepts a host
   name or an IPv6 address and tries each address; a dotted IPv4 address works as before.</li>
+<li><code>&lt;string&gt;</code>: <code>String_find</code>, <code>String_contains</code>, <code>String_replace</code>, <code>String_replace_all</code>,
+  <code>String_split_str</code>, <code>String_lines</code>, <code>String_join</code>, <code>str_join</code> / <code>List_join</code>, <code>String_lower</code> /
+  <code>String_upper</code> (ASCII), <code>String_repeat</code>, <code>String_pad_left</code> / <code>String_pad_right</code>,
+  <code>String_to_double</code>, <code>String_parse_double</code>, <code>String_from_double</code>, <code>String_reserve</code>, and
+  printf-style <code>str_format</code> / <code>String_appendf</code> over <code>vsnprintf</code>.</li>
+<li><code>&lt;list&gt;</code>: <code>List_map</code>, <code>List_filter</code>, <code>List_reduce</code>, <code>List_find</code>, <code>List_any</code>, <code>List_all</code>,
+  <code>List_contains</code>, <code>List_index_of</code>, <code>List_reverse</code>, <code>List_slice</code>, <code>List_unique</code>, <code>List_clear</code>,
+  <code>List_pop</code>, <code>List_insert</code>; <code>List_sort_by</code> in <code>&lt;sort&gt;</code>.</li>
+<li><code>&lt;map&gt;</code>: <code>_has</code>, <code>_get_or</code>, <code>_len</code>, <code>_remove</code> (backward-shift deletion), <code>_keys</code>, <code>_values</code> and
+  <code>_each</code> for <code>Map&lt;V&gt;</code> and <code>HashMap&lt;K,V&gt;</code>; <code>cstr_hash</code> / <code>cstr_eq</code> for <code>string</code> keys; <code>Set&lt;T&gt;</code>.</li>
+<li>Examples <code>text_report.esk</code> and <code>word_count.esk</code>.</li>
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>
