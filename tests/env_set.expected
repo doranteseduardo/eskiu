@@ -1,0 +1,9 @@
+set 0
+get one two
+listed 1
+replace 0 -> three
+child sees three
+bad names -1 -1
+unset 0 has 0 listed 0
+unset again 0
+sorted 1 nonempty 1
