@@ -1,4 +1,4 @@
-// fs.esk — file system I/O
+// fs.esk: file system I/O (files, directories, metadata, walking and globbing).
 //
 // Usage:
 //   import <fs>;
@@ -7,6 +7,23 @@
 //   if (f == null) { /* handle error */ }
 //   int64 n = fs_read(f, buf, len);
 //   fs_close(f);
+//
+//   let text: String;  text.init(64);
+//   if (fs_read_text("notes.txt", &text) != 0) { fs_last_error(&err); ... }
+//   fs_mkdir_p("out/logs");
+//   let names: List<String>;  List_init<String>(&names, 8);
+//   fs_list_dir(".", &names);           // sorted names
+//   fs_list_free(&names);
+//
+// Conventions for the path-level functions (everything below "Paths and
+// directories"): an action returns 0 on success and -1 on failure, and
+// fs_last_error / fs_errno describe the failure (the OS error of the last
+// failing fs_* call in the process, not per thread). A query (fs_exists,
+// fs_is_dir, fs_is_file, fs_match) returns 1 or 0. Text results go into a
+// String or List<String> the caller has initialised; a function that fills a
+// String clears it first, one that fills a list appends to it. The older
+// fs_write_all returns 1/0 and fs_read_all null on failure, as before.
+// Paths are UTF-8 on every platform (converted to UTF-16 on Windows).
 
 // ── libc declarations ─────────────────────────────────────────────────────
 
@@ -24,13 +41,15 @@ extern int    feof(*void fp);
 extern int    ferror(*void fp);
 
 import <mem>;   // heap allocation via the built-in alloc<T>, not raw malloc
+import <string>;
+import <list>;
 
 // ── Open / close ──────────────────────────────────────────────────────────
 
 // Open a file. mode: "r", "w", "rb", "wb", "a", "r+", etc.
 // Returns null on failure.
 *void fs_open(string path, string mode) {
-    return fopen(path, mode);
+    return _fs_fopen(path, mode);
 }
 
 void fs_close(*void fp) {
@@ -92,7 +111,7 @@ int64 fs_size(*void fp) {
 // that cannot seek (a pipe, /dev/stdin): the size is only a first guess and
 // the buffer grows until fread reports end of file.
 *uint8 fs_read_all(string path, *int64 out_len) {
-    *void fp = fopen(path, "rb");
+    *void fp = _fs_fopen(path, "rb");
     if (fp == null) { return null; }
     defer fclose(fp);
 
@@ -132,7 +151,7 @@ int64 fs_size(*void fp) {
 
 // Returns 1 on success, 0 on error.
 int fs_write_all(string path, *uint8 buf, int64 n) {
-    *void fp = fopen(path, "wb");
+    *void fp = _fs_fopen(path, "wb");
     if (fp == null) { return 0; }
     const int64 written = fwrite(buf, 1, n, fp);
     fclose(fp);
@@ -143,3 +162,928 @@ int fs_write_all(string path, *uint8 buf, int64 n) {
 
 int fs_eof(*void fp)   { return feof(fp);   }
 int fs_error(*void fp) { return ferror(fp); }
+
+// ── Platform layer ────────────────────────────────────────────────────────
+//
+// POSIX reads `struct stat` and `struct dirent` through a byte buffer at the
+// offsets of each target's C layout (checked against the system headers):
+// 64-bit-inode macOS (arm64 `stat`, x86-64 `stat64`; x86-64's plain `readdir` is
+// the legacy 32-bit-inode one) and 64-bit glibc Linux (x86-64, AArch64). Other
+// POSIX targets get no `struct stat` reader: fs_stat then reports only what
+// fopen/opendir can tell (size, is_dir) with mtime and mode 0.
+
+extern string strerror(int e);
+extern int    strcmp(string a, string b);
+extern string getenv(string name);
+
+#ifdef _WIN32
+extern *void  _wfopen(*uint16 path, *uint16 mode);
+extern *int   _errno();
+extern uint32 GetLastError();
+extern uint32 FormatMessageA(uint32 flags, *void src, uint32 id, uint32 lang, *uint8 buf, uint32 n, *void args);
+extern int    MultiByteToWideChar(uint32 cp, uint32 flags, string s, int n, *uint16 w, int wn);
+extern int    WideCharToMultiByte(uint32 cp, uint32 flags, *uint16 w, int wn, *uint8 s, int n, *void def_char, *void used_def);
+extern uint32 GetFileAttributesW(*uint16 path);
+extern int    GetFileAttributesExW(*uint16 path, int level, *void info);
+extern int    CreateDirectoryW(*uint16 path, *void sa);
+extern int    RemoveDirectoryW(*uint16 path);
+extern int    DeleteFileW(*uint16 path);
+extern int    MoveFileExW(*uint16 from, *uint16 to, uint32 flags);
+extern int    CopyFileW(*uint16 from, *uint16 to, int fail_if_exists);
+extern *void  FindFirstFileW(*uint16 pattern, *void data);
+extern int    FindNextFileW(*void h, *void data);
+extern int    FindClose(*void h);
+extern uint32 GetCurrentDirectoryW(uint32 n, *uint16 buf);
+extern int    SetCurrentDirectoryW(*uint16 path);
+extern uint32 GetTempPathW(uint32 n, *uint16 buf);
+extern uint32 GetTempFileNameW(*uint16 dir, *uint16 prefix, uint32 unique, *uint16 out);
+#define _FS_ATTR_READONLY  1
+#define _FS_ATTR_DIRECTORY 16
+#define _FS_ATTR_REPARSE   1024
+#else
+extern int    unlink(string path);
+extern int    rmdir(string path);
+extern int    rename(string from, string to);
+extern int    chdir(string path);
+extern *char  getcwd(*char buf, int64 size);
+extern int    mkstemp(*char tmpl);
+extern *char  mkdtemp(*char tmpl);
+extern int    close(int fd);
+extern *void  opendir(string path);
+extern *void  readdir(*void dir);
+extern int    closedir(*void dir);
+#ifdef __APPLE__
+extern int    mkdir(string path, uint16 mode);
+extern int    chmod(string path, uint16 mode);
+extern *int   __error();
+int _fs_errno_now() { return *__error(); }
+#else
+extern int    mkdir(string path, uint32 mode);
+extern int    chmod(string path, uint32 mode);
+extern *int   __errno_location();
+int _fs_errno_now() { return *__errno_location(); }
+#endif
+
+#if defined(__APPLE__) && defined(__x86_64__)
+extern int stat64(string path, *void buf);
+extern int lstat64(string path, *void buf);
+int _fs_stat_raw(string p, *void b)  { return stat64(p, b); }
+int _fs_lstat_raw(string p, *void b) { return lstat64(p, b); }
+#define _FS_HAVE_STAT 1
+#define _FS_ST_MODE 4
+#define _FS_ST_MODE16 1
+#define _FS_ST_MTIME 48
+#define _FS_ST_SIZE 96
+#define _FS_DIRENT_NAME 8
+#elif defined(__APPLE__)
+extern int stat(string path, *void buf);
+extern int lstat(string path, *void buf);
+int _fs_stat_raw(string p, *void b)  { return stat(p, b); }
+int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
+#define _FS_HAVE_STAT 1
+#define _FS_ST_MODE 4
+#define _FS_ST_MODE16 1
+#define _FS_ST_MTIME 48
+#define _FS_ST_SIZE 96
+#define _FS_DIRENT_NAME 21
+#elif defined(__linux__) && defined(__x86_64__)
+extern int stat(string path, *void buf);
+extern int lstat(string path, *void buf);
+int _fs_stat_raw(string p, *void b)  { return stat(p, b); }
+int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
+#define _FS_HAVE_STAT 1
+#define _FS_ST_MODE 24
+#define _FS_ST_MTIME 88
+#define _FS_ST_SIZE 48
+#define _FS_DIRENT_NAME 19
+#elif defined(__linux__) && defined(__aarch64__)
+extern int stat(string path, *void buf);
+extern int lstat(string path, *void buf);
+int _fs_stat_raw(string p, *void b)  { return stat(p, b); }
+int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
+#define _FS_HAVE_STAT 1
+#define _FS_ST_MODE 16
+#define _FS_ST_MTIME 88
+#define _FS_ST_SIZE 48
+#define _FS_DIRENT_NAME 19
+#else
+#define _FS_DIRENT_NAME 11
+#endif
+#endif
+
+// The failure state behind fs_last_error / fs_errno.
+int  _fs_err = 0;
+bool _fs_err_win = false;   // Windows: _fs_err is a GetLastError code, not an errno
+
+#ifdef _WIN32
+int _fs_errno_now() { return *_errno(); }
+int _fs_fail_os() { _fs_err = (int)GetLastError(); _fs_err_win = true; return -1; }
+#else
+int _fs_fail_os() { _fs_err = _fs_errno_now(); _fs_err_win = false; return -1; }
+#endif
+int _fs_fail_crt() { _fs_err = _fs_errno_now(); _fs_err_win = false; return -1; }
+
+// The OS error code of the last failing fs_* call (errno, or GetLastError on
+// Windows for the calls that go through the Win32 API); 0 if none failed yet.
+int fs_errno() { return _fs_err; }
+
+// A readable message for the last failing fs_* call ("No such file or directory").
+void fs_last_error(String* out) {
+    out.clear();
+    if (_fs_err == 0) { out.append("no error"); return; }
+#ifdef _WIN32
+    if (_fs_err_win) {
+        *uint8 buf = alloc<uint8>(512);
+        // FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS
+        uint32 n = FormatMessageA((uint32)4608, null, (uint32)_fs_err, (uint32)0, buf, (uint32)511, null);
+        while (n > 0 && (buf[n - 1] == 10 || buf[n - 1] == 13 || buf[n - 1] == 32 || buf[n - 1] == 46)) { n--; }
+        buf[n] = 0;
+        if (n == 0) { out.append("Windows error"); } else { out.append((string)buf); }
+        free((*void)buf);
+        return;
+    }
+#endif
+    out.append(strerror(_fs_err));
+}
+
+// Append n raw bytes to a String (NUL bytes included), keeping it NUL-terminated.
+void _fs_append_bytes(String* s, *uint8 p, int64 n) {
+    if (n <= 0) { return; }
+    if (s.len + n + 1 > s.cap) {
+        int64 ncap = s.cap * 2;
+        if (ncap < s.len + n + 1) { ncap = s.len + n + 1; }
+        *char nd = alloc<char>(ncap);
+        if (s.data != null) { memcpy((*void)nd, (*void)s.data, s.len); free((*void)s.data); }
+        s.data = nd;
+        s.cap = ncap;
+    }
+    memcpy((*void)(s.data + s.len), (*void)p, n);
+    s.len += n;
+    s.data[s.len] = 0;
+}
+
+#ifdef _WIN32
+// UTF-8 -> a NUL-terminated UTF-16 copy (free it), or null if `s` is not valid.
+*uint16 _fs_wide(string s) {
+    const int n = MultiByteToWideChar((uint32)65001, (uint32)0, s, -1, null, 0);
+    if (n <= 0) { return null; }
+    *uint16 w = alloc<uint16>((int64)n + 1);
+    MultiByteToWideChar((uint32)65001, (uint32)0, s, -1, w, n);
+    return w;
+}
+
+// Append a NUL-terminated UTF-16 string to `out` as UTF-8.
+void _fs_append_wide(String* out, *uint16 w) {
+    const int n = WideCharToMultiByte((uint32)65001, (uint32)0, w, -1, null, 0, null, null);
+    if (n <= 1) { return; }
+    *uint8 b = alloc<uint8>((int64)n);
+    WideCharToMultiByte((uint32)65001, (uint32)0, w, -1, b, n, null, null);
+    out.append((string)b);
+    free((*void)b);
+}
+
+int64 _fs_u32_at(*uint8 b, int off) {
+    let v: uint32 = (uint32)0;
+    memcpy((*void)&v, (*void)(b + off), 4);
+    return (int64)v;
+}
+
+// FILETIME (100 ns ticks since 1601) at b[off] -> Unix epoch seconds.
+int64 _fs_filetime_at(*uint8 b, int off) {
+    const int64 t = _fs_u32_at(b, off) | (_fs_u32_at(b, off + 4) << 32);
+    return (t - 116444736000000000) / 10000000;
+}
+#endif
+
+// fopen with a UTF-8 path on every platform (_wfopen on Windows).
+*void _fs_fopen(string path, string mode) {
+#ifdef _WIN32
+    *uint16 wp = _fs_wide(path);
+    *uint16 wm = _fs_wide(mode);
+    *void fp = null;
+    if (wp != null && wm != null) { fp = _wfopen(wp, wm); }
+    free((*void)wp);
+    free((*void)wm);
+    return fp;
+#else
+    return fopen(path, mode);
+#endif
+}
+
+// ── Text files ────────────────────────────────────────────────────────────
+
+// Read the whole file into `out` (cleared first). Returns 0, or -1 on failure.
+int fs_read_text(string path, String* out) {
+    out.clear();
+    *void fp = _fs_fopen(path, "rb");
+    if (fp == null) { return _fs_fail_crt(); }
+    defer fclose(fp);
+    *uint8 buf = alloc<uint8>(65536);
+    defer free((*void)buf);
+    while (true) {
+        const int64 got = fread((*void)buf, 1, 65536, fp);
+        if (got <= 0) { break; }
+        _fs_append_bytes(out, buf, got);
+    }
+    if (ferror(fp) != 0) { return _fs_fail_crt(); }
+    return 0;
+}
+
+int _fs_write_mode(string path, string text, string mode) {
+    *void fp = _fs_fopen(path, mode);
+    if (fp == null) { return _fs_fail_crt(); }
+    const int64 n = strlen(text);
+    const int64 w = n > 0 ? fwrite((*void)text, 1, n, fp) : 0;
+    if (w != n) { _fs_fail_crt(); fclose(fp); return -1; }
+    if (fclose(fp) != 0) { return _fs_fail_crt(); }
+    return 0;
+}
+
+// Replace the file's contents with `text` (created if missing). 0 or -1.
+int fs_write_text(string path, string text) { return _fs_write_mode(path, text, "wb"); }
+
+// Append `text` to the file (created if missing). 0 or -1.
+int fs_append_text(string path, string text) { return _fs_write_mode(path, text, "ab"); }
+
+// Append each line of the file to `out` as a new String, without its "\n" or
+// "\r\n". A final line without a newline counts; an empty file adds none.
+// Free the list with fs_list_free. Returns 0, or -1 on failure.
+int fs_read_lines(string path, List<String>* out) {
+    let text: String;  text.init(256);
+    defer text.free();
+    if (fs_read_text(path, &text) != 0) { return -1; }
+    int64 start = 0;
+    for (int64 i = 0; i <= text.len; i++) {
+        if (i == text.len && start == text.len) { break; }
+        if (i == text.len || text.data[i] == '\n') {
+            int64 end = i;
+            if (end > start && text.data[end - 1] == '\r') { end--; }
+            let line: String;  line.init(end - start + 1);
+            _fs_append_bytes(&line, (*uint8)(text.data + start), end - start);
+            List_push<String>(out, line);
+            start = i + 1;
+        }
+    }
+    return 0;
+}
+
+// Free every String in a list filled by fs_read_lines, fs_list_dir or fs_glob,
+// then the list itself.
+void fs_list_free(List<String>* list) {
+    for (i in 0..List_len<String>(list)) {
+        let s: String = List_get<String>(list, i);
+        s.free();
+    }
+    List_free<String>(list);
+}
+
+// ── Paths and directories ─────────────────────────────────────────────────
+
+// Metadata of a path (fs_stat follows symbolic links, fs_lstat does not).
+// mtime is in Unix epoch seconds; mode holds the permission bits (0o7777 on
+// POSIX; on Windows 0o444 for a read-only file, else 0o666, plus 0o111 for a
+// directory).
+struct FileStat {
+    int64 size;
+    int64 mtime;
+    int   mode;
+    bool  is_dir;
+    bool  is_file;
+    bool  is_symlink;
+}
+
+int _fs_stat_impl(string path, FileStat* out, bool follow) {
+    out.size = 0;
+    out.mtime = 0;
+    out.mode = 0;
+    out.is_dir = false;
+    out.is_file = false;
+    out.is_symlink = false;
+#ifdef _WIN32
+    *uint16 w = _fs_wide(path);
+    if (w == null) { _fs_err = 123; _fs_err_win = true; return -1; }   // ERROR_INVALID_NAME
+    int64[8] raw;
+    *uint8 b = (*uint8)&raw;
+    const int ok = GetFileAttributesExW(w, 0, (*void)b);
+    free((*void)w);
+    if (ok == 0) { return _fs_fail_os(); }
+    const int64 attrs = _fs_u32_at(b, 0);
+    out.is_dir = (attrs & _FS_ATTR_DIRECTORY) != 0;
+    out.is_file = !out.is_dir;
+    out.is_symlink = !follow && (attrs & _FS_ATTR_REPARSE) != 0;
+    out.mtime = _fs_filetime_at(b, 20);
+    out.size = out.is_dir ? 0 : (_fs_u32_at(b, 28) << 32) | _fs_u32_at(b, 32);
+    out.mode = (attrs & _FS_ATTR_READONLY) != 0 ? 292 : 438;
+    if (out.is_dir) { out.mode = out.mode | 73; }
+    return 0;
+#else
+#ifdef _FS_HAVE_STAT
+    int64[32] raw;
+    *uint8 b = (*uint8)&raw;
+    const int r = follow ? _fs_stat_raw(path, (*void)b) : _fs_lstat_raw(path, (*void)b);
+    if (r != 0) { return _fs_fail_os(); }
+#ifdef _FS_ST_MODE16
+    let m16: uint16 = (uint16)0;
+    memcpy((*void)&m16, (*void)(b + _FS_ST_MODE), 2);
+    const int mode = (int)m16;
+#else
+    let m32: uint32 = (uint32)0;
+    memcpy((*void)&m32, (*void)(b + _FS_ST_MODE), 4);
+    const int mode = (int)m32;
+#endif
+    let size: int64 = 0;
+    memcpy((*void)&size, (*void)(b + _FS_ST_SIZE), 8);
+    let mtime: int64 = 0;
+    memcpy((*void)&mtime, (*void)(b + _FS_ST_MTIME), 8);
+    const int kind = mode & 61440;
+    out.is_dir = kind == 16384;
+    out.is_file = kind == 32768;
+    out.is_symlink = kind == 40960;
+    out.mode = mode & 4095;
+    out.size = size;
+    out.mtime = mtime;
+    return 0;
+#else
+    *void d = opendir(path);
+    if (d != null) { closedir(d); out.is_dir = true; return 0; }
+    *void fp = fopen(path, "rb");
+    if (fp == null) { return _fs_fail_os(); }
+    out.is_file = true;
+    out.size = fs_size(fp);
+    fclose(fp);
+    return 0;
+#endif
+#endif
+}
+
+// Fill `out` with the metadata of `path`, following symbolic links. 0 or -1.
+int fs_stat(string path, FileStat* out) { return _fs_stat_impl(path, out, true); }
+
+// Like fs_stat, but a symbolic link describes the link itself (is_symlink).
+int fs_lstat(string path, FileStat* out) { return _fs_stat_impl(path, out, false); }
+
+// 1 if the path names an existing file or directory (links followed), else 0.
+int fs_exists(string path) {
+    let st: FileStat;
+    return _fs_stat_impl(path, &st, true) == 0 ? 1 : 0;
+}
+
+// 1 if the path is a directory (links followed), else 0.
+int fs_is_dir(string path) {
+    let st: FileStat;
+    return _fs_stat_impl(path, &st, true) == 0 && st.is_dir ? 1 : 0;
+}
+
+// 1 if the path is a regular file (links followed), else 0.
+int fs_is_file(string path) {
+    let st: FileStat;
+    return _fs_stat_impl(path, &st, true) == 0 && st.is_file ? 1 : 0;
+}
+
+// Create one directory (its parent must exist). 0 or -1 (also if it exists).
+int fs_mkdir(string path) {
+#ifdef _WIN32
+    *uint16 w = _fs_wide(path);
+    const int ok = w != null ? CreateDirectoryW(w, null) : 0;
+    free((*void)w);
+    return ok != 0 ? 0 : _fs_fail_os();
+#else
+#ifdef __APPLE__
+    return mkdir(path, (uint16)511) == 0 ? 0 : _fs_fail_os();
+#else
+    return mkdir(path, (uint32)511) == 0 ? 0 : _fs_fail_os();
+#endif
+#endif
+}
+
+bool _fs_is_sep(char c) {
+#ifdef _WIN32
+    return c == '/' || c == '\\';
+#else
+    return c == '/';
+#endif
+}
+
+// Create a directory and every missing parent ("mkdir -p"). An existing
+// directory is success. 0 or -1.
+int fs_mkdir_p(string path) {
+    const int64 n = strlen(path);
+    if (n == 0) { _fs_err = 2; _fs_err_win = false; return -1; }   // ENOENT
+    let part: String;  part.init(n + 1);
+    defer part.free();
+    for (int64 i = 0; i <= n; i++) {
+        if (i == n || (_fs_is_sep(path[i]) && i > 0)) {
+            if (part.len > 0 && fs_is_dir(part.cstr()) == 0) {
+                if (fs_mkdir(part.cstr()) != 0 && fs_is_dir(part.cstr()) == 0) { return -1; }
+            }
+        }
+        if (i < n) { part.push(path[i]); }
+    }
+    return 0;
+}
+
+// Remove a file or an empty directory. 0 or -1.
+int fs_remove(string path) {
+#ifdef _WIN32
+    *uint16 w = _fs_wide(path);
+    if (w == null) { _fs_err = 123; _fs_err_win = true; return -1; }
+    const uint32 attrs = GetFileAttributesW(w);
+    int ok = 0;
+    if (attrs != (uint32)4294967295 && ((int64)attrs & _FS_ATTR_DIRECTORY) != 0) {
+        ok = RemoveDirectoryW(w);
+    } else {
+        ok = DeleteFileW(w);
+    }
+    free((*void)w);
+    return ok != 0 ? 0 : _fs_fail_os();
+#else
+    let st: FileStat;
+    if (_fs_stat_impl(path, &st, false) != 0) { return -1; }
+    if (st.is_dir) { return rmdir(path) == 0 ? 0 : _fs_fail_os(); }
+    return unlink(path) == 0 ? 0 : _fs_fail_os();
+#endif
+}
+
+// Join `dir` and `name` with one separator into `out` (cleared first).
+void _fs_join(String* out, string dir, string name) {
+    out.clear();
+    out.append(dir);
+    if (out.len > 0 && !_fs_is_sep(out.data[out.len - 1])) { out.push('/'); }
+    out.append(name);
+}
+
+// Remove a path and everything under it ("rm -rf"). Symbolic links are removed,
+// never followed. A missing path is success. 0 or -1 (the first failure).
+int fs_remove_all(string path) {
+    let st: FileStat;
+    if (_fs_stat_impl(path, &st, false) != 0) {
+        if (fs_errno_missing()) { _fs_err = 0; return 0; }
+        return -1;
+    }
+    if (st.is_dir && !st.is_symlink) {
+        let names: List<String>;  List_init<String>(&names, 8);
+        defer fs_list_free(&names);
+        if (fs_list_dir(path, &names) != 0) { return -1; }
+        let child: String;  child.init(64);
+        defer child.free();
+        for (i in 0..List_len<String>(&names)) {
+            let nm: String = List_get<String>(&names, i);
+            _fs_join(&child, path, nm.cstr());
+            if (fs_remove_all(child.cstr()) != 0) { return -1; }
+        }
+    }
+    return fs_remove(path);
+}
+
+// 1 if the last failure was "no such file or directory".
+bool fs_errno_missing() {
+#ifdef _WIN32
+    if (_fs_err_win) { return _fs_err == 2 || _fs_err == 3; }   // FILE/PATH_NOT_FOUND
+#endif
+    return _fs_err == 2;   // ENOENT
+}
+
+// Rename or move a path, replacing an existing file at `to`. 0 or -1.
+int fs_rename(string from, string to) {
+#ifdef _WIN32
+    *uint16 wf = _fs_wide(from);
+    *uint16 wt = _fs_wide(to);
+    // MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED
+    const int ok = wf != null && wt != null ? MoveFileExW(wf, wt, (uint32)3) : 0;
+    free((*void)wf);
+    free((*void)wt);
+    return ok != 0 ? 0 : _fs_fail_os();
+#else
+    return rename(from, to) == 0 ? 0 : _fs_fail_os();
+#endif
+}
+
+// Copy a regular file's bytes to `to` (replaced if it exists), keeping its
+// permission bits. 0 or -1.
+int fs_copy(string from, string to) {
+#ifdef _WIN32
+    *uint16 wf = _fs_wide(from);
+    *uint16 wt = _fs_wide(to);
+    const int ok = wf != null && wt != null ? CopyFileW(wf, wt, 0) : 0;
+    free((*void)wf);
+    free((*void)wt);
+    return ok != 0 ? 0 : _fs_fail_os();
+#else
+    let st: FileStat;
+    if (fs_stat(from, &st) != 0) { return -1; }
+    if (st.is_dir) { _fs_err = 21; _fs_err_win = false; return -1; }   // EISDIR
+    *void src = fopen(from, "rb");
+    if (src == null) { return _fs_fail_crt(); }
+    defer fclose(src);
+    *void dst = fopen(to, "wb");
+    if (dst == null) { return _fs_fail_crt(); }
+    *uint8 buf = alloc<uint8>(65536);
+    defer free((*void)buf);
+    int rc = 0;
+    while (true) {
+        const int64 got = fread((*void)buf, 1, 65536, src);
+        if (got <= 0) { break; }
+        if (fwrite((*void)buf, 1, got, dst) != got) { rc = _fs_fail_crt(); break; }
+    }
+    if (rc == 0 && ferror(src) != 0) { rc = _fs_fail_crt(); }
+    if (fclose(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
+#ifdef _FS_HAVE_STAT
+#ifdef __APPLE__
+    if (rc == 0) { chmod(to, (uint16)st.mode); }
+#else
+    if (rc == 0) { chmod(to, (uint32)st.mode); }
+#endif
+#endif
+    return rc;
+#endif
+}
+
+// Sort a list of Strings bytewise ascending (Shell sort, in place).
+void _fs_sort(List<String>* list) {
+    const int n = List_len<String>(list);
+    int gap = n / 2;
+    while (gap > 0) {
+        for (int i = gap; i < n; i++) {
+            const String tmp = list.data[i];
+            int j = i;
+            while (j >= gap && strcmp(list.data[j - gap].data, tmp.data) > 0) {
+                list.data[j] = list.data[j - gap];
+                j -= gap;
+            }
+            list.data[j] = tmp;
+        }
+        gap = gap / 2;
+    }
+}
+
+// Append the names in a directory (no "." or ".."), sorted bytewise, to `out`.
+// Free the list with fs_list_free. 0 or -1.
+int fs_list_dir(string path, List<String>* out) {
+    let names: List<String>;  List_init<String>(&names, 16);
+#ifdef _WIN32
+    let pat: String;  pat.init(64);
+    _fs_join(&pat, path, "*");
+    *uint16 w = _fs_wide(pat.cstr());
+    pat.free();
+    if (w == null) { List_free<String>(&names); _fs_err = 123; _fs_err_win = true; return -1; }
+    int64[80] raw;   // WIN32_FIND_DATAW is 592 bytes; cFileName at 44
+    *uint8 b = (*uint8)&raw;
+    *void h = FindFirstFileW(w, (*void)b);
+    free((*void)w);
+    if ((int64)h == -1) {
+        const int rc = _fs_fail_os();
+        List_free<String>(&names);
+        if (_fs_err == 2) { return 0; }   // ERROR_FILE_NOT_FOUND: an empty directory
+        return rc;
+    }
+    while (true) {
+        let nm: String;  nm.init(32);
+        _fs_append_wide(&nm, (*uint16)(b + 44));
+        if (nm.eq_cstr(".") == 1 || nm.eq_cstr("..") == 1) { nm.free(); }
+        else { List_push<String>(&names, nm); }
+        if (FindNextFileW(h, (*void)b) == 0) { break; }
+    }
+    FindClose(h);
+#else
+    *void d = opendir(path);
+    if (d == null) { List_free<String>(&names); return _fs_fail_os(); }
+    while (true) {
+        *uint8 ent = (*uint8)readdir(d);
+        if (ent == null) { break; }
+        string nm = (string)(ent + _FS_DIRENT_NAME);
+        if (strcmp(nm, ".") == 0 || strcmp(nm, "..") == 0) { continue; }
+        let s: String;  s.from(nm);
+        List_push<String>(&names, s);
+    }
+    closedir(d);
+#endif
+    _fs_sort(&names);
+    for (i in 0..List_len<String>(&names)) { List_push<String>(out, List_get<String>(&names, i)); }
+    List_free<String>(&names);
+    return 0;
+}
+
+void _fs_walk_dir(String* dir, fn(string, bool)->void visit) {
+    let names: List<String>;  List_init<String>(&names, 16);
+    defer fs_list_free(&names);
+    if (fs_list_dir(dir.cstr(), &names) != 0) { return; }
+    for (i in 0..List_len<String>(&names)) {
+        let nm: String = List_get<String>(&names, i);
+        let child: String;  child.init(dir.len + nm.len + 2);
+        defer child.free();
+        _fs_join(&child, dir.cstr(), nm.cstr());
+        let st: FileStat;
+        const bool is_dir = _fs_stat_impl(child.cstr(), &st, false) == 0 && st.is_dir && !st.is_symlink;
+        visit(child.cstr(), is_dir);
+        if (is_dir) { _fs_walk_dir(&child, visit); }
+    }
+}
+
+// Visit every entry under `root` (not `root` itself), depth first, each
+// directory's entries in sorted order: visit(path, is_dir), where path is
+// `root` joined with the entry's relative path. Symbolic links are reported
+// (is_dir false) but never followed, so a link loop cannot recurse. A
+// subdirectory that cannot be read is skipped. 0, or -1 if `root` is not a
+// readable directory.
+int fs_walk(string root, fn(string, bool)->void visit) {
+    if (fs_is_dir(root) == 0) {
+        if (_fs_err == 0 || fs_exists(root) == 1) { _fs_err = 20; _fs_err_win = false; }   // ENOTDIR
+        return -1;
+    }
+    let base: String;  base.from(root);
+    defer base.free();
+    while (base.len > 1 && _fs_is_sep(base.data[base.len - 1])) { base.len--; base.data[base.len] = 0; }
+    _fs_walk_dir(&base, visit);
+    return 0;
+}
+
+// The position just past a [...] class starting at pat[p] (the '['), with
+// *matched set to whether `c` is in it; -1 if the class has no closing ']'.
+int _fs_class(string pat, int p, char c, *bool matched) {
+    int i = p + 1;
+    bool neg = false;
+    if (pat[i] == '!' || pat[i] == '^') { neg = true; i++; }
+    bool hit = false;
+    bool first = true;
+    while (pat[i] != 0 && (first || pat[i] != ']')) {
+        first = false;
+        char lo = pat[i];
+        if (lo == '\\' && pat[i + 1] != 0) { i++; lo = pat[i]; }
+        char hi = lo;
+        if (pat[i + 1] == '-' && pat[i + 2] != 0 && pat[i + 2] != ']') {
+            hi = pat[i + 2];
+            if (hi == '\\' && pat[i + 3] != 0) { i++; hi = pat[i + 2]; }
+            i += 2;
+        }
+        if ((uint8)c >= (uint8)lo && (uint8)c <= (uint8)hi) { hit = true; }
+        i++;
+    }
+    if (pat[i] != ']') { return -1; }
+    *matched = hit != neg;
+    return i + 1;
+}
+
+// 1 if `name` matches the shell pattern `pat`, else 0: `*` matches any run of
+// characters, `?` one character, `[abc]` / `[a-z]` / `[!a-z]` one character of
+// (or not of) a set, and `\` makes the next character literal. A pattern
+// matches the whole name; there is no special case for '/' or a leading '.'.
+int fs_match(string pat, string name) {
+    int p = 0;
+    int n = 0;
+    int star = -1;
+    int mark = 0;
+    while (name[n] != 0) {
+        const char pc = pat[p];
+        if (pc == '*') { star = p; p++; mark = n; continue; }
+        int next = -1;
+        if (pc == '?') { next = p + 1; }
+        else if (pc == '[') {
+            let m: bool = false;
+            const int q = _fs_class(pat, p, name[n], &m);
+            if (q < 0) { if (name[n] == '[') { next = p + 1; } }
+            else if (m) { next = q; }
+        }
+        else if (pc == '\\' && pat[p + 1] != 0) { if (pat[p + 1] == name[n]) { next = p + 2; } }
+        else if (pc != 0 && pc == name[n]) { next = p + 1; }
+        if (next >= 0) { p = next; n++; continue; }
+        if (star < 0) { return 0; }
+        p = star + 1;
+        mark++;
+        n = mark;
+    }
+    while (pat[p] == '*') { p++; }
+    return pat[p] == 0 ? 1 : 0;
+}
+
+bool _fs_has_magic(String* s) {
+    for (int64 i = 0; i < s.len; i++) {
+        const char c = s.data[i];
+        if (c == '*' || c == '?' || c == '[') { return true; }
+    }
+    return false;
+}
+
+void _fs_glob_push(List<String>* out, String* path) {
+    let s: String;  s.from(path.cstr());
+    List_push<String>(out, s);
+}
+
+// Every entry under `dir` (recursively, not following links), for a trailing **.
+void _fs_glob_all(String* dir, List<String>* out) {
+    let names: List<String>;  List_init<String>(&names, 16);
+    defer fs_list_free(&names);
+    if (fs_list_dir(dir.len == 0 ? "." : dir.cstr(), &names) != 0) { return; }
+    let child: String;  child.init(64);
+    defer child.free();
+    for (i in 0..List_len<String>(&names)) {
+        let nm: String = List_get<String>(&names, i);
+        if (nm.data[0] == '.') { continue; }
+        _fs_join(&child, dir.cstr(), nm.cstr());
+        _fs_glob_push(out, &child);
+        let st: FileStat;
+        if (_fs_stat_impl(child.cstr(), &st, false) == 0 && st.is_dir && !st.is_symlink) {
+            _fs_glob_all(&child, out);
+        }
+    }
+}
+
+void _fs_glob_at(String* base, List<String>* comps, int i, List<String>* out) {
+    const int nc = List_len<String>(comps);
+    if (i == nc) {
+        if (base.len > 0 && fs_exists(base.cstr()) == 1) { _fs_glob_push(out, base); }
+        return;
+    }
+    let comp: String = List_get<String>(comps, i);
+    if (comp.len == 0) { _fs_glob_at(base, comps, i + 1, out); return; }
+    const bool last = i + 1 == nc;
+    let child: String;  child.init(64);
+    defer child.free();
+    if (comp.eq_cstr("**") == 1) {
+        if (last) { _fs_glob_all(base, out); return; }
+        _fs_glob_at(base, comps, i + 1, out);
+        let names: List<String>;  List_init<String>(&names, 16);
+        defer fs_list_free(&names);
+        if (fs_list_dir(base.len == 0 ? "." : base.cstr(), &names) != 0) { return; }
+        for (k in 0..List_len<String>(&names)) {
+            let nm: String = List_get<String>(&names, k);
+            if (nm.data[0] == '.') { continue; }
+            _fs_join(&child, base.cstr(), nm.cstr());
+            let st: FileStat;
+            if (_fs_stat_impl(child.cstr(), &st, false) == 0 && st.is_dir && !st.is_symlink) {
+                _fs_glob_at(&child, comps, i, out);
+            }
+        }
+        return;
+    }
+    if (!_fs_has_magic(&comp)) {
+        _fs_join(&child, base.cstr(), comp.cstr());
+        if (last) {
+            let st: FileStat;
+            if (_fs_stat_impl(child.cstr(), &st, false) == 0) { _fs_glob_push(out, &child); }
+        } else if (fs_is_dir(child.cstr()) == 1) {
+            _fs_glob_at(&child, comps, i + 1, out);
+        }
+        return;
+    }
+    let names: List<String>;  List_init<String>(&names, 16);
+    defer fs_list_free(&names);
+    if (fs_list_dir(base.len == 0 ? "." : base.cstr(), &names) != 0) { return; }
+    const bool dot_ok = comp.data[0] == '.';
+    for (k in 0..List_len<String>(&names)) {
+        let nm: String = List_get<String>(&names, k);
+        if (nm.data[0] == '.' && !dot_ok) { continue; }
+        if (fs_match(comp.cstr(), nm.cstr()) == 0) { continue; }
+        _fs_join(&child, base.cstr(), nm.cstr());
+        if (last) { _fs_glob_push(out, &child); }
+        else if (fs_is_dir(child.cstr()) == 1) { _fs_glob_at(&child, comps, i + 1, out); }
+    }
+}
+
+// Append the paths matching `pattern` to `out`, sorted and without
+// duplicates; returns how many were added. Each '/'-separated component is an
+// fs_match pattern, and a `**` component matches any number of directories
+// (zero included; a trailing `**` matches everything below). Wildcards do not
+// match names that start with '.' unless the component itself does. Relative
+// patterns are relative to the current directory and give relative paths.
+// Symbolic links are never followed by `**`. Free with fs_list_free.
+int fs_glob(string pattern, List<String>* out) {
+    let comps: List<String>;  List_init<String>(&comps, 8);
+    defer fs_list_free(&comps);
+    let cur: String;  cur.init(32);
+    defer cur.free();
+    const int64 n = strlen(pattern);
+    let base: String;  base.init(32);
+    defer base.free();
+    int64 start = 0;
+    if (n > 0 && _fs_is_sep(pattern[0])) { base.append("/"); start = 1; }
+    for (int64 i = start; i <= n; i++) {
+        if (i == n || _fs_is_sep(pattern[i])) {
+            let c: String;  c.from(cur.cstr());
+            List_push<String>(&comps, c);
+            cur.clear();
+        } else {
+            cur.push(pattern[i]);
+        }
+    }
+    let found: List<String>;  List_init<String>(&found, 16);
+    _fs_glob_at(&base, &comps, 0, &found);
+    _fs_sort(&found);
+    int added = 0;
+    for (i in 0..List_len<String>(&found)) {
+        let s: String = List_get<String>(&found, i);
+        if (i > 0 && strcmp(s.data, List_get<String>(&found, i - 1).data) == 0) { s.free(); continue; }
+        List_push<String>(out, s);
+        added++;
+    }
+    List_free<String>(&found);
+    return added;
+}
+
+// ── Current directory and temporary files ─────────────────────────────────
+
+// Write the current working directory into `out` (cleared first). 0 or -1.
+int fs_cwd(String* out) {
+    out.clear();
+#ifdef _WIN32
+    const uint32 need = GetCurrentDirectoryW((uint32)0, null);
+    if (need == (uint32)0) { return _fs_fail_os(); }
+    *uint16 w = alloc<uint16>((int64)need + 1);
+    defer free((*void)w);
+    if (GetCurrentDirectoryW(need, w) == (uint32)0) { return _fs_fail_os(); }
+    _fs_append_wide(out, w);
+    return 0;
+#else
+    int64 cap = 256;
+    while (cap <= 1048576) {
+        *char buf = alloc<char>(cap);
+        if (getcwd(buf, cap) != null) {
+            out.append((string)buf);
+            free((*void)buf);
+            return 0;
+        }
+        free((*void)buf);
+        if (_fs_errno_now() != 34) { return _fs_fail_os(); }   // ERANGE: grow and retry
+        cap = cap * 4;
+    }
+    return _fs_fail_os();
+#endif
+}
+
+// Change the current working directory. 0 or -1.
+int fs_chdir(string path) {
+#ifdef _WIN32
+    *uint16 w = _fs_wide(path);
+    const int ok = w != null ? SetCurrentDirectoryW(w) : 0;
+    free((*void)w);
+    return ok != 0 ? 0 : _fs_fail_os();
+#else
+    return chdir(path) == 0 ? 0 : _fs_fail_os();
+#endif
+}
+
+// The system temporary directory, without a trailing separator, into `out`
+// (cleared first): $TMPDIR or /tmp on POSIX, GetTempPathW on Windows.
+void fs_temp_base(String* out) {
+    out.clear();
+#ifdef _WIN32
+    *uint16 w = alloc<uint16>(1024);
+    if (GetTempPathW((uint32)1023, w) != (uint32)0) { _fs_append_wide(out, w); }
+    free((*void)w);
+    if (out.len == 0) { out.append("."); }
+#else
+    const string t = getenv("TMPDIR");
+    out.append(t != null && t[0] != 0 ? t : "/tmp");
+#endif
+    while (out.len > 1 && _fs_is_sep(out.data[out.len - 1])) { out.len--; out.data[out.len] = 0; }
+}
+
+// Create a new, empty file with a unique name starting with `prefix` in the
+// temporary directory and write its path into `out` (cleared first). The
+// caller removes it (fs_remove). 0 or -1.
+int fs_temp_file(string prefix, String* out) {
+    let dir: String;  dir.init(64);
+    defer dir.free();
+    fs_temp_base(&dir);
+#ifdef _WIN32
+    out.clear();
+    *uint16 wd = _fs_wide(dir.cstr());
+    *uint16 wp = _fs_wide(prefix);
+    *uint16 name = alloc<uint16>(1100);
+    const uint32 r = wd != null && wp != null ? GetTempFileNameW(wd, wp, (uint32)0, name) : (uint32)0;
+    free((*void)wd);
+    free((*void)wp);
+    if (r == (uint32)0) { free((*void)name); return _fs_fail_os(); }
+    _fs_append_wide(out, name);
+    free((*void)name);
+    return 0;
+#else
+    _fs_join(out, dir.cstr(), prefix);
+    out.append("XXXXXX");
+    const int fd = mkstemp(out.data);
+    if (fd < 0) { out.clear(); return _fs_fail_os(); }
+    close(fd);
+    return 0;
+#endif
+}
+
+// Create a new, empty directory with a unique name starting with `prefix` in
+// the temporary directory and write its path into `out` (cleared first). The
+// caller removes it (fs_remove_all). 0 or -1.
+int fs_temp_dir(string prefix, String* out) {
+#ifdef _WIN32
+    for (attempt in 0..16) {
+        if (fs_temp_file(prefix, out) != 0) { return -1; }
+        // GetTempFileNameW created a file to reserve the name; swap it for a directory.
+        if (fs_remove(out.cstr()) == 0 && fs_mkdir(out.cstr()) == 0) { return 0; }
+    }
+    return -1;
+#else
+    let dir: String;  dir.init(64);
+    defer dir.free();
+    fs_temp_base(&dir);
+    _fs_join(out, dir.cstr(), prefix);
+    out.append("XXXXXX");
+    if (mkdtemp(out.data) == null) { out.clear(); return _fs_fail_os(); }
+    return 0;
+#endif
+}

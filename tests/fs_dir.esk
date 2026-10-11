@@ -1,0 +1,119 @@
+// <fs> directories and metadata in a real temporary directory: text files,
+// stat, mkdir_p, list_dir (sorted), walk, glob, copy, rename, remove_all,
+// cwd/chdir and the error convention (-1 + fs_last_error).
+import <fs>;
+import <io>;
+
+String root;
+
+void show_list(string label, List<String>* l) {
+    printf("%s [", label);
+    for (i in 0..List_len<String>(l)) {
+        if (i > 0) { printf(", "); }
+        printf("%s", List_get<String>(l, i).data);
+    }
+    printf("]\n");
+}
+
+int main() {
+    root.init(64);
+    if (fs_temp_dir("eskiu_fs_dir_", &root) != 0) { printf("temp_dir failed\n"); return 1; }
+    printf("temp dir exists: %d is_dir: %d\n", fs_exists(root.cstr()), fs_is_dir(root.cstr()));
+    if (fs_chdir(root.cstr()) != 0) { printf("chdir failed\n"); return 1; }
+
+    // Text files.
+    fs_write_text("a.txt", "one\ntwo\r\nthree");
+    fs_append_text("a.txt", "\nfour\n");
+    let text: String;  text.init(8);
+    fs_read_text("a.txt", &text);
+    printf("text len %lld\n", text.len);
+    let lines: List<String>;  List_init<String>(&lines, 4);
+    fs_read_lines("a.txt", &lines);
+    show_list("lines", &lines);
+    fs_list_free(&lines);
+
+    let st: FileStat;
+    fs_stat("a.txt", &st);
+    printf("stat size=%lld file=%d dir=%d mtime_set=%d\n", st.size, st.is_file ? 1 : 0, st.is_dir ? 1 : 0, st.mtime > 1600000000 ? 1 : 0);
+    printf("is_file %d is_dir %d\n", fs_is_file("a.txt"), fs_is_dir("a.txt"));
+
+    // Directories.
+    printf("mkdir_p %d\n", fs_mkdir_p("src/lib/deep"));
+    printf("mkdir_p again %d\n", fs_mkdir_p("src/lib/deep"));
+    printf("mkdir existing %d\n", fs_mkdir("src"));
+    fs_write_text("src/main.esk", "int main() { return 0; }\n");
+    fs_write_text("src/lib/util.esk", "// util\n");
+    fs_write_text("src/lib/deep/x.esk", "");
+    fs_write_text("src/lib/deep/y.txt", "");
+    fs_write_text("src/.hidden.esk", "");
+    fs_write_text("b.txt", "bee");
+
+    let names: List<String>;  List_init<String>(&names, 4);
+    fs_list_dir(".", &names);
+    show_list("list .", &names);
+    fs_list_free(&names);
+
+    printf("walk:\n");
+    fs_walk("src", void(string path, bool is_dir) {
+        printf("  %s%s\n", path, is_dir ? "/" : "");
+    });
+
+    let g: List<String>;  List_init<String>(&g, 4);
+    printf("glob *.txt -> %d\n", fs_glob("*.txt", &g));
+    show_list("  ", &g);
+    fs_list_free(&g);
+    List_init<String>(&g, 4);
+    fs_glob("src/**/*.esk", &g);
+    show_list("glob src/**/*.esk", &g);
+    fs_list_free(&g);
+    List_init<String>(&g, 4);
+    fs_glob("src/*/[d-e]*", &g);
+    show_list("glob src/*/[d-e]*", &g);
+    fs_list_free(&g);
+    List_init<String>(&g, 4);
+    fs_glob("src/.*", &g);
+    show_list("glob src/.*", &g);
+    fs_list_free(&g);
+    List_init<String>(&g, 4);
+    fs_glob("src/lib/**", &g);
+    show_list("glob src/lib/**", &g);
+    fs_list_free(&g);
+
+    printf("match %d %d %d %d %d %d\n", fs_match("*.c", "a.c"), fs_match("*.c", "a.h"),
+        fs_match("a?c", "abc"), fs_match("[!a]*", "abc"), fs_match("x\\*", "x*"), fs_match("*a*b", "xaab"));
+
+    // Copy, rename, remove.
+    printf("copy %d\n", fs_copy("a.txt", "c.txt"));
+    fs_read_text("c.txt", &text);
+    printf("copied len %lld\n", text.len);
+    printf("rename %d exists old %d new %d\n", fs_rename("c.txt", "src/c.txt"), fs_exists("c.txt"), fs_exists("src/c.txt"));
+    printf("remove file %d\n", fs_remove("b.txt"));
+    printf("remove non-empty dir %d\n", fs_remove("src"));
+
+    // Errors.
+    let err: String;  err.init(16);
+    printf("read missing %d\n", fs_read_text("missing.txt", &text));
+    printf("stat missing %d missing=%d\n", fs_stat("missing.txt", &st), fs_errno_missing() ? 1 : 0);
+    fs_last_error(&err);
+    printf("message set %d\n", err.len > 0 ? 1 : 0);
+    printf("list missing %d\n", fs_list_dir("nope", &names));
+    printf("walk on file %d\n", fs_walk("a.txt", void(string p, bool d) { }));
+
+    // cwd is the temp dir (compare by the final component; /tmp may be a link).
+    let cwd: String;  cwd.init(16);
+    fs_cwd(&cwd);
+    printf("cwd ends with root name %d\n", cwd.ends_with((string)((*char)root.cstr() + root.len - 19)));
+
+    printf("remove_all src %d exists %d\n", fs_remove_all("src"), fs_exists("src"));
+    printf("remove_all missing %d\n", fs_remove_all("src"));
+
+    // Temp files.
+    let tf: String;  tf.init(16);
+    printf("temp_file %d exists %d\n", fs_temp_file("eskiu_tf_", &tf), fs_is_file(tf.cstr()));
+    printf("remove temp file %d\n", fs_remove(tf.cstr()));
+
+    fs_chdir("/");
+    printf("remove_all root %d exists %d\n", fs_remove_all(root.cstr()), fs_exists(root.cstr()));
+    text.free(); err.free(); cwd.free(); tf.free(); root.free();
+    return 0;
+}
