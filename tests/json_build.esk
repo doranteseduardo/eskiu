@@ -1,0 +1,97 @@
+// <json> builders, editing, stringify/pretty and json_get paths.
+import <json>;
+
+extern int printf(string fmt, ...);
+
+void show(string label, JsonValue* v) {
+    let out: String;  out.init(16);
+    JsonValue_stringify(v, &out);
+    printf("%s %s\n", label, out.data);
+    out.free();
+}
+
+int main() {
+    *JsonValue doc = JsonValue_object();
+    JsonValue_set(doc, "name", JsonValue_string("Eskiu"));
+    JsonValue_set(doc, "year", JsonValue_int(2026));
+    JsonValue_set(doc, "pi", JsonValue_number(3.141592653589793));
+    JsonValue_set(doc, "ok", JsonValue_bool(1));
+    JsonValue_set(doc, "none", JsonValue_null());
+    *JsonValue tags = JsonValue_array();
+    JsonValue_push(tags, JsonValue_string("systems"));
+    JsonValue_push(tags, JsonValue_string("tab\there \"q\" \\ nl\n"));
+    JsonValue_push(tags, JsonValue_array());
+    JsonValue_push(tags, JsonValue_object());
+    JsonValue_set(doc, "tags", tags);
+    show("doc", doc);
+
+    // Replace keeps the position; remove frees the member.
+    printf("set %d\n", JsonValue_set(doc, "year", JsonValue_number(0.1)));
+    printf("remove %d %d\n", JsonValue_remove(doc, "none"), JsonValue_remove(doc, "none"));
+    show("edited", doc);
+
+    // Wrong kinds are refused and leave the value with the caller.
+    *JsonValue s = JsonValue_string("x");
+    printf("refused %d %d\n", JsonValue_push(doc, s), JsonValue_set(tags, "k", s));
+    JsonValue_free(s);
+
+    let out: String;  out.init(16);
+    JsonValue_pretty(doc, 2, &out);
+    printf("%s\n", out.data);
+
+    // Numbers: integers print without a fraction; NaN/inf print as null; each
+    // double reads back unchanged.
+    *JsonValue nums = JsonValue_array();
+    JsonValue_push(nums, JsonValue_int(-9007199254740991));
+    JsonValue_push(nums, JsonValue_number(1e300));
+    JsonValue_push(nums, JsonValue_number(-0.0));
+    JsonValue_push(nums, JsonValue_number(2.5e-8));
+    JsonValue_push(nums, JsonValue_number(0.0 / 0.0));
+    JsonValue_push(nums, JsonValue_number(1.0 / 0.0));
+    show("nums", nums);
+    JsonValue_free(nums);
+
+    // Round trip through the parser: stringify(parse(stringify(x))) == stringify(x).
+    JsonValue_stringify(doc, &out);
+    *JsonValue back = json_parse((string)out.data);
+    let again: String;  again.init(16);
+    JsonValue_stringify(back, &again);
+    printf("roundtrip %d\n", String_eq(&out, &again));
+    again.free();
+    JsonValue_free(back);
+
+    // A NUL inside a parsed string survives as \u0000.
+    *JsonValue z = json_parse("[\"a\\u0000b\", {}, []]");
+    show("nul", z);
+    JsonValue_free(z);
+
+    // Paths.
+    *JsonValue p = json_parse("{\"data\":{\"items\":[{\"name\":\"first\"},{\"name\":\"second\"}]},\"a.b\":{\"c\":7},\"x\":[[1,2],[3,[4]]]}");
+    printf("%s\n", JsonValue_as_cstr(json_get(p, "data.items[1].name")));
+    printf("%lld\n", JsonValue_as_int(json_get(p, "[\"a.b\"].c")));
+    printf("%lld\n", JsonValue_as_int(json_get(p, "x[1][1][0]")));
+    printf("self %d\n", json_get(p, "") == p);
+    printf("missing %d %d %d %d\n", json_get(p, "data.nope") == null, json_get(p, "x[9]") == null,
+           json_get(p, "data[0]") == null, json_get(p, "x.y") == null);
+    printf("malformed %d %d %d %d %d\n", json_get(p, ".data") == null, json_get(p, "data..items") == null,
+           json_get(p, "x[") == null, json_get(p, "x[a]") == null, json_get(p, "[\"a.b\"") == null);
+    show("member", json_get(p, "data.items[0]"));
+    JsonValue_free(p);
+
+    // A deep document prints without recursion.
+    *JsonValue deep = JsonValue_array();
+    *JsonValue cur = deep;
+    for (int i = 0; i < 100000; i++) {
+        *JsonValue nx = JsonValue_array();
+        JsonValue_push(cur, nx);
+        cur = nx;
+    }
+    JsonValue_stringify(deep, &out);
+    printf("deep len %lld\n", out.len);
+    JsonValue_free(deep);
+
+    show("null", null);
+    out.free();
+    JsonValue_free(doc);
+    return 0;
+}
