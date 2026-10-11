@@ -1,0 +1,129 @@
+// Smoke test (exit 0 = pass): <fetch> over HTTPS against a local OpenSSL
+// server with a throwaway self-signed certificate for "localhost" (below, a
+// test fixture with no other use). Checks: verification off accepts it, the
+// default verification rejects it, trusting it through o.ca_file accepts it
+// for "localhost" and rejects it for "127.0.0.1" (name mismatch), and
+// fetch_async works over TLS. OpenSSL is loaded at run time (<fetch_tls>), so
+// where libssl is missing the test prints "skipped" and passes; the server
+// side reaches OpenSSL the same way.
+import <fetch>;
+import <fetch_tls>;
+import <future>;
+import <eventloop>;
+import <net>;
+import <fs>;
+import <string>;
+import <time>;
+extern int printf(string fmt, ...);
+
+const int PORT = 18436;
+
+const string CERT = "-----BEGIN CERTIFICATE-----\nMIIBlTCCATugAwIBAgIUeFkAcYWAeRkHlpO1jw66rLWcuEgwCgYIKoZIzj0EAwIw\nFDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTAxMTIzMzI0NFoYDzIxMjYwOTE3\nMjMzMjQ0WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO\nPQMBBwNCAASDMYRpgP0sgru79Qc/mKysJyjS9hliRdk9t7XVf9PHaAnrHZ8KYO1D\ne94MwDn5pSF0v/ufDVRQBtHA0hUFf6Sso2kwZzAdBgNVHQ4EFgQUnZMceWGVfRjj\nYCbuf5kCHOk6MWYwHwYDVR0jBBgwFoAUnZMceWGVfRjjYCbuf5kCHOk6MWYwDwYD\nVR0TAQH/BAUwAwEB/zAUBgNVHREEDTALgglsb2NhbGhvc3QwCgYIKoZIzj0EAwID\nSAAwRQIgXF+RJupqDJfWGBahxN/2AbBdtMfQWc7So2LMhRZfV30CIQCNK89dY7xg\n4qsaDxuR9Ekm4wDr/10o236xrRiAl9FPXA==\n-----END CERTIFICATE-----\n";
+const string KEY = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgN2mNSKiMxL5u4gvb\nZHThaZ+3zDf7vPjMGVg7sSgx2nqhRANCAASDMYRpgP0sgru79Qc/mKysJyjS9hli\nRdk9t7XVf9PHaAnrHZ8KYO1De94MwDn5pSF0v/ufDVRQBtHA0hUFf6Ss\n-----END PRIVATE KEY-----\n";
+
+int g_fails = 0;
+EventLoop* g_lp;
+
+void check(string what, bool ok) {
+    printf("%s %s\n", ok ? "ok  " : "FAIL", what);
+    if (!ok) { g_fails++; }
+}
+
+// A blocking TLS server: one response per connection.
+void serve(int lfd, *void ctx) {
+    while (true) {
+        const int c = net_accept(lfd);
+        if (c < 0) { continue; }
+        *void ssl = _ftls_call_p(_ftls_sym("SSL_new"), ctx);
+        _ftls_call_ii(_ftls_sym("SSL_set_fd"), ssl, c);
+        if (_ftls_call_i(_ftls_sym("SSL_accept"), ssl) == 1) {
+            uint8[4096] buf;
+            _ftls_call_ipi(_ftls_sym("SSL_read"), ssl, (*void)&buf[0], 4096);
+            string resp = "HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nhello tls";
+            _ftls_call_ipi(_ftls_sym("SSL_write"), ssl, (*void)resp, (int)strlen(resp));
+            _ftls_call_i(_ftls_sym("SSL_shutdown"), ssl);
+        }
+        _ftls_call_v(_ftls_sym("SSL_free"), ssl);
+        net_close(c);
+    }
+}
+
+int get(string url, int verify, string ca, Response* r) {
+    let o: FetchOptions;  FetchOptions_init(&o);
+    o.verify_tls = verify;
+    o.timeout_ms = 5000;
+    String_append(&o.ca_file, ca);
+    const int rc = fetch_with(url, &o, r);
+    FetchOptions_free(&o);
+    if (rc != 0) { printf("     (%s)\n", fetch_last_error()); }
+    return rc;
+}
+
+async int get_async(EventLoop* lp, Response* r) {
+    let o: FetchOptions;  FetchOptions_init(&o);
+    o.verify_tls = 0;
+    o.timeout_ms = 5000;
+    int rc = await fetch_async(lp, "https://127.0.0.1:18436/async", &o, r);
+    FetchOptions_free(&o);
+    return rc;
+}
+
+int main() {
+    if (fetch_tls_available() == 0) {
+        printf("skipped: OpenSSL (libssl) not found\n");
+        return 0;
+    }
+    let dir: String;  dir.init(64);
+    if (fs_temp_dir("fetch_https", &dir) != 0) { printf("no temp dir\n"); return 1; }
+    let certf: String;  String_from(&certf, dir.cstr());  certf.append("/cert.pem");
+    let keyf: String;  String_from(&keyf, dir.cstr());  keyf.append("/key.pem");
+    fs_write_text(certf.cstr(), CERT);
+    fs_write_text(keyf.cstr(), KEY);
+
+    *void ctx = _ftls_call_p(_ftls_sym("SSL_CTX_new"), _ftls_call_p(_ftls_sym("TLS_server_method"), null));
+    const bool loaded = _ftls_call_isi(_ftls_sym("SSL_CTX_use_certificate_file"), ctx, certf.cstr(), 1) == 1
+                     && _ftls_call_isi(_ftls_sym("SSL_CTX_use_PrivateKey_file"), ctx, keyf.cstr(), 1) == 1;
+    check("server certificate loads", loaded);
+    const int lfd = net_tcp_listen((uint16)PORT);
+    check("listen", lfd >= 0);
+    if (!loaded || lfd < 0) { return 1; }
+    thread_create(void() { serve(lfd, ctx); });
+
+    let r: Response;
+    int rc = get("https://127.0.0.1:18436/", 0, "", &r);
+    check("verification off: 200 hello tls", rc == 0 && r.status == 200 && String_eq_cstr(&r.headers, "Content-Length: 9\n") == 1
+          && r.body.len == 9);
+    printf("     body=[%s]\n", Response_text(&r));
+    Response_free(&r);
+
+    rc = get("https://127.0.0.1:18436/", 1, "", &r);
+    check("default verification rejects the self-signed certificate", rc == FETCH_ERR_TLS);
+    Response_free(&r);
+
+    rc = get("https://localhost:18436/", 1, certf.cstr(), &r);
+    check("trusted through ca_file for localhost", rc == 0 && r.status == 200);
+    Response_free(&r);
+
+    rc = get("https://127.0.0.1:18436/", 1, certf.cstr(), &r);
+    check("ca_file but the wrong host name is rejected", rc == FETCH_ERR_TLS);
+    Response_free(&r);
+
+    rc = get("https://localhost:18436/", 1, "/no/such/ca.pem", &r);
+    check("a missing ca_file is a TLS error", rc == FETCH_ERR_TLS);
+    Response_free(&r);
+
+    g_lp = el_new(64);
+    Future<int>* f = get_async(g_lp, &r);
+    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    check("fetch_async over TLS", f.value == 0 && r.status == 200 && r.body.len == 9);
+    free_future<int>(f);
+    EventLoop_free(g_lp);
+    Response_free(&r);
+
+    fs_remove_all(dir.cstr());
+    certf.free();
+    keyf.free();
+    dir.free();
+    printf("%d failure(s)\n", g_fails);
+    return g_fails == 0 ? 0 : 1;
+}

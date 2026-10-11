@@ -1,0 +1,14 @@
+// ESKIU_FETCH_NO_TLS defined before the import leaves HTTPS out of <fetch>:
+// an https:// URL fails with FETCH_ERR_NO_TLS before any connection, and
+// fetch_tls_available() is 0.
+#define ESKIU_FETCH_NO_TLS
+import <fetch>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Response;
+    const int rc = fetch("https://127.0.0.1:1/", &r);
+    printf("rc=%d tls=%d (%s)\n", rc, fetch_tls_available(), fetch_last_error());
+    Response_free(&r);
+    return 0;
+}

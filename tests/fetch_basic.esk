@@ -1,0 +1,220 @@
+// <fetch> against a local http_serve server: GET text and JSON, POST with a
+// JSON body echoed back, custom headers, HEAD, a 404, redirects (relative and
+// absolute, 303 turns POST into GET, 307 keeps the body, a loop fails after
+// 10), and the failures that need no server: connection refused, an .invalid
+// host, an invalid URL, an unsupported scheme, header injection.
+import <fetch>;
+import <http>;
+import <json>;
+import <string>;
+import <time>;
+extern int printf(string fmt, ...);
+
+const int PORT = 18431;
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    if (req.path.eq_cstr("/text") == 1) {
+        HttpResponse_header(res, "Content-Type", "text/plain");
+        HttpResponse_set_body(res, "hello fetch");
+    } else if (req.path.eq_cstr("/json") == 1) {
+        HttpResponse_header(res, "Content-Type", "application/json");
+        HttpResponse_set_body(res, "{\"name\":\"eskiu\",\"tags\":[\"a\",\"b\"],\"n\":3}");
+    } else if (req.path.eq_cstr("/echo") == 1) {
+        let ct: String;  ct.init(16);
+        HttpRequest_header(req, "content-type", &ct);
+        HttpResponse_header(res, "X-Method", req.method.cstr());
+        HttpResponse_header(res, "X-Got-Type", ct.cstr());
+        HttpResponse_set_body(res, req.body.cstr());
+        ct.free();
+    } else if (req.path.eq_cstr("/headers") == 1) {
+        let v: String;  v.init(16);
+        HttpRequest_header(req, "x-custom", &v);
+        res.body.append("x-custom=");  res.body.append(v.cstr());
+        HttpRequest_header(req, "user-agent", &v);
+        res.body.append(" ua=");  res.body.append(v.cstr());
+        HttpRequest_header(req, "accept", &v);
+        res.body.append(" accept=");  res.body.append(v.cstr());
+        if (HttpRequest_header(req, "authorization", &v) == 1) { res.body.append(" auth=");  res.body.append(v.cstr()); }
+        v.free();
+    } else if (req.path.eq_cstr("/r/rel") == 1) {
+        res.status = 302;
+        HttpResponse_header(res, "Location", "../text");
+    } else if (req.path.eq_cstr("/r/abs") == 1) {
+        res.status = 301;
+        HttpResponse_header(res, "Location", "http://127.0.0.1:18431/json");
+    } else if (req.path.eq_cstr("/r/303") == 1) {
+        res.status = 303;
+        HttpResponse_header(res, "Location", "/echo");
+    } else if (req.path.eq_cstr("/r/307") == 1) {
+        res.status = 307;
+        HttpResponse_header(res, "Location", "/echo");
+    } else if (req.path.eq_cstr("/r/host") == 1) {
+        res.status = 302;
+        HttpResponse_header(res, "Location", "http://localhost:18431/headers");
+    } else if (req.path.eq_cstr("/loop") == 1) {
+        res.status = 302;
+        HttpResponse_header(res, "Location", "/loop");
+    } else if (req.path.eq_cstr("/q?a=1&b=x%20y") == 1) {
+        HttpResponse_set_body(res, "query ok");
+    } else {
+        res.status = 404;
+        HttpResponse_set_body(res, "no such page");
+    }
+}
+
+void show(string what, int rc, Response* r) {
+    if (rc != 0) {
+        printf("%s: rc=%d (%s)\n", what, rc, fetch_last_error());
+        return;
+    }
+    let ct: String;  ct.init(16);
+    Response_header(r, "CONTENT-type", &ct);
+    printf("%s: %d %s ok=%d type=[%s] len=%lld body=[%s] url=%s redirects=%d\n", what, r.status,
+           r.reason.cstr(), Response_ok(r), ct.cstr(), r.body.len, Response_text(r), r.url.cstr(), r.redirects);
+    ct.free();
+}
+
+int main() {
+    thread_create(void() { http_serve(PORT, 2, handler); });
+    // Wait until the server answers.
+    let r: Response;
+    int rc = -1;
+    for (int i = 0; i < 100 && rc != 0; i++) {
+        rc = fetch("http://127.0.0.1:18431/text", &r);
+        if (rc != 0) { Response_free(&r); sleep_ms(20); }
+    }
+    show("text", rc, &r);
+    Response_free(&r);
+
+    rc = fetch("http://127.0.0.1:18431/json", &r);
+    *JsonValue v = Response_json(&r);
+    if (v != null) {
+        printf("json: name=%s tags=%d n=%lld\n", JsonValue_as_cstr(JsonValue_get(v, "name")),
+               JsonValue_len(JsonValue_get(v, "tags")), JsonValue_as_int(JsonValue_get(v, "n")));
+        JsonValue_free(v);
+    }
+    Response_free(&r);
+
+    rc = fetch("http://127.0.0.1:18431/missing", &r);
+    show("404", rc, &r);
+    Response_free(&r);
+
+    rc = fetch("http://127.0.0.1:18431/q?a=1&b=x y", &r);
+    show("query", rc, &r);
+    Response_free(&r);
+
+    // POST a JSON body.
+    let o: FetchOptions;  FetchOptions_init(&o);
+    FetchOptions_method(&o, "POST");
+    let j: Json;  Json_init(&j);
+    Json_obj_begin(&j);  Json_key(&j, "msg");  Json_str(&j, "hi \"there\"");  Json_obj_end(&j);
+    FetchOptions_body_json(&o, &j);
+    Json_free(&j);
+    rc = fetch_with("http://127.0.0.1:18431/echo", &o, &r);
+    show("post-json", rc, &r);
+    let m: String;  m.init(8);
+    Response_header(&r, "x-method", &m);
+    printf("  method=%s\n", m.cstr());
+    Response_header(&r, "x-got-type", &m);
+    printf("  sent type=%s\n", m.cstr());
+    Response_free(&r);
+
+    // 303: POST becomes GET without a body.
+    rc = fetch_with("http://127.0.0.1:18431/r/303", &o, &r);
+    show("303", rc, &r);
+    Response_header(&r, "x-method", &m);
+    printf("  method=%s\n", m.cstr());
+    Response_free(&r);
+
+    // 307: the POST and its body are repeated.
+    FetchOptions_body_text(&o, "kept body");
+    rc = fetch_with("http://127.0.0.1:18431/r/307", &o, &r);
+    show("307", rc, &r);
+    Response_header(&r, "x-method", &m);
+    printf("  method=%s\n", m.cstr());
+    Response_free(&r);
+    FetchOptions_free(&o);
+
+    // Custom headers; Authorization survives a same-origin request only.
+    FetchOptions_init(&o);
+    printf("header ok=%d\n", FetchOptions_header(&o, "X-Custom", "one two"));
+    FetchOptions_header(&o, "Authorization", "Bearer secret");
+    FetchOptions_header(&o, "Host", "ignored.test");
+    rc = fetch_with("http://127.0.0.1:18431/headers", &o, &r);
+    show("headers", rc, &r);
+    Response_free(&r);
+    rc = fetch_with("http://127.0.0.1:18431/r/host", &o, &r);
+    show("cross-origin", rc, &r);
+    Response_free(&r);
+    String_clear(&o.user_agent);
+    String_append(&o.user_agent, "custom-agent/1");
+    rc = fetch_with("http://127.0.0.1:18431/headers", &o, &r);
+    show("agent", rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+
+    // Redirects.
+    rc = fetch("http://127.0.0.1:18431/r/rel", &r);
+    show("relative", rc, &r);
+    Response_free(&r);
+    rc = fetch("http://127.0.0.1:18431/r/abs", &r);
+    show("absolute", rc, &r);
+    Response_free(&r);
+    rc = fetch("http://127.0.0.1:18431/loop", &r);
+    show("loop", rc, &r);
+    printf("  status after error=%d\n", r.status);
+    Response_free(&r);
+    FetchOptions_init(&o);
+    o.follow_redirects = 0;
+    rc = fetch_with("http://127.0.0.1:18431/r/rel", &o, &r);
+    show("no-follow", rc, &r);
+    Response_free(&r);
+    o.follow_redirects = 1;
+    o.max_redirects = 0;
+    rc = fetch_with("http://127.0.0.1:18431/r/rel", &o, &r);
+    show("max-0", rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+
+    // HEAD: no body even though the GET has one.
+    FetchOptions_init(&o);
+    FetchOptions_method(&o, "HEAD");
+    rc = fetch_with("http://127.0.0.1:18431/text", &o, &r);
+    show("head", rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+
+    // Header injection.
+    FetchOptions_init(&o);
+    printf("inject value=%d\n", FetchOptions_header(&o, "X-A", "v\r\nX-Evil: 1"));
+    printf("inject name=%d\n", FetchOptions_header(&o, "X A", "v"));
+    rc = fetch_with("http://127.0.0.1:18431/headers", &o, &r);
+    show("inject", rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+    FetchOptions_init(&o);
+    FetchOptions_method(&o, "GET /x HTTP/1.1\r\n");
+    rc = fetch_with("http://127.0.0.1:18431/text", &o, &r);
+    show("bad-method", rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+    rc = fetch("http://127.0.0.1:18431/a\r\nX-Evil: 1", &r);
+    show("bad-target", rc, &r);
+    Response_free(&r);
+
+    // Failures without a server.
+    rc = fetch("http://127.0.0.1:1/", &r);
+    printf("refused: rc=%d\n", rc);
+    Response_free(&r);
+    rc = fetch("http://no-such-host.invalid/", &r);
+    printf("dns: rc=%d\n", rc);
+    Response_free(&r);
+    rc = fetch("not a url", &r);
+    show("invalid-url", rc, &r);
+    Response_free(&r);
+    rc = fetch("ftp://127.0.0.1/file", &r);
+    show("scheme", rc, &r);
+    Response_free(&r);
+    m.free();
+    return 0;
+}

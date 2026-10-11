@@ -1,0 +1,21 @@
+/chunked: 200 len=12 body=[hello, world] kind=[] fast=1
+/close: 200 len=16 body=[body until close] kind=[close] fast=1
+/short: rc=-7 (connection closed after 10 body bytes, 90 short of the Content-Length)
+/long: 200 len=5 body=[12345] kind=[] fast=1
+/204: 204 len=0 body=[] kind=[] fast=1
+/interim: 200 len=2 body=[ok] kind=[] fast=1
+/garbage: rc=-7 (malformed response: not an HTTP/1.x status line)
+/badcl: rc=-7 (malformed response: invalid Content-Length)
+/twocl: rc=-7 (malformed response: invalid Content-Length)
+/barelf: rc=-7 (malformed response: status line not ended by CRLF)
+/badchunk: rc=-7 (malformed response: bad chunked body)
+/cutchunk: rc=-7 (connection closed before the end of the response)
+/upgrade: rc=-7 (malformed response: unexpected protocol switch (101))
+/empty: rc=-6 (the server closed the connection without a response)
+/big: rc=-9 (response body larger than 1000 bytes)
+/bigclose: rc=-9 (response body larger than 1000 bytes)
+/bigchunk: rc=-9 (response body larger than 1000 bytes)
+/badloc: rc=-7 (malformed response: invalid Location 'http://[oops/')
+/hang: rc=-4 (timed out after 1000 ms (waiting for the response))
+/nope: 404 len=0 body=[] kind=[] fast=1
+never accepted: rc=-4 (timed out after 300 ms (waiting for the response)) in-time=1
