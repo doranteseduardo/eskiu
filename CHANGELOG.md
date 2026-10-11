@@ -40,6 +40,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<map>`: `_has`, `_get_or`, `_len`, `_remove` (backward-shift deletion), `_keys`, `_values` and
   `_each` for `Map<V>` and `HashMap<K,V>`; `cstr_hash` / `cstr_eq` for `string` keys; `Set<T>`.
 - Examples `text_report.esk` and `word_count.esk`.
+- `<json>`: `JsonValue_object`, `_array`, `_string`, `_number`, `_int`, `_bool`, `_null`,
+  `JsonValue_set` (replaces in place), `JsonValue_push`, `JsonValue_remove`,
+  `JsonValue_stringify`, `JsonValue_pretty` and `json_get` paths (`"data.items[0].name"`,
+  `["a.b"]`). A container owns its children.
+- `<csv>`: RFC 4180 `csv_parse` / `csv_parse_with` / `csv_parse_buf` into a `CsvTable` with
+  header lookup (`CsvTable_col`, `CsvTable_get`), errors with line and column, and
+  `csv_write_row` / `CsvTable_write` with minimal quoting.
+- `<dotenv>`: `dotenv_load`, `dotenv_load_override` and `dotenv_parse` (comments, `export`,
+  single and double quotes, inline comments), errors with a line number.
+- `<hash>`: SHA-256, SHA-1, MD5 and HMAC-SHA256 in pure Eskiu (streaming and one-shot),
+  `hex_encode`, `hex_decode`, constant-time `hash_equal`.
+- Stdlib fuzz targets `csv` and `dotenv`; the `json` target checks a stringify/parse round trip.
+- Example `data_summary.esk` (`.env`, CSV, SHA-256, JSON output).
 
 ### Changed
 

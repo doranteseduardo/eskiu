@@ -2348,7 +2348,10 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
 | `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `EventLoop_add_read`, `EventLoop_add_write`, `EventLoop_del`, `EventLoop_run`, `EventLoop_stop`, `EventLoop_free`, plus a timer wheel (`EventLoop_add_timer`/`EventLoop_del_timer`). Callback is `fn(EventLoop*, int)->void` |
 | `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
-| `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free` |
+| `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free`. Documents: `JsonValue_object`/`_array`/`_string`/`_number`/`_int`/`_bool`/`_null`, `JsonValue_set`/`_push`/`_remove`, `JsonValue_stringify`/`_pretty`, `json_get(v, "a.b[0][\"k.x\"]")` |
+| `stdlib/csv.esk`      | RFC 4180 CSV: `csv_parse`/`csv_parse_with`/`csv_parse_buf` into a `CsvTable` (`CsvTable_len`/`_row`/`_cell`/`_col`/`_get`/`_error`/`_write`/`_free`), `csv_write_row`/`csv_write_row_with` |
+| `stdlib/dotenv.esk`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` into a `Map<string>`, `dotenv_free`, `dotenv_error`/`dotenv_error_line` |
+| `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `sha256`/`sha256_hex`/`sha256_str` (same for `sha1`, `md5`), `hmac_sha256`/`hmac_sha256_str`, `hex_encode`/`hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
 | `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`/`free_future_polled` (the latter also frees the waker a hand-driven `future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run`, `Executor_stop`, `Executor_free` |
@@ -2743,6 +2746,165 @@ or -1 when the name does not resolve (`dns_last_error()` is the resolver's messa
 numeric host resolves to itself. The strings are heap copies: free the list with
 `dns_free_list`. `<net>` imports `<dns>`, so `net_tcp_connect` accepts host names.
 ---
+
+### JSON documents (`<json>`)
+
+```eskiu
+import <json>;
+extern int printf(string fmt, ...);
+
+int main() {
+    *JsonValue doc = JsonValue_object();
+    JsonValue_set(doc, "name", JsonValue_string("Eskiu"));
+    *JsonValue tags = JsonValue_array();
+    JsonValue_push(tags, JsonValue_string("systems"));
+    JsonValue_push(tags, JsonValue_int(10));
+    JsonValue_set(doc, "tags", tags);
+
+    let out: String;  out.init(64);
+    JsonValue_stringify(doc, &out);              // {"name":"Eskiu","tags":["systems",10]}
+    printf("%s\n", out.data);
+    JsonValue_pretty(doc, 2, &out);              // one member per line, 2 spaces per level
+    printf("%s\n", JsonValue_as_cstr(json_get(doc, "tags[0]")));   // systems
+    out.free();
+    JsonValue_free(doc);
+    return 0;
+}
+```
+
+`JsonValue_object`, `_array`, `_string`, `_number`, `_int`, `_bool` and `_null` make
+fresh values. `JsonValue_set(obj, key, val)` adds a member or replaces the one with that
+key in place, `JsonValue_push(arr, val)` appends, and `JsonValue_remove(obj, key)` frees a
+member (1 if it was there). A container owns its children: `set` and `push` take
+ownership of `val` (which must not already be inside another container), replacing or
+removing frees the old member, and `JsonValue_free` on the root frees the document. Both
+return -1 and leave `val` with the caller when the target has the wrong kind.
+
+`JsonValue_stringify(v, &out)` writes compact RFC 8259 text and `JsonValue_pretty(v,
+indent, &out)` the indented form (`JSON.stringify(v, null, indent)` layout); `out` is
+cleared first. Strings escape `"`, `\` and control bytes (a NUL is `\u0000`); numbers
+use the shortest of `%.15g`/`%.16g`/`%.17g` that reads back as the same double, and NaN
+or an infinity prints as `null`. Numbers are doubles, so integers beyond 2^53 lose
+precision. The printer keeps its own stack, so a document of any depth prints.
+
+`json_get(v, path)` follows a path of `name` / `.name` member steps, `[N]` array
+indices and `["key"]` steps for keys that hold dots or brackets (`\"` and `\\` escape
+inside them): `json_get(doc, "data.items[0].name")`. It returns a borrowed pointer, or
+null when a step is missing, has the wrong kind, or the path is malformed.
+
+### CSV (`<csv>`)
+
+```eskiu
+import <csv>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let t: CsvTable;
+    if (csv_parse("name,city\nAda,London\n\"Hopper, Grace\",\"New York\"\n", &t) != 0) {
+        let msg: String;  msg.init(32);
+        CsvTable_error(&t, &msg);                // such as "line 3, col 1: unterminated quoted field"
+        printf("%s\n", msg.data);
+        msg.free();
+    }
+    for (r in 1..CsvTable_len(&t)) { printf("%s\n", CsvTable_get(&t, r, "name")); }
+    CsvTable_free(&t);
+
+    let row: List<string>;  List_init<string>(&row, 2);
+    row.push("a,b");  row.push("plain");
+    let out: String;  out.init(32);
+    csv_write_row(&row, &out);                   // "a,b",plain
+    printf("%s", out.data);
+    out.free();
+    List_free<string>(&row);
+    return 0;
+}
+```
+
+`csv_parse(text, &t)` reads RFC 4180 CSV with `,` between fields; `csv_parse_with(text,
+delim, &t)` takes another delimiter (`;`, `\t`, ...) and `csv_parse_buf(data, n, delim,
+&t)` reads bytes that may hold NULs. Quoted fields may contain the delimiter, line breaks
+and `""` (one quote); lines end with LF, CRLF or a lone CR; a final line ending adds no
+row, while a blank line elsewhere is a row with one empty field. They return 0, or -1 for
+an unterminated quoted field or text after a closing quote, with `CsvTable_error(&t,
+&out)` giving `line L, col C: ...`. The parse initialises `t`; free it with
+`CsvTable_free` in both cases.
+
+Row indices count every row, so with a header the data starts at row 1.
+`CsvTable_len`, `CsvTable_row(t, r)` (a `*List<String>`), `CsvTable_cell(t, r, c)`,
+`CsvTable_col(t, "name")` (header index or -1) and `CsvTable_get(t, r, "name")` return
+values borrowed from the table, or null when out of range. `csv_write_row(&fields,
+&out)` and `csv_write_row_with(&fields, delim, &out)` append one row ending in `\n`,
+quoting only fields that contain the delimiter, a quote, CR or LF; `CsvTable_write(t,
+delim, &out)` writes a whole table (cleared first).
+
+### `.env` files (`<dotenv>`)
+
+```eskiu
+import <dotenv>;
+extern int printf(string fmt, ...);
+
+int main() {
+    if (dotenv_load(".env") < 0) {
+        let msg: String;  msg.init(64);
+        dotenv_error(&msg);                      // such as "line 4: expected '=' after the variable name"
+        printf("%s\n", msg.data);
+        return 1;
+    }
+    printf("%s\n", env_get_or("DATABASE_URL", "unset"));
+    return 0;
+}
+```
+
+Each non-blank line is `KEY=VALUE`, optionally after `export `; `#` starts a comment
+line. An unquoted value is trimmed and ends at a `#` that follows whitespace. Single
+quotes keep the text as written; double quotes decode `\n`, `\t`, `\r`, `\"` and `\\`.
+Quoted values may span lines. Names start with a letter or `_` and continue with
+letters, digits, `_`, `.` and `-`; a later assignment wins.
+
+`dotenv_load(path)` sets the file's variables that are not already set and returns how
+many it set; `dotenv_load_override(path)` replaces existing ones too. On a read failure
+or a syntax error they return -1 and set nothing; `dotenv_error(&out)` describes it
+(`line N: ...` or `cannot read PATH: reason`) and `dotenv_error_line()` is the line (0
+for a read failure). `dotenv_parse(text, &map)` fills an initialised `Map<string>`
+without touching the environment and returns the number of assignments; the map owns
+the value copies, so free it with `dotenv_free`.
+
+### Hashes (`<hash>`)
+
+```eskiu
+import <hash>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let hex: String;  hex.init(65);
+    sha256_str("abc", &hex);                     // ba7816bf...f20015ad
+    printf("%s\n", hex.data);
+
+    let h: Sha256;  h.init();                    // streaming
+    h.update_str("ab");  h.update_str("c");
+    let digest: uint8[32];
+    h.final(&digest[0]);
+
+    hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &hex);
+    printf("%d\n", hash_equal_str((string)hex.data, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"));
+    hex.free();
+    return 0;
+}
+```
+
+SHA-256, SHA-1 and MD5 are written in Eskiu (no OpenSSL). Each has a streaming type
+(`Sha256`, `Sha1`, `Md5`) with `_init`, `_update(data, n)`, `_update_str(s)`,
+`_final(out)` (the raw digest: `SHA256_SIZE` 32, `SHA1_SIZE` 20, `MD5_SIZE` 16 bytes into
+a caller buffer) and `_final_hex(&out)`; a value is `init`ed again before reuse. The
+one-shot forms are `sha256(data, n, out)` (raw), `sha256_hex(data, n, &out)` and
+`sha256_str(s, &out)` (lowercase hex), and the same for `sha1` and `md5`. `HmacSha256`
+(`_init(key, klen)`, `_update`, `_final`) and `hmac_sha256(key, klen, data, n, out)` /
+`hmac_sha256_str(key, msg, &out)` implement RFC 2104 (keys over 64 bytes are hashed
+first). `hex_encode(data, n, &out)` writes lowercase hex; `hex_decode(s, out, cap)`
+returns the byte count, or -1 for an odd length, a non-hex character or more than `cap`
+bytes. `hash_equal(a, b, n)` and `hash_equal_str(a, b)` compare in time that depends
+only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
+checksums.
 
 ## 15. Inline Assembly
 

@@ -1009,7 +1009,10 @@ Available modules:
 | `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect` (IPv4 address or host name), `net_send`, `net_recv`, `net_close` |
 | `<dns>`      | `dns_resolve` (IPv4 and IPv6 addresses of a host), `dns_free_list`, `dns_last_error` |
 | `<http>`     | HTTP/1.1: `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
-| `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
+| `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree; build and edit with `JsonValue_object`/`_array`/`_set`/`_push`/`_remove`, print with `JsonValue_stringify`/`_pretty`, paths with `json_get` |
+| `<csv>`      | RFC 4180 CSV: `csv_parse` into a `CsvTable` (`CsvTable_get(t, row, "column")`), `csv_write_row` |
+| `<dotenv>`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` |
+| `<hash>`     | SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), `hex_encode`/`hex_decode`, `hash_equal` |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
