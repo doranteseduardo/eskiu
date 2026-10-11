@@ -1,0 +1,54 @@
+// Fuzz target: <dotenv> dotenv_parse on arbitrary text. A successful parse is
+// written back as KEY="escaped" lines, which must parse to the same map.
+import "harness.esk";
+import <dotenv>;
+
+void escape_into(String* out, string v) {
+    out.push('"');
+    for (int i = 0; v[i] != 0; i++) {
+        const char c = v[i];
+        if (c == '"' || c == '\\') { out.push('\\'); out.push(c); }
+        else if (c == '\n') { out.append("\\n"); }
+        else if (c == '\r') { out.append("\\r"); }
+        else { out.push(c); }
+    }
+    out.push('"');
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    let m: Map<string>;  Map_init<string>(&m, 8);
+    const int rc = dotenv_parse(s, &m);
+    let msg: String;  msg.init(16);
+    dotenv_error(&msg);
+    if ((rc < 0) != (msg.len > 0)) { fuzz_fail("error text disagrees with the result"); }
+    if (rc < 0 && dotenv_error_line() < 1) { fuzz_fail("an error without a line"); }
+    if (rc >= 0 && Map_len<string>(&m) > rc) { fuzz_fail("more entries than assignments"); }
+    if (rc >= 0) {
+        let keys: List<string>;  List_init<string>(&keys, 8);
+        Map_keys<string>(&m, &keys);
+        let text: String;  text.init(64);
+        for (k in 0..List_len<string>(&keys)) {
+            const string name = List_get<string>(&keys, k);
+            string v = null;
+            Map_get<string>(&m, name, &v);
+            text.append(name);
+            text.push('=');
+            escape_into(&text, v);
+            text.push('\n');
+        }
+        let m2: Map<string>;  Map_init<string>(&m2, 8);
+        if (dotenv_parse((string)text.data, &m2) != List_len<string>(&keys)) { fuzz_fail("written entries do not parse"); }
+        for (k in 0..List_len<string>(&keys)) {
+            const string name = List_get<string>(&keys, k);
+            string a = null;
+            string b = null;
+            Map_get<string>(&m, name, &a);
+            if (Map_get<string>(&m2, name, &b) == 0 || map_streq((*char)a, b) == 0) { fuzz_fail("write + parse changed a value"); }
+        }
+        dotenv_free(&m2);
+        text.free();
+        List_free<string>(&keys);
+    }
+    msg.free();
+    dotenv_free(&m);
+}

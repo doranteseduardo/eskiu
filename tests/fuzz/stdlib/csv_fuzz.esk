@@ -1,0 +1,43 @@
+// Fuzz target: <csv> csv_parse_buf on arbitrary bytes (the first byte picks the
+// delimiter), then write + reparse must give the same table.
+import "harness.esk";
+import <csv>;
+
+int same_tables(CsvTable* a, CsvTable* b) {
+    if (CsvTable_len(a) != CsvTable_len(b)) { return 0; }
+    for (r in 0..CsvTable_len(a)) {
+        *List<String> x = CsvTable_row(a, r);
+        *List<String> y = CsvTable_row(b, r);
+        if (List_len<String>(x) != List_len<String>(y)) { return 0; }
+        for (c in 0..List_len<String>(x)) {
+            if (String_eq(&x.data[c], &y.data[c]) == 0) { return 0; }
+        }
+    }
+    return 1;
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    if (len < 1) { return; }
+    let delims: char[4] = {',', ';', '\t', '|'};
+    const char delim = delims[(int)data[0] % 4];
+    let t: CsvTable;
+    const int rc = csv_parse_buf(data + 1, (int64)(len - 1), delim, &t);
+    let msg: String;  msg.init(16);
+    CsvTable_error(&t, &msg);
+    if ((rc == 0) != (msg.len == 0)) { fuzz_fail("error text disagrees with the result"); }
+    if (rc == 0) {
+        for (r in 0..CsvTable_len(&t)) {
+            if (List_len<String>(CsvTable_row(&t, r)) == 0) { fuzz_fail("a row with no fields"); }
+        }
+        let out: String;  out.init(64);
+        CsvTable_write(&t, delim, &out);
+        let t2: CsvTable;
+        if (csv_parse_buf((*uint8)out.data, out.len, delim, &t2) != 0) { fuzz_fail("written table does not parse"); }
+        if (same_tables(&t, &t2) == 0) { fuzz_fail("write + parse changed the table"); }
+        CsvTable_free(&t2);
+        out.free();
+        CsvTable_get(&t, 1, s);
+    }
+    msg.free();
+    CsvTable_free(&t);
+}

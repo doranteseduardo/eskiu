@@ -21,10 +21,36 @@ int64 json_walk(JsonValue* v, int depth) {
     return h;
 }
 
+// stringify(parse(stringify(v))) must equal stringify(v), and the pretty form
+// must parse back to the same compact text.
+void json_roundtrip(JsonValue* v) {
+    let a: String;  a.init(64);
+    let b: String;  b.init(64);
+    JsonValue_stringify(v, &a);
+    *JsonValue w = json_parse((string)a.data);
+    if (w == null) { fuzz_fail("stringify output does not parse"); }
+    JsonValue_stringify(w, &b);
+    if (String_eq(&a, &b) == 0) { fuzz_fail("stringify is not stable across a parse"); }
+    JsonValue_free(w);
+    JsonValue_pretty(v, 2, &b);
+    w = json_parse((string)b.data);
+    if (w == null) { fuzz_fail("pretty output does not parse"); }
+    JsonValue_stringify(w, &b);
+    if (String_eq(&a, &b) == 0) { fuzz_fail("pretty does not round-trip"); }
+    JsonValue_free(w);
+    a.free();
+    b.free();
+}
+
 void fuzz_one(*uint8 data, int len, string s) {
     *JsonValue v = json_parse(s);
     if (v != null) {
         json_walk(v, 0);
+        json_roundtrip(v);
         JsonValue_free(v);
     }
+    // The input as a path, over a fixed document.
+    *JsonValue d = json_parse("{\"a\":{\"b\":[1,{\"c\":\"x\"}]},\"a.b\":[[2]],\"\":3}");
+    json_get(d, s);
+    JsonValue_free(d);
 }
