@@ -2327,8 +2327,8 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `fmod`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar` |
 | `stdlib/mem.esk`      | Heap allocation `alloc<T>(n)` / `free(p)` (libc, or `esk_alloc`/`esk_free` under `--freestanding`); plus `extern` `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
-| `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
-| `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_accept_addr` (accept + peer IPv4), `net_tcp_connect`, `net_send`, `net_recv`, `net_send_str`, `net_close`, socket timeouts (`net_set_recv_timeout`, `net_set_send_timeout`, `net_set_timeouts`, `net_would_block`; the `struct timeval` is two C `long`s, so 8 bytes on 32-bit ARM), deadlines (`net_deadline`, `NET_TIMED_OUT`) and a blocking readiness wait (`net_wait_ready`, over `poll` / `WSAPoll`) (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
+| `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`. Text files (`fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`), metadata (`FileStat`, `fs_stat`, `fs_lstat`, `fs_exists`, `fs_is_dir`, `fs_is_file`), directories (`fs_mkdir`, `fs_mkdir_p`, `fs_remove`, `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir`, `fs_walk`, `fs_glob`, `fs_match`), `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, `fs_temp_base`, and errors (`fs_last_error`, `fs_errno`, `fs_errno_missing`); see [Files and directories](#files-and-directories-fs) |
+| `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_accept_addr` (accept + peer IPv4), `net_tcp_connect` (a dotted IPv4 address, or a host name or IPv6 address resolved through `<dns>`), `net_send`, `net_recv`, `net_send_str`, `net_close`, socket timeouts (`net_set_recv_timeout`, `net_set_send_timeout`, `net_set_timeouts`, `net_would_block`; the `struct timeval` is two C `long`s, so 8 bytes on 32-bit ARM), deadlines (`net_deadline`, `NET_TIMED_OUT`) and a blocking readiness wait (`net_wait_ready`, over `poll` / `WSAPoll`) (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
 | `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit`, each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
 | `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`) |
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
@@ -2336,7 +2336,9 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive) |
 | `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space) |
 | `stdlib/uuid.esk`     | `uuid_v4(&rng, &out)`: an RFC 4122 version-4 UUID string (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) drawn from a `<random>` `Rng` |
-| `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` (process environment; CLI args come from `main`'s `argc`/`argv`) |
+| `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` (process environment; CLI args come from `main`'s `argc`/`argv`) |
+| `stdlib/process.esk`  | Child processes: `process_run` (capture stdout/stderr into a `ProcessResult`, with `ProcessOptions` for stdin text, cwd, extra environment, a timeout), `sh`/`sh_with` (through `/bin/sh -c` or `cmd.exe /c`), `process_spawn` with `Process_write_stdin`/`_close_stdin`/`_read`/`_read_all`/`_wait`/`_kill`/`_free`, `process_exit`, `process_pid`, `process_last_error`; see [Processes](#processes-process) |
+| `stdlib/dns.esk`      | `dns_resolve(host, &list)` (IPv4 and IPv6 addresses as numeric strings, through `getaddrinfo`), `dns_free_list`, `dns_last_error` |
 | `stdlib/base64.esk`   | `base64_encode` / `base64_decode` over byte buffers (decoding rejects bad padding and truncated input), plus `base64_encoded_len` / `base64_decoded_len` and the `base64_value` / `base64_digit` primitives |
 | `stdlib/bytes.esk`    | `Bytes`, a growable, binary-safe byte buffer (`*uint8` + length; embedded NULs survive, unlike `String`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus `Bytes_from_base64`/`Bytes_to_base64` |
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
@@ -2471,7 +2473,7 @@ int main() {
 |---|---|
 | `net_tcp_listen(port) -> int` | Create a socket, set `SO_REUSEADDR`, bind to `0.0.0.0:port`, listen. Returns the fd or `-1` |
 | `net_accept(fd) -> int` | Accept the next connection; returns the connection fd or `-1` |
-| `net_tcp_connect(host, port) -> int` | Connect to a dotted-quad host (e.g. `"127.0.0.1"`); returns fd or `-1` |
+| `net_tcp_connect(host, port) -> int` | Connect to a dotted IPv4 host (`"127.0.0.1"`, used as is) or a host name or IPv6 address (`"localhost"`, `"::1"`), resolved with `<dns>` and tried address by address until one connects; returns fd or `-1` |
 | `net_send(fd, buf, n)` / `net_recv(fd, buf, n)` | Send / receive raw bytes (`int64` count). A send to a closed peer returns `-1` (`EPIPE`); it never raises `SIGPIPE` |
 | `net_send_str(fd, s)` | Send a C string (length via `strlen`) |
 | `net_close(fd)` | Close a socket |
@@ -2496,6 +2498,152 @@ arrive within `HTTP_HEADER_TIMEOUT_MS` (10 s) and a body within `HTTP_BODY_TIMEO
 `HTTP_MAX_OPEN_CONNS` (1024) connections at once. The `*_with` variants take other
 limits.
 
+
+### Files and directories (`<fs>`)
+
+```eskiu
+import <fs>;
+import <io>;
+
+int main() {
+    fs_mkdir_p("out/logs");
+    fs_write_text("out/logs/today.txt", "started\n");
+    fs_append_text("out/logs/today.txt", "done\n");
+
+    let found: List<String>;  List_init<String>(&found, 8);
+    fs_glob("out/**/*.txt", &found);              // sorted: out/logs/today.txt
+    fs_list_free(&found);
+
+    fs_walk("out", void(string path, bool is_dir) {
+        printf("%s%s\n", path, is_dir ? "/" : "");
+    });
+
+    let st: FileStat;
+    if (fs_stat("out/missing.txt", &st) != 0) {
+        let err: String;  err.init(32);
+        fs_last_error(&err);                      // "No such file or directory"
+        printf("%s\n", err.data);
+        err.free();
+    }
+    return fs_remove_all("out");
+}
+```
+
+Conventions: an action returns 0 on success and -1 on failure, and `fs_last_error(&s)`
+(a message) or `fs_errno()` (the OS code: `errno`, or `GetLastError` on Windows)
+describes the last failing call in the process (`fs_errno_missing()` tests for "no such
+file"). A query (`fs_exists`, `fs_is_dir`, `fs_is_file`, `fs_match`) returns 1 or 0. A
+function that fills a `String` clears it first; one that fills a `List<String>` appends
+heap Strings to it, freed with `fs_list_free`. Paths are UTF-8 on every platform (UTF-16
+on Windows underneath). The older `fs_write_all` keeps its 1/0 result.
+
+| Function | Effect |
+|---|---|
+| `fs_read_text(path, &s)` / `fs_write_text(path, text)` / `fs_append_text(path, text)` | Whole-file text I/O (the read is binary-safe: NULs are kept and counted in `s.len`) |
+| `fs_read_lines(path, &list)` | Each line without its `\n` or `\r\n` |
+| `fs_stat(path, &st)` / `fs_lstat(path, &st)` | `FileStat {size, mtime, mode, is_dir, is_file, is_symlink}`: `mtime` in epoch seconds, `mode` the permission bits; `fs_lstat` does not follow a link |
+| `fs_exists`, `fs_is_dir`, `fs_is_file` | 1 or 0, links followed |
+| `fs_mkdir(path)` / `fs_mkdir_p(path)` | One directory / every missing parent (an existing directory is success) |
+| `fs_remove(path)` / `fs_remove_all(path)` | A file or empty directory / a whole tree (links removed, never followed; a missing path is success) |
+| `fs_rename(from, to)` / `fs_copy(from, to)` | Move (replacing a file at `to`) / copy a file's bytes and permission bits |
+| `fs_list_dir(path, &list)` | The names in a directory, without `.` and `..`, sorted bytewise |
+| `fs_walk(root, visit)` | `visit(path, is_dir)` for every entry under `root`, depth first and sorted; links are reported but not followed, so a link loop cannot recurse |
+| `fs_glob(pattern, &list)` | Paths matching a pattern (sorted, no duplicates; returns the count): each `/` component is an `fs_match` pattern and `**` matches any number of directories; wildcards skip names starting with `.` unless the component starts with `.` |
+| `fs_match(pattern, name)` | Shell matching of one name: `*`, `?`, `[abc]`, `[a-z]`, `[!a-z]`, `\` escapes |
+| `fs_cwd(&s)` / `fs_chdir(path)` | The current directory |
+| `fs_temp_file(prefix, &s)` / `fs_temp_dir(prefix, &s)` | Create a unique file / directory in the temporary directory (`$TMPDIR` or `/tmp`, `GetTempPathW` on Windows; `fs_temp_base(&s)` names it); the caller removes it |
+
+### Processes (`<process>`)
+
+```eskiu
+import <process>;
+import <io>;
+
+int main() {
+    let r: ProcessResult;
+    sh("uname -s", &r);                           // through /bin/sh -c (cmd.exe /c on Windows)
+    printf("exit %d: %s", r.exit_code, r.stdout.data);
+    ProcessResult_free(&r);
+
+    let argv: List<string>;  List_init<string>(&argv, 4);
+    argv.push("grep");  argv.push("-c");  argv.push("x");
+    let opts: ProcessOptions;
+    memset((*void)&opts, 0, sizeof(ProcessOptions));   // the zero value is the default
+    opts.stdin_text = "x\ny\nx\n";
+    opts.timeout_ms = 5000;
+    if (process_run(&argv, &opts, &r) != 0) {   // -1: could not start
+        let err: String;  err.init(32);
+        process_last_error(&err);
+        printf("%s\n", err.data);
+        err.free();
+    }
+    printf("%s", r.stdout.data);                  // 2
+    ProcessResult_free(&r);
+    List_free<string>(&argv);
+    return 0;
+}
+```
+
+`process_run(argv, opts, &r)` runs `argv[0]` (found through `PATH`) with the arguments
+as given (no shell, no quoting), writes `opts.stdin_text` to its stdin and collects
+stdout and stderr into `r.stdout` and `r.stderr`, reading both pipes together so that a
+child filling one while the other is unread cannot deadlock. `opts` may be `null`. It
+returns 0 when the program ran (whatever its exit code) and -1 when it could not start
+(not found, a bad `cwd`; `process_last_error` says why, `r.exit_code` is -1). `r.exit_code`
+is the exit status, or 128+N when signal N ended the child. With `timeout_ms` the child is
+killed when the time runs out (on POSIX its whole process group, so the commands a shell
+started die too), `r.timed_out` is set and `exit_code` is 137. `ProcessOptions` fields:
+`stdin_text`, `cwd`, `env` (a `List<string>*` of extra `"NAME=value"` entries replacing
+same-named ones), `timeout_ms`, and the flags `inherit_stdin`, `inherit_stdout`,
+`inherit_stderr` (use the parent's stream instead of a pipe; without `stdin_text` or
+`inherit_stdin` the child's stdin is empty) and `merge_stderr` (`2>&1`). Free a result
+with `ProcessResult_free`.
+
+`process_spawn(argv, opts, &p)` starts the child and returns at once. Its stdin is a
+pipe unless `inherit_stdin` (`Process_write_stdin`, `Process_close_stdin`), its output
+pipes are read with `Process_read(&p, 1 or 2, &s)` (one read, up to 64 KiB; 0 at the end)
+or `Process_read_all`; `Process_wait` closes stdin, reaps the child and returns its exit
+code, `Process_kill` ends it, `Process_free` closes the pipes. Reading one pipe to its end
+while the child fills the other can block, so set `merge_stderr` or `inherit_stderr` when
+the child writes much to both. `process_exit(code)` ends the program, `process_pid()` is
+its process id.
+
+On POSIX the child is started with `fork` and `execvp` (only async-signal-safe calls in
+between) and `SIGPIPE` is restored to its default in it. On Windows `CreateProcessW` runs
+the command line built from `argv` with the C runtime's quoting rules, and threads drain
+the pipes; with a timeout the child runs in a Job object, so the timeout ends the processes
+it started too.
+
+### Environment (`<env>`)
+
+`env_get(name)` (null if unset), `env_has`, `env_get_or(name, fallback)` and
+`env_get_int(name, fallback)` read the environment. `env_set(name, value)` and
+`env_unset(name)` change it (0, or -1 for an empty name, one with `=`, or a failure), and
+`env_list(&list)` appends every variable as a `"NAME=value"` String, sorted (free with
+`fs_list_free`). Changes are inherited by processes started afterwards. On Windows the
+C runtime and the Win32 environment are both updated, and an empty value removes the
+variable.
+
+### DNS (`<dns>`)
+
+```eskiu
+import <dns>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let addrs: List<string>;  List_init<string>(&addrs, 4);
+    if (dns_resolve("localhost", &addrs) < 0) { printf("%s\n", dns_last_error()); }
+    for (i in 0..addrs.size) { printf("%s\n", List_get<string>(&addrs, i)); }  // ::1, 127.0.0.1
+    dns_free_list(&addrs);
+    return 0;
+}
+```
+
+`dns_resolve(host, &list)` appends the host's IPv4 and IPv6 addresses as numeric
+strings, in the resolver's order and without duplicates, and returns how many it added,
+or -1 when the name does not resolve (`dns_last_error()` is the resolver's message). A
+numeric host resolves to itself. The strings are heap copies: free the list with
+`dns_free_list`. `<net>` imports `<dns>`, so `net_tcp_connect` accepts host names.
 ---
 
 ## 15. Inline Assembly

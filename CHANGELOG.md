@@ -18,6 +18,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - Structural LLVM IR assertions in `tests/ir_golden.sh` (integrated into `tests/run.sh`) directly
   verify ABI attributes (`sret`, `signext`/`zeroext`, `__gxx_personality_v0`, `landingpad`, and
   `@__cabi_*` callback thunks).
+- `<fs>`: `fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`, `fs_stat`/`fs_lstat`
+  (`FileStat`), `fs_exists`, `fs_is_dir`, `fs_is_file`, `fs_mkdir`, `fs_mkdir_p`, `fs_remove`,
+  `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir` (sorted), `fs_walk`, `fs_glob` and
+  `fs_match`, `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, and `fs_last_error`/`fs_errno`.
+  Actions return 0 or -1. Paths are UTF-8 on Windows too (`_wfopen` and the wide Win32 calls).
+- `<process>`: `process_run` and `sh`/`sh_with` capture stdout and stderr into a `ProcessResult`
+  (stdin text, cwd, extra environment, timeout); `process_spawn` with `Process_write_stdin`,
+  `Process_read`, `Process_wait`, `Process_kill`; `process_exit`, `process_pid`.
+- `<env>`: `env_set`, `env_unset`, `env_list`.
+- `<dns>`: `dns_resolve` (IPv4 and IPv6 through `getaddrinfo`). `net_tcp_connect` accepts a host
+  name or an IPv6 address and tries each address; a dotted IPv4 address works as before.
 
 ### Changed
 

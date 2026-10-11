@@ -1005,8 +1005,9 @@ Available modules:
 | `<http2_server>`| HTTP/2 (h2c, cleartext) server over the event loop: `http2_serve_async`, multiplexed streams, same handler interface as `<http>` |
 | `<tls>`      | h2 over TLS via OpenSSL with ALPN `"h2"`: `http2_tls_serve_conn` (blocking) / `http2_tls_serve_async` |
 | `<sysheap>`  | `Heap`: a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
-| `<fs>`       | `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
-| `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
+| `<fs>`       | `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`; `fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`, `fs_stat`, `fs_exists`, `fs_is_dir`, `fs_is_file`, `fs_mkdir`, `fs_mkdir_p`, `fs_remove`, `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir`, `fs_walk`, `fs_glob`, `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, `fs_last_error` |
+| `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect` (IPv4 address or host name), `net_send`, `net_recv`, `net_close` |
+| `<dns>`      | `dns_resolve` (IPv4 and IPv6 addresses of a host), `dns_free_list`, `dns_last_error` |
 | `<http>`     | HTTP/1.1: `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
@@ -1017,7 +1018,8 @@ Available modules:
 | `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
 | `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`) |
-| `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
+| `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
+| `<process>`  | `process_run` (capture output, stdin text, cwd, env, timeout), `sh`, `sh_with`, `process_spawn` + `Process_write_stdin`/`_read`/`_wait`/`_kill`, `process_exit`, `process_pid` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
 | `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |
