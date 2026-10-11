@@ -105,3 +105,297 @@ int url_query_get(string query, string key, String* out) {
     }
     return 0;
 }
+
+// ── URL parsing ──────────────────────────────────────────────────────────────
+//
+//   let u: Url;
+//   if (url_parse("https://user@[::1]:8443/a/b?x=1#top", &u) == 1) {
+//       // u.scheme "https", u.host "::1", u.port 8443, u.path "/a/b", u.query "x=1"
+//   }
+//   Url_free(&u);
+//
+// url_parse takes an absolute URL with an authority ("scheme://host..."). The
+// scheme and host are lowercased; an IPv6 host is stored without its brackets.
+// The port is the one written, else the scheme's default (http and ws 80, https
+// and wss 443, else 0). The path defaults to "/". User info ("user:pass@") is
+// skipped (it is not kept), and so is the fragment. A space or a byte above 0x7f
+// in the path or query is percent-encoded. A control byte (below 0x20, or 0x7f)
+// anywhere, a malformed host or port, or a missing "://" makes the URL invalid.
+
+extern int strcmp(string a, string b);
+
+struct Url {
+    String scheme;   // "https"
+    String host;     // "example.com", "127.0.0.1", "::1"
+    int    port;     // explicit, else the scheme default, else 0
+    String path;     // "/" when the URL has none
+    String query;    // the text after '?', "" when there is none
+}
+
+void Url_init(Url* self) {
+    self.scheme.init(8);
+    self.host.init(16);
+    self.port = 0;
+    self.path.init(16);
+    self.query.init(8);
+}
+
+void Url_free(Url* self) {
+    self.scheme.free();
+    self.host.free();
+    self.path.free();
+    self.query.free();
+}
+
+// The default port of a lowercase scheme: 80 for http and ws, 443 for https
+// and wss, else 0.
+int url_default_port(string scheme) {
+    if (strcmp(scheme, "http") == 0 || strcmp(scheme, "ws") == 0) { return 80; }
+    if (strcmp(scheme, "https") == 0 || strcmp(scheme, "wss") == 0) { return 443; }
+    return 0;
+}
+
+int _url_is_alpha(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ? 1 : 0; }
+int _url_is_digit(int c) { return c >= '0' && c <= '9' ? 1 : 0; }
+char _url_lc(int c) { return c >= 'A' && c <= 'Z' ? (char)(c + 32) : (char)c; }
+
+// The length of the scheme at the start of s ("http" in "http://..."), when it
+// is followed by ':', else 0.
+int64 _url_scheme_len(string s) {
+    if (_url_is_alpha((int)((uint8)s[0])) == 0) { return 0; }
+    int64 i = 1;
+    while (true) {
+        const int c = (int)((uint8)s[i]);
+        if (_url_is_alpha(c) == 1 || _url_is_digit(c) == 1 || c == '+' || c == '-' || c == '.') { i++; }
+        else { break; }
+    }
+    return s[i] == ':' ? i : 0;
+}
+
+// Append s[from..to) to `out`, percent-encoding a space and each byte above
+// 0x7f. 0 if the range holds a control byte, else 1.
+int _url_copy_part(string s, int64 from, int64 to, String* out) {
+    for (int64 i = from; i < to; i++) {
+        const int c = (int)((uint8)s[i]);
+        if (c < 32 || c == 127) { return 0; }
+        if (c == ' ' || c > 127) {
+            out.push('%');
+            out.push((char)url_hex(c / 16));
+            out.push((char)url_hex(c % 16));
+        } else {
+            out.push((char)c);
+        }
+    }
+    return 1;
+}
+
+// 1 if the host holds a ':' (an IPv6 address).
+int _url_host_v6(Url* u) {
+    for (k in 0..u.host.len) { if (u.host.data[k] == ':') { return 1; } }
+    return 0;
+}
+
+// Parse the host and port in s[from..to) (the authority without user info).
+int _url_parse_hostport(string s, int64 from, int64 to, Url* out) {
+    int64 i = from;
+    if (i < to && s[i] == '[') {
+        i++;
+        while (i < to && s[i] != ']') {
+            const int c = (int)((uint8)s[i]);
+            if (url_unhex(c) < 0 && c != ':' && c != '.') { return 0; }
+            out.host.push(_url_lc(c));
+            i++;
+        }
+        if (i >= to || _url_host_v6(out) == 0) { return 0; }
+        i++;
+    } else {
+        while (i < to && s[i] != ':') {
+            const int c = (int)((uint8)s[i]);
+            if (_url_is_alpha(c) == 0 && _url_is_digit(c) == 0 && c != '-' && c != '.' && c != '_' && c != '~') { return 0; }
+            out.host.push(_url_lc(c));
+            i++;
+        }
+        if (out.host.len == 0) { return 0; }
+    }
+    out.port = url_default_port(out.scheme.cstr());
+    if (i < to) {
+        if (s[i] != ':') { return 0; }
+        i++;
+        if (i < to) {
+            int p = 0;
+            for (; i < to; i++) {
+                if (_url_is_digit((int)((uint8)s[i])) == 0) { return 0; }
+                p = p * 10 + ((int)s[i] - '0');
+                if (p > 65535) { return 0; }
+            }
+            if (p == 0) { return 0; }
+            out.port = p;
+        }
+    }
+    return 1;
+}
+
+int _url_parse_into(string s, Url* out) {
+    const int64 sl = _url_scheme_len(s);
+    if (sl == 0 || s[sl + 1] != '/' || s[sl + 2] != '/') { return 0; }
+    for (i in 0..sl) { out.scheme.push(_url_lc((int)((uint8)s[i]))); }
+    const int64 n = strlen(s);
+    const int64 astart = sl + 3;
+    int64 aend = astart;
+    while (aend < n && s[aend] != '/' && s[aend] != '?' && s[aend] != '#') { aend++; }
+    int64 hstart = astart;
+    for (int64 i = astart; i < aend; i++) {
+        const int c = (int)((uint8)s[i]);
+        if (c <= 32 || c == 127) { return 0; }
+        if (c == '@') { hstart = i + 1; }
+    }
+    if (_url_parse_hostport(s, hstart, aend, out) == 0) { return 0; }
+    int64 fend = aend;
+    while (fend < n && s[fend] != '#') { fend++; }
+    for (int64 i = fend; i < n; i++) {
+        const int c = (int)((uint8)s[i]);
+        if (c < 32 || c == 127) { return 0; }
+    }
+    int64 qpos = aend;
+    while (qpos < fend && s[qpos] != '?') { qpos++; }
+    if (qpos == aend) { out.path.push('/'); }
+    else if (_url_copy_part(s, aend, qpos, &out.path) == 0) { return 0; }
+    if (qpos < fend && _url_copy_part(s, qpos + 1, fend, &out.query) == 0) { return 0; }
+    return 1;
+}
+
+// Parse the absolute URL `s` into *out (see above). *out is initialized here
+// whatever the result, so free it with Url_free either way. 1 if the URL is
+// valid, else 0 (then every field of *out is empty).
+int url_parse(string s, Url* out) {
+    Url_init(out);
+    if (s == null) { return 0; }
+    if (_url_parse_into(s, out) == 1) { return 1; }
+    out.scheme.clear();
+    out.host.clear();
+    out.path.clear();
+    out.query.clear();
+    out.port = 0;
+    return 0;
+}
+
+// The host as written in a URL or a Host header: an IPv6 address in brackets,
+// then ":port" when the port is not the scheme's default.
+void Url_host_port(Url* self, String* out) {
+    const int v6 = _url_host_v6(self);
+    if (v6 == 1) { out.push('['); }
+    out.append(self.host.cstr());
+    if (v6 == 1) { out.push(']'); }
+    if (self.port != url_default_port(self.scheme.cstr())) {
+        out.push(':');
+        String_appendf(out, "%d", self.port);
+    }
+}
+
+// The request target: the path, then '?' and the query when there is one.
+void Url_target(Url* self, String* out) {
+    out.append(self.path.cstr());
+    if (self.query.len > 0) {
+        out.push('?');
+        out.append(self.query.cstr());
+    }
+}
+
+// The URL as text: scheme "://" host[:port] path[?query].
+void Url_to_string(Url* self, String* out) {
+    out.append(self.scheme.cstr());
+    out.append("://");
+    Url_host_port(self, out);
+    Url_target(self, out);
+}
+
+// Append the path p[0..n) (it starts with '/') to `out` with its "." and ".."
+// segments removed (RFC 3986 §5.2.4).
+void _url_remove_dots(string p, int64 n, String* out) {
+    const int64 base = out.len;
+    int64 i = 0;
+    while (i < n) {
+        int64 j = i + 1;
+        while (j < n && p[j] != '/') { j++; }
+        const int64 sl = j - i - 1;
+        const bool last = j >= n;
+        if (sl == 1 && p[i + 1] == '.') {
+            if (last) { out.push('/'); }
+        } else if (sl == 2 && p[i + 1] == '.' && p[i + 2] == '.') {
+            int64 k = out.len;
+            while (k > base && out.data[k - 1] != '/') { k--; }
+            if (k > base) { k--; }
+            out.len = k;
+            out.data[k] = 0;
+            if (last) { out.push('/'); }
+        } else {
+            _string_append_bytes(out, (*char)p + i, j - i);
+        }
+        i = j;
+    }
+    if (out.len == base) { out.push('/'); }
+}
+
+// Resolve the reference `ref` (a Location header, a link) against `base` (RFC
+// 3986 §5.2): an absolute URL is used as is, "//host/..." takes the base's
+// scheme, "/path" the base's scheme and authority, "?query" also its path, and
+// a relative path is merged with the directory of the base path; "." and ".."
+// segments are removed and a fragment is dropped. *out is initialized here, as
+// url_parse does. 1 if the result is a valid URL, else 0.
+int url_resolve(Url* base, string ref, Url* out) {
+    if (ref == null) { Url_init(out); return 0; }
+    if (_url_scheme_len(ref) > 0) { return url_parse(ref, out); }
+    let s: String;  String_init(&s, 64);
+    defer String_free(&s);
+    int64 n = strlen(ref);
+    for (int64 i = 0; i < n; i++) { if (ref[i] == '#') { n = i; } }
+    if (n >= 2 && ref[0] == '/' && ref[1] == '/') {
+        s.append(base.scheme.cstr());
+        s.push(':');
+        _string_append_bytes(&s, (*char)ref, n);
+        return url_parse(s.cstr(), out);
+    }
+    s.append(base.scheme.cstr());
+    s.append("://");
+    Url_host_port(base, &s);
+    int64 q = 0;
+    while (q < n && ref[q] != '?') { q++; }
+    if (q == 0) {
+        s.append(base.path.cstr());
+        if (n == 0 && base.query.len > 0) { s.push('?'); s.append(base.query.cstr()); }
+    } else if (ref[0] == '/') {
+        _url_remove_dots(ref, q, &s);
+    } else {
+        let merged: String;  String_init(&merged, 64);
+        int64 d = base.path.len;
+        while (d > 0 && base.path.data[d - 1] != '/') { d--; }
+        _string_append_bytes(&merged, base.path.data, d);
+        if (merged.len == 0) { merged.push('/'); }
+        _string_append_bytes(&merged, (*char)ref, q);
+        _url_remove_dots(merged.cstr(), merged.len, &s);
+        merged.free();
+    }
+    if (q < n) { _string_append_bytes(&s, (*char)ref + q, n - q); }
+    return url_parse(s.cstr(), out);
+}
+
+// Append the query parameter key=value, both percent-encoded, to the URL text
+// in `url`: after '?' when the URL has no query yet, else after '&'. A fragment
+// ("#...") stays at the end.
+void url_query_add(String* url, string key, string value) {
+    int64 hash = url.len;
+    for (int64 i = url.len - 1; i >= 0; i--) { if (url.data[i] == '#') { hash = i; } }
+    let frag: String;  String_init(&frag, 8);
+    _string_append_bytes(&frag, url.data + hash, url.len - hash);
+    url.len = hash;
+    url.data[hash] = 0;
+    bool has_q = false;
+    for (int64 i = 0; i < url.len; i++) { if (url.data[i] == '?') { has_q = true; } }
+    if (!has_q) { url.push('?'); }
+    else if (url.data[url.len - 1] != '?' && url.data[url.len - 1] != '&') { url.push('&'); }
+    url_encode(key, url);
+    url.push('=');
+    url_encode(value, url);
+    url.append(frag.cstr());
+    frag.free();
+}

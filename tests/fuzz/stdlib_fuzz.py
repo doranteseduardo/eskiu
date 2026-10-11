@@ -87,7 +87,8 @@ def target_seeds(name):
     if name == "base64":
         return literals("base64*.esk") + [b"TWFu", b"TWE=", b"TQ==", b"", b"====", b"Zm9v\nYmFy"]
     if name == "url":
-        return literals("url*.esk") + [b"a=1&b=%41%42&q=hello+world", b"%", b"%zz", b"a&&=&q"]
+        return literals("url*.esk") + [b"a=1&b=%41%42&q=hello+world", b"%", b"%zz", b"a&&=&q",
+                                         b"http://user@[::1]:8080/a/../b?q#f", b"https://h:443/./x", b"../g?y"]
     if name == "regex":
         return [s.replace(b"\n", b" ") + b"\n" + t for s, t in
                 zip(literals("regex*.esk")[::2], literals("regex*.esk")[1::2])] + [
@@ -127,7 +128,7 @@ DICTS = {
     "json": [b"{", b"}", b"[", b"]", b'"', b":", b",", b"true", b"false", b"null", b"\\u", b"\\ud800",
              b"\\\\", b"1e999", b"-", b"0.", b"\x00", b" ", b"[0]", b".a", b"[\"a.b\"]"],
     "base64": [b"=", b"==", b"+", b"/", b"\n", b"A", b"\xff"],
-    "url": [b"%", b"%2", b"%41", b"+", b"&", b"=", b"a=", b"q=", b"\xff"],
+    "url": [b"%", b"%2", b"%41", b"+", b"&", b"=", b"a=", b"q=", b"\xff", b"://", b"[", b"]", b":", b"@", b"/..", b"/.", b"?", b"#"],
     "regex": [b"(", b")", b"|", b"*", b"+", b"?", b"{", b"}", b"{2,}", b"[", b"]", b"[^", b"\\d", b"\\w",
               b"\\s", b"\\", b"^", b"$", b".", b"\n", b"(?:", b"-", b"(?i)", b"(?s:", b"(?m)", b"(?U)",
               b"(?P<n>", b"\\Q", b"\\E", b"\\pL", b"\\p{Greek}", b"\\P{Lu}", b"[[:alpha:]]", b"\\x{212A}",

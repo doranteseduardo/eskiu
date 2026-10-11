@@ -1,0 +1,103 @@
+// <url>: url_parse (scheme, host incl. [IPv6], port defaults, path, query,
+// user info and fragment dropped, invalid forms), url_resolve (RFC 3986 §5.4
+// examples) and url_query_add.
+import <url>;
+import <string>;
+extern int printf(string fmt, ...);
+
+void p(string s) {
+    let u: Url;
+    if (url_parse(s, &u) == 1) {
+        let t: String;  String_init(&t, 32);
+        Url_to_string(&u, &t);
+        printf("%s -> scheme=%s host=%s port=%d path=%s query=%s | %s\n", s,
+               u.scheme.cstr(), u.host.cstr(), u.port, u.path.cstr(), u.query.cstr(), t.cstr());
+        t.free();
+    } else {
+        printf("%s -> invalid\n", s);
+    }
+    Url_free(&u);
+}
+
+void r(Url* base, string ref) {
+    let u: Url;
+    if (url_resolve(base, ref, &u) == 1) {
+        let t: String;  String_init(&t, 32);
+        Url_to_string(&u, &t);
+        printf("resolve %s -> %s\n", ref, t.cstr());
+        t.free();
+    } else {
+        printf("resolve %s -> invalid\n", ref);
+    }
+    Url_free(&u);
+}
+
+int main() {
+    p("http://example.com");
+    p("HTTPS://Example.COM/A/b?x=1&y=2#frag");
+    p("http://user:pass@host.test:8080/p");
+    p("https://[::1]:8443/v6?q");
+    p("http://[2001:DB8::1]/");
+    p("http://127.0.0.1:80/same-port");
+    p("https://h/a b/\xc3\xa9?q=a b");
+    p("ws://chat.test/socket");
+    p("ftp://files.test/x");
+    p("http://h:/empty-port");
+    p("example.com/no-scheme");
+    p("http:/one-slash");
+    p("http://");
+    p("http://bad host/");
+    p("http://h:99999/");
+    p("http://h:0/");
+    p("http://h:8x/");
+    p("http://[::1/");
+    p("http://[1.2.3.4]/");
+    let cr: Url;
+    printf("crlf in path -> %d\n", url_parse("http://h/a\r\nInjected: 1", &cr));
+    Url_free(&cr);
+    printf("del in path -> %d\n", url_parse("http://h/\x7f", &cr));
+    Url_free(&cr);
+    printf("null -> %d\n", url_parse(null, &cr));
+    Url_free(&cr);
+
+    let base: Url;
+    url_parse("http://a/b/c/d;p?q", &base);
+    r(&base, "g");
+    r(&base, "./g");
+    r(&base, "g/");
+    r(&base, "/g");
+    r(&base, "//g");
+    r(&base, "?y");
+    r(&base, "g?y");
+    r(&base, "#s");
+    r(&base, "");
+    r(&base, ".");
+    r(&base, "./");
+    r(&base, "..");
+    r(&base, "../");
+    r(&base, "../g");
+    r(&base, "../..");
+    r(&base, "../../g");
+    r(&base, "../../../g");
+    r(&base, "/./g");
+    r(&base, "/../g");
+    r(&base, "g/../h");
+    r(&base, "https://other.test/x");
+    Url_free(&base);
+
+    let v6: Url;
+    url_parse("http://[::1]:8080/dir/file", &v6);
+    r(&v6, "other?k=v");
+    Url_free(&v6);
+
+    let s: String;  String_from(&s, "https://api.test/search");
+    url_query_add(&s, "q", "a b&c");
+    url_query_add(&s, "lang", "es");
+    printf("%s\n", s.cstr());
+    s.free();
+    String_from(&s, "http://h/p?#top");
+    url_query_add(&s, "k", "v/w");
+    printf("%s\n", s.cstr());
+    s.free();
+    return 0;
+}
