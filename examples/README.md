@@ -42,6 +42,8 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [result.esk](result.esk) | `Result<T, E>` error-as-value with `Ok`/`Err` | `<result>` |
 | [strings.esk](strings.esk) | the mutable `String` builder: append, trim, prefix/suffix tests, int formatting | `<string>` |
 | [json.esk](json.esk) | build a JSON document and parse it back | `<json>` |
+| [files.esk](files.esk) | walk a directory tree, glob for files, count lines, and build and remove a scratch directory | `<fs>` |
+| [processes.esk](processes.esk) | run commands with and without a shell, capture stdout and stderr, feed stdin, set cwd, env and a timeout | `<process>` |
 | [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
 | [http_server.esk](http_server.esk) | a concurrent HTTP/1.1 server with a worker pool | `<http>` |
 | [http2_tls_server.esk](http2_tls_server.esk) | an HTTP/2-over-TLS server (ALPN negotiates `h2`) via OpenSSL | `<tls>` `<http2>` |
