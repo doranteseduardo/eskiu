@@ -1009,6 +1009,7 @@ Available modules:
 | `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect` (IPv4 address or host name), `net_send`, `net_recv`, `net_close` |
 | `<dns>`      | `dns_resolve` (IPv4 and IPv6 addresses of a host), `dns_free_list`, `dns_last_error` |
 | `<http>`     | HTTP/1.1: `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
+| `<fetch>`    | HTTP client for `http://` and `https://`: `fetch`, `fetch_with` + `FetchOptions` (method, headers, body, JSON body, timeout, redirects, body cap), `fetch_async`; `Response` with `Response_header`, `Response_text`, `Response_bytes`, `Response_json`, `Response_ok`; `fetch_last_error` |
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree; build and edit with `JsonValue_object`/`_array`/`_set`/`_push`/`_remove`, print with `JsonValue_stringify`/`_pretty`, paths with `json_get` |
 | `<csv>`      | RFC 4180 CSV: `csv_parse` into a `CsvTable` (`CsvTable_get(t, row, "column")`), `csv_write_row` |
 | `<dotenv>`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` |
@@ -1018,7 +1019,7 @@ Available modules:
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
 | `<regex>`    | linear-time regex (Thompson NFA) over UTF-8: `regex_match`, `regex_compile`/`Regex_search` with capture groups (`Match_group`), `\d \w \s`, `\p{L}` Unicode classes, `* + ? {m,n}`, `|`, `( )`, `(?:)`, `(?i)`, `^ $`, `\b \B`, `\Q..\E` (RE2 syntax, as Go's regexp) |
 | `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
-| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
+| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, form-query lookup `url_query_get`; `url_parse` into a `Url`, `url_resolve`, `url_query_add` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
 | `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`) |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
@@ -1101,6 +1102,50 @@ void handle(HttpRequest* req, HttpResponse* res) {
 
 int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
 ```
+
+### Fetching a URL
+
+`<fetch>` is an HTTP/1.1 client. `fetch(url, &r)` does a GET and returns 0 once a
+response arrived (any status), or a negative error code; `fetch_last_error()` says
+what went wrong. Free the response with `Response_free` either way.
+
+```eskiu
+import <fetch>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Response;
+    defer Response_free(&r);
+    if (fetch("https://api.github.com/repos/llvm/llvm-project", &r) != 0) {
+        printf("error: %s\n", fetch_last_error());
+        return 1;
+    }
+    printf("HTTP %d, %lld bytes\n", r.status, r.body.len);
+    *JsonValue repo = Response_json(&r);            // null if the body is not JSON
+    if (repo != null) {
+        printf("stars: %lld\n", JsonValue_as_int(JsonValue_get(repo, "stargazers_count")));
+        JsonValue_free(repo);
+    }
+    return 0;
+}
+```
+
+For a POST, headers or a timeout, fill a `FetchOptions` and call `fetch_with`:
+
+```eskiu
+let o: FetchOptions;  FetchOptions_init(&o);
+defer FetchOptions_free(&o);
+FetchOptions_method(&o, "POST");
+FetchOptions_header(&o, "Authorization", "Bearer abc");
+FetchOptions_body_text(&o, "{\"name\":\"eskiu\"}");
+o.timeout_ms = 5000;
+int rc = fetch_with("https://example.com/api/items", &o, &r);
+```
+
+Redirects are followed (up to 10). HTTPS loads OpenSSL (libssl 3 or 1.1) the first
+time it is needed, so a program that only fetches `http://` URLs runs without it; on
+macOS install it with `brew install openssl@3`, on Debian or Ubuntu it is the `libssl3`
+package (usually present already).
 
 ---
 

@@ -2334,11 +2334,13 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
 | `stdlib/regex.esk`    | A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): `regex_compile(pattern) -> Regex` (check `.ok` / `.err`), `Regex_search(&re, text, &m)` for the leftmost match with capture groups, `Match_group`, `Match_free`, `Regex_free`, and the one-shot `regex_match(pattern, text)`. RE2 syntax and semantics (as Go's regexp) over UTF-8: `.`, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, `.`, classes `[a-z]`/`[^...]` with POSIX names inside (`[[:alpha:]]`, `[[:^space:]]`), the ASCII shorthands `\d \w \s` (and negations; `\s` is `[\t\n\f\r ]`), Unicode classes `\pL`, `\p{Lu}`, `\p{Greek}`, `\P{..}`, `\p{^..}` (general categories, scripts, `Any`; the Unicode 15 tables are `stdlib/regex_unicode.esk`), `* + ? {m} {m,} {m,n}` (lazy with `?`; any other `{` is a literal), `|`, groups, non-capturing `(?:...)`, named `(?P<name>...)` / `(?<name>...)`, the flags `(?i)` (simple case folding) `(?m)` `(?s)` `(?U)` for the rest of a group or scoped `(?flags:...)`, `^` / `$`, `\A` / `\z`, the ASCII word boundaries `\b` / `\B`, `\xHH` / `\x{10FFFF}` and octal escapes, literal text `\Q...\E` (any other escaped letter or digit is an error) |
 | `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive); `List_sort_by(&list, cmp)` sorts a `List<T>` in place |
-| `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space) |
+| `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space); `url_parse(text, &u)` into a `Url` (`scheme`, `host`, `port`, `path`, `query`), `url_resolve(&base, ref, &u)` (RFC 3986 reference resolution), `Url_to_string`, `Url_target`, `Url_host_port`, `url_default_port`, `url_query_add(&text, key, value)` (see [HTTP client](#http-client-fetch)) |
 | `stdlib/uuid.esk`     | `uuid_v4(&rng, &out)`: an RFC 4122 version-4 UUID string (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) drawn from a `<random>` `Rng` |
 | `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` (process environment; CLI args come from `main`'s `argc`/`argv`) |
 | `stdlib/process.esk`  | Child processes: `process_run` (capture stdout/stderr into a `ProcessResult`, with `ProcessOptions` for stdin text, cwd, extra environment, a timeout), `sh`/`sh_with` (through `/bin/sh -c` or `cmd.exe /c`), `process_spawn` with `Process_write_stdin`/`_close_stdin`/`_read`/`_read_all`/`_wait`/`_kill`/`_free`, `process_exit`, `process_pid`, `process_last_error`; see [Processes](#processes-process) |
 | `stdlib/dns.esk`      | `dns_resolve(host, &list)` (IPv4 and IPv6 addresses as numeric strings, through `getaddrinfo`), `dns_free_list`, `dns_last_error` |
+| `stdlib/fetch.esk`    | HTTP/1.1 client for `http://` and `https://` URLs: `fetch`, `fetch_with` with `FetchOptions` (`FetchOptions_init`, `_method`, `_header`, `_body_text`, `_body_bytes`, `_body_json`, `_free`), `fetch_async` over an `EventLoop`; `Response` (`Response_header`, `Response_text`, `Response_bytes`, `Response_json`, `Response_ok`, `Response_free`); `fetch_last_error`; the incremental response parser `FetchParser` (see [HTTP client](#http-client-fetch)) |
+| `stdlib/fetch_tls.esk`| The HTTPS side of `<fetch>`: an OpenSSL client loaded at run time (`dlopen`/`LoadLibraryA`), `fetch_tls_available` |
 | `stdlib/base64.esk`   | `base64_encode` / `base64_decode` over byte buffers (decoding rejects bad padding and truncated input), plus `base64_encoded_len` / `base64_decoded_len` and the `base64_value` / `base64_digit` primitives |
 | `stdlib/bytes.esk`    | `Bytes`, a growable, binary-safe byte buffer (`*uint8` + length; embedded NULs survive, unlike `String`): `Bytes_init`/`_free`/`_push`/`_append`/`_append_raw`/`_slice` (non-owning view)/`_eq`/`_from_str`/`_cstr`, plus `Bytes_from_base64`/`Bytes_to_base64` |
 | `stdlib/path.esk`     | Unix path manipulation: `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
@@ -2745,6 +2747,116 @@ strings, in the resolver's order and without duplicates, and returns how many it
 or -1 when the name does not resolve (`dns_last_error()` is the resolver's message). A
 numeric host resolves to itself. The strings are heap copies: free the list with
 `dns_free_list`. `<net>` imports `<dns>`, so `net_tcp_connect` accepts host names.
+
+### HTTP client (`<fetch>`)
+
+```eskiu
+import <fetch>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let o: FetchOptions;  FetchOptions_init(&o);
+    defer FetchOptions_free(&o);
+    FetchOptions_method(&o, "POST");
+    FetchOptions_header(&o, "X-Request-Id", "42");
+    let j: Json;  Json_init(&j);
+    Json_obj_begin(&j);  Json_key(&j, "name");  Json_str(&j, "eskiu");  Json_obj_end(&j);
+    FetchOptions_body_json(&o, &j);           // also sets Content-Type: application/json
+    Json_free(&j);
+
+    let r: Response;
+    defer Response_free(&r);
+    if (fetch_with("https://example.com/api/items", &o, &r) != 0) {
+        printf("%s\n", fetch_last_error());
+        return 1;
+    }
+    let ct: String;  String_init(&ct, 16);
+    Response_header(&r, "content-type", &ct);  // any case
+    printf("%d %s, %lld bytes\n", r.status, ct.cstr(), r.body.len);
+    ct.free();
+    return 0;
+}
+```
+
+`fetch(url, &r)` (a GET with the default options) and `fetch_with(url, &o, &r)`
+return 0 when a response arrived, whatever its status (`Response_ok` is 1 for 2xx), or
+a negative code: `FETCH_ERR_URL` (an invalid URL or a scheme other than `http`/`https`),
+`FETCH_ERR_DNS`, `FETCH_ERR_CONNECT` (no address accepted the connection),
+`FETCH_ERR_TIMEOUT`, `FETCH_ERR_TLS` (handshake or certificate check),
+`FETCH_ERR_IO`, `FETCH_ERR_RESPONSE` (malformed or cut short), `FETCH_ERR_REDIRECTS`,
+`FETCH_ERR_TOO_LARGE`, `FETCH_ERR_REQUEST` (an invalid method or header) or
+`FETCH_ERR_NO_TLS`. `fetch_last_error()` describes the last failure (one message for the
+program, not per thread). Both initialize the `Response` themselves, so it is freed with
+`Response_free` in every case; after an error its status is 0.
+
+`Response` has `status`, `reason`, `headers` (`"Name: value\n"` lines as received),
+`body` (a `Bytes`), `url` (the final URL) and `redirects`. `Response_header` looks a header
+up by name in any case, `Response_text` returns the body as a NUL-terminated string,
+`Response_bytes` a non-owning `Bytes` view, and `Response_json` the body parsed with
+`json_parse` (null if it is not JSON; free it with `JsonValue_free`).
+
+`FetchOptions_init` sets the defaults, which are plain fields to change afterwards:
+`method` (`"GET"`), `timeout_ms` (30000, for the whole call including redirects; 0 for
+none; the host name lookup is not bounded by it), `follow_redirects` (1),
+`max_redirects` (10), `max_body` (64 MiB; a longer body is `FETCH_ERR_TOO_LARGE`),
+`user_agent` (`"eskiu/0.10.0"`; empty sends none), `verify_tls` (1) and `ca_file` (a PEM
+bundle trusted besides the system store). `FetchOptions_header(&o, name, value)` returns
+0 and adds nothing when the name is not a token or the value holds a CR or LF; the
+request then fails with `FETCH_ERR_REQUEST`, so a header can never be split into an
+injected one. `url_parse` rejects control bytes in the URL, so the request target cannot
+carry one either.
+
+The request is HTTP/1.1 with `Host`, `User-Agent`, `Accept: */*` (unless the options set
+them), the options' headers, `Content-Length` when there is a body or the method is
+`POST`, `PUT` or `PATCH`, and `Connection: close`: one request per connection. `Host`,
+`Content-Length`, `Connection` and `Transfer-Encoding` headers in the options are not
+sent. The response body is read by chunked transfer coding, by `Content-Length`, or until
+the server closes the connection; a body that ends early is `FETCH_ERR_RESPONSE`, and
+bytes past a `Content-Length` are ignored. Interim `1xx` responses are skipped. Codings
+are not decoded (no `Accept-Encoding` is sent).
+
+Redirects (301, 302, 303, 307, 308 with a `Location`) are followed up to `max_redirects`
+times; one more is `FETCH_ERR_REDIRECTS`. A relative `Location` is resolved against the
+current URL with `url_resolve`. After 301, 302 or 303 the request becomes a `GET` without
+a body (a `HEAD` stays a `HEAD`); 307 and 308 repeat it unchanged. A redirect from
+`https` to `http` is followed, as browsers and `curl -L` do. A redirect to another origin
+(scheme, host or port) drops the `Authorization` and `Cookie` headers.
+
+HTTPS goes through OpenSSL 3 or 1.1, which `<fetch_tls>` loads with `dlopen` (or
+`LoadLibraryA`) on the first `https://` request instead of linking it, so programs that
+import `<fetch>` link and run without OpenSSL, and only an `https://` request fails
+(`FETCH_ERR_NO_TLS`) where it is missing. It looks for the file named by `ESKIU_LIBSSL`,
+then `libssl.3.dylib` / `libssl.so.3` / `libssl-3-x64.dll` (and the 1.1 names) on the
+library path, and on macOS also in Homebrew (`/opt/homebrew/opt/openssl@3/lib`,
+`/usr/local/opt/openssl@3/lib`) and MacPorts; `fetch_tls_available()` reports whether it
+was found. The client sends SNI, verifies the certificate against OpenSSL's default trust
+store and checks the host name (`SSL_set1_host`); `verify_tls = 0` skips both, for local
+tests only. On Windows OpenSSL's default store is usually empty, so set `ca_file`.
+Defining `ESKIU_FETCH_NO_TLS` before `import <fetch>` leaves HTTPS out of the program.
+
+`fetch_async(lp, url, &o, &r)` runs the same request over an `<eventloop>` and returns a
+`Future<int>` that completes with the same code. Connecting, the TLS handshake and the
+reads and writes wait on the loop; the host name lookup blocks. The options are copied
+when the call starts; `url` and `r` must stay valid until the future completes.
+
+```eskiu
+async int get_both(EventLoop* lp, FetchOptions* o) {
+    let a: Response;
+    let b: Response;
+    Future<int>* fa = fetch_async(lp, "https://example.com/a", o, &a);
+    Future<int>* fb = fetch_async(lp, "https://example.com/b", o, &b);
+    int both = await join2(fa, fb);           // the two requests run at the same time
+    int rc = fa.value != 0 ? fa.value : fb.value;
+    free_future<int>(fa);  free_future<int>(fb);
+    Response_free(&a);  Response_free(&b);
+    return rc;
+}
+```
+
+`FetchParser` is the response parser on its own: `FetchParser_init(&p, max_body,
+is_head)`, then `FetchParser_feed(&p, &r, bytes, n)` as data arrives (1 when the response
+is complete, 0 for more, or an error code) and `FetchParser_finish(&p, &r)` when the
+connection closes.
 ---
 
 ### JSON documents (`<json>`)

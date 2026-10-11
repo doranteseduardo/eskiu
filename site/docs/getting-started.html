@@ -1080,8 +1080,24 @@ import &lt;math&gt;;
 <td>HTTP/1.1: <code>HttpRequest</code>/<code>HttpResponse</code>, threaded <code>http_serve(port, workers, handler)</code></td>
 </tr>
 <tr>
+<td><code>&lt;fetch&gt;</code></td>
+<td>HTTP client for <code>http://</code> and <code>https://</code>: <code>fetch</code>, <code>fetch_with</code> + <code>FetchOptions</code> (method, headers, body, JSON body, timeout, redirects, body cap), <code>fetch_async</code>; <code>Response</code> with <code>Response_header</code>, <code>Response_text</code>, <code>Response_bytes</code>, <code>Response_json</code>, <code>Response_ok</code>; <code>fetch_last_error</code></td>
+</tr>
+<tr>
 <td><code>&lt;json&gt;</code></td>
-<td><code>Json</code> builder + <code>json_parse</code> → <code>JsonValue</code> tree</td>
+<td><code>Json</code> builder + <code>json_parse</code> → <code>JsonValue</code> tree; build and edit with <code>JsonValue_object</code>/<code>_array</code>/<code>_set</code>/<code>_push</code>/<code>_remove</code>, print with <code>JsonValue_stringify</code>/<code>_pretty</code>, paths with <code>json_get</code></td>
+</tr>
+<tr>
+<td><code>&lt;csv&gt;</code></td>
+<td>RFC 4180 CSV: <code>csv_parse</code> into a <code>CsvTable</code> (<code>CsvTable_get(t, row, "column")</code>), <code>csv_write_row</code></td>
+</tr>
+<tr>
+<td><code>&lt;dotenv&gt;</code></td>
+<td><code>.env</code> files: <code>dotenv_load</code>, <code>dotenv_load_override</code>, <code>dotenv_parse</code></td>
+</tr>
+<tr>
+<td><code>&lt;hash&gt;</code></td>
+<td>SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), <code>hex_encode</code>/<code>hex_decode</code>, <code>hash_equal</code></td>
 </tr>
 <tr>
 <td><code>&lt;multipart&gt;</code></td>
@@ -1105,7 +1121,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;url&gt;</code></td>
-<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, and form-query lookup <code>url_query_get</code></td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, form-query lookup <code>url_query_get</code>; <code>url_parse</code> into a <code>Url</code>, <code>url_resolve</code>, <code>url_query_add</code></td>
 </tr>
 <tr>
 <td><code>&lt;uuid&gt;</code></td>
@@ -1219,6 +1235,42 @@ void handle(HttpRequest* req, HttpResponse* res) {
 
 int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
 </code></pre>
+<h3 id="fetching-a-url">Fetching a URL</h3>
+<p><code>&lt;fetch&gt;</code> is an HTTP/1.1 client. <code>fetch(url, &amp;r)</code> does a GET and returns 0 once a
+response arrived (any status), or a negative error code; <code>fetch_last_error()</code> says
+what went wrong. Free the response with <code>Response_free</code> either way.</p>
+<pre><code class="language-eskiu">import &lt;fetch&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Response;
+    defer Response_free(&amp;r);
+    if (fetch(&quot;https://api.github.com/repos/llvm/llvm-project&quot;, &amp;r) != 0) {
+        printf(&quot;error: %s\n&quot;, fetch_last_error());
+        return 1;
+    }
+    printf(&quot;HTTP %d, %lld bytes\n&quot;, r.status, r.body.len);
+    *JsonValue repo = Response_json(&amp;r);            // null if the body is not JSON
+    if (repo != null) {
+        printf(&quot;stars: %lld\n&quot;, JsonValue_as_int(JsonValue_get(repo, &quot;stargazers_count&quot;)));
+        JsonValue_free(repo);
+    }
+    return 0;
+}
+</code></pre>
+<p>For a POST, headers or a timeout, fill a <code>FetchOptions</code> and call <code>fetch_with</code>:</p>
+<pre><code class="language-eskiu">let o: FetchOptions;  FetchOptions_init(&amp;o);
+defer FetchOptions_free(&amp;o);
+FetchOptions_method(&amp;o, &quot;POST&quot;);
+FetchOptions_header(&amp;o, &quot;Authorization&quot;, &quot;Bearer abc&quot;);
+FetchOptions_body_text(&amp;o, &quot;{\&quot;name\&quot;:\&quot;eskiu\&quot;}&quot;);
+o.timeout_ms = 5000;
+int rc = fetch_with(&quot;https://example.com/api/items&quot;, &amp;o, &amp;r);
+</code></pre>
+<p>Redirects are followed (up to 10). HTTPS loads OpenSSL (libssl 3 or 1.1) the first
+time it is needed, so a program that only fetches <code>http://</code> URLs runs without it; on
+macOS install it with <code>brew install openssl@3</code>, on Debian or Ubuntu it is the <code>libssl3</code>
+package (usually present already).</p>
 <hr>
 <h2 id="lambdas">Lambdas</h2>
 <p>Eskiu supports anonymous functions (lambdas) as first-class values. The syntax

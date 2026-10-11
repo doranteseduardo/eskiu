@@ -191,6 +191,27 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li><code>&lt;map&gt;</code>: <code>_has</code>, <code>_get_or</code>, <code>_len</code>, <code>_remove</code> (backward-shift deletion), <code>_keys</code>, <code>_values</code> and
   <code>_each</code> for <code>Map&lt;V&gt;</code> and <code>HashMap&lt;K,V&gt;</code>; <code>cstr_hash</code> / <code>cstr_eq</code> for <code>string</code> keys; <code>Set&lt;T&gt;</code>.</li>
 <li>Examples <code>text_report.esk</code> and <code>word_count.esk</code>.</li>
+<li><code>&lt;json&gt;</code>: <code>JsonValue_object</code>, <code>_array</code>, <code>_string</code>, <code>_number</code>, <code>_int</code>, <code>_bool</code>, <code>_null</code>,
+  <code>JsonValue_set</code> (replaces in place), <code>JsonValue_push</code>, <code>JsonValue_remove</code>,
+  <code>JsonValue_stringify</code>, <code>JsonValue_pretty</code> and <code>json_get</code> paths (<code>"data.items[0].name"</code>,
+  <code>["a.b"]</code>). A container owns its children.</li>
+<li><code>&lt;csv&gt;</code>: RFC 4180 <code>csv_parse</code> / <code>csv_parse_with</code> / <code>csv_parse_buf</code> into a <code>CsvTable</code> with
+  header lookup (<code>CsvTable_col</code>, <code>CsvTable_get</code>), errors with line and column, and
+  <code>csv_write_row</code> / <code>CsvTable_write</code> with minimal quoting.</li>
+<li><code>&lt;dotenv&gt;</code>: <code>dotenv_load</code>, <code>dotenv_load_override</code> and <code>dotenv_parse</code> (comments, <code>export</code>,
+  single and double quotes, inline comments), errors with a line number.</li>
+<li><code>&lt;hash&gt;</code>: SHA-256, SHA-1, MD5 and HMAC-SHA256 in pure Eskiu (streaming and one-shot),
+  <code>hex_encode</code>, <code>hex_decode</code>, constant-time <code>hash_equal</code>.</li>
+<li>Stdlib fuzz targets <code>csv</code> and <code>dotenv</code>; the <code>json</code> target checks a stringify/parse round trip.</li>
+<li>Example <code>data_summary.esk</code> (<code>.env</code>, CSV, SHA-256, JSON output).</li>
+<li><code>&lt;url&gt;</code>: <code>url_parse</code> into a <code>Url</code> (scheme, host incl. <code>[IPv6]</code>, port with scheme defaults,
+  path, query), <code>url_resolve</code> (RFC 3986 references), <code>url_query_add</code>, <code>Url_to_string</code>.</li>
+<li><code>&lt;fetch&gt;</code>: an HTTP/1.1 client for <code>http://</code> and <code>https://</code>. <code>fetch</code>, <code>fetch_with</code> with
+  <code>FetchOptions</code> (method, headers, text/bytes/JSON body, timeout, redirects, body cap, TLS
+  verification, CA file) and <code>fetch_async</code> on the event loop; <code>Response</code> with
+  <code>Response_header</code>, <code>Response_text</code>, <code>Response_bytes</code>, <code>Response_json</code>, <code>Response_ok</code>;
+  error codes plus <code>fetch_last_error</code>. HTTPS loads OpenSSL at run time (<code>&lt;fetch_tls&gt;</code>), so
+  programs link without libssl. Example <code>fetch.esk</code>; stdlib fuzz target <code>fetch</code>.</li>
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>

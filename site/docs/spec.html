@@ -2314,7 +2314,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/url.esk</code></td>
-<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (keys and values are decoded, <code>+</code> to a space)</td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (keys and values are decoded, <code>+</code> to a space); <code>url_parse(text, &amp;u)</code> into a <code>Url</code> (<code>scheme</code>, <code>host</code>, <code>port</code>, <code>path</code>, <code>query</code>), <code>url_resolve(&amp;base, ref, &amp;u)</code> (RFC 3986 reference resolution), <code>Url_to_string</code>, <code>Url_target</code>, <code>Url_host_port</code>, <code>url_default_port</code>, <code>url_query_add(&amp;text, key, value)</code> (see <a href="#http-client-fetch">HTTP client</a>)</td>
 </tr>
 <tr>
 <td><code>stdlib/uuid.esk</code></td>
@@ -2331,6 +2331,14 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 <tr>
 <td><code>stdlib/dns.esk</code></td>
 <td><code>dns_resolve(host, &amp;list)</code> (IPv4 and IPv6 addresses as numeric strings, through <code>getaddrinfo</code>), <code>dns_free_list</code>, <code>dns_last_error</code></td>
+</tr>
+<tr>
+<td><code>stdlib/fetch.esk</code></td>
+<td>HTTP/1.1 client for <code>http://</code> and <code>https://</code> URLs: <code>fetch</code>, <code>fetch_with</code> with <code>FetchOptions</code> (<code>FetchOptions_init</code>, <code>_method</code>, <code>_header</code>, <code>_body_text</code>, <code>_body_bytes</code>, <code>_body_json</code>, <code>_free</code>), <code>fetch_async</code> over an <code>EventLoop</code>; <code>Response</code> (<code>Response_header</code>, <code>Response_text</code>, <code>Response_bytes</code>, <code>Response_json</code>, <code>Response_ok</code>, <code>Response_free</code>); <code>fetch_last_error</code>; the incremental response parser <code>FetchParser</code> (see <a href="#http-client-fetch">HTTP client</a>)</td>
+</tr>
+<tr>
+<td><code>stdlib/fetch_tls.esk</code></td>
+<td>The HTTPS side of <code>&lt;fetch&gt;</code>: an OpenSSL client loaded at run time (<code>dlopen</code>/<code>LoadLibraryA</code>), <code>fetch_tls_available</code></td>
 </tr>
 <tr>
 <td><code>stdlib/base64.esk</code></td>
@@ -2370,7 +2378,19 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/json.esk</code></td>
-<td>JSON builder + parser. Builder: <code>Json</code> + <code>Json_init</code>/<code>_free</code>/<code>_cstr</code>, <code>Json_obj_begin</code>/<code>_end</code>, <code>Json_arr_begin</code>/<code>_end</code>, <code>Json_key</code>, <code>Json_str</code>, <code>Json_int</code>, <code>Json_bool</code>, <code>Json_null</code> (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, <code>\uXXXX</code> escapes decoded; returns <code>null</code> on malformed input): <code>json_parse(src) -&gt; *JsonValue</code> + <code>JsonValue_kind</code>/<code>_len</code>/<code>_at</code>/<code>_get</code>/<code>_as_int</code>/<code>_as_double</code>/<code>_as_bool</code>/<code>_as_cstr</code>/<code>_free</code></td>
+<td>JSON builder + parser. Builder: <code>Json</code> + <code>Json_init</code>/<code>_free</code>/<code>_cstr</code>, <code>Json_obj_begin</code>/<code>_end</code>, <code>Json_arr_begin</code>/<code>_end</code>, <code>Json_key</code>, <code>Json_str</code>, <code>Json_int</code>, <code>Json_bool</code>, <code>Json_null</code> (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, <code>\uXXXX</code> escapes decoded; returns <code>null</code> on malformed input): <code>json_parse(src) -&gt; *JsonValue</code> + <code>JsonValue_kind</code>/<code>_len</code>/<code>_at</code>/<code>_get</code>/<code>_as_int</code>/<code>_as_double</code>/<code>_as_bool</code>/<code>_as_cstr</code>/<code>_free</code>. Documents: <code>JsonValue_object</code>/<code>_array</code>/<code>_string</code>/<code>_number</code>/<code>_int</code>/<code>_bool</code>/<code>_null</code>, <code>JsonValue_set</code>/<code>_push</code>/<code>_remove</code>, <code>JsonValue_stringify</code>/<code>_pretty</code>, <code>json_get(v, "a.b[0][\"k.x\"]")</code></td>
+</tr>
+<tr>
+<td><code>stdlib/csv.esk</code></td>
+<td>RFC 4180 CSV: <code>csv_parse</code>/<code>csv_parse_with</code>/<code>csv_parse_buf</code> into a <code>CsvTable</code> (<code>CsvTable_len</code>/<code>_row</code>/<code>_cell</code>/<code>_col</code>/<code>_get</code>/<code>_error</code>/<code>_write</code>/<code>_free</code>), <code>csv_write_row</code>/<code>csv_write_row_with</code></td>
+</tr>
+<tr>
+<td><code>stdlib/dotenv.esk</code></td>
+<td><code>.env</code> files: <code>dotenv_load</code>, <code>dotenv_load_override</code>, <code>dotenv_parse</code> into a <code>Map&lt;string&gt;</code>, <code>dotenv_free</code>, <code>dotenv_error</code>/<code>dotenv_error_line</code></td>
+</tr>
+<tr>
+<td><code>stdlib/hash.esk</code></td>
+<td>Pure-Eskiu digests: <code>Sha256</code>, <code>Sha1</code>, <code>Md5</code>, <code>HmacSha256</code> (streaming <code>_init</code>/<code>_update</code>/<code>_update_str</code>/<code>_final</code>/<code>_final_hex</code>) and one-shot <code>sha256</code>/<code>sha256_hex</code>/<code>sha256_str</code> (same for <code>sha1</code>, <code>md5</code>), <code>hmac_sha256</code>/<code>hmac_sha256_str</code>, <code>hex_encode</code>/<code>hex_decode</code>, constant-time <code>hash_equal</code>/<code>hash_equal_str</code></td>
 </tr>
 <tr>
 <td><code>stdlib/sysheap.esk</code></td>
@@ -2947,7 +2967,243 @@ strings, in the resolver's order and without duplicates, and returns how many it
 or -1 when the name does not resolve (<code>dns_last_error()</code> is the resolver's message). A
 numeric host resolves to itself. The strings are heap copies: free the list with
 <code>dns_free_list</code>. <code>&lt;net&gt;</code> imports <code>&lt;dns&gt;</code>, so <code>net_tcp_connect</code> accepts host names.</p>
+<h3 id="http-client-fetch">HTTP client (<code>&lt;fetch&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;fetch&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let o: FetchOptions;  FetchOptions_init(&amp;o);
+    defer FetchOptions_free(&amp;o);
+    FetchOptions_method(&amp;o, &quot;POST&quot;);
+    FetchOptions_header(&amp;o, &quot;X-Request-Id&quot;, &quot;42&quot;);
+    let j: Json;  Json_init(&amp;j);
+    Json_obj_begin(&amp;j);  Json_key(&amp;j, &quot;name&quot;);  Json_str(&amp;j, &quot;eskiu&quot;);  Json_obj_end(&amp;j);
+    FetchOptions_body_json(&amp;o, &amp;j);           // also sets Content-Type: application/json
+    Json_free(&amp;j);
+
+    let r: Response;
+    defer Response_free(&amp;r);
+    if (fetch_with(&quot;https://example.com/api/items&quot;, &amp;o, &amp;r) != 0) {
+        printf(&quot;%s\n&quot;, fetch_last_error());
+        return 1;
+    }
+    let ct: String;  String_init(&amp;ct, 16);
+    Response_header(&amp;r, &quot;content-type&quot;, &amp;ct);  // any case
+    printf(&quot;%d %s, %lld bytes\n&quot;, r.status, ct.cstr(), r.body.len);
+    ct.free();
+    return 0;
+}
+</code></pre>
+<p><code>fetch(url, &amp;r)</code> (a GET with the default options) and <code>fetch_with(url, &amp;o, &amp;r)</code>
+return 0 when a response arrived, whatever its status (<code>Response_ok</code> is 1 for 2xx), or
+a negative code: <code>FETCH_ERR_URL</code> (an invalid URL or a scheme other than <code>http</code>/<code>https</code>),
+<code>FETCH_ERR_DNS</code>, <code>FETCH_ERR_CONNECT</code> (no address accepted the connection),
+<code>FETCH_ERR_TIMEOUT</code>, <code>FETCH_ERR_TLS</code> (handshake or certificate check),
+<code>FETCH_ERR_IO</code>, <code>FETCH_ERR_RESPONSE</code> (malformed or cut short), <code>FETCH_ERR_REDIRECTS</code>,
+<code>FETCH_ERR_TOO_LARGE</code>, <code>FETCH_ERR_REQUEST</code> (an invalid method or header) or
+<code>FETCH_ERR_NO_TLS</code>. <code>fetch_last_error()</code> describes the last failure (one message for the
+program, not per thread). Both initialize the <code>Response</code> themselves, so it is freed with
+<code>Response_free</code> in every case; after an error its status is 0.</p>
+<p><code>Response</code> has <code>status</code>, <code>reason</code>, <code>headers</code> (<code>"Name: value\n"</code> lines as received),
+<code>body</code> (a <code>Bytes</code>), <code>url</code> (the final URL) and <code>redirects</code>. <code>Response_header</code> looks a header
+up by name in any case, <code>Response_text</code> returns the body as a NUL-terminated string,
+<code>Response_bytes</code> a non-owning <code>Bytes</code> view, and <code>Response_json</code> the body parsed with
+<code>json_parse</code> (null if it is not JSON; free it with <code>JsonValue_free</code>).</p>
+<p><code>FetchOptions_init</code> sets the defaults, which are plain fields to change afterwards:
+<code>method</code> (<code>"GET"</code>), <code>timeout_ms</code> (30000, for the whole call including redirects; 0 for
+none; the host name lookup is not bounded by it), <code>follow_redirects</code> (1),
+<code>max_redirects</code> (10), <code>max_body</code> (64 MiB; a longer body is <code>FETCH_ERR_TOO_LARGE</code>),
+<code>user_agent</code> (<code>"eskiu/0.10.0"</code>; empty sends none), <code>verify_tls</code> (1) and <code>ca_file</code> (a PEM
+bundle trusted besides the system store). <code>FetchOptions_header(&amp;o, name, value)</code> returns
+0 and adds nothing when the name is not a token or the value holds a CR or LF; the
+request then fails with <code>FETCH_ERR_REQUEST</code>, so a header can never be split into an
+injected one. <code>url_parse</code> rejects control bytes in the URL, so the request target cannot
+carry one either.</p>
+<p>The request is HTTP/1.1 with <code>Host</code>, <code>User-Agent</code>, <code>Accept: */*</code> (unless the options set
+them), the options' headers, <code>Content-Length</code> when there is a body or the method is
+<code>POST</code>, <code>PUT</code> or <code>PATCH</code>, and <code>Connection: close</code>: one request per connection. <code>Host</code>,
+<code>Content-Length</code>, <code>Connection</code> and <code>Transfer-Encoding</code> headers in the options are not
+sent. The response body is read by chunked transfer coding, by <code>Content-Length</code>, or until
+the server closes the connection; a body that ends early is <code>FETCH_ERR_RESPONSE</code>, and
+bytes past a <code>Content-Length</code> are ignored. Interim <code>1xx</code> responses are skipped. Codings
+are not decoded (no <code>Accept-Encoding</code> is sent).</p>
+<p>Redirects (301, 302, 303, 307, 308 with a <code>Location</code>) are followed up to <code>max_redirects</code>
+times; one more is <code>FETCH_ERR_REDIRECTS</code>. A relative <code>Location</code> is resolved against the
+current URL with <code>url_resolve</code>. After 301, 302 or 303 the request becomes a <code>GET</code> without
+a body (a <code>HEAD</code> stays a <code>HEAD</code>); 307 and 308 repeat it unchanged. A redirect from
+<code>https</code> to <code>http</code> is followed, as browsers and <code>curl -L</code> do. A redirect to another origin
+(scheme, host or port) drops the <code>Authorization</code> and <code>Cookie</code> headers.</p>
+<p>HTTPS goes through OpenSSL 3 or 1.1, which <code>&lt;fetch_tls&gt;</code> loads with <code>dlopen</code> (or
+<code>LoadLibraryA</code>) on the first <code>https://</code> request instead of linking it, so programs that
+import <code>&lt;fetch&gt;</code> link and run without OpenSSL, and only an <code>https://</code> request fails
+(<code>FETCH_ERR_NO_TLS</code>) where it is missing. It looks for the file named by <code>ESKIU_LIBSSL</code>,
+then <code>libssl.3.dylib</code> / <code>libssl.so.3</code> / <code>libssl-3-x64.dll</code> (and the 1.1 names) on the
+library path, and on macOS also in Homebrew (<code>/opt/homebrew/opt/openssl@3/lib</code>,
+<code>/usr/local/opt/openssl@3/lib</code>) and MacPorts; <code>fetch_tls_available()</code> reports whether it
+was found. The client sends SNI, verifies the certificate against OpenSSL's default trust
+store and checks the host name (<code>SSL_set1_host</code>); <code>verify_tls = 0</code> skips both, for local
+tests only. On Windows OpenSSL's default store is usually empty, so set <code>ca_file</code>.
+Defining <code>ESKIU_FETCH_NO_TLS</code> before <code>import &lt;fetch&gt;</code> leaves HTTPS out of the program.</p>
+<p><code>fetch_async(lp, url, &amp;o, &amp;r)</code> runs the same request over an <code>&lt;eventloop&gt;</code> and returns a
+<code>Future&lt;int&gt;</code> that completes with the same code. Connecting, the TLS handshake and the
+reads and writes wait on the loop; the host name lookup blocks. The options are copied
+when the call starts; <code>url</code> and <code>r</code> must stay valid until the future completes.</p>
+<pre><code class="language-eskiu">async int get_both(EventLoop* lp, FetchOptions* o) {
+    let a: Response;
+    let b: Response;
+    Future&lt;int&gt;* fa = fetch_async(lp, &quot;https://example.com/a&quot;, o, &amp;a);
+    Future&lt;int&gt;* fb = fetch_async(lp, &quot;https://example.com/b&quot;, o, &amp;b);
+    int both = await join2(fa, fb);           // the two requests run at the same time
+    int rc = fa.value != 0 ? fa.value : fb.value;
+    free_future&lt;int&gt;(fa);  free_future&lt;int&gt;(fb);
+    Response_free(&amp;a);  Response_free(&amp;b);
+    return rc;
+}
+</code></pre>
+<p><code>FetchParser</code> is the response parser on its own: <code>FetchParser_init(&amp;p, max_body,
+is_head)</code>, then <code>FetchParser_feed(&amp;p, &amp;r, bytes, n)</code> as data arrives (1 when the response
+is complete, 0 for more, or an error code) and <code>FetchParser_finish(&amp;p, &amp;r)</code> when the
+connection closes.</p>
 <hr>
+<h3 id="json-documents-json">JSON documents (<code>&lt;json&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;json&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    *JsonValue doc = JsonValue_object();
+    JsonValue_set(doc, &quot;name&quot;, JsonValue_string(&quot;Eskiu&quot;));
+    *JsonValue tags = JsonValue_array();
+    JsonValue_push(tags, JsonValue_string(&quot;systems&quot;));
+    JsonValue_push(tags, JsonValue_int(10));
+    JsonValue_set(doc, &quot;tags&quot;, tags);
+
+    let out: String;  out.init(64);
+    JsonValue_stringify(doc, &amp;out);              // {&quot;name&quot;:&quot;Eskiu&quot;,&quot;tags&quot;:[&quot;systems&quot;,10]}
+    printf(&quot;%s\n&quot;, out.data);
+    JsonValue_pretty(doc, 2, &amp;out);              // one member per line, 2 spaces per level
+    printf(&quot;%s\n&quot;, JsonValue_as_cstr(json_get(doc, &quot;tags[0]&quot;)));   // systems
+    out.free();
+    JsonValue_free(doc);
+    return 0;
+}
+</code></pre>
+<p><code>JsonValue_object</code>, <code>_array</code>, <code>_string</code>, <code>_number</code>, <code>_int</code>, <code>_bool</code> and <code>_null</code> make
+fresh values. <code>JsonValue_set(obj, key, val)</code> adds a member or replaces the one with that
+key in place, <code>JsonValue_push(arr, val)</code> appends, and <code>JsonValue_remove(obj, key)</code> frees a
+member (1 if it was there). A container owns its children: <code>set</code> and <code>push</code> take
+ownership of <code>val</code> (which must not already be inside another container), replacing or
+removing frees the old member, and <code>JsonValue_free</code> on the root frees the document. Both
+return -1 and leave <code>val</code> with the caller when the target has the wrong kind.</p>
+<p><code>JsonValue_stringify(v, &amp;out)</code> writes compact RFC 8259 text and <code>JsonValue_pretty(v,
+indent, &amp;out)</code> the indented form (<code>JSON.stringify(v, null, indent)</code> layout); <code>out</code> is
+cleared first. Strings escape <code>"</code>, <code>\</code> and control bytes (a NUL is <code>\u0000</code>); numbers
+use the shortest of <code>%.15g</code>/<code>%.16g</code>/<code>%.17g</code> that reads back as the same double, and NaN
+or an infinity prints as <code>null</code>. Numbers are doubles, so integers beyond 2^53 lose
+precision. The printer keeps its own stack, so a document of any depth prints.</p>
+<p><code>json_get(v, path)</code> follows a path of <code>name</code> / <code>.name</code> member steps, <code>[N]</code> array
+indices and <code>["key"]</code> steps for keys that hold dots or brackets (<code>\"</code> and <code>\\</code> escape
+inside them): <code>json_get(doc, "data.items[0].name")</code>. It returns a borrowed pointer, or
+null when a step is missing, has the wrong kind, or the path is malformed.</p>
+<h3 id="csv-csv">CSV (<code>&lt;csv&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;csv&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let t: CsvTable;
+    if (csv_parse(&quot;name,city\nAda,London\n\&quot;Hopper, Grace\&quot;,\&quot;New York\&quot;\n&quot;, &amp;t) != 0) {
+        let msg: String;  msg.init(32);
+        CsvTable_error(&amp;t, &amp;msg);                // such as &quot;line 3, col 1: unterminated quoted field&quot;
+        printf(&quot;%s\n&quot;, msg.data);
+        msg.free();
+    }
+    for (r in 1..CsvTable_len(&amp;t)) { printf(&quot;%s\n&quot;, CsvTable_get(&amp;t, r, &quot;name&quot;)); }
+    CsvTable_free(&amp;t);
+
+    let row: List&lt;string&gt;;  List_init&lt;string&gt;(&amp;row, 2);
+    row.push(&quot;a,b&quot;);  row.push(&quot;plain&quot;);
+    let out: String;  out.init(32);
+    csv_write_row(&amp;row, &amp;out);                   // &quot;a,b&quot;,plain
+    printf(&quot;%s&quot;, out.data);
+    out.free();
+    List_free&lt;string&gt;(&amp;row);
+    return 0;
+}
+</code></pre>
+<p><code>csv_parse(text, &amp;t)</code> reads RFC 4180 CSV with <code>,</code> between fields; <code>csv_parse_with(text,
+delim, &amp;t)</code> takes another delimiter (<code>;</code>, <code>\t</code>, ...) and <code>csv_parse_buf(data, n, delim,
+&amp;t)</code> reads bytes that may hold NULs. Quoted fields may contain the delimiter, line breaks
+and <code>""</code> (one quote); lines end with LF, CRLF or a lone CR; a final line ending adds no
+row, while a blank line elsewhere is a row with one empty field. They return 0, or -1 for
+an unterminated quoted field or text after a closing quote, with <code>CsvTable_error(&amp;t,
+&amp;out)</code> giving <code>line L, col C: ...</code>. The parse initialises <code>t</code>; free it with
+<code>CsvTable_free</code> in both cases.</p>
+<p>Row indices count every row, so with a header the data starts at row 1.
+<code>CsvTable_len</code>, <code>CsvTable_row(t, r)</code> (a <code>*List&lt;String&gt;</code>), <code>CsvTable_cell(t, r, c)</code>,
+<code>CsvTable_col(t, "name")</code> (header index or -1) and <code>CsvTable_get(t, r, "name")</code> return
+values borrowed from the table, or null when out of range. <code>csv_write_row(&amp;fields,
+&amp;out)</code> and <code>csv_write_row_with(&amp;fields, delim, &amp;out)</code> append one row ending in <code>\n</code>,
+quoting only fields that contain the delimiter, a quote, CR or LF; <code>CsvTable_write(t,
+delim, &amp;out)</code> writes a whole table (cleared first).</p>
+<h3 id="env-files-dotenv"><code>.env</code> files (<code>&lt;dotenv&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;dotenv&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    if (dotenv_load(&quot;.env&quot;) &lt; 0) {
+        let msg: String;  msg.init(64);
+        dotenv_error(&amp;msg);                      // such as &quot;line 4: expected '=' after the variable name&quot;
+        printf(&quot;%s\n&quot;, msg.data);
+        return 1;
+    }
+    printf(&quot;%s\n&quot;, env_get_or(&quot;DATABASE_URL&quot;, &quot;unset&quot;));
+    return 0;
+}
+</code></pre>
+<p>Each non-blank line is <code>KEY=VALUE</code>, optionally after <code>export</code>; <code>#</code> starts a comment
+line. An unquoted value is trimmed and ends at a <code>#</code> that follows whitespace. Single
+quotes keep the text as written; double quotes decode <code>\n</code>, <code>\t</code>, <code>\r</code>, <code>\"</code> and <code>\\</code>.
+Quoted values may span lines. Names start with a letter or <code>_</code> and continue with
+letters, digits, <code>_</code>, <code>.</code> and <code>-</code>; a later assignment wins.</p>
+<p><code>dotenv_load(path)</code> sets the file's variables that are not already set and returns how
+many it set; <code>dotenv_load_override(path)</code> replaces existing ones too. On a read failure
+or a syntax error they return -1 and set nothing; <code>dotenv_error(&amp;out)</code> describes it
+(<code>line N: ...</code> or <code>cannot read PATH: reason</code>) and <code>dotenv_error_line()</code> is the line (0
+for a read failure). <code>dotenv_parse(text, &amp;map)</code> fills an initialised <code>Map&lt;string&gt;</code>
+without touching the environment and returns the number of assignments; the map owns
+the value copies, so free it with <code>dotenv_free</code>.</p>
+<h3 id="hashes-hash">Hashes (<code>&lt;hash&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;hash&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let hex: String;  hex.init(65);
+    sha256_str(&quot;abc&quot;, &amp;hex);                     // ba7816bf...f20015ad
+    printf(&quot;%s\n&quot;, hex.data);
+
+    let h: Sha256;  h.init();                    // streaming
+    h.update_str(&quot;ab&quot;);  h.update_str(&quot;c&quot;);
+    let digest: uint8[32];
+    h.final(&amp;digest[0]);
+
+    hmac_sha256_str(&quot;key&quot;, &quot;The quick brown fox jumps over the lazy dog&quot;, &amp;hex);
+    printf(&quot;%d\n&quot;, hash_equal_str((string)hex.data, &quot;f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8&quot;));
+    hex.free();
+    return 0;
+}
+</code></pre>
+<p>SHA-256, SHA-1 and MD5 are written in Eskiu (no OpenSSL). Each has a streaming type
+(<code>Sha256</code>, <code>Sha1</code>, <code>Md5</code>) with <code>_init</code>, <code>_update(data, n)</code>, <code>_update_str(s)</code>,
+<code>_final(out)</code> (the raw digest: <code>SHA256_SIZE</code> 32, <code>SHA1_SIZE</code> 20, <code>MD5_SIZE</code> 16 bytes into
+a caller buffer) and <code>_final_hex(&amp;out)</code>; a value is <code>init</code>ed again before reuse. The
+one-shot forms are <code>sha256(data, n, out)</code> (raw), <code>sha256_hex(data, n, &amp;out)</code> and
+<code>sha256_str(s, &amp;out)</code> (lowercase hex), and the same for <code>sha1</code> and <code>md5</code>. <code>HmacSha256</code>
+(<code>_init(key, klen)</code>, <code>_update</code>, <code>_final</code>) and <code>hmac_sha256(key, klen, data, n, out)</code> /
+<code>hmac_sha256_str(key, msg, &amp;out)</code> implement RFC 2104 (keys over 64 bytes are hashed
+first). <code>hex_encode(data, n, &amp;out)</code> writes lowercase hex; <code>hex_decode(s, out, cap)</code>
+returns the byte count, or -1 for an odd length, a non-hex character or more than <code>cap</code>
+bytes. <code>hash_equal(a, b, n)</code> and <code>hash_equal_str(a, b)</code> compare in time that depends
+only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
+checksums.</p>
 <h2 id="15-inline-assembly">15. Inline Assembly</h2>
 <p>Eskiu supports inline assembly via the <code>asm(...)</code> statement, which lowers directly to an LLVM inline asm node.</p>
 <h3 id="151-simple-form">15.1 Simple Form</h3>

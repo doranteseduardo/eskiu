@@ -53,6 +53,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `hex_encode`, `hex_decode`, constant-time `hash_equal`.
 - Stdlib fuzz targets `csv` and `dotenv`; the `json` target checks a stringify/parse round trip.
 - Example `data_summary.esk` (`.env`, CSV, SHA-256, JSON output).
+- `<url>`: `url_parse` into a `Url` (scheme, host incl. `[IPv6]`, port with scheme defaults,
+  path, query), `url_resolve` (RFC 3986 references), `url_query_add`, `Url_to_string`.
+- `<fetch>`: an HTTP/1.1 client for `http://` and `https://`. `fetch`, `fetch_with` with
+  `FetchOptions` (method, headers, text/bytes/JSON body, timeout, redirects, body cap, TLS
+  verification, CA file) and `fetch_async` on the event loop; `Response` with
+  `Response_header`, `Response_text`, `Response_bytes`, `Response_json`, `Response_ok`;
+  error codes plus `fetch_last_error`. HTTPS loads OpenSSL at run time (`<fetch_tls>`), so
+  programs link without libssl. Example `fetch.esk`; stdlib fuzz target `fetch`.
 
 ### Changed
 
