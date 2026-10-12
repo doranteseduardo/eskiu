@@ -2,4 +2,8 @@ remove_all tree/link/ rc=0 errno=0
 link gone=1 victim kept=1 sub kept=1
 remove_all top// rc=0 errno=0
 victim kept=1
+copy a a rc=-1 errno=22
+copy a alink rc=-1 errno=22
+a.txt [hello]
+copy a b rc=0 errno=0
 cleanup rc=0 errno=0

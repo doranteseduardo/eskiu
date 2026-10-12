@@ -234,6 +234,7 @@ int _fs_lstat_raw(string p, *void b) { return lstat64(p, b); }
 #define _FS_ST_MODE16 1
 #define _FS_ST_MTIME 48
 #define _FS_ST_SIZE 96
+#define _FS_ST_DEV_SIZE 4
 #define _FS_DIRENT_NAME 8
 #elif defined(__APPLE__)
 extern int stat(string path, *void buf);
@@ -245,6 +246,7 @@ int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
 #define _FS_ST_MODE16 1
 #define _FS_ST_MTIME 48
 #define _FS_ST_SIZE 96
+#define _FS_ST_DEV_SIZE 4
 #define _FS_DIRENT_NAME 21
 #elif defined(__linux__) && defined(__x86_64__)
 extern int stat(string path, *void buf);
@@ -255,6 +257,7 @@ int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
 #define _FS_ST_MODE 24
 #define _FS_ST_MTIME 88
 #define _FS_ST_SIZE 48
+#define _FS_ST_DEV_SIZE 8
 #define _FS_DIRENT_NAME 19
 #elif defined(__linux__) && defined(__aarch64__)
 extern int stat(string path, *void buf);
@@ -265,6 +268,7 @@ int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
 #define _FS_ST_MODE 16
 #define _FS_ST_MTIME 88
 #define _FS_ST_SIZE 48
+#define _FS_ST_DEV_SIZE 8
 #define _FS_DIRENT_NAME 19
 #else
 #define _FS_DIRENT_NAME 11
@@ -667,8 +671,21 @@ int fs_rename(string from, string to) {
 #endif
 }
 
+// 1 if `a` and `b` name the same file (device and inode, links followed).
+bool _fs_same_file(string a, string b) {
+#ifdef _FS_HAVE_STAT
+    int64[32] ra;
+    int64[32] rb;
+    if (_fs_stat_raw(a, (*void)&ra) != 0 || _fs_stat_raw(b, (*void)&rb) != 0) { return false; }
+    return memcmp((*void)&ra, (*void)&rb, _FS_ST_DEV_SIZE) == 0
+        && memcmp((*void)((*uint8)&ra + 8), (*void)((*uint8)&rb + 8), 8) == 0;
+#else
+    return false;
+#endif
+}
+
 // Copy a regular file's bytes to `to` (replaced if it exists), keeping its
-// permission bits. 0 or -1.
+// permission bits. 0 or -1 (EINVAL when `to` is `from` itself, or a link to it).
 int fs_copy(string from, string to) {
 #ifdef _WIN32
     *uint16 wf = _fs_wide(from);
@@ -681,6 +698,7 @@ int fs_copy(string from, string to) {
     let st: FileStat;
     if (fs_stat(from, &st) != 0) { return -1; }
     if (st.is_dir) { _fs_err = 21; _fs_err_win = false; return -1; }   // EISDIR
+    if (_fs_same_file(from, to)) { _fs_err = 22; _fs_err_win = false; return -1; }   // EINVAL: would truncate the source
     *void src = fopen(from, "rb");
     if (src == null) { return _fs_fail_crt(); }
     defer fclose(src);

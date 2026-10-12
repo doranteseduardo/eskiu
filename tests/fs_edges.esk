@@ -27,6 +27,15 @@ int main() {
     show("remove_all top//", fs_remove_all("top//"));
     printf("victim kept=%d\n", fs_exists("victim/keep.txt"));
 
+    fs_write_text("a.txt", "hello");
+    show("copy a a", fs_copy("a.txt", "a.txt"));
+    symlink("a.txt", "alink");
+    show("copy a alink", fs_copy("a.txt", "alink"));
+    let s: String;  s.init(16);
+    fs_read_text("a.txt", &s);
+    printf("a.txt [%s]\n", s.cstr());
+    show("copy a b", fs_copy("a.txt", "b.txt"));
+
     fs_chdir("/");
     show("cleanup", fs_remove_all(root.cstr()));
     root.free();

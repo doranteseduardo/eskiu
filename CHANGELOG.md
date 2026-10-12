@@ -53,6 +53,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<time>`: `time_parse` rejects a `%s` value outside `int64` instead of wrapping around.
 - `<fs>`: `fs_remove_all` given a symbolic link with a trailing slash (`"link/"`) removes the
   link; it used to follow it and delete the target directory's contents.
+- `<fs>`: `fs_copy` onto the source file itself, or onto a link to it, fails with EINVAL
+  instead of truncating the source and reporting success.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
 
