@@ -1,0 +1,29 @@
+plain      x
+bold       \e[1mx
+attrs      \e[1;2;3;4;5;7;8;9mx
+red        \e[31mx
+bright     \e[96;100mx
+bg         \e[1;37;44mx
+black      \e[30;40mx
+256        \e[38;5;208;48;5;0mx
+rgb        \e[4;38;2;255;128;0;48;2;1;2;3mx
+clamp      \e[38;2;255;0;128mx
+reset      \e[0m
+tty stdout=0 enabled=0
+auto       hi
+force enabled=1
+forced     \e[1;31mhi\e[0m
+force+no_color enabled=1
+force=0 enabled=0
+dumb enabled=0
+always enabled=1
+always     \e[1;31mhi\e[0m
+always+no_color enabled=1
+never+force enabled=0
+never      hi
+plain print
+plain println
+strip [bold and text] len=13
+width 123
+width positive 1
+width positive 1
