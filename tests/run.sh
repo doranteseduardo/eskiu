@@ -342,6 +342,21 @@ else
     bad "cli/await-unplaced-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
 
+# <process>: a child with a timeout reads an inherited terminal stdin (run under a
+# pseudo-terminal by `script`, skipped where there is none).
+if command -v script >/dev/null 2>&1 && "$ESKIUC" "$here/run_cmd/process_tty.esk" -o "$work/process_tty" >/dev/null 2>&1; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+        tty_out="$( (sleep 1; printf 'hello\n'; sleep 1) | script -q /dev/null "$work/process_tty" 2>&1)"
+    else
+        tty_out="$( (sleep 1; printf 'hello\n'; sleep 1) | script -qec "$work/process_tty" /dev/null 2>&1)"
+    fi
+    if [[ "$tty_out" == *"code=0 timed_out=0 fast=1 out=got:hello"* ]]; then
+        ok "stdlib/process-timeout-tty-stdin"
+    else
+        bad "stdlib/process-timeout-tty-stdin" "$(printf '%s' "$tty_out" | tr '\r\n' '  ')"
+    fi
+fi
+
 # A successful compile prints nothing to stdout (no output-file echo).
 printf 'int main() { return 0; }\n' > "$work/quiet.esk"
 q_out="$("$ESKIUC" "$work/quiet.esk" -o "$work/quiet" 2>/dev/null)"

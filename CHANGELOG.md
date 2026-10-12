@@ -58,6 +58,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<fs>`: `fs_mkdir_p` reports the error of the failed `mkdir` (such as EACCES), not ENOENT.
 - `<fs>`: `fs_glob` removes backslash escapes from a path component without wildcards, as
   `fs_match` does for one with them.
+- `<process>`: a child run with a timeout and `inherit_stdin` on a terminal can read it; it was
+  put in a background process group, so a read stopped it until the timeout killed it.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
 

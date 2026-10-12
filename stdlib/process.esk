@@ -21,8 +21,9 @@
 // process_last_error says why and r.exit_code is -1. exit_code is the exit
 // status, or 128+N when a signal N ended the child (POSIX). A timeout kills the
 // child and what it started (its process group on POSIX, a Job object on
-// Windows, so `sh -c` pipelines die too), sets timed_out and reports exit
-// code 137.
+// Windows, so `sh -c` pipelines die too; on POSIX only the child itself when
+// it inherits a terminal stdin, which it could not read from another process
+// group), sets timed_out and reports exit code 137.
 //
 // process_spawn starts a child and returns at once with pipe handles in a
 // Process: Process_write_stdin / Process_close_stdin feed it, Process_read reads
@@ -131,6 +132,7 @@ extern int   open(string path, int flags, ...);
 extern int   fcntl(int fd, int cmd, ...);
 extern int   kill(int pid, int sig);
 extern int   setpgid(int pid, int pgid);
+extern int   isatty(int fd);
 extern *void signal(int sig, *void handler);
 extern int   chdir(string path);
 
@@ -687,7 +689,12 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
     r.exit_code = -1;
     r.timed_out = false;
     let p: Process;
-    const bool group = o.timeout_ms > 0;
+    bool group = o.timeout_ms > 0;
+#ifndef _WIN32
+    // A child in its own process group is in the background for the terminal,
+    // so reading the inherited terminal would stop it (SIGTTIN): keep it in ours.
+    if (o.inherit_stdin && isatty(0) == 1) { group = false; }
+#endif
     if (_proc_start(argv, o, o.stdin_text != null, group, &p) != 0) { return -1; }
     int64 deadline = o.timeout_ms > 0 ? time_monotonic_ms() + o.timeout_ms : 0;
     bool killed = false;
