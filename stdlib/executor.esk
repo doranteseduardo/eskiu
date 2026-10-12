@@ -2,7 +2,7 @@
 //
 // An Executor is a thread that owns an <eventloop> plus a ready-queue of wakers.
 // Completion may happen on any thread; `Executor_schedule` enqueues a waker and
-// wakes the loop through a self-pipe, so the waker (a coroutine resume) always
+// wakes the loop through a self-pipe (a loopback UDP socket on Windows), so the waker (a coroutine resume) always
 // runs on the executor's own thread — the thread-affinity guarantee the future
 // UI framework needs (background work completes elsewhere, the continuation runs
 // on the home thread).
@@ -15,11 +15,18 @@ import <mem>;
 import <eventloop>;
 import <threading>;
 
+#ifdef _WIN32
+// WSAPoll (the Windows <eventloop>) only takes sockets, so the wake channel is a UDP
+// socket bound to 127.0.0.1 and connected to itself: a send queues one datagram that
+// makes the socket readable on the loop thread.
+import <net>;
+extern int ioctlsocket(int fd, int cmd, *int argp);
+extern int getsockname(int fd, *void addr, *int len);
+#else
 extern int   pipe(*int fds);
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
 extern int   close(int fd);
-#ifndef _WIN32
 extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
 #endif
 
@@ -33,18 +40,61 @@ struct _RQNode {
 struct Executor {
     EventLoop* lp;
     int        wake_r;     // self-pipe read end (registered on lp)
-    int        wake_w;     // self-pipe write end (written by schedulers)
+    int        wake_w;     // self-pipe write end (written by schedulers); on Windows both are the one socket
     *_RQNode    head;
     *_RQNode    tail;
     Mutex      lock;       // guards head/tail/signaled against cross-thread schedule
     int        signaled;   // 1 while a wake byte is in the pipe and not yet drained
 }
 
+// The wake channel: open it (0, or -1 on failure), write one wake byte, read
+// the pending bytes, close it.
+#ifdef _WIN32
+int _ex_wake_open(Executor* ex) {
+    _net_wsa_init();
+    const int s = socket(AF_INET, 2, 0);              // SOCK_DGRAM
+    if (s < 0) { return -1; }
+    let a: sockaddr_in;
+    _net_fill_addr(&a, inet_addr("127.0.0.1"), 0);    // any free port
+    int len = 16;
+    if (bind(s, (*void)&a, 16) != 0 || getsockname(s, (*void)&a, &len) != 0
+        || connect(s, (*void)&a, 16) != 0) {
+        closesocket(s);
+        return -1;
+    }
+    int one = 1;
+    ioctlsocket(s, 0 - 2147195266, &one);             // FIONBIO: a send never blocks
+    ex.wake_r = s;
+    ex.wake_w = s;
+    return 0;
+}
+void _ex_wake_send(Executor* ex) { uint8 one = 1; send(ex.wake_w, (*void)&one, 1, 0); }
+void _ex_wake_recv(Executor* ex) { uint8[64] sink; recv(ex.wake_r, (*void)&sink[0], 64, 0); }
+void _ex_wake_close(Executor* ex) { closesocket(ex.wake_r); }
+#else
+int _ex_wake_open(Executor* ex) {
+    int[2] fds;
+    if (pipe(&fds[0]) != 0) { return -1; }
+    ex.wake_r = fds[0];
+    ex.wake_w = fds[1];
+    // The write end never blocks a scheduler (O_NONBLOCK; F_GETFL = 3, F_SETFL = 4).
+    // Wakes are coalesced to one pending byte anyway, so the pipe never fills.
+#ifdef __APPLE__
+    fcntl(ex.wake_w, 4, fcntl(ex.wake_w, 3, 0) | 4);
+#else
+    fcntl(ex.wake_w, 4, fcntl(ex.wake_w, 3, 0) | 2048);
+#endif
+    return 0;
+}
+void _ex_wake_send(Executor* ex) { uint8 one = 1; write(ex.wake_w, (*void)&one, 1); }
+void _ex_wake_recv(Executor* ex) { uint8[64] sink; read(ex.wake_r, (*void)&sink[0], 64); }
+void _ex_wake_close(Executor* ex) { close(ex.wake_r); close(ex.wake_w); }
+#endif
+
 // Drain the ready-queue and run each waker on the loop thread. Wakers run with
 // the lock released, so a waker may schedule more work without deadlocking.
 void _ex_drain(Executor* ex, int fd) {
-    uint8[64] sink;
-    read(fd, (*void)&sink[0], 64);            // the (single, coalesced) wake byte
+    _ex_wake_recv(ex);                        // the (single, coalesced) wake byte
 
     ex.lock.lock();
     *_RQNode n = ex.head;
@@ -70,19 +120,12 @@ Executor* executor_new(EventLoop* lp) {
     ex.tail = null;
     ex.lock.init();
 
-    int[2] fds; pipe(&fds[0]);
-    ex.wake_r = fds[0];
-    ex.wake_w = fds[1];
     ex.signaled = 0;
-#ifndef _WIN32
-    // The write end never blocks a scheduler (O_NONBLOCK; F_GETFL = 3, F_SETFL = 4).
-    // Wakes are coalesced to one pending byte anyway, so the pipe never fills.
-#ifdef __APPLE__
-    fcntl(ex.wake_w, 4, fcntl(ex.wake_w, 3, 0) | 4);
-#else
-    fcntl(ex.wake_w, 4, fcntl(ex.wake_w, 3, 0) | 2048);
-#endif
-#endif
+    if (_ex_wake_open(ex) != 0) {
+        ex.lock.destroy();
+        free((*void)ex);
+        return null;
+    }
     EventLoop_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) { _ex_drain(ex, fd); });
     return ex;
 }
@@ -101,10 +144,7 @@ void Executor_schedule(Executor* ex, escaping fn()->void w) {
     ex.signaled = 1;
     ex.lock.unlock();
 
-    if (wake) {
-        uint8 one = 1;
-        write(ex.wake_w, (*void)&one, 1);      // wake the loop thread
-    }
+    if (wake) { _ex_wake_send(ex); }           // wake the loop thread
 }
 
 // Run until Executor_stop: dispatch I/O readiness and scheduled wakers.
@@ -113,8 +153,7 @@ void Executor_stop(Executor* ex) { EventLoop_stop(ex.lp); }
 
 void Executor_free(Executor* ex) {
     ex.lp.del_free(ex.wake_r);       // free the drain-callback env too
-    close(ex.wake_r);                // the self-pipe
-    close(ex.wake_w);
+    _ex_wake_close(ex);              // the self-pipe
     *_RQNode n = ex.head;             // wakers scheduled but never run
     while (n != null) {
         *_RQNode next = n.next;
