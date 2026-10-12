@@ -41,6 +41,21 @@ int main() {
     printf("len %d\n", Map_len<string>(&m));
     dotenv_free(&m);
 
+    // CRLF line ends inside a quoted value read as "\n".
+    Map_init<string>(&m, 8);
+    dotenv_parse("Q=\"a\r\nb\"\r\nS='c\r\nd'\r\nR=\"lone\rcr\"\r\n", &m);
+    const string[3] crlf_keys = {"Q", "S", "R"};
+    for (k in 0..3) {
+        string v = null;
+        Map_get<string>(&m, crlf_keys[k], &v);
+        printf("%s:", crlf_keys[k]);
+        for (int j = 0; v[j] != 0; j++) {
+            if (v[j] == '\r') { printf("\\r"); } else if (v[j] == '\n') { printf("\\n"); } else { printf("%c", v[j]); }
+        }
+        printf("\n");
+    }
+    dotenv_free(&m);
+
     bad("A=1\nB\n");
     bad("A=1\n\n9X=2\n");
     bad("A=1\nB=\"open\nstill\n");

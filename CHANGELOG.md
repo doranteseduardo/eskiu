@@ -51,6 +51,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   scheme) returns its own error code, such as `FETCH_ERR_NO_TLS`, not always `FETCH_ERR_URL`.
 - `<args>`: an empty command-line argument no longer reads one byte past its end.
 - `<time>`: `time_parse` rejects a `%s` value outside `int64` instead of wrapping around.
+- `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
+  instead of keeping the `\r`.
 
 ## [0.10.0] - 2026-10-11
 
