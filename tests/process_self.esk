@@ -75,7 +75,7 @@ int child(int argc, string* argv) {
         return 0;
     }
     if (strcmp(mode, "sleep") == 0) {
-        sleep_ms((int64)atoi(argv[2]));
+        time_sleep_ms((int64)atoi(argv[2]));
         printf("woke\n");
         return 0;
     }
@@ -87,11 +87,11 @@ int child(int argc, string* argv) {
         av.push(argv[2]);
         let p: Process;
         if (process_spawn(&av, null, &p) != 0) { return 1; }
-        sleep_ms(10000);
+        time_sleep_ms(10000);
         return 0;
     }
     if (strcmp(mode, "later") == 0) {
-        sleep_ms(1500);
+        time_sleep_ms(1500);
         fs_write_text(argv[2], "late");
         return 0;
     }
@@ -199,7 +199,7 @@ int main(int argc, string* argv) {
     printf("tree: code=%d timed_out=%d fast=%d\n", r.exit_code, r.timed_out ? 1 : 0,
         time_monotonic_ms() - t0 < 3000 ? 1 : 0);
     ProcessResult_free(&r);
-    sleep_ms(2500);
+    time_sleep_ms(2500);
     printf("grandchild killed: %d\n", fs_exists(late.cstr()) == 0 ? 1 : 0);
     late.free();
 

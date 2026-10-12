@@ -41,7 +41,7 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [allocators.esk](allocators.esk) | managing memory without libc `malloc`: an `<alloc>` Arena over a static buffer, and a `<sysheap>` mmap-backed `FirstFit` heap | `<alloc>` `<sysheap>` |
 | [result.esk](result.esk) | `Result<T, E>` error-as-value with `Ok`/`Err` | `<result>` |
 | [strings.esk](strings.esk) | the mutable `String` builder: append, trim, prefix/suffix tests, int formatting | `<string>` |
-| [text_report.esk](text_report.esk) | text processing for scripts: `lines`, `split_str`, `replace_all`, case mapping, `parse_double`, `str_format` and padding | `<string>` |
+| [text_report.esk](text_report.esk) | text processing for scripts: `lines`, `split_str`, `replace_all`, case mapping, `parse_double`, `String_format` and padding | `<string>` |
 | [word_count.esk](word_count.esk) | collections: `List` map/filter/reduce/sort_by, `Map` keys/remove/get_or, `Set<int>` | `<list>` `<map>` `<sort>` |
 | [json.esk](json.esk) | build a JSON document and parse it back | `<json>` |
 | [data_summary.esk](data_summary.esk) | load a `.env` file, total a CSV by column, SHA-256 the file and print a pretty JSON summary | `<dotenv>` `<csv>` `<hash>` `<json>` |

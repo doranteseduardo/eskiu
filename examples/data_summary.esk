@@ -27,8 +27,8 @@ int main(int argc, string* argv) {
         env_path.append(argv[2]);
     } else {
         if (fs_temp_dir("data_summary", &dir) != 0) { printf("cannot create a temp dir\n"); return 1; }
-        str_format(&csv_path, "%s/sales.csv", dir.data);
-        str_format(&env_path, "%s/.env", dir.data);
+        String_format(&csv_path, "%s/sales.csv", dir.data);
+        String_format(&env_path, "%s/.env", dir.data);
         fs_write_text((string)csv_path.data,
             "region,product,amount\nnorth,widget,120.50\nsouth,\"gadget, large\",80\nnorth,gadget,42.25\nwest,widget,300\n");
         fs_write_text((string)env_path.data, "# report settings\nREPORT_TITLE=\"Quarterly sales\"\nexport CURRENCY=EUR\n");
@@ -85,7 +85,7 @@ int main(int argc, string* argv) {
     // 4. A SHA-256 of the input file.
     let digest: String;  digest.init(65);
     defer digest.free();
-    sha256_hex((*uint8)text.data, text.len, &digest);
+    hash_sha256_hex((*uint8)text.data, text.len, &digest);
 
     JsonValue_set(doc, "title", JsonValue_string(env_get_or("REPORT_TITLE", "Report")));
     JsonValue_set(doc, "currency", JsonValue_string(env_get_or("CURRENCY", "USD")));

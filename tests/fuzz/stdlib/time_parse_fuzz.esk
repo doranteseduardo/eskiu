@@ -28,7 +28,7 @@ void fuzz_one(*uint8 data, int len, string s) {
     time_format(seed, (string)fmt, TIME_UTC, &out);
     time_format(seed, (string)fmt, TIME_LOCAL, &out);
     let dur: String;  dur.init(16);
-    duration_format(seed, &dur);
+    time_format_duration(seed, &dur);
     dur.free();
     out.free();
     free((*void)fmt);

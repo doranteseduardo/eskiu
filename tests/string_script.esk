@@ -72,12 +72,12 @@ int main() {
     defer List_free<string>(&words);
     let out: String;  out.init(8);
     defer out.free();
-    str_join(&words, ", ", &out);
+    List_join<string>(&words, ", ", &out);
     printf("[%s]\n", out.cstr());
     List_push<string>(&words, "red");
     List_push<string>(&words, "green");
     List_push<string>(&words, "blue");
-    str_join(&words, ", ", &out);
+    List_join<string>(&words, ", ", &out);
     printf("[%s]\n", out.cstr());
     words.join("/", &out);
     printf("[%s]\n", out.cstr());
@@ -140,14 +140,14 @@ int main() {
     // format
     let f: String;  f.init(4);
     defer f.free();
-    str_format(&f, "%s=%d (%.3f) %lld %c", "x", 42, 2.5, (int64)9000000000, 'z');
+    String_format(&f, "%s=%d (%.3f) %lld %c", "x", 42, 2.5, (int64)9000000000, 'z');
     printf("[%s] %lld\n", f.cstr(), f.len);
     f.appendf(" +%05d", 7);
     printf("[%s]\n", f.cstr());
-    str_format(&f, "");
+    String_format(&f, "");
     printf("[%s] %lld\n", f.cstr(), f.len);
     // longer than the first-pass room: formatted again after growing
-    str_format(&f, "%s|%s|%s", big.cstr(), "mid", big.cstr());
+    String_format(&f, "%s|%s|%s", big.cstr(), "mid", big.cstr());
     printf("%lld %d\n", f.len, f.find("|mid|", 0) == 3000 ? 1 : 0);
     let acc: String;  acc.init(1);
     defer acc.free();

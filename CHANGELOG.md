@@ -52,6 +52,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `h2_name_eq`, `h2_send_response`, ...), and the `<hpack>` table and decoder internals
   (`hpack_read_str`, `hpack_evict`, `hpack_resolve`, `hpack_set_max`, `hpack_static_name`,
   `hpack_decode_int_at`, ...). Each becomes `_` plus its old name.
+- Names made consistent inside their modules: `<term>` `term_rgb` -> `term_fg_rgb` (next to
+  `term_bg_rgb`); `<hash>` one-shot functions take the module prefix,
+  `sha256`/`sha256_hex`/`sha256_str` -> `hash_sha256`/`hash_sha256_hex`/`hash_sha256_str` (the
+  same for `sha1` and `md5`), `hmac_sha256`/`hmac_sha256_str` ->
+  `hash_hmac_sha256`/`hash_hmac_sha256_str`, `hex_encode`/`hex_decode` ->
+  `hash_hex_encode`/`hash_hex_decode`; `<time>` `sleep_ms` -> `time_sleep_ms`, `duration_format`
+  -> `time_format_duration`; `<string>` `str_format(out, ...)` -> `String_format(self, ...)` (so
+  `s.format("%d", n)` works) and `str_join`, which duplicated the generic `List_join`, is
+  deprecated in favor of it (`parts.join(sep, &out)`). The old names remain as deprecated
+  wrappers.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer

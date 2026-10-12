@@ -28,7 +28,7 @@ void parse_local(string text, string f) {
 
 void dur(int64 ms) {
     let s: String;  s.init(8);
-    duration_format(ms, &s);
+    time_format_duration(ms, &s);
     printf("duration %lld -> %s\n", ms, s.cstr());
     s.free();
 }
@@ -105,9 +105,9 @@ int main() {
 
     let sw: Stopwatch;
     sw.start();
-    sleep_ms(30);
+    time_sleep_ms(30);
     const int64 lap1 = sw.lap();
-    sleep_ms(20);
+    time_sleep_ms(20);
     const int64 lap2 = sw.lap();
     const int64 total = sw.elapsed_ms();
     printf("stopwatch ok=%d\n", lap1 >= 15 && lap2 >= 10 && total >= lap1 + lap2 && total < 5000 ? 1 : 0);

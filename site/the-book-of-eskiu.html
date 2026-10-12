@@ -2190,7 +2190,7 @@ pre.code-block {
  import &lt;sysheap&gt;; Heap_init(&amp;h, size) bool             Heap_alloc(&amp;h, n) *void
      Heap_free(&amp;h, p)   Heap_destroy(&amp;h)</pre>
 <pre class="code-block"> // time / env / base64 / path
- import &lt;time&gt;;       time_now_ms   time_now_s   time_monotonic_ms   sleep_ms(ms)
+ import &lt;time&gt;;       time_now_ms   time_now_s   time_monotonic_ms   time_sleep_ms(ms)
                       DateTime   time_to_utc/DateTime_to_epoch   DateTime_format_iso   // UTC civil calendar
  import &lt;env&gt;;        env_get    env_has      env_get_or   env_get_int
  import &lt;base64&gt;;     base64_encode/decode(*uint8 src, int n, *uint8 out)
@@ -3375,9 +3375,9 @@ pre.code-block {
        dotenv_free(&amp;vars);
 
        // Hashes.
-       sha256_str(&quot;abc&quot;, &amp;out);
+       hash_sha256_str(&quot;abc&quot;, &amp;out);
        printf(&quot;sha256(abc) = %s\n&quot;, out.cstr());
-       hmac_sha256_str(&quot;secret&quot;, &quot;message&quot;, &amp;out);
+       hash_hmac_sha256_str(&quot;secret&quot;, &quot;message&quot;, &amp;out);
        printf(&quot;hmac = %.16s...\n&quot;, out.cstr());
        out.free();
        return 0;
@@ -3458,11 +3458,11 @@ pre.code-block {
        }
        if (time_parse(&quot;2023-02-29&quot;, &quot;%F&quot;, &amp;t) != 0) { println(&quot;2023-02-29 is not a date&quot;); }
 
-       duration_format(93784005, &amp;s);
+       time_format_duration(93784005, &amp;s);
        printf(&quot;uptime: %s\n&quot;, s.cstr());                       // 1d 2h 3m 4s 5ms
 
        let sw: Stopwatch;  sw.start();
-       sleep_ms(25);
+       time_sleep_ms(25);
        printf(&quot;slept about %lld ms\n&quot;, sw.elapsed_ms());
        s.free();
        return 0;
@@ -3507,7 +3507,7 @@ pre.code-block {
  duplicates        1        8 B
  pdf               1       14 B
  txt               1        6 B</pre>
-<p>It finds the files with <code>fs_glob</code> and <code>fs_walk</code>, reads their dates with <code>fs_stat</code> and <code>time_format</code>, hashes them with <code>sha256_hex</code>, moves them with <code>fs_mkdir_p</code> and <code>fs_rename</code>, and asks <code>du</code> for the disk usage when that program is installed.</p>
+<p>It finds the files with <code>fs_glob</code> and <code>fs_walk</code>, reads their dates with <code>fs_stat</code> and <code>time_format</code>, hashes them with <code>hash_sha256_hex</code>, moves them with <code>fs_mkdir_p</code> and <code>fs_rename</code>, and asks <code>du</code> for the disk usage when that program is installed.</p>
 <p>Both scripts run in the test suite without a network: <code>tests/scripts/check.sh</code> starts a small HTTP server that imitates the GitHub API and passes its address with <code>--api-url</code>, builds a directory tree with known file times for <code>organize.esk</code>, and compares what the scripts print with recorded output. The same approach works for your own scripts: keep the output free of the current time and of unsorted lists, and point the script at a local server or a temporary directory.</p>
 <div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
 <h1 class="chapter-title">Sum Types and Match</h1><hr class="chapter-rule"></div>
@@ -3886,7 +3886,7 @@ pre.code-block {
  int HashMap_get&lt;K,V&gt;(&amp;m, key, *V out) -&gt; 1/0 // lookup
  HashMap_free&lt;K,V&gt;(&amp;m)</pre>
 <h3 class="subsection">time / env / base64 / path: quick reference</h3>
-<pre class="code-block"> import &lt;time&gt;;     time_now_ms   time_now_s     time_monotonic_ms   sleep_ms(ms)
+<pre class="code-block"> import &lt;time&gt;;     time_now_ms   time_now_s     time_monotonic_ms   time_sleep_ms(ms)
  import &lt;env&gt;;      env_get   env_has   env_get_or   env_get_int
  import &lt;base64&gt;;   base64_encode/decode(*uint8 src, int n, *uint8 out)
  import &lt;path&gt;;     path_join   path_basename     path_dirname   path_extension</pre>
@@ -4017,7 +4017,7 @@ pre.code-block {
  import &lt;alloc&gt;;        Bump    Arena     Pool    FirstFit       (over alloc_with)
  import &lt;sysheap&gt;;      Heap (mmap-backed, no libc malloc)</pre>
 <pre class="code-block"> // Utilities
- import &lt;time&gt;;         time_now_ms       time_now_s       time_monotonic_ms      sleep_ms
+ import &lt;time&gt;;         time_now_ms       time_now_s       time_monotonic_ms      time_sleep_ms
  import &lt;env&gt;;          env_get       env_has    env_get_or      env_get_int
  import &lt;base64&gt;;       base64_encode       base64_decode        base64_encoded_len
  import &lt;path&gt;;         path_join       path_basename       path_dirname     path_extension</pre>

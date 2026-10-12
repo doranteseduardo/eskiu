@@ -46,18 +46,18 @@ int hash_file(string path, String* out) {
     let data: String;  data.init(4096);
     defer data.free();
     if (fs_read_text(path, &data) != 0) { return -1; }
-    sha256_hex((*uint8)data.data, data.len, out);
+    hash_sha256_hex((*uint8)data.data, data.len, out);
     return 0;
 }
 
 // "1.5 KiB"-style size into `out`.
 void human_size(int64 n, String* out) {
-    if (n < 1024) { str_format(out, "%lld B", n); return; }
+    if (n < 1024) { String_format(out, "%lld B", n); return; }
     const string[3] units = {"KiB", "MiB", "GiB"};
     double v = (double)n / 1024.0;
     int u = 0;
     while (v >= 1024.0 && u < 2) { v = v / 1024.0; u++; }
-    str_format(out, "%.1f %s", v, units[u]);
+    String_format(out, "%.1f %s", v, units[u]);
 }
 
 void report_fs_error(string what, string path) {
@@ -175,7 +175,7 @@ int main(int argc, string* argv) {
             continue;
         }
         if (strcmp(e.action, "error") == 0) { continue; }
-        str_format(&line, "%-10s  %s -> %s/", verb, e.name.cstr(), e.folder.cstr());
+        String_format(&line, "%-10s  %s -> %s/", verb, e.name.cstr(), e.folder.cstr());
         if (strcmp(e.action, "duplicate") == 0) { line.append("  (duplicate)"); }
         println(line.cstr());
         if (dry_run) { continue; }
@@ -208,12 +208,12 @@ int main(int argc, string* argv) {
         println("nothing to organize");
     } else {
         println("");
-        str_format(&line, "%-12s %6s %10s", "folder", "files", "size");
+        String_format(&line, "%-12s %6s %10s", "folder", "files", "size");
         println(line.cstr());
     }
     for (i in 0..folders.size) {
         human_size(folders.data[i].bytes, &size);
-        str_format(&line, "%-12s %6d %10s", folders.data[i].name, folders.data[i].files, size.cstr());
+        String_format(&line, "%-12s %6d %10s", folders.data[i].name, folders.data[i].files, size.cstr());
         println(line.cstr());
     }
 
@@ -228,7 +228,7 @@ int main(int argc, string* argv) {
         for (i in 0..entries.size) {
             *Entry e = &entries.data[i];
             let bytes: String;  bytes.init(16);
-            str_format(&bytes, "%lld", e.size);
+            String_format(&bytes, "%lld", e.size);
             row.clear();
             row.push(e.name.cstr());  row.push(e.folder.cstr());  row.push(bytes.cstr());
             row.push(e.modified.cstr());  row.push(e.hash.cstr());  row.push(e.action);

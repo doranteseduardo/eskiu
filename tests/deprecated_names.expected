@@ -15,3 +15,7 @@ http2b: 65535 0 2 1
 hpack2: 0 0
 http: 1 /x
 url: 1 http://h/c
+hash: ba7816bf ba 169 a9 144 90 182 b 2
+term: 1
+time2: 1m 1s
+string: 7-x a+b

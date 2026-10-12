@@ -19,7 +19,7 @@ EventLoop* g_lp;
 
 void handler(HttpRequest* req, HttpResponse* res) {
     if (req.path.eq_cstr("/slow") == 1) {
-        sleep_ms(400);
+        time_sleep_ms(400);
         HttpResponse_set_body(res, "slow done");
     } else if (req.path.eq_cstr("/fast") == 1) {
         HttpResponse_set_body(res, "fast done");
@@ -107,7 +107,7 @@ int main() {
     for (int i = 0; i < 100 && rc != 0; i++) {
         rc = fetch("http://127.0.0.1:18434/fast", &r);
         Response_free(&r);
-        if (rc != 0) { sleep_ms(20); }
+        if (rc != 0) { time_sleep_ms(20); }
     }
     g_lp = el_new(64);
     Future<int>* f = run(g_lp);

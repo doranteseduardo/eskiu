@@ -992,7 +992,7 @@ Available modules:
 | `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free`; `map`, `filter`, `reduce`, `find`, `any`, `all`, `contains`, `index_of`, `reverse`, `slice`, `unique`, `clear`, `pop`, `insert` |
 | `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers; both with `has`, `get_or`, `len`, `remove`, `keys`, `values`, `each`; `Set<T>`: hash set (`add`/`has`/`remove`/`len`/`each`/`items`) |
 | `<bytes>`    | `Bytes`: growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
-| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `str_join`, `str_format` |
+| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `List_join`, `String_format` |
 | `<ctype>`    | ASCII character classes: `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`; `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin` |
@@ -1013,7 +1013,7 @@ Available modules:
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree; build and edit with `JsonValue_object`/`_array`/`_set`/`_push`/`_remove`, print with `JsonValue_stringify`/`_pretty`, paths with `json_get` |
 | `<csv>`      | RFC 4180 CSV: `csv_parse` into a `CsvTable` (`CsvTable_get(t, row, "column")`), `csv_write_row` |
 | `<dotenv>`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` |
-| `<hash>`     | SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), `hex_encode`/`hex_decode`, `hash_equal` |
+| `<hash>`     | SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), `hash_hex_encode`/`hash_hex_decode`, `hash_equal` |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
@@ -1021,11 +1021,11 @@ Available modules:
 | `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
 | `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, form-query lookup `url_query_get`; `url_parse` into a `Url`, `Url_resolve`, `url_query_add` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `duration_format`, `Stopwatch` |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `time_sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `time_format_duration`, `Stopwatch` |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
 | `<process>`  | `process_run` (capture output, stdin text, cwd, env, timeout), `sh`, `sh_with`, `process_spawn` + `Process_write_stdin`/`_read`/`_wait`/`_kill`, `process_exit`, `process_pid` |
 | `<args>`     | command-line parsing: `ArgParser`, `ArgParser_flag`, `ArgParser_option`, `ArgParser_option_int`, `ArgParser_argument`, generated `--help`, `ArgParser_parse_or_exit`, `ArgParser_get`/`ArgParser_get_int`/`ArgParser_get_flag`/`ArgParser_count` |
-| `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
+| `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_fg_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
 | `<log>`      | `log_info`/`log_warn`/`log_error`/`log_debug`/`log_trace` (printf-style), `LOG_LEVEL` or `log_set_level`, timestamps, `log_set_file` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |

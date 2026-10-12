@@ -3,7 +3,7 @@
 //   eskiuc examples/text_report.esk -o text_report && ./text_report
 //
 // Splits lines and fields, cleans and normalises text, replaces words, parses
-// numbers and formats an aligned table with str_format and padding.
+// numbers and formats an aligned table with String_format and padding.
 
 import <string>;
 extern int printf(string fmt, ...);
@@ -40,12 +40,12 @@ int main() {
         if (amount.parse_double(&value) == 0) { value = 0.0; }
         total = total + value;
 
-        str_format(&row, "%s", name.cstr());
+        String_format(&row, "%s", name.cstr());
         row.pad_right(16, ' ');
         row.append("| ");
         row.append(city.cstr());
         row.pad_right(28, ' ');
-        str_format(&cell, "%.2f", value);
+        String_format(&cell, "%.2f", value);
         cell.pad_left(10, ' ');
         row.append(cell.cstr());
         printf("%s\n", row.cstr());
@@ -56,7 +56,7 @@ int main() {
     defer rule.free();
     rule.repeat(38);
     printf("%s\n", rule.cstr());
-    str_format(&cell, "%.2f", total);
+    String_format(&cell, "%.2f", total);
     cell.pad_left(38, ' ');
     printf("%s\n", cell.cstr());
 

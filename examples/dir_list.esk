@@ -19,12 +19,12 @@ import <path>;
 
 // "12.3K"-style size into `out`.
 void human_size(int64 n, String* out) {
-    if (n < 1024) { str_format(out, "%lldB", n); return; }
+    if (n < 1024) { String_format(out, "%lldB", n); return; }
     const string[4] units = {"K", "M", "G", "T"};
     double v = (double)n / 1024.0;
     int u = 0;
     while (v >= 1024.0 && u < 3) { v = v / 1024.0; u++; }
-    str_format(out, "%.1f%s", v, units[u]);
+    String_format(out, "%.1f%s", v, units[u]);
 }
 
 int list_dir(ArgParser* p, string dir) {
@@ -107,7 +107,7 @@ int main(int argc, string* argv) {
         if (list_dir(&p, ArgParser_get_at(&p, "dirs", i)) != 0) { rc = 1; }
     }
     let took: String;  took.init(16);
-    duration_format(sw.elapsed_ms(), &took);
+    time_format_duration(sw.elapsed_ms(), &took);
     log_debug("done in %s", took.cstr());
     took.free();
     return rc;

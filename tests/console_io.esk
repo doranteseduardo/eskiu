@@ -68,7 +68,7 @@ int main(int argc, string* argv) {
     // another one (a pipeline sh and cmd.exe both understand).
     let r: ProcessResult;
     let big: String;  big.init(16);
-    str_format(&big, "\"%s\" emit | \"%s\" all", argv[0], argv[0]);
+    String_format(&big, "\"%s\" emit | \"%s\" all", argv[0], argv[0]);
     sh(big.cstr(), &r);
     printf("binary: %s", r.stdout.data);
     ProcessResult_free(&r);

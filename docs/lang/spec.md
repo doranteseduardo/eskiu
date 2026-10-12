@@ -2322,7 +2322,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 |-----------------------|------------------------------------------------------------------|
 | `stdlib/result.esk`   | `Result<T,E>` template struct; `Ok<T,E>(value)` and `Err<T,E>(err)` constructor functions |
 | `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free`; scripting helpers `List_map`, `List_filter`, `List_reduce`, `List_find`, `List_any`, `List_all`, `List_contains`, `List_index_of`, `List_reverse`, `List_slice`, `List_unique`, `List_clear`, `List_pop`, `List_insert` (see [List helpers](#list-helpers)) |
-| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`); scripting helpers `String_find`, `String_contains`, `String_replace`, `String_replace_all`, `String_split_str`, `String_lines`, `String_join`, `str_join`, `List_join`, `String_lower`, `String_upper`, `String_repeat`, `String_pad_left`, `String_pad_right`, `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, `String_appendf`, `str_format` (see [String scripting helpers](#string-scripting-helpers)). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
+| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`); scripting helpers `String_find`, `String_contains`, `String_replace`, `String_replace_all`, `String_split_str`, `String_lines`, `String_join`, `List_join`, `String_lower`, `String_upper`, `String_repeat`, `String_pad_left`, `String_pad_right`, `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, `String_appendf`, `String_format` (see [String scripting helpers](#string-scripting-helpers)). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
 | `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only, no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `fmod`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar`; console helpers `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin`, and the C streams `io_stdin`/`io_stdout`/`io_stderr` |
@@ -2330,7 +2330,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`. Text files (`fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`), metadata (`FileStat`, `fs_stat`, `fs_lstat`, `fs_exists`, `fs_is_dir`, `fs_is_file`), directories (`fs_mkdir`, `fs_mkdir_p`, `fs_remove`, `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir`, `fs_walk`, `fs_glob`, `fs_match`), `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, `fs_temp_base`, and errors (`fs_last_error`, `fs_errno`, `fs_errno_missing`); see [Files and directories](#files-and-directories-fs) |
 | `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_accept_addr` (accept + peer IPv4), `net_tcp_connect` (a dotted IPv4 address, or a host name or IPv6 address resolved through `<dns>`), `net_send`, `net_recv`, `net_send_str`, `net_close`, socket timeouts (`net_set_recv_timeout`, `net_set_send_timeout`, `net_set_timeouts`, `net_would_block`; the `struct timeval` is two C `long`s, so 8 bytes on 32-bit ARM), deadlines (`net_deadline`, `NET_TIMED_OUT`) and a blocking readiness wait (`net_wait_ready`, over `poll` / `WSAPoll`) (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
 | `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit`, each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
-| `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`); local time (`time_to_local`, `time_local_offset`), `time_format`/`time_parse`/`time_parse_local` with strftime-style specifiers, `duration_format`, `Stopwatch` |
+| `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `time_sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`); local time (`time_to_local`, `time_local_offset`), `time_format`/`time_parse`/`time_parse_local` with strftime-style specifiers, `time_format_duration`, `Stopwatch` |
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
 | `stdlib/regex.esk`    | A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): `regex_compile(pattern) -> Regex` (check `.ok` / `.err`), `Regex_search(&re, text, &m)` for the leftmost match with capture groups, `Match_group`, `Match_free`, `Regex_free`, and the one-shot `regex_match(pattern, text)`. RE2 syntax and semantics (as Go's regexp) over UTF-8: `.`, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, `.`, classes `[a-z]`/`[^...]` with POSIX names inside (`[[:alpha:]]`, `[[:^space:]]`), the ASCII shorthands `\d \w \s` (and negations; `\s` is `[\t\n\f\r ]`), Unicode classes `\pL`, `\p{Lu}`, `\p{Greek}`, `\P{..}`, `\p{^..}` (general categories, scripts, `Any`; the Unicode 15 tables are `stdlib/regex_unicode.esk`), `* + ? {m} {m,} {m,n}` (lazy with `?`; any other `{` is a literal), `|`, groups, non-capturing `(?:...)`, named `(?P<name>...)` / `(?<name>...)`, the flags `(?i)` (simple case folding) `(?m)` `(?s)` `(?U)` for the rest of a group or scoped `(?flags:...)`, `^` / `$`, `\A` / `\z`, the ASCII word boundaries `\b` / `\B`, `\xHH` / `\x{10FFFF}` and octal escapes, literal text `\Q...\E` (any other escaped letter or digit is an error) |
 | `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive); `List_sort_by(&list, cmp)` sorts a `List<T>` in place |
@@ -2353,9 +2353,9 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free`. Documents: `JsonValue_object`/`_array`/`_string`/`_number`/`_int`/`_bool`/`_null`, `JsonValue_set`/`_push`/`_remove`, `JsonValue_stringify`/`_pretty`, `json_get(v, "a.b[0][\"k.x\"]")` |
 | `stdlib/csv.esk`      | RFC 4180 CSV: `csv_parse`/`csv_parse_with`/`csv_parse_buf` into a `CsvTable` (`CsvTable_len`/`_row`/`_cell`/`_col`/`_get`/`_error`/`_write`/`_free`), `csv_write_row`/`csv_write_row_with` |
 | `stdlib/dotenv.esk`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` into a `Map<string>`, `dotenv_free`, `dotenv_error`/`dotenv_error_line` |
-| `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `sha256`/`sha256_hex`/`sha256_str` (same for `sha1`, `md5`), `hmac_sha256`/`hmac_sha256_str`, `hex_encode`/`hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
+| `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `hash_sha256`/`hash_sha256_hex`/`hash_sha256_str` (same for `hash_sha1`, `hash_md5`), `hash_hmac_sha256`/`hash_hmac_sha256_str`, `hash_hex_encode`/`hash_hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
 | `stdlib/args.esk`     | Command-line parsing: `ArgParser` (`_init`/`_parse`/`_parse_or_exit`/`_help`/`_usage`/`_error`/`_free`), declared with `ArgParser_flag`, `ArgParser_option`, `ArgParser_option_int`, `ArgParser_argument`, read with `ArgParser_get`, `ArgParser_get_int`, `ArgParser_get_flag`, `ArgParser_count`, `ArgParser_get_at`, `ArgParser_get_all`, `ArgParser_positional`, `ArgParser_rest` |
-| `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
+| `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_fg_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
 | `stdlib/log.esk`      | Leveled logging: `log_trace`/`log_debug`/`log_info`/`log_warn`/`log_error`/`log_at` (printf-style), `log_set_level` (or `LOG_LEVEL`), `log_set_file`/`log_set_stderr`, `log_set_time`, `log_set_color`, `log_freeze_time` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
 | `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`Future_complete`/`Future_poll`/`Future_drop`/`Future_free`/`Future_free_polled` (the latter also frees the waker a hand-driven `Future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
@@ -2461,7 +2461,7 @@ changes ASCII letters only and leaves every other byte (UTF-8 included) as is.
 | `int64 String_replace_all(String* self, string from, string to)` | Replace every non-overlapping occurrence, left to right (`"aaa"`, `"aa"` to `"b"` gives `"ba"`); returns the count |
 | `void String_split_str(String* self, string sep, List<String>* out)` | Split on a string; separators at the ends or side by side give empty parts, an empty `sep` gives one part |
 | `void String_lines(String* self, List<String>* out)` | Split on `\n` or `\r\n`; a final terminator adds no empty line, an empty String has none |
-| `void str_join(List<string>* parts, string sep, String* out)` | Join C strings into `out`; `parts.join(sep, &out)` (`List_join`) does the same |
+| `void List_join<T>(List<T>* self, string sep, String* out)` | Join the C strings of a `List<string>` into `out`: `parts.join(sep, &out)` |
 | `void String_join(String* self, List<String>* parts, string sep)` | Join Strings (the inverse of a split) into `self` |
 | `void String_lower(String* self)`, `void String_upper(String* self)` | ASCII case mapping in place |
 | `void String_repeat(String* self, int64 n)` | `n` copies of itself; `n <= 0` empties it |
@@ -2469,7 +2469,7 @@ changes ASCII letters only and leaves every other byte (UTF-8 included) as is.
 | `double String_to_double(String* self)` | Leading number in C `strtod` syntax, 0.0 if none |
 | `int String_parse_double(String* self, *double out)` | The whole String (surrounding whitespace allowed) as one number: 1 and `*out` set, or 0 |
 | `void String_from_double(String* self, double d)` | Shortest of `%.15g` / `%.17g` that reads back as `d` (`0.1`, `3`, `1e+20`) |
-| `void str_format(String* out, string fmt, ...)` | `printf`-style formatting into `out`, through the C library's `vsnprintf` (C rules: `%lld` for `int64`, `s.cstr()` for a String) |
+| `void String_format(String* self, string fmt, ...)` | `printf`-style formatting into `self` (cleared first), through the C library's `vsnprintf` (C rules: `%lld` for `int64`, `s.cstr()` for a String) |
 | `void String_appendf(String* self, string fmt, ...)` | The same, appending |
 | `void String_reserve(String* self, int64 need)` | Grow the buffer to at least `need` bytes |
 
@@ -2480,7 +2480,7 @@ s.split_str(";", &parts);                   // [a=1] [b=2] [] [c=3]
 String_split_free(&parts);
 s.replace_all(";", ", ");                   // "a=1, b=2, , c=3"
 let out: String;  out.init(16);
-str_format(&out, "%s has %d bytes", s.cstr(), (int)s.len);
+String_format(&out, "%s has %d bytes", s.cstr(), (int)s.len);
 out.free();
 s.free();
 ```
@@ -2995,7 +2995,7 @@ extern int printf(string fmt, ...);
 
 int main() {
     let hex: String;  hex.init(65);
-    sha256_str("abc", &hex);                     // ba7816bf...f20015ad
+    hash_sha256_str("abc", &hex);                // ba7816bf...f20015ad
     printf("%s\n", hex.data);
 
     let h: Sha256;  h.init();                    // streaming
@@ -3003,7 +3003,7 @@ int main() {
     let digest: uint8[32];
     h.final(&digest[0]);
 
-    hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &hex);
+    hash_hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &hex);
     printf("%d\n", hash_equal_str((string)hex.data, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"));
     hex.free();
     return 0;
@@ -3014,11 +3014,11 @@ SHA-256, SHA-1 and MD5 are written in Eskiu (no OpenSSL). Each has a streaming t
 (`Sha256`, `Sha1`, `Md5`) with `_init`, `_update(data, n)`, `_update_str(s)`,
 `_final(out)` (the raw digest: `SHA256_SIZE` 32, `SHA1_SIZE` 20, `MD5_SIZE` 16 bytes into
 a caller buffer) and `_final_hex(&out)`; a value is `init`ed again before reuse. The
-one-shot forms are `sha256(data, n, out)` (raw), `sha256_hex(data, n, &out)` and
-`sha256_str(s, &out)` (lowercase hex), and the same for `sha1` and `md5`. `HmacSha256`
-(`_init(key, klen)`, `_update`, `_final`) and `hmac_sha256(key, klen, data, n, out)` /
-`hmac_sha256_str(key, msg, &out)` implement RFC 2104 (keys over 64 bytes are hashed
-first). `hex_encode(data, n, &out)` writes lowercase hex; `hex_decode(s, out, cap)`
+one-shot forms are `hash_sha256(data, n, out)` (raw), `hash_sha256_hex(data, n, &out)` and
+`hash_sha256_str(s, &out)` (lowercase hex), and the same for `hash_sha1` and `hash_md5`. `HmacSha256`
+(`_init(key, klen)`, `_update`, `_final`) and `hash_hmac_sha256(key, klen, data, n, out)` /
+`hash_hmac_sha256_str(key, msg, &out)` implement RFC 2104 (keys over 64 bytes are hashed
+first). `hash_hex_encode(data, n, &out)` writes lowercase hex; `hash_hex_decode(s, out, cap)`
 returns the byte count, or -1 for an odd length, a non-hex character or more than `cap`
 bytes. `hash_equal(a, b, n)` and `hash_equal_str(a, b)` compare in time that depends
 only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
@@ -3063,9 +3063,9 @@ int main() {
     time_format(time_now_s(), "%a %F %T %Z (%z)", TIME_LOCAL, &s);
     int64 t = 0;
     time_parse("2026-10-11T10:30:05+02:00", "%FT%T%z", &t);   // 1791707405
-    duration_format(3723000, &s);                              // "1h 2m 3s"
+    time_format_duration(3723000, &s);                              // "1h 2m 3s"
     let sw: Stopwatch;  sw.start();
-    sleep_ms(10);
+    time_sleep_ms(10);
     printf("%lld ms\n", sw.elapsed_ms());
     s.free();
     return 0;
@@ -3089,7 +3089,7 @@ or `+hh:mm` and `%Z` takes `UTC`, `GMT` or `Z`. Fields not given default to 1970
 and the time is UTC unless an offset is parsed or `%s` sets the instant.
 `time_parse_local` reads a time without an offset in the local zone.
 
-`duration_format(ms, &out)` writes `1d 2h 3m 4s 5ms`, leaving out zero parts (`0ms` for
+`time_format_duration(ms, &out)` writes `1d 2h 3m 4s 5ms`, leaving out zero parts (`0ms` for
 zero, a leading `-` when negative). A `Stopwatch` measures on the monotonic clock:
 `start` (or restart), `elapsed_ms`, and `lap` (milliseconds since the previous lap or the
 start).
@@ -3105,7 +3105,7 @@ int main() {
     term_style(&s, "error:", TERM_BOLD | TERM_RED);
     s.append(" not found");
     println(s.cstr());
-    term_print("sunset\n", term_rgb(255, 128, 0) | term_bg256(17));
+    term_print("sunset\n", term_fg_rgb(255, 128, 0) | term_bg256(17));
     printf("%d columns\n", term_width());
     s.free();
     return 0;
@@ -3115,7 +3115,7 @@ int main() {
 A style is an `int64` combined with `|`: attributes `TERM_BOLD`, `TERM_DIM`,
 `TERM_ITALIC`, `TERM_UNDERLINE`, `TERM_BLINK`, `TERM_REVERSE`, `TERM_HIDDEN`,
 `TERM_STRIKE`; one foreground color (`TERM_BLACK` ... `TERM_WHITE`, `TERM_BRIGHT_*`,
-`TERM_GRAY`, `term_fg256(n)`, `term_rgb(r, g, b)`); one background color (`TERM_BG_*`,
+`TERM_GRAY`, `term_fg256(n)`, `term_fg_rgb(r, g, b)`); one background color (`TERM_BG_*`,
 `term_bg256(n)`, `term_bg_rgb(r, g, b)`). `TERM_PLAIN` is no style. `term_sgr(&out,
 style)` appends the escape sequence and `term_reset(&out)` the reset, always.
 `term_style(&out, text, style)` appends the text wrapped in them only when colors are

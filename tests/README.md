@@ -141,7 +141,7 @@ when you add a test.
 | `string_methods` | `<string>` builder ops (`push`, `char_at`, `len`) |
 | `string_ops` | `<string>` `split` (e.g. `"a,b,,c"` on `','`) |
 | `threading` | `<threading>` `Mutex`/`Cond`/`Sem`; shared state captured by pointer |
-| `time` | `<time>` wall clock / monotonic / `sleep_ms` |
+| `time` | `<time>` wall clock / monotonic / `time_sleep_ms` |
 | `executor` | async `Executor`: scheduled wakers run on the loop thread in FIFO order |
 | `net_async` | leaf future: a coroutine awaits `net_read_async` over the reactor |
 | `async_basic` | `async`/`await` transform: one await of an already-ready future (fast path) |

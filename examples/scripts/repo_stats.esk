@@ -56,7 +56,7 @@ int get_json(string url, FetchOptions* o, **JsonValue out) {
 // 1234567 -> "1,234,567"
 void group_digits(int64 n, String* out) {
     let digits: String;  digits.init(24);
-    str_format(&digits, "%lld", n);
+    String_format(&digits, "%lld", n);
     out.clear();
     for (i in 0..digits.len) {
         if (i > 0 && digits.data[0] != '-' && (digits.len - i) % 3 == 0) { out.push(','); }
@@ -126,7 +126,7 @@ void print_summary(JsonValue* repo, List<Language>* langs, int64 total, int top)
         cell.append(l.name);
         cell.pad_right(14, ' ');
         line.concat(&cell);
-        str_format(&cell, "%.1f%%", pct);
+        String_format(&cell, "%.1f%%", pct);
         cell.pad_left(6, ' ');
         line.concat(&cell);
         line.append("  ");
@@ -138,7 +138,7 @@ void print_summary(JsonValue* repo, List<Language>* langs, int64 total, int top)
         println(line.cstr());
     }
     if (langs.size > shown) {
-        str_format(&line, "    (%d more)", langs.size - shown);
+        String_format(&line, "    (%d more)", langs.size - shown);
         term_println(line.cstr(), TERM_DIM);
     }
     line.free();
@@ -210,7 +210,7 @@ int main(int argc, string* argv) {
 
     let url: String;  url.init(128);
     defer url.free();
-    str_format(&url, "%s/repos/%s", ArgParser_get(&p, "api-url"), repo_name);
+    String_format(&url, "%s/repos/%s", ArgParser_get(&p, "api-url"), repo_name);
     *JsonValue repo = null;
     int rc = get_json(url.cstr(), &o, &repo);
     if (rc != 0) { return rc; }

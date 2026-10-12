@@ -2,7 +2,7 @@
 //
 //   import <time>;
 //   int64 t0 = time_monotonic_ms();
-//   sleep_ms(50);
+//   time_sleep_ms(50);
 //   int64 dt = time_monotonic_ms() - t0;   // ~50
 
 // The calendar helpers at the bottom build ISO 8601 strings, so <time> pulls in
@@ -28,7 +28,7 @@ int64 time_now_s() {
     return (ft - 116444736000000000) / 10000000;   // 100ns -> s
 }
 int64 time_monotonic_ms() { return GetTickCount64(); }   // ms since boot, monotonic
-void  sleep_ms(int64 ms)  { Sleep((int)ms); }
+void  time_sleep_ms(int64 ms)  { Sleep((int)ms); }
 #else
 struct timespec {
     int64 tv_sec;
@@ -68,7 +68,7 @@ int64 time_monotonic_ms() {
 }
 
 // Sleep for the given number of milliseconds.
-void sleep_ms(int64 ms) {
+void time_sleep_ms(int64 ms) {
     let req: timespec;
     req.tv_sec  = ms / 1000;
     req.tv_nsec = (ms % 1000) * 1000000;
@@ -543,7 +543,7 @@ int time_parse_local(string text, string fmt, *int64 out) {
 // Write a millisecond duration as "1d 2h 3m 4s 5ms" into `out` (cleared
 // first), leaving out zero parts: 3723000 is "1h 2m 3s", 1500 is "1s 500ms",
 // 0 is "0ms", and a negative duration starts with "-".
-void duration_format(int64 ms, String* out) {
+void time_format_duration(int64 ms, String* out) {
     out.clear();
     if (ms == 0) { out.append("0ms"); return; }
     uint64 a = (uint64)ms;
@@ -596,3 +596,7 @@ int64 Stopwatch_lap(Stopwatch* self) {
 int64 time_from_utc(DateTime* dt) { return DateTime_to_epoch(dt); }
 // deprecated: use DateTime_format_iso
 void time_format_iso(DateTime* dt, String* out) { DateTime_format_iso(dt, out); }
+// Deprecated (0.10.1): use time_sleep_ms.
+void sleep_ms(int64 ms) { time_sleep_ms(ms); }
+// Deprecated (0.10.1): use time_format_duration.
+void duration_format(int64 ms, String* out) { time_format_duration(ms, out); }
