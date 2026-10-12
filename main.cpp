@@ -536,7 +536,13 @@ static int compilerMain(int argc, char** argv) {
         std::string runExePath;
         if (g_runMode) {
             llvm::SmallString<128> tmpExe;
-            if (llvm::sys::fs::createTemporaryFile("eskiu-run", "", tmpExe)) {
+#ifdef _WIN32
+            // The Windows linker driver appends ".exe" to a name without one.
+            const char* runSuffix = "exe";
+#else
+            const char* runSuffix = "";
+#endif
+            if (llvm::sys::fs::createTemporaryFile("eskiu-run", runSuffix, tmpExe)) {
                 std::cerr << "error: could not create a temporary executable" << std::endl;
                 return 1;
             }
