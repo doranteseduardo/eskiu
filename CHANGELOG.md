@@ -76,6 +76,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ### Changed
 
+- VS Code extension 0.1.0: errors as you type (checked through a hidden copy of the unsaved
+  file), Format Document with `eskiuc fmt`, an "Eskiu: Run File" command, and the
+  `eskiu.compilerPath`, `eskiu.checkOnType` and `eskiu.checkDelay` settings. It works in
+  editors built on VS Code (Cursor, Antigravity, VSCodium).
+- IntelliJ plugin: builds against IntelliJ 2024.1 (the first with the TextMate bundle API it
+  uses) with no upper bound, ships the grammar as files, and has a Gradle wrapper; the
+  grammar copies are in sync with VS Code again.
 - The bare-metal ARM64 kernel in `kernel/` uses current Eskiu: a `volatile` PL011 driver, `.bss` cleared through `extern` linker symbols, the stdlib `Bump` heap, system registers read with inline-asm outputs, and a PSCI power off at the end. `make -C kernel check` boots it in QEMU and checks its output, and CI runs it on Linux.
 - The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. `make check` types a shell session into it and boots both an `-O0` and an `-O2` build.
 - The recursive-descent parser encapsulates speculative backtracking into explicit `speculate()`

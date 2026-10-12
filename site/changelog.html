@@ -227,6 +227,13 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>
+<li>VS Code extension 0.1.0: errors as you type (checked through a hidden copy of the unsaved
+  file), Format Document with <code>eskiuc fmt</code>, an "Eskiu: Run File" command, and the
+  <code>eskiu.compilerPath</code>, <code>eskiu.checkOnType</code> and <code>eskiu.checkDelay</code> settings. It works in
+  editors built on VS Code (Cursor, Antigravity, VSCodium).</li>
+<li>IntelliJ plugin: builds against IntelliJ 2024.1 (the first with the TextMate bundle API it
+  uses) with no upper bound, ships the grammar as files, and has a Gradle wrapper; the
+  grammar copies are in sync with VS Code again.</li>
 <li>The bare-metal ARM64 kernel in <code>kernel/</code> uses current Eskiu: a <code>volatile</code> PL011 driver, <code>.bss</code> cleared through <code>extern</code> linker symbols, the stdlib <code>Bump</code> heap, system registers read with inline-asm outputs, and a PSCI power off at the end. <code>make -C kernel check</code> boots it in QEMU and checks its output, and CI runs it on Linux.</li>
 <li>The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. <code>make check</code> types a shell session into it and boots both an <code>-O0</code> and an <code>-O2</code> build.</li>
 <li>The recursive-descent parser encapsulates speculative backtracking into explicit <code>speculate()</code>
