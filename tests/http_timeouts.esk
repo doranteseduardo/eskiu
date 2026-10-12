@@ -56,9 +56,14 @@ void clients(int port) {
     t0 = time_monotonic_ms();
     c = connect_retry(port);
     // A byte every 15 ms for 120 ms: all of it read before header_ms (150), which
-    // it must not extend (a per-read timeout would answer at about 270 ms).
+    // it must not extend (a per-read timeout would answer at about 270 ms). Each pause
+    // waits for the answer instead of sleeping, so a slow timer (macOS coalesces short
+    // sleeps) cannot delay reading a 408 that already arrived.
     net_send_str(c, "GET / HTTP/1.1\r\n");
-    for (i in 0..8) { usleep(15000); net_send_str(c, "X"); }
+    for (i in 0..8) {
+        if (net_wait_ready(c, 0, time_monotonic_ms() + 15) == 0) { break; }
+        net_send_str(c, "X");
+    }
     show2("trickled head", c, t0, 140, 250);
 
     t0 = time_monotonic_ms();
