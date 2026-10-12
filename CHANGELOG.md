@@ -121,6 +121,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - Self-hosted compiler: a dot-call on an instance of a generic enum (`o.is_some()` on an
   `Option<int>`) reaches the generic free function `Option_is_some<T>`, as in the C++ compiler;
   it emitted an invalid call before. Test `either_stdlib`.
+- Self-hosted compiler: a program that declares `strcmp` (now any program that imports `<mem>`)
+  and catches an exception no longer declares `strcmp` twice in its IR, which clang rejected.
+  Test `catch_strcmp_extern`.
 
 ## [0.10.0] - 2026-10-11
 
