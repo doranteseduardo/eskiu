@@ -14,6 +14,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - CI runs `tests/leaks.sh` (AddressSanitizer with LeakSanitizer) as its own job, and a
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
 
+### Fixed
+- A lambda assigned to a local after its declaration (`f = <lambda>`), or to a `fn` local
+  declared without a value, is bound to that local like an initializer: while the local is
+  only called its environment lives on the stack. Before, each such assignment leaked a heap
+  environment. Both compilers. Test `closure_rebind_env`, also in `tests/leaks.sh`.
+
 ---
 
 ## [0.10.0] - 2026-10-11

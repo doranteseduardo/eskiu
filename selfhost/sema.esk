@@ -4704,11 +4704,25 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             sema_error(s, "cannot assign to read-only location");
         }
         if (sema_is_assign(e.sval) == 1) { sema_check_captured_write(s, e.a); }
+        // `f = <lambda>` rebinds a lambda local: the target is not a use of f's value, and
+        // the lambda is bound to f like an initializer (mirrors the C++ visit(BinaryExpr)).
+        int lam_rebind = 0;
+        if (sema_streq(e.sval, "=") == 1 && e.a != null && e.a.kind == EK_IDENT && e.b != null
+            && e.b.kind == EK_LAMBDA && s.in_inst == 0 && sema_in_list(&s.wlocals, e.a.sval) == 1) { lam_rebind = 1; }
+        string saved_callee = s.callee_ctx;
+        if (lam_rebind == 1) { s.callee_ctx = e.a.sval; }
         sema_expr(s, e.a);
+        s.callee_ctx = saved_callee;
         if (sema_streq(e.sval, "=") == 1) {
             sema_hint_iface(s, e.b, sema_infer_type(s, e.a));
         }
+        if (lam_rebind == 1) { s.lam_local = e.a.sval; }
         sema_expr(s, e.b);
+        if (lam_rebind == 1) {
+            s.lam_local = "";
+            List_push<*ExprNode>(&s.wlam, e.b); List_push<string>(&s.wlam_name, e.a.sval);
+            List_push<int>(&s.wlam_async, s.in_async);
+        }
         // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
         // itself (`p = p + k`, `p += k`).
         int keeps = 0;
@@ -6177,6 +6191,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             List_push<string>(&s.wlocals, st.name);
             List_push<*ExprNode>(&s.wlam, st.expr); List_push<string>(&s.wlam_name, st.name);
             List_push<int>(&s.wlam_async, s.in_async);
+        }
+        // A `fn(...)` local declared without a value can still be a lambda local: lambdas
+        // assigned to it later are bound to it (mirrors the C++ visit(VarDecl)).
+        if (st.expr == null && st.is_static == 0 && s.in_inst == 0 && sema_is_fn_type(vty) == 1) {
+            List_push<string>(&s.wlocals, st.name);
         }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
