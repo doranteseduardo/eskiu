@@ -79,6 +79,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
+- `<process>` no longer sets the process-wide SIGPIPE disposition while it writes a child's
+  stdin: two threads running processes at once could restore the default under each other
+  (a SIGPIPE then killed the program) or leave it ignored. A closed stdin is EPIPE through
+  `F_SETNOSIGPIPE` on macOS and a SIGPIPE blocked in the writing thread on Linux.
 - `String_concat` and `String_split` keep a NUL byte inside a `String`; both stopped at the
   first one.
 - An `extern` with the name of a generic function is a declaration error in both compilers;
