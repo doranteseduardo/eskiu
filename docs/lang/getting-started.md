@@ -1150,6 +1150,55 @@ time it is needed, so a program that only fetches `http://` URLs runs without it
 macOS install it with `brew install openssl@3`, on Debian or Ubuntu it is the `libssl3`
 package (usually present already).
 
+### Scripting
+
+With `eskiuc run` and a `#!/usr/bin/env eskiuc run` line (see
+[Run it like a script](#run-it-like-a-script)), the modules above cover what small
+tools usually need: `<fs>` for files and directories, `<process>` to run commands,
+`<fetch>` for HTTP, `<json>`, `<csv>`, `<dotenv>` and `<hash>` for data, `<args>`,
+`<term>` and `<log>` for the command line, and `<time>` for dates. This script
+counts the lines of each `.esk` file under a directory, largest first:
+
+```eskiu
+#!/usr/bin/env eskiuc run
+import <args>;
+import <fs>;
+import <sort>;
+
+struct Count { String path; int lines; }
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&p, "count_lines", "Count the lines of the .esk files under DIR.");
+    args_argument(&p, "dir", "where to look", ARGS_REQUIRED);
+    ArgParser_parse_or_exit(&p, argc, argv);
+
+    let pattern: String;  pattern.from(args_get(&p, "dir"));
+    pattern.append("/**/*.esk");
+    let files: List<String>;  List_init<String>(&files, 16);
+    fs_glob(pattern.cstr(), &files);
+
+    let counts: List<Count>;  List_init<Count>(&counts, 16);
+    let lines: List<String>;  List_init<String>(&lines, 64);
+    for (i in 0..files.size) {
+        if (fs_read_lines(files.data[i].cstr(), &lines) == 0) {
+            counts.push(Count { path: files.data[i], lines: lines.size });
+        }
+        fs_list_free(&lines);
+        List_init<String>(&lines, 64);
+    }
+    counts.sort_by(int(*Count a, *Count b) { return b.lines - a.lines; });
+    for (i in 0..counts.size) { printf("%6d  %s\n", counts.data[i].lines, counts.data[i].path.cstr()); }
+    return 0;
+}
+```
+
+`examples/scripts/` has two longer ones: `repo_stats.esk` (the GitHub API through
+`<fetch>`, a colored summary or JSON) and `organize.esk` (sorting a directory's files
+into folders, with duplicates found by SHA-256 and a CSV report). Chapter 25 of
+[The Book of Eskiu](https://eskiu-lang.org/the-book-of-eskiu.html#chapter-25) walks
+through every module with a runnable example.
+
 ---
 
 ## Lambdas

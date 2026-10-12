@@ -1283,6 +1283,50 @@ int rc = fetch_with(&quot;https://example.com/api/items&quot;, &amp;o, &amp;r);
 time it is needed, so a program that only fetches <code>http://</code> URLs runs without it; on
 macOS install it with <code>brew install openssl@3</code>, on Debian or Ubuntu it is the <code>libssl3</code>
 package (usually present already).</p>
+<h3 id="scripting">Scripting</h3>
+<p>With <code>eskiuc run</code> and a <code>#!/usr/bin/env eskiuc run</code> line (see
+<a href="#run-it-like-a-script">Run it like a script</a>), the modules above cover what small
+tools usually need: <code>&lt;fs&gt;</code> for files and directories, <code>&lt;process&gt;</code> to run commands,
+<code>&lt;fetch&gt;</code> for HTTP, <code>&lt;json&gt;</code>, <code>&lt;csv&gt;</code>, <code>&lt;dotenv&gt;</code> and <code>&lt;hash&gt;</code> for data, <code>&lt;args&gt;</code>,
+<code>&lt;term&gt;</code> and <code>&lt;log&gt;</code> for the command line, and <code>&lt;time&gt;</code> for dates. This script
+counts the lines of each <code>.esk</code> file under a directory, largest first:</p>
+<pre><code class="language-eskiu">#!/usr/bin/env eskiuc run
+import &lt;args&gt;;
+import &lt;fs&gt;;
+import &lt;sort&gt;;
+
+struct Count { String path; int lines; }
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&amp;p, &quot;count_lines&quot;, &quot;Count the lines of the .esk files under DIR.&quot;);
+    args_argument(&amp;p, &quot;dir&quot;, &quot;where to look&quot;, ARGS_REQUIRED);
+    ArgParser_parse_or_exit(&amp;p, argc, argv);
+
+    let pattern: String;  pattern.from(args_get(&amp;p, &quot;dir&quot;));
+    pattern.append(&quot;/**/*.esk&quot;);
+    let files: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;files, 16);
+    fs_glob(pattern.cstr(), &amp;files);
+
+    let counts: List&lt;Count&gt;;  List_init&lt;Count&gt;(&amp;counts, 16);
+    let lines: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;lines, 64);
+    for (i in 0..files.size) {
+        if (fs_read_lines(files.data[i].cstr(), &amp;lines) == 0) {
+            counts.push(Count { path: files.data[i], lines: lines.size });
+        }
+        fs_list_free(&amp;lines);
+        List_init&lt;String&gt;(&amp;lines, 64);
+    }
+    counts.sort_by(int(*Count a, *Count b) { return b.lines - a.lines; });
+    for (i in 0..counts.size) { printf(&quot;%6d  %s\n&quot;, counts.data[i].lines, counts.data[i].path.cstr()); }
+    return 0;
+}
+</code></pre>
+<p><code>examples/scripts/</code> has two longer ones: <code>repo_stats.esk</code> (the GitHub API through
+<code>&lt;fetch&gt;</code>, a colored summary or JSON) and <code>organize.esk</code> (sorting a directory's files
+into folders, with duplicates found by SHA-256 and a CSV report). Chapter 25 of
+<a href="https://eskiu-lang.org/the-book-of-eskiu.html#chapter-25">The Book of Eskiu</a> walks
+through every module with a runnable example.</p>
 <hr>
 <h2 id="lambdas">Lambdas</h2>
 <p>Eskiu supports anonymous functions (lambdas) as first-class values. The syntax
