@@ -15,6 +15,21 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
 
 ### Fixed
+- `<fetch>` on Windows: HTTPS with verification on and no `ca_file` now trusts the
+  certificates of the Windows "ROOT" store, since OpenSSL's default store is usually
+  empty there.
+- `<net>` on Windows: `send` and `recv` are declared with Winsock's `int` types. A
+  failed or would-block `net_recv` returned 4294967295 instead of -1, which crashed
+  plain `http://` fetches.
+- `<string>` on Windows: `str_format`, `String_appendf`, `String_from_double`, the
+  `<json>` number writer and `<log>` format through mingw-w64's C99 printf, so
+  exponents and infinity print as on other platforms (`1e+06`, not `1e+006`; `inf`,
+  not `1.#INF`).
+- `eskiuc run` on Windows: the temporary program gets an `.exe` name, so it runs.
+- windows.yml builds and runs every 0.10 scripting module test, the example scripts,
+  a console check of `<term>` and an HTTPS fetch against the system trust store.
+  `tests/process_self.esk` tests `<process>` with copies of itself as the children,
+  including a timeout that must also end a grandchild.
 - On macOS the link uses the same minimum OS version as the object (the native triple carries
   the host's version; the C driver otherwise picks its SDK's), so `ld` no longer warns that an
   object is newer than the target it links for, as happened when the host and SDK versions
