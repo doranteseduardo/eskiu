@@ -51,6 +51,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   scheme) returns its own error code, such as `FETCH_ERR_NO_TLS`, not always `FETCH_ERR_URL`.
 - `<args>`: an empty command-line argument no longer reads one byte past its end.
 - `<time>`: `time_parse` rejects a `%s` value outside `int64` instead of wrapping around.
+- `<fs>`: `fs_remove_all` given a symbolic link with a trailing slash (`"link/"`) removes the
+  link; it used to follow it and delete the target directory's contents.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
 

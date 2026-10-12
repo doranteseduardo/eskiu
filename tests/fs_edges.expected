@@ -1,0 +1,5 @@
+remove_all tree/link/ rc=0 errno=0
+link gone=1 victim kept=1 sub kept=1
+remove_all top// rc=0 errno=0
+victim kept=1
+cleanup rc=0 errno=0

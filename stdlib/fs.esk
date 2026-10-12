@@ -615,6 +615,15 @@ void _fs_join(String* out, string dir, string name) {
 // Remove a path and everything under it ("rm -rf"). Symbolic links are removed,
 // never followed. A missing path is success. 0 or -1 (the first failure).
 int fs_remove_all(string path) {
+    // lstat("link/") follows the link: drop trailing separators first, so a
+    // symbolic link named with one is removed, not emptied.
+    let trimmed: String;  trimmed.from(path);
+    defer trimmed.free();
+    while (trimmed.len > 1 && _fs_is_sep(trimmed.data[trimmed.len - 1])) {
+        trimmed.len--;
+        trimmed.data[trimmed.len] = 0;
+    }
+    path = trimmed.cstr();
     let st: FileStat;
     if (_fs_stat_impl(path, &st, false) != 0) {
         if (fs_errno_missing()) { _fs_err = 0; return 0; }

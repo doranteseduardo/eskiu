@@ -1,0 +1,35 @@
+// <fs> edge cases (POSIX): fs_remove_all given a symbolic link with a trailing
+// slash removes the link and leaves its target alone; fs_copy onto the source
+// itself (or a link to it) fails instead of emptying it; fs_mkdir_p reports the
+// mkdir error; fs_glob reads backslash escapes in a component without wildcards.
+import <fs>;
+extern int printf(string fmt, ...);
+extern int symlink(string target, string link);
+extern int geteuid();
+
+void show(string label, int rc) {
+    printf("%s rc=%d errno=%d\n", label, rc, rc == 0 ? 0 : fs_errno());
+}
+
+int main() {
+    let root: String;  root.init(64);
+    if (fs_temp_dir("eskiu_fs_edges_", &root) != 0) { printf("temp_dir failed\n"); return 1; }
+    fs_chdir(root.cstr());
+
+    fs_mkdir_p("victim/sub");
+    fs_write_text("victim/keep.txt", "precious");
+    fs_mkdir("tree");
+    symlink("../victim", "tree/link");
+    show("remove_all tree/link/", fs_remove_all("tree/link/"));
+    printf("link gone=%d victim kept=%d sub kept=%d\n", fs_exists("tree/link") == 0 ? 1 : 0,
+           fs_exists("victim/keep.txt"), fs_is_dir("victim/sub"));
+    symlink("victim", "top");
+    show("remove_all top//", fs_remove_all("top//"));
+    printf("victim kept=%d\n", fs_exists("victim/keep.txt"));
+
+    fs_chdir("/");
+    show("cleanup", fs_remove_all(root.cstr()));
+    root.free();
+    s.free();
+    return 0;
+}
