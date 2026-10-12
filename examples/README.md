@@ -57,6 +57,18 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 The network examples bind a local port: run them in one terminal and connect
 from another (e.g. `curl localhost:PORT` or `nc localhost PORT`).
 
+### Scripts
+
+The files in [scripts/](scripts) are complete tools that start with
+`#!/usr/bin/env eskiuc run`, so with `eskiuc` on your `PATH` they run directly
+(`./examples/scripts/repo_stats.esk llvm/llvm-project`). `tests/scripts/check.sh`
+runs both in the test suite, without network access.
+
+| Script | What it does | stdlib |
+|--------|--------------|--------|
+| [repo_stats.esk](scripts/repo_stats.esk) | fetch a GitHub repository and its languages from the REST API and print a colored summary, or JSON with `--json`; `--api-url`, `--timeout`, `--top`, `GITHUB_TOKEN` | `<args>` `<fetch>` `<json>` `<term>` `<log>` `<list>` `<sort>` `<string>` |
+| [organize.esk](scripts/organize.esk) | sort the loose files of a directory into folders by extension or month, send content duplicates (SHA-256) to `duplicates/`, `--dry-run`, a summary table and a `--report` CSV | `<args>` `<fs>` `<hash>` `<time>` `<csv>` `<process>` `<log>` `<map>` |
+
 ---
 
 ## A first walkthrough: `hello.esk`
