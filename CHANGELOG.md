@@ -97,6 +97,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `F_SETNOSIGPIPE` on macOS and a SIGPIPE blocked in the writing thread on Linux.
 - `String_concat` and `String_split` keep a NUL byte inside a `String`; both stopped at the
   first one.
+- `<executor>` works on Windows: it woke its loop through a `pipe()`, which mingw does not
+  have (a program using it did not link) and WSAPoll cannot wait on. The wake is a loopback
+  UDP socket there. `executor_new` returns null when the wake channel cannot be opened.
+- `eskiuc-esk run` builds its program in the platform temp dir (`$TMPDIR`, else `/tmp`;
+  `GetTempPathA` on Windows, with a `.exe` name) through `mkstemps`, like the C++ driver,
+  instead of a fixed `/tmp/eskiu-run-<pid>`.
 - An `extern` with the name of a generic function is a declaration error in both compilers;
   the C++ compiler crashed in codegen when the extern was called.
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer
