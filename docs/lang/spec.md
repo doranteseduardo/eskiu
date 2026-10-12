@@ -2834,7 +2834,10 @@ library path, and on macOS also in Homebrew (`/opt/homebrew/opt/openssl@3/lib`,
 `/usr/local/opt/openssl@3/lib`) and MacPorts; `fetch_tls_available()` reports whether it
 was found. The client sends SNI, verifies the certificate against OpenSSL's default trust
 store and checks the host name (`SSL_set1_host`); `verify_tls = 0` skips both, for local
-tests only. On Windows OpenSSL's default store is usually empty, so set `ca_file`.
+tests only. On Windows OpenSSL's default store is usually empty, so a verifying request
+without `ca_file` also trusts the certificates of the system "ROOT" store (read with
+`CertOpenSystemStoreW` from crypt32 and added to the context's `X509_STORE`), the roots
+Windows itself trusts. With `ca_file` set, only that file and OpenSSL's default store count.
 Defining `ESKIU_FETCH_NO_TLS` before `import <fetch>` leaves HTTPS out of the program.
 
 `fetch_async(lp, url, &o, &r)` runs the same request over an `<eventloop>` and returns a
