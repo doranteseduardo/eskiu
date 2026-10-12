@@ -15,6 +15,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
 
 ### Fixed
+- `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer
+  blocks the event loop; a fetch dropped during the lookup leaves the thread to finish and
+  free it.
 - `<fetch>` over HTTPS: a peer that drops the connection without `close_notify` is
   `FETCH_ERR_IO`. Before, it ended a body delimited by the close, so a forged TCP close could
   truncate it silently.

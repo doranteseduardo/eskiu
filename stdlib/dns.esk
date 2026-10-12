@@ -98,14 +98,20 @@ void _dns_wsa_init() { }
 // dns_last_error).
 int _dns_lookup(string host, string port, **_dns_addrinfo res) {
     _dns_wsa_init();
+    const int rc = _dns_getaddrinfo(host, port, res);
+    _dns_last = rc;
+    return rc;
+}
+
+// _dns_lookup without touching dns_last_error, so another thread can run it
+// (Winsock must be started first: _dns_wsa_init).
+int _dns_getaddrinfo(string host, string port, **_dns_addrinfo res) {
     let hints: _dns_addrinfo;
     memset((*void)&hints, 0, sizeof(_dns_addrinfo));
     hints.ai_family = DNS_AF_UNSPEC;
     hints.ai_socktype = 1;   // SOCK_STREAM: one entry per address
     *res = null;
-    const int rc = getaddrinfo(host, port, &hints, res);
-    _dns_last = rc;
-    return rc;
+    return getaddrinfo(host, port, &hints, res);
 }
 
 // A readable message for the last failed lookup.

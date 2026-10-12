@@ -67,8 +67,9 @@
 // fetch_async(lp, url, &o, &r) is the same request over an <eventloop>: it
 // returns a Future<int> with the same code, filling *out (which, like the url
 // string, must stay valid until the future completes; the options are copied
-// when the call starts). Connecting, TLS and the I/O wait on the loop; only the
-// host name lookup blocks.
+// when the call starts). Connecting, TLS and the I/O wait on the loop; the host
+// name lookup runs on a thread of its own, which the loop checks on a short
+// timer (a dropped fetch leaves the lookup to finish and free itself).
 //
 // fetch_last_error() keeps one message for the whole program (not per thread).
 
@@ -84,6 +85,8 @@ import <time>;
 import <future>;
 import <eventloop>;
 import <net_async>;
+import <timer>;
+import <atomic>;
 
 #ifndef ESKIU_FETCH_NO_TLS
 import <fetch_tls>;
@@ -518,6 +521,7 @@ int FetchParser_finish(FetchParser* p, Response* r) {
 
 const int _FETCH_WANT_READ  = 1;
 const int _FETCH_WANT_WRITE = 2;
+const int _FETCH_WANT_DNS   = 3;   // fetch_async: the lookup runs on a thread
 
 const int _FC_RESOLVE    = 0;
 const int _FC_NEXT_ADDR  = 1;
@@ -544,6 +548,36 @@ const int _FETCH_SO_ERROR    = 4;
 #endif
 #endif
 
+// A lookup for fetch_async on a thread of its own, so getaddrinfo does not block
+// the event loop. state: 0 running, 1 done, 2 abandoned by a dropped fetch. The
+// side that comes second frees the job.
+struct _FetchDns {
+    String host;
+    String port;
+    *_dns_addrinfo addrs;
+    int rc;
+    int state;
+}
+
+extern int pthread_detach(*void t);
+
+void _fetch_dns_free(_FetchDns* j) {
+    if (j.addrs != null) { freeaddrinfo(j.addrs); }
+    String_free(&j.host);
+    String_free(&j.port);
+    free((*void)j);
+}
+
+void _fetch_dns_work(_FetchDns* j) {
+    j.rc = _dns_getaddrinfo(j.host.cstr(), j.port.cstr(), &j.addrs);
+    if (atomic_swap(&j.state, 1) == 2) { _fetch_dns_free(j); }
+}
+
+// Leave a running lookup to its thread, or free a finished one.
+void _fetch_dns_drop(_FetchDns* j) {
+    if (atomic_swap(&j.state, 2) == 1) { _fetch_dns_free(j); }
+}
+
 struct _FetchCall {
     // From the options (copied when the call starts).
     String method;
@@ -568,6 +602,8 @@ struct _FetchCall {
     *void  ssl;
     *_dns_addrinfo addrs;
     *_dns_addrinfo next;
+    int    dns_async;
+    _FetchDns* dns_job;
     int    conn_err;
     Bytes  req;
     int64  sent;
@@ -602,6 +638,7 @@ void _fetch_close(_FetchCall* c) {
 
 void _fetch_call_free(_FetchCall* c) {
     _fetch_close(c);
+    if (c.dns_job != null) { _fetch_dns_drop(c.dns_job); c.dns_job = null; }
     String_free(&c.method);
     String_free(&c.headers);
     Bytes_free(&c.body);
@@ -695,12 +732,36 @@ void _fetch_render(_FetchCall* c) {
     c.sent = 0;
 }
 
+// Resolve the host into c.addrs: 0, FETCH_ERR_DNS, or _FETCH_WANT_DNS while
+// fetch_async's lookup thread runs (fetch_async polls; call again).
 int _fetch_resolve(_FetchCall* c) {
-    let port: String;  String_init(&port, 8);
-    String_appendf(&port, "%d", c.url.port);
-    const int rc = _dns_lookup(c.url.host.cstr(), port.cstr(), &c.addrs);
-    String_free(&port);
+    int rc = 0;
+    if (c.dns_async == 1) {
+        _FetchDns* j = c.dns_job;
+        if (j == null) {
+            _dns_wsa_init();
+            j = alloc<_FetchDns>(1);
+            String_from(&j.host, c.url.host.cstr());
+            String_init(&j.port, 8);
+            String_appendf(&j.port, "%d", c.url.port);
+            c.dns_job = j;
+            pthread_detach(thread_create(void() { _fetch_dns_work(j); }));
+        }
+        if (atomic_load(&j.state) == 0) { return _FETCH_WANT_DNS; }
+        rc = j.rc;
+        _dns_last = rc;
+        c.addrs = j.addrs;
+        j.addrs = null;
+        _fetch_dns_free(j);
+        c.dns_job = null;
+    } else {
+        let port: String;  String_init(&port, 8);
+        String_appendf(&port, "%d", c.url.port);
+        rc = _dns_lookup(c.url.host.cstr(), port.cstr(), &c.addrs);
+        String_free(&port);
+    }
     if (rc != 0 || c.addrs == null) {
+        if (c.addrs != null) { freeaddrinfo(c.addrs); }
         c.addrs = null;
         _fetch_fail(FETCH_ERR_DNS, "cannot resolve host '");
         String_append(&_fetch_err, c.url.host.cstr());
@@ -753,7 +814,8 @@ int _fetch_connect_next(_FetchCall* c) {
 int _fetch_timed_out(_FetchCall* c) {
     _fetch_fail(FETCH_ERR_TIMEOUT, "");
     String_appendf(&_fetch_err, "timed out after %lld ms (", c.timeout_ms);
-    if (c.phase == _FC_CONNECTING) { String_append(&_fetch_err, "connecting"); }
+    if (c.phase == _FC_RESOLVE) { String_append(&_fetch_err, "resolving the host"); }
+    else if (c.phase == _FC_CONNECTING) { String_append(&_fetch_err, "connecting"); }
     else if (c.phase == _FC_TLS) { String_append(&_fetch_err, "TLS handshake"); }
     else if (c.phase == _FC_SEND) { String_append(&_fetch_err, "sending the request"); }
     else { String_append(&_fetch_err, "waiting for the response"); }
@@ -811,7 +873,7 @@ int _fetch_step(_FetchCall* c) {
     while (true) {
         if (c.phase == _FC_RESOLVE) {
             const int rc = _fetch_resolve(c);
-            if (rc < 0) { return rc; }
+            if (rc != 0) { return rc; }
             c.phase = _FC_NEXT_ADDR;
         } else if (c.phase == _FC_NEXT_ADDR) {
             const int rc = _fetch_connect_next(c);
@@ -994,11 +1056,23 @@ async int fetch_async(EventLoop* lp, string url, FetchOptions* o, Response* out)
     Response_init(out);
     _FetchCall* c = alloc<_FetchCall>(1);
     defer { _fetch_call_free(c); free((*void)c); }
+    c.dns_async = 1;
     int rc = _fetch_begin(c, url, o, out);
+    int64 nap = 1;
     while (rc > 0) {
-        const int w = await net_ready_deadline_async(lp, c.fd, rc == _FETCH_WANT_WRITE ? 1 : 0, c.deadline);
-        if (w == NET_TIMED_OUT) { rc = _fetch_timed_out(c); }
-        else { rc = _fetch_step(c); }
+        if (rc == _FETCH_WANT_DNS) {
+            if (c.deadline > 0 && time_monotonic_ms() >= c.deadline) { rc = _fetch_timed_out(c); }
+            else {
+                await timer_after(lp, nap);
+                if (nap < 16) { nap = nap * 2; }
+                rc = _fetch_step(c);
+            }
+        } else {
+            nap = 1;
+            const int w = await net_ready_deadline_async(lp, c.fd, rc == _FETCH_WANT_WRITE ? 1 : 0, c.deadline);
+            if (w == NET_TIMED_OUT) { rc = _fetch_timed_out(c); }
+            else { rc = _fetch_step(c); }
+        }
     }
     if (rc < 0) { _fetch_response_clear(out); }
     return rc;

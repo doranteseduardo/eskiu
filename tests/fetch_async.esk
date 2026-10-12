@@ -1,13 +1,15 @@
 // fetch_async: two requests in flight at once on one event loop (a slow one
 // does not hold up a fast one), a redirect, a POST body, a timeout against a
-// server that never accepts, and connection refused. The server is http_serve
-// on its own threads.
+// server that never accepts, connection refused, a host name (looked up on a
+// thread, not on the loop), a name that does not resolve, and a fetch dropped
+// while its lookup may still run. The server is http_serve on its own threads.
 import <fetch>;
 import <http>;
 import <future>;
 import <eventloop>;
 import <net>;
 import <time>;
+import <timer>;
 import <string>;
 extern int printf(string fmt, ...);
 
@@ -75,6 +77,22 @@ async int run(EventLoop* lp) {
     o.timeout_ms = 10000;
     rc = await fetch_async(lp, "http://127.0.0.1:1/", &o, &a);
     printf("refused: rc=%d\n", rc);
+    Response_free(&a);
+
+    rc = await fetch_async(lp, "http://localhost:18434/fast", &o, &a);
+    show("localhost", rc, &a);
+    Response_free(&a);
+
+    rc = await fetch_async(lp, "http://no-such-host.invalid/", &o, &a);
+    printf("unresolvable: rc=%d\n", rc);
+    Response_free(&a);
+
+    // Whichever finishes first, the loser is dropped (a running lookup frees
+    // itself when its thread ends).
+    Future<int>* fl = fetch_async(lp, "http://localhost:18434/fast", &o, &a);
+    Future<int>* ft = timer_after(lp, 0);
+    if (await select2(fl, ft) == 0) { free_future<int>(fl); } else { free_future<int>(ft); }
+    printf("dropped during lookup: ok\n");
     Response_free(&a);
     FetchOptions_free(&o);
     return 0;
