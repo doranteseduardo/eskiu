@@ -137,6 +137,21 @@
 
 stage 1 → 2 → 3  <span class="st">✓ fixpoint</span></pre>
         </div>
+
+        <div class="feat">
+          <div class="feat-txt">
+            <span class="n">05</span>
+            <h3>Una biblioteca estándar para scripts</h3>
+            <p>Descarga una URL por HTTPS, recorre un directorio, ejecuta un comando, lee argumentos o procesa JSON y CSV con módulos que vienen con el compilador.</p>
+            <a class="more" href="../the-book-of-eskiu.html">Scripting con Eskiu →</a>
+          </div>
+<pre class="card"><span class="kw">let</span> r: <span class="ty">Response</span>;
+fetch(<span class="st">"https://api.github.com/repos/llvm/llvm-project"</span>, &amp;r);
+<span class="kw">defer</span> Response_free(&amp;r);
+
+*<span class="ty">JsonValue</span> repo = Response_json(&amp;r);
+println(JsonValue_as_cstr(json_get(repo, <span class="st">"owner.login"</span>)));</pre>
+        </div>
       </section>
 
       <section class="pg" id="playground">
