@@ -1,0 +1,58 @@
+// Fuzz target: <args> command-line parsing. The input is split at NUL bytes
+// into argv[1..] (empty arguments included) and parsed against a fixed set of
+// flags, options and arguments; then every accessor and the help text run.
+// _args_run is the parse without the printing ArgParser_parse adds.
+import "harness.esk";
+import <args>;
+
+void setup(ArgParser* p, int variant) {
+    ArgParser_init(p, "tool", "fuzz");
+    args_flag(p, "-v", "--verbose", "more");
+    args_flag(p, null, "--dry-run", "nothing");
+    args_option(p, "-o", "--output", "FILE", "out.txt", "write");
+    args_option_int(p, "-n", "--count", "N", 3, "copies");
+    if (variant == 1) {
+        args_flag(p, "-1", null, "a digit option");
+        args_flag(p, "-h", "--help", "taken");
+    }
+    args_argument(p, "input", "in", ARGS_REQUIRED);
+    args_argument(p, "extra", "more", ARGS_MANY);
+}
+
+void fuzz_one(*uint8 data, int len, string s) {
+    let argv: List<string>;  List_init<string>(&argv, 8);
+    argv.push("tool");
+    // Each argument is its own exact-size heap copy, so a read past its NUL is caught.
+    int start = 0;
+    for (int i = 0; i <= len; i++) {
+        if (i == len || data[i] == (uint8)0) {
+            *char a = alloc<char>(i - start + 1);
+            if (i > start) { memcpy((*void)a, (*void)(data + start), i - start); }
+            argv.push((string)a);
+            start = i + 1;
+        }
+    }
+    for (variant in 0..2) {
+        let p: ArgParser;
+        setup(&p, variant);
+        const int rc = _args_run(&p, argv.size, argv.data);
+        if (rc != ARGS_OK && rc != ARGS_HELP && rc != ARGS_ERROR) { fuzz_fail("unknown result"); }
+        if ((rc == ARGS_ERROR) != (p.error.len > 0)) { fuzz_fail("error text disagrees with the result"); }
+        if (rc == ARGS_OK) {
+            if (args_get(&p, "input") == null) { fuzz_fail("a required argument is missing"); }
+            for (k in 0..args_count(&p, "extra")) {
+                if (args_get_at(&p, "extra", k) == null) { fuzz_fail("a counted value is missing"); }
+            }
+            args_get_int(&p, "count");
+            args_get(&p, "output");
+            args_get_flag(&p, "v");
+        }
+        let text: String;  text.init(64);
+        ArgParser_help(&p, &text);
+        ArgParser_usage(&p, &text);
+        text.free();
+        ArgParser_free(&p);
+    }
+    for (i in 1..argv.size) { free((*void)List_get<string>(&argv, i)); }
+    List_free<string>(&argv);
+}
