@@ -1,4 +1,23 @@
-// io stdlib — wraps libc stdio
+// io stdlib: libc stdio, plus console helpers for scripts.
+//
+//   import <io>;
+//   println("hello");                       // stdout, with a newline
+//   print_err("warning: ");  println_err("disk almost full");
+//
+//   let name: String;  name.init(32);
+//   if (input("name? ", &name) == 0) { printf("hi %s\n", name.cstr()); }
+//   let all: String;  all.init(4096);
+//   read_all_stdin(&all);                   // the rest of stdin, NUL bytes included
+//
+// print/println go through C stdio, so they interleave with printf in order.
+// print_err/println_err flush stdout first, then write to stderr, so a program
+// whose two streams go to one place keeps its messages in order.
+//
+// read_line, input and read_all_stdin read stdin through C stdio as well (the
+// same buffer scanf and getchar use). A line ends at "\n" and the "\n" (and a
+// "\r" before it) is not stored; they return 0, or -1 at end of input with
+// nothing read. A last line without "\n" is still returned with 0.
+
 extern int printf(string fmt, ...);
 extern int fprintf(string stream, string fmt, ...);
 extern int sprintf(string buf, string fmt, ...);
@@ -6,3 +25,110 @@ extern int scanf(string fmt, ...);
 extern int puts(string s);
 extern int getchar();
 extern int putchar(int c);
+
+import <string>;
+
+extern int    fflush(*void fp);
+extern int    fputs(string s, *void fp);
+extern int    fgetc(*void fp);
+extern int64  fread(*void buf, int64 size, int64 count, *void fp);
+extern int64  fwrite(*void buf, int64 size, int64 count, *void fp);
+
+#ifdef _WIN32
+extern *void __acrt_iob_func(uint32 index);
+extern int   _setmode(int fd, int mode);
+*void io_stdin()  { return __acrt_iob_func(0); }
+*void io_stdout() { return __acrt_iob_func(1); }
+*void io_stderr() { return __acrt_iob_func(2); }
+#else
+#ifdef __APPLE__
+extern *void __stdinp;
+extern *void __stdoutp;
+extern *void __stderrp;
+*void io_stdin()  { return __stdinp; }
+*void io_stdout() { return __stdoutp; }
+*void io_stderr() { return __stderrp; }
+#else
+extern *void stdin;
+extern *void stdout;
+extern *void stderr;
+*void io_stdin()  { return stdin; }
+*void io_stdout() { return stdout; }
+*void io_stderr() { return stderr; }
+#endif
+#endif
+
+// Write `s` to standard output.
+void print(string s) {
+    fputs(s, io_stdout());
+}
+
+// Write `s` and a newline to standard output.
+void println(string s) {
+    *void out = io_stdout();
+    fputs(s, out);
+    fputs("\n", out);
+}
+
+// Write `s` to standard error (stdout is flushed first).
+void print_err(string s) {
+    fflush(io_stdout());
+    *void err = io_stderr();
+    fputs(s, err);
+    fflush(err);
+}
+
+// Write `s` and a newline to standard error (stdout is flushed first).
+void println_err(string s) {
+    fflush(io_stdout());
+    *void err = io_stderr();
+    fputs(s, err);
+    fputs("\n", err);
+    fflush(err);
+}
+
+// Read one line of stdin into `out` (cleared first), without its line ending.
+// 0, or -1 at end of input when nothing was read.
+int read_line(String* out) {
+    out.clear();
+    *void src = io_stdin();
+    int c = fgetc(src);
+    if (c < 0) { return -1; }
+    while (c >= 0 && c != 10) {
+        out.push((char)c);
+        c = fgetc(src);
+    }
+    if (out.len > 0 && out.data[out.len - 1] == '\r') {
+        out.len = out.len - 1;
+        out.data[out.len] = 0;
+    }
+    return 0;
+}
+
+// Print `prompt` (no newline, flushed), then read a line as read_line does.
+int input(string prompt, String* out) {
+    *void so = io_stdout();
+    fputs(prompt, so);
+    fflush(so);
+    return read_line(out);
+}
+
+// Read the rest of stdin into `out` (cleared first). Binary safe: out.len
+// counts every byte, NULs included. Returns the number of bytes read.
+int64 read_all_stdin(String* out) {
+    out.clear();
+#ifdef _WIN32
+    _setmode(0, 32768);   // _O_BINARY: no CRLF translation, no Ctrl-Z end
+#endif
+    *void src = io_stdin();
+    String_reserve(out, 65536);
+    while (true) {
+        if (out.cap - out.len < 32768) { String_reserve(out, out.cap * 2); }
+        const int64 room = out.cap - out.len - 1;
+        const int64 n = fread((*void)(out.data + out.len), 1, room, src);
+        if (n <= 0) { break; }
+        out.len = out.len + n;
+    }
+    out.data[out.len] = 0;
+    return out.len;
+}
