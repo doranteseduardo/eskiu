@@ -49,6 +49,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   of failing as malformed.
 - `<fetch>`: a redirect that cannot be followed (an `https://` target without TLS, an unsupported
   scheme) returns its own error code, such as `FETCH_ERR_NO_TLS`, not always `FETCH_ERR_URL`.
+- `<args>`: an empty command-line argument no longer reads one byte past its end.
 
 ## [0.10.0] - 2026-10-11
 
