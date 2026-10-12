@@ -15,6 +15,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
 
 ### Fixed
+- `<fetch>`: a CR or LF in `o.user_agent`, or a CR in `o.headers` set directly, is rejected with
+  `FETCH_ERR_REQUEST` instead of being sent as an extra header line.
 - `<fetch>` on Windows: HTTPS with verification on and no `ca_file` now trusts the
   certificates of the Windows "ROOT" store, since OpenSSL's default store is usually
   empty there.

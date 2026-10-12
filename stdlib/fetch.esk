@@ -52,7 +52,8 @@
 //
 // Header injection: a method that is not a token, a header name that is not a
 // token, or a CR or LF in a header value is rejected (FetchOptions_header
-// returns 0 and the request fails with FETCH_ERR_REQUEST); url_parse already
+// returns 0 and the request fails with FETCH_ERR_REQUEST; so does a CR or LF
+// in o.user_agent or a CR in o.headers set directly); url_parse already
 // rejects control bytes in the URL, so the request target cannot hold a CR or
 // LF.
 //
@@ -553,6 +554,12 @@ int _fetch_is_token(String* s) {
     return 1;
 }
 
+// 1 if `s` holds a CR (a header value set through the fields, not
+// FetchOptions_header, could otherwise end its line early on the wire).
+int _fetch_has_cr(String* s) {
+    return String_index_of(s, '\r') >= 0 ? 1 : 0;
+}
+
 // Close the connection of the current request (the call stays usable).
 void _fetch_close(_FetchCall* c) {
     if (c.ssl != null) { _ftls_free(c.ssl); c.ssl = null; }
@@ -896,7 +903,8 @@ int _fetch_begin(_FetchCall* c, string url, FetchOptions* o, Response* out) {
     Url_init(&c.url);
     Bytes_init(&c.req, 512);
     c.rbuf = alloc<uint8>(_FETCH_RBUF);
-    if (o.bad_header == 1 || _http_headers_valid(&c.headers) == 0) {
+    if (o.bad_header == 1 || _http_headers_valid(&c.headers) == 0 || _fetch_has_cr(&c.headers) == 1
+        || _fetch_has_cr(&c.user_agent) == 1 || String_index_of(&c.user_agent, '\n') >= 0) {
         return _fetch_fail(FETCH_ERR_REQUEST, "invalid request header (a name must be a token; a value may not hold CR or LF)");
     }
     if (_fetch_is_token(&c.method) == 0) {

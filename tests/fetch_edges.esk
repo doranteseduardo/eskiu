@@ -1,0 +1,129 @@
+// <fetch> edge cases against a raw local server that echoes the request head:
+// a CR or LF in o.user_agent or a CR in o.headers set directly is rejected
+// (no injected line reaches the wire), a response whose final transfer coding
+// is not chunked is read until close, and protocol-relative and space-holding
+// Location headers are resolved.
+import <fetch>;
+import <net>;
+import <string>;
+import <mem>;
+extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+
+const int PORT = 18438;
+
+void say(int fd, string s) {
+    int64 off = 0;
+    const int64 n = strlen(s);
+    while (off < n) {
+        const int64 w = net_send(fd, (*void)((*uint8)s + off), n - off);
+        if (w <= 0) { return; }
+        off += w;
+    }
+}
+
+void serve_one(int c) {
+    char[4096] buf;
+    int64 n = 0;
+    while (n < 4095) {
+        const int64 got = net_recv(c, (*void)&buf[n], 4095 - n);
+        if (got <= 0) { break; }
+        n += got;
+        buf[n] = 0;
+        let s: String;  String_from(&s, (string)&buf[0]);
+        const int64 e = String_find(&s, "\r\n\r\n", 0);
+        s.free();
+        if (e >= 0) { break; }
+    }
+    buf[n] = 0;
+    let req: String;  String_from(&req, (string)&buf[0]);
+    let path: String;  path.init(16);
+    int64 i = String_find(&req, " ", 0) + 1;
+    while (i > 0 && i < req.len && req.data[i] != ' ') { path.push(req.data[i]); i++; }
+    if (path.eq_cstr("/tegzip") == 1) {
+        say(c, "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nraw until close");
+    } else if (path.eq_cstr("/tetwice") == 1) {
+        say(c, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked, chunked\r\n\r\n0\r\n\r\n");
+    } else if (path.eq_cstr("/protorel") == 1) {
+        say(c, "HTTP/1.1 302 Found\r\nLocation: //127.0.0.1:18438/echo?x=1\r\nContent-Length: 0\r\n\r\n");
+    } else if (path.eq_cstr("/locspace") == 1) {
+        say(c, "HTTP/1.1 302 Found\r\nLocation: two words\r\nContent-Length: 0\r\n\r\n");
+    } else {
+        // The request line and whether an injected header arrived.
+        let b: String;  b.init(64);
+        let line: String;  line.init(64);
+        const int64 e = String_find(&req, "\r\n", 0);
+        String_substring(&req, &line, 0, e);
+        line.append(String_contains(&req, "X-Injected") == 1 ? " injected" : " clean");
+        String_appendf(&b, "HTTP/1.1 200 OK\r\nContent-Length: %lld\r\n\r\n%s", line.len, line.cstr());
+        say(c, b.cstr());
+        b.free();
+        line.free();
+    }
+    path.free();
+    req.free();
+    net_close(c);
+}
+
+void serve(int lfd) {
+    while (true) {
+        const int c = net_accept(lfd);
+        if (c < 0) { continue; }
+        thread_create(void() { serve_one(c); });
+    }
+}
+
+void show(string what, int rc, Response* r) {
+    if (rc == 0) {
+        printf("%s: %d url=%s redirects=%d body=[%s]\n", what, r.status, r.url.cstr(), r.redirects, Response_text(r));
+    } else {
+        printf("%s: rc=%d (%s)\n", what, rc, fetch_last_error());
+    }
+}
+
+void get(string path) {
+    let url: String;  String_from(&url, "http://127.0.0.1:18438");
+    url.append(path);
+    let o: FetchOptions;  FetchOptions_init(&o);
+    o.timeout_ms = 3000;
+    let r: Response;
+    const int rc = fetch_with(url.cstr(), &o, &r);
+    show(path, rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+    url.free();
+}
+
+void with_ua(string what, string ua) {
+    let o: FetchOptions;  FetchOptions_init(&o);
+    o.timeout_ms = 3000;
+    o.user_agent.clear();
+    o.user_agent.append(ua);
+    let r: Response;
+    const int rc = fetch_with("http://127.0.0.1:18438/echo", &o, &r);
+    show(what, rc, &r);
+    Response_free(&r);
+    FetchOptions_free(&o);
+}
+
+int main() {
+    const int lfd = net_tcp_listen((uint16)PORT);
+    if (lfd < 0) { printf("listen failed\n"); return 1; }
+    thread_create(void() { serve(lfd); });
+    get("/protorel");
+    get("/locspace");
+    with_ua("ua crlf", "ua\r\nX-Injected: yes");
+    with_ua("ua lf", "ua\nX-Injected: yes");
+    with_ua("ua plain", "my-agent/1.0");
+    {
+        let o: FetchOptions;  FetchOptions_init(&o);
+        o.timeout_ms = 3000;
+        o.headers.append("X-A: v\rX-Injected: yes\n");
+        let r: Response;
+        const int rc = fetch_with("http://127.0.0.1:18438/echo", &o, &r);
+        show("headers cr", rc, &r);
+        Response_free(&r);
+        FetchOptions_free(&o);
+    }
+    return 0;
+}
