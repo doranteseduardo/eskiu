@@ -1,9 +1,11 @@
 name: Fuzz (long)
 
 # Long runs of the stdlib parser fuzzer under AddressSanitizer, started by hand
-# (before a release). Each seed runs every target for `seconds`; the inputs that
+# before a release (or by pushing to ci/fuzz). Each seed runs every target for `seconds`; the inputs that
 # crash, trip ASan, break a round trip or hang are uploaded as an artifact.
 on:
+  push:
+    branches: [ci/fuzz]
   workflow_dispatch:
     inputs:
       seconds:
@@ -37,7 +39,7 @@ jobs:
           cmake --build build --target eskiuc -j"$(nproc)"
 
       - name: Fuzz
-        run: CC=clang-22 python3 tests/fuzz/stdlib_fuzz.py --seconds ${{ inputs.seconds }} --seed ${{ matrix.seed }}
+        run: CC=clang-22 python3 tests/fuzz/stdlib_fuzz.py --seconds ${{ inputs.seconds || '600' }} --seed ${{ matrix.seed }}
 
       - name: Findings
         if: failure()
