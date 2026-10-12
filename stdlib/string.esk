@@ -522,10 +522,21 @@ int String_parse_double(String* self, *double out) {
     return 1;
 }
 
+#ifdef _WIN32
+// msvcrt's vsnprintf is not C99: "%g" of 1e6 is "1e+006" and infinity is
+// "1.#INF". mingw-w64's own implementation follows C99, so every platform
+// prints the same text.
+extern int __mingw_vsnprintf(*char buf, int64 n, string fmt, va_list ap);
+#endif
+
 // vsnprintf into the spare room after the current contents; returns the length
 // the formatted text needs (it may not all fit).
 int _string_vwrite(String* self, string fmt, va_list ap) {
+#ifdef _WIN32
+    return __mingw_vsnprintf(self.data + self.len, self.cap - self.len, fmt, ap);
+#else
     return vsnprintf(self.data + self.len, self.cap - self.len, fmt, ap);
+#endif
 }
 
 // printf-style append: `s.appendf("%s=%d\n", k, v)`. Uses the C library's
