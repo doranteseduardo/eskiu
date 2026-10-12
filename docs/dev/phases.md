@@ -48,6 +48,7 @@ first-class in the language without giving up general systems use.
 | 0.7 | Cross-compilation: 32-bit ARM, Windows objects, `extern` globals |
 | 0.8 | Windows parity, operator overloading |
 | 0.9 | Labeled `break`/`continue`, two correctness campaigns (0.9.1 and 0.9.2), and 0.9.3 with a reviewed set of docs and fixes it turned up |
+| 0.10 | A standard library for scripts: fetch (HTTP and HTTPS), files, processes, DNS, strings and collections, JSON, CSV, dotenv, hashes, args, terminal, logging, dates |
 
 ## Next: 1.0
 

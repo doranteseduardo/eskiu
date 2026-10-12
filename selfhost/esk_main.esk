@@ -406,7 +406,7 @@ int esk_main(int argc, string* argv) {
         outfile = (string)&runexe[0];
     }
     if (cg_streq(mode, "--version") == 1) {
-        printf("Eskiu 0.9.3\n");
+        printf("Eskiu 0.10.0\n");
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
