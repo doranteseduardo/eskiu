@@ -62,6 +62,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `s.format("%d", n)` works) and `str_join`, which duplicated the generic `List_join`, is
   deprecated in favor of it (`parts.join(sep, &out)`). The old names remain as deprecated
   wrappers.
+- `<sort>`: `bsearch<T>` -> `sort_search<T>`, so a program that imports `<sort>` can declare and
+  call the C library's `bsearch`. No wrapper keeps the old name, since it would keep the clash.
+  Test `sort_libc_bsearch`.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer

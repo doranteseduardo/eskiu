@@ -1,0 +1,22 @@
+// <sort>'s binary search is sort_search<T>, so a program that imports <sort> can
+// still declare and call the C library's bsearch.
+import <sort>;
+extern int printf(string fmt, ...);
+extern *void bsearch(*void key, *void base, int64 n, int64 size, *void cmp);
+
+int cmp_int(*int a, *int b) {
+    if (*a < *b) { return -1; }
+    if (*a > *b) { return 1; }
+    return 0;
+}
+
+int cmp_c(*void a, *void b) { return cmp_int((*int)a, (*int)b); }
+
+int main() {
+    int[5] a = {9, 2, 7, 4, 1};
+    sort<int>(&a[0], 5, cmp_int);
+    int key = 7;
+    *int hit = (*int)bsearch((*void)&key, (*void)&a[0], (int64)5, (int64)4, (*void)cmp_c);
+    printf("%d %d\n", sort_search<int>(&a[0], 5, 7, cmp_int), (int)(hit - &a[0]));
+    return 0;
+}
