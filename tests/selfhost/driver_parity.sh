@@ -215,6 +215,16 @@ ESKIU_ROOT="$ROOT" "$ESKMAIN" tests/selfhost/driver_inputs/hello.esk -o "$WORK/k
 if [ -x "$WORK/keep" ] && [ "$(cat "$WORK/keep.ll")" = "user file" ]; then echo "ok    flags/temp-ll-unique"
 else echo "FAIL  flags/temp-ll-unique  (<out>.ll was replaced or deleted)"; fail=1; fi
 
+# `run` builds its program in $TMPDIR (not a fixed /tmp) and leaves nothing behind there.
+for drv in "$BIN" "$ESKMAIN"; do
+    total=$((total + 1))
+    rm -rf "$WORK/tmpd"; mkdir -p "$WORK/tmpd"
+    out="$(TMPDIR="$WORK/tmpd/" ESKIU_ROOT="$ROOT" "$drv" run tests/selfhost/driver_inputs/run_tmp/argv0_in_tmpdir.esk 2>&1)"; rc=$?
+    left="$(ls -A "$WORK/tmpd")"
+    if [ "$rc" = 0 ] && [ "$out" = "in-tmpdir" ] && [ -z "$left" ]; then echo "ok    flags/run-tmpdir  ($(basename "$drv"))"
+    else echo "FAIL  flags/run-tmpdir  ($(basename "$drv"): rc $rc, output '$out', left '$left')"; fail=1; fi
+done
+
 # Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
 # aarch64 and arm64 spellings), and both drivers predefine the same set.
 for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
