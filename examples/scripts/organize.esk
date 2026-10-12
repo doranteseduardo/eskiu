@@ -249,6 +249,7 @@ int main(int argc, string* argv) {
         if (process_run(&du, null, &r) == 0 && r.exit_code == 0) {
             int64 tab = r.stdout.find("\t", 0);       // "40K\t<dir>\n": keep the size
             if (tab >= 0) { r.stdout.data[tab] = '\0';  r.stdout.len = tab; }
+            r.stdout.trim();
             log_info("disk usage: %s", r.stdout.cstr());
         } else {
             log_debug("du is not available");
