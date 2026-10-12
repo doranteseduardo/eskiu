@@ -1,0 +1,52 @@
+// fs_walk and fs_remove_all go down a tree through directory descriptors: a tree
+// deeper than PATH_MAX is walked and removed whole, and a directory swapped for a
+// symbolic link to a place outside the tree after it was listed is not entered
+// (fs_remove_all would otherwise delete there). Both used paths from the root.
+import <fs>;
+import <string>;
+import <io>;
+extern int symlink(string target, string link);
+
+int g_entries = 0;
+int g_outside = 0;
+int64 g_longest = 0;
+
+int main() {
+    let dir: String;  dir.init(64);
+    if (fs_temp_dir("fs_tree_fd", &dir) != 0) { printf("no temp dir\n"); return 1; }
+    fs_chdir(dir.cstr());
+
+    // 500 levels of "dddddddddd": over 5000 bytes of path.
+    fs_mkdir("deep");
+    fs_chdir("deep");
+    for (i in 0..500) { fs_mkdir("dddddddddd"); fs_chdir("dddddddddd"); }
+    fs_write_text("leaf.txt", "x");
+    fs_chdir(dir.cstr());
+    printf("walk rc=%d\n", fs_walk("deep", void(string p, bool is_dir) {
+        g_entries++;
+        if (strlen(p) > g_longest) { g_longest = strlen(p); }
+    }));
+    printf("entries=%d longest over 5000: %d\n", g_entries, g_longest > 5000 ? 1 : 0);
+    printf("remove deep rc=%d gone=%d\n", fs_remove_all("deep"), fs_exists("deep") == 0 ? 1 : 0);
+
+    // A directory replaced by a link to "outside" while the walk is at it.
+    fs_mkdir("outside");
+    fs_write_text("outside/keep.txt", "keep");
+    fs_mkdir("tree");
+    fs_mkdir("tree/a");
+    fs_write_text("tree/a/inner.txt", "x");
+    fs_walk("tree", void(string p, bool is_dir) {
+        if (strstr(p, "keep.txt") != null) { g_outside++; }
+        if (strcmp(p, "tree/a") == 0) {
+            fs_rename("tree/a", "moved");
+            symlink("../outside", "tree/a");
+        }
+    });
+    printf("walk entered the link: %d\n", g_outside);
+    printf("remove tree rc=%d outside kept=%d\n", fs_remove_all("tree"), fs_exists("outside/keep.txt"));
+
+    fs_chdir("/");
+    fs_remove_all(dir.cstr());
+    dir.free();
+    return 0;
+}

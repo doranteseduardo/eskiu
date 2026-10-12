@@ -79,6 +79,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
+- `fs_remove_all` and `fs_walk` go down a tree through directory descriptors (`openat` with
+  `O_NOFOLLOW`) on macOS and Linux. A directory swapped for a symbolic link during the walk
+  is no longer entered, so `fs_remove_all` cannot delete outside the tree, and trees deeper
+  than `PATH_MAX` are walked and removed whole (both stopped with an error before).
 - `fs_copy` writes the copy owner-only (0600) and gives it the source's permission bits when
   it is complete. Before, the copy was created with the default mode, so a private file was
   readable by other users while it was copied, or for good when the copy failed.

@@ -1,0 +1,5 @@
+walk rc=0
+entries=501 longest over 5000: 1
+remove deep rc=0 gone=1
+walk entered the link: 0
+remove tree rc=0 outside kept=1
