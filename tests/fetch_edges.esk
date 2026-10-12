@@ -110,6 +110,8 @@ int main() {
     const int lfd = net_tcp_listen((uint16)PORT);
     if (lfd < 0) { printf("listen failed\n"); return 1; }
     thread_create(void() { serve(lfd); });
+    get("/tegzip");
+    get("/tetwice");
     get("/protorel");
     get("/locspace");
     with_ua("ua crlf", "ua\r\nX-Injected: yes");

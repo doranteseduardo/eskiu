@@ -348,6 +348,32 @@ int _fp_too_large(int64 max) {
     return FETCH_ERR_TOO_LARGE;
 }
 
+// 1 if the last coding of the last non-empty Transfer-Encoding line is
+// "chunked" (or there is no coding at all), else 0.
+int _fp_te_final_chunked(String* h) {
+    int last = 1;
+    const int64 n = h.len;
+    int64 i = 0;
+    while (i < n) {
+        int64 e = i;
+        while (e < n && h.data[e] != '\n') { e++; }
+        if (_http_line_named(h, i, e, "transfer-encoding") == 1) {
+            int64 t = e;
+            while (t > i && (h.data[t - 1] == ' ' || h.data[t - 1] == '\t' || h.data[t - 1] == ',')) { t--; }
+            int64 b = t;
+            while (b > i && h.data[b - 1] != ',' && h.data[b - 1] != ':' && h.data[b - 1] != ' ' && h.data[b - 1] != '\t') { b--; }
+            if (t > b) {
+                let item: String;  item.init(16);
+                for (k in b..t) { item.push(http_lc(h.data[k])); }
+                last = String_eq_cstr(&item, "chunked");
+                item.free();
+            }
+        }
+        i = e + 1;
+    }
+    return last;
+}
+
 // Parse the head b[0..hend) into r and pick the body framing.
 int _fp_head(FetchParser* p, Response* r, int hend) {
     *uint8 b = p.buf.data;
@@ -387,7 +413,12 @@ int _fp_head(FetchParser* p, Response* r, int hend) {
     if (p.no_body == 1 || status == 204 || status == 304) { p.stage = _FP_DONE; return 0; }
     const int te = _http_transfer_encoding(&r.headers);
     if (te == 1 || te == 501) { p.stage = _FP_CHUNKED; p.bpos = 0; return 0; }
-    if (te != 0) { return _fp_bad("invalid Transfer-Encoding"); }
+    if (te != 0) {
+        // A response whose final transfer coding is not chunked runs to the end
+        // of the connection (RFC 9112 6.3); the body is returned undecoded.
+        if (_fp_te_final_chunked(&r.headers) == 0) { p.stage = _FP_CLOSE; return 0; }
+        return _fp_bad("invalid Transfer-Encoding");
+    }
     const int64 cl = http_content_length(&r.headers);
     if (cl == -1) { return _fp_bad("invalid Content-Length"); }
     if (cl == -2) { p.stage = _FP_CLOSE; return 0; }

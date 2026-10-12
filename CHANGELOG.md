@@ -43,6 +43,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+### Fixed
+- `<fetch>`: a response whose last transfer coding is not `chunked` (such as
+  `Transfer-Encoding: gzip`) is read until the connection closes, as RFC 9112 says, instead
+  of failing as malformed.
+
 ## [0.10.0] - 2026-10-11
 
 ### Added
