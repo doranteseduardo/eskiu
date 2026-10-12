@@ -35,6 +35,23 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `H2Conn_account_sent`/`H2Conn_account_recv`/`H2Conn_grant_window`/`H2Conn_send_goaway`,
   `http_parse_head` -> `HttpReq_parse_head` and `url_resolve` -> `Url_resolve`. The old names
   remain as deprecated wrappers.
+- Undocumented stdlib helpers are internal now, named with a leading underscore and without a
+  deprecated wrapper: the `<regex>` parser and VM (`re_*` -> `_re_*`, and its structs `Inst`,
+  `Range`, `Prop`, `ClassInfo`, `Node`, `ReComp`, `Thread`, `Vm` -> `_ReInst` ... `_ReVm`, which
+  no longer clash with a program's own `Node` or `Range`), `<json>` `JParser`/`JParser_*`,
+  `<multipart>` `mp_*`, `<http>` `http_lc`, `http_trim_ows_tail`, `http_str_to_i64`,
+  `http_idx_header_end`, `http_field_ok`, `http_json_escape`, `http_content_length`,
+  `http_status_no_content`, `http_reason`, `<map>` `map_hash`/`map_streq`, `<alloc>`
+  `alloc_align8`, `<sort>` `heap_sift`, `<sysheap>` `sys_unpages`, `<url>`
+  `url_hex`/`url_unhex`/`url_is_unreserved`, `<time>` `time_pad`/`time_days_from_civil`,
+  `<random>` `rng_rotl`/`rng_splitmix`, `<uuid>` `uuid_hex`, `<net>`
+  `net_wsa_init`/`net_fill_addr`/`net_close_fd`/`net_nosigpipe`, `<tls>`
+  `tls_nosigpipe`/`tls_alpn_pick_h2`/`tls_alpn_select`/`http2_tls_dispatch_async[_with]`,
+  `<http2>` `h2_put_u32`/`h2_get_u32`/`h2_put_setting`/`h2_headers_fragment` and the
+  `<http2_server>` response and field helpers (`h2_build_response`, `h2_fill_request`,
+  `h2_name_eq`, `h2_send_response`, ...), and the `<hpack>` table and decoder internals
+  (`hpack_read_str`, `hpack_evict`, `hpack_resolve`, `hpack_set_max`, `hpack_static_name`,
+  `hpack_decode_int_at`, ...). Each becomes `_` plus its old name.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer
