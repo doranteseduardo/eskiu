@@ -74,7 +74,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   instead of keeping the `\r`.
 
 ---
-
+- Self-hosted compiler: a dot-call on an instance of a generic enum (`o.is_some()` on an
+  `Option<int>`) reaches the generic free function `Option_is_some<T>`, as in the C++ compiler;
+  it emitted an invalid call before. Test `either_stdlib`.
 
 ## [0.10.0] - 2026-10-11
 

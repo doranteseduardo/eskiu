@@ -3508,7 +3508,7 @@ string cg_unary_ety(Codegen* g, *ExprNode e, string at) {
 
 // The Eskiu type of an expression ("" if unknown). Mirrors the type the C++ type checker
 // assigns, so struct member access, pointer depth, and common/promoted types agree.
-// `x.m(args)` where x is an instance `S<A..>` of a generic struct with no inline method
+// `x.m(args)` where x is an instance `S<A..>` of a generic struct (or enum) with no inline method
 // `m` but a generic free function `S_m<T..>` taking it first (the `Type_method`
 // convention, e.g. `List_push<T>(List<T>* self, T item)`): the equivalent explicit call
 // `S_m<A..>(&x, args)` (`S_m<A..>(x, args)` for a pointer receiver). A type parameter
@@ -3523,9 +3523,9 @@ string cg_unary_ety(Codegen* g, *ExprNode e, string at) {
     if (cg_has_targs(sname) == 0) { return null; }
     string base = cg_gen_base(sname);
     *DeclNode sd = cg_find_gstruct(g, base);
-    if (sd == null) { return null; }
+    if (sd == null && cg_find_genum(g, base) == null) { return null; }
     int mi = 0;
-    while (mi < List_len<*DeclNode>(&sd.methods)) {
+    while (sd != null && mi < List_len<*DeclNode>(&sd.methods)) {
         if (cg_streq(List_get<*DeclNode>(&sd.methods, mi).name, e.a.sval) == 1) { return null; }
         mi = mi + 1;
     }
