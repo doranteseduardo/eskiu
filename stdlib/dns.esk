@@ -128,13 +128,38 @@ string dns_last_error() {
 #endif
 }
 
-// Write the numeric form of the address in a sockaddr into dst (64 bytes).
-// Returns 1, or 0 for an address family other than IPv4/IPv6.
+#ifndef _WIN32
+extern *char if_indextoname(uint32 index, *char name);
+#endif
+
+// Write the numeric form of the address in a sockaddr into dst (64 bytes). An
+// IPv6 address with a scope (a link-local fe80::...) keeps it as "%zone": the
+// interface name (fe80::1%en0), or its index on Windows (fe80::1%12), so the
+// string resolves to the same address again. Returns 1, or 0 for an address
+// family other than IPv4/IPv6.
 int _dns_numeric(*_dns_addrinfo ai, *char dst) {
     *uint8 sa = (*uint8)ai.ai_addr;
     string r = null;
     if (ai.ai_family == DNS_AF_INET) { r = inet_ntop(DNS_AF_INET, (*void)(sa + 4), dst, 64); }
-    else if (ai.ai_family == DNS_AF_INET6) { r = inet_ntop(DNS_AF_INET6, (*void)(sa + 8), dst, 64); }
+    else if (ai.ai_family == DNS_AF_INET6) {
+        r = inet_ntop(DNS_AF_INET6, (*void)(sa + 8), dst, 46);
+        let scope: uint32 = (uint32)0;
+        memcpy((*void)&scope, (*void)(sa + 24), 4);   // sin6_scope_id
+        if (r != null && scope != (uint32)0) {
+            int64 n = strlen((string)dst);
+            dst[n] = '%';
+            n++;
+#ifndef _WIN32
+            if (if_indextoname(scope, dst + n) != null) { return 1; }
+#endif
+            int64 v = (int64)scope;
+            char[12] digits;
+            int k = 0;
+            while (v > 0 || k == 0) { digits[k] = (char)(48 + (int)(v % 10)); v = v / 10; k++; }
+            while (k > 0) { k--; dst[n] = digits[k]; n++; }
+            dst[n] = 0;
+        }
+    }
     return r != null ? 1 : 0;
 }
 
