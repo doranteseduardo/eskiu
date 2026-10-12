@@ -71,6 +71,8 @@ async int run(EventLoop* lp) {
     show("timeout", rc, &a);
     Response_free(&a);
 
+    // Windows retries a refused connect for about 2 s before it reports it.
+    o.timeout_ms = 10000;
     rc = await fetch_async(lp, "http://127.0.0.1:1/", &o, &a);
     printf("refused: rc=%d\n", rc);
     Response_free(&a);
