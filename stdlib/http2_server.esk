@@ -254,7 +254,7 @@ int h2_headers_bufsize(HttpResponse* res) {
 // dropped and it gets no content-length.
 // `out` must hold h2_headers_bufsize(res) bytes. Returns the byte count.
 int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
-    const int nocontent = http_status_no_content(res.status);
+    const int nocontent = _http_status_no_content(res.status);
     if (nocontent != 0) { res.body.clear(); }
     *uint8 block = alloc<uint8>(h2_header_block_bound(res));
     int off = 0;
@@ -706,7 +706,7 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     } else {
         int filled = h2_fill_request(&sl.req, s.harr, nh);
         if (filled == 0) {
-            const int64 cl = http_content_length(&sl.req.headers);
+            const int64 cl = _http_content_length(&sl.req.headers);
             if (cl == -1) { filled = -2; }             // an invalid content-length
             else if (cl >= 0) { sl.clen = cl; }
         }

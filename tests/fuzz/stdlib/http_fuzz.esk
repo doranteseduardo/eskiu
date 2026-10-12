@@ -33,7 +33,7 @@ void fuzz_one(*uint8 data, int len, string s) {
     http_lookups_req(&req);
     HttpRequest_free(&req);
 
-    int hend = http_idx_header_end(data, len);
+    int hend = _http_idx_header_end(data, len);
     if (hend > len) { fuzz_fail("header end past the input"); }
     if (hend < 0) { hend = len; }
     let r: HttpReq; HttpReq_init(&r);

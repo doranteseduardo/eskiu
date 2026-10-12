@@ -58,6 +58,6 @@ int main() {
     close(sv[1]);
     free((*void)rb);
 
-    printf("reasons: [%s] [%s] [%s] [%s] [%s]\n", http_reason(200), http_reason(418), http_reason(299), http_reason(599), http_reason(99));
+    printf("reasons: [%s] [%s] [%s] [%s] [%s]\n", _http_reason(200), _http_reason(418), _http_reason(299), _http_reason(599), _http_reason(99));
     return 0;
 }
