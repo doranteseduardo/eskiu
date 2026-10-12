@@ -20,10 +20,10 @@ on it. Unit-tested by `tests/http2_frame`.
 
 ### Connection lifecycle (`stdlib/http2.esk`)
 
-The SETTINGS codec (`h2_write_settings`/`h2_apply_settings` over the 6 standard
+The SETTINGS codec (`h2_write_settings`/`H2Settings_apply` over the 6 standard
 params, with an `H2Settings` model carrying the RFC defaults), the SETTINGS ACK,
 PING/PONG (`h2_write_ping`/`h2_send_pong`), and GOAWAY
-(`h2_write_goaway`/`h2_read_goaway`/`h2_send_goaway`) with the §7 error codes. An
+(`h2_write_goaway`/`h2_read_goaway`/`H2Conn_send_goaway`) with the §7 error codes. An
 `H2Conn` holds per-connection state. I/O is async over the event loop:
 `h2_read_full_async` (partial-read loop), `h2_read_frame_async` (header +
 payload), and `h2_server_handshake_async` (validate preface → read + apply client
@@ -52,8 +52,8 @@ raw/Huffman per string. Validated against the RFC vectors, §C.1.1 (integer),
 ### Streams and flow control (`stdlib/http2.esk`)
 
 The per-stream state machine (`H2Stream`: idle → open → half-closed-local/remote →
-closed, via `h2_stream_on_recv`/`h2_stream_on_send`); credit-based flow control
-(`H2Conn_can_send`/`h2_account_sent`/`h2_account_recv`/`h2_grant_window`) over
+closed, via `H2Stream_on_recv`/`H2Stream_on_send`); credit-based flow control
+(`H2Conn_can_send`/`H2Conn_account_sent`/`H2Conn_account_recv`/`H2Conn_grant_window`) over
 per-stream and connection windows; and the stream-frame codecs: HEADERS, DATA,
 WINDOW_UPDATE, RST_STREAM (`h2_write_*`). HEADERS+CONTINUATION reassembly to
 END_HEADERS is the async `h2_read_header_block_async`. RESERVED states are omitted

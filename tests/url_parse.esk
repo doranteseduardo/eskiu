@@ -1,5 +1,5 @@
 // <url>: url_parse (scheme, host incl. [IPv6], port defaults, path, query,
-// user info and fragment dropped, invalid forms), url_resolve (RFC 3986 §5.4
+// user info and fragment dropped, invalid forms), Url_resolve (RFC 3986 §5.4
 // examples) and url_query_add.
 import <url>;
 import <string>;
@@ -21,7 +21,7 @@ void p(string s) {
 
 void r(Url* base, string ref) {
     let u: Url;
-    if (url_resolve(base, ref, &u) == 1) {
+    if (Url_resolve(base, ref, &u) == 1) {
         let t: String;  String_init(&t, 32);
         Url_to_string(&u, &t);
         printf("resolve %s -> %s\n", ref, t.cstr());

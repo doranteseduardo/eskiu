@@ -844,7 +844,7 @@ int _fetch_redirect(_FetchCall* c) {
         return FETCH_ERR_REDIRECTS;
     }
     let next: Url;
-    if (url_resolve(&c.url, loc.cstr(), &next) == 0) {
+    if (Url_resolve(&c.url, loc.cstr(), &next) == 0) {
         Url_free(&next);
         _fetch_fail(FETCH_ERR_RESPONSE, "malformed response: invalid Location '");
         String_append(&_fetch_err, loc.cstr());

@@ -55,7 +55,7 @@ int main() {
     let d: HpackDecoder;  d.init(4096);
     let hs: HpackHeader[16];
     let f: H2Frame;  h2_read_header(out, &f);
-    const int nh = hpack_decode(&d, out + 9, f.length, &hs[0], 16);
+    const int nh = HpackDecoder_decode(&d, out + 9, f.length, &hs[0], 16);
     printf("h2 frame bytes %d fields %d\n", n, nh);
     for (i in 0..nh) {
         printf("  ");

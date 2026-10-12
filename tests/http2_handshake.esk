@@ -23,7 +23,7 @@ int main() {
     string pf = h2_preface();
     net_send(cli, (*void)pf, (int64)24);
     *uint8 cb = alloc<uint8>(64);
-    let cs: H2Settings;  h2_settings_defaults(&cs);
+    let cs: H2Settings;  H2Settings_defaults(&cs);
     cs.max_concurrent_streams = (int64)50;
     int sn = h2_write_settings(cb, &cs);
     net_send(cli, (*void)cb, (int64)sn);

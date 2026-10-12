@@ -30,7 +30,7 @@ int main() {
 
     *uint8 b = alloc<uint8>(512);
     net_send(cli, (*void)h2_preface(), (int64)24);
-    let cs: H2Settings;  h2_settings_defaults(&cs);
+    let cs: H2Settings;  H2Settings_defaults(&cs);
     int sn = h2_write_settings(b, &cs);  net_send(cli, (*void)b, (int64)sn);
 
     // HEADERS: GET / on stream 1, END_STREAM | END_HEADERS.
@@ -59,7 +59,7 @@ int main() {
         let fr: H2Frame;  h2_read_header(rb + pos, &fr);
         int payload = pos + 9;
         if (fr.type == H2_HEADERS) {
-            int n = hpack_decode(&dec, rb + payload, fr.length, hs, 32);
+            int n = HpackDecoder_decode(&dec, rb + payload, fr.length, hs, 32);
             int i = 0;
             while (i < n) {
                 if (h2_name_eq(&hs[i], ":status") != 0) {

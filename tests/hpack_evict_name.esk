@@ -18,7 +18,7 @@ int main() {
     off = hpack_encode_int(blk, off, 6, 64, (int64)62);
     blk[off] = (uint8)9; off = off + 1;
     k = 0; while (k < 9) { blk[off] = (uint8)98; off = off + 1; k = k + 1; }
-    int c = hpack_decode(&d, blk, off, out, 8);
+    int c = HpackDecoder_decode(&d, blk, off, out, 8);
     printf("count=%d dyn=%d\n", c, d.dyn_count);
     printf("entry=%.*s:%.*s\n", d.dyn[0].nlen, (string)d.dyn[0].name, d.dyn[0].vlen, (string)d.dyn[0].value);
     printf("hdr0=%.*s hdr1=%.*s:%.*s\n", out[0].nlen, (string)out[0].name,
@@ -30,7 +30,7 @@ int main() {
     blk[off] = (uint8)120; off = off + 1; blk[off] = (uint8)120; off = off + 1;
     blk[off] = (uint8)20; off = off + 1;
     k = 0; while (k < 20) { blk[off] = (uint8)99; off = off + 1; k = k + 1; }
-    c = hpack_decode(&d, blk, off, out, 8);
+    c = HpackDecoder_decode(&d, blk, off, out, 8);
     printf("count=%d first=%.*s:%.*s\n", c, out[0].nlen, (string)out[0].name, out[0].vlen, (string)out[0].value);
 
     HpackDecoder_free(&d);

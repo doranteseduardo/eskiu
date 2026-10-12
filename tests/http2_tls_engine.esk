@@ -86,7 +86,7 @@ void run(string label, int async_mode) {
         let fr: H2Frame;  h2_read_header(rb + pos, &fr);
         *uint8 pl = rb + pos + 9;
         if (fr.type == H2_HEADERS) {
-            int n = hpack_decode(&dec, pl, fr.length, hs, 16);
+            int n = HpackDecoder_decode(&dec, pl, fr.length, hs, 16);
             for (i in 0..n) {
                 if (h2_name_eq(&hs[i], ":status") != 0) { printf(" HEADERS(%.*s)", hs[i].vlen, (string)hs[i].value); }
             }

@@ -31,7 +31,7 @@ void dump(*uint8 out, int64 len, HpackDecoder* d) {
     while (o + 9 <= len) {
         let f: H2Frame; h2_read_header(out + o, &f);
         if (f.type == H2_HEADERS) {
-            const int n = hpack_decode(d, out + o + 9, f.length, &hs[0], 16);
+            const int n = HpackDecoder_decode(d, out + o + 9, f.length, &hs[0], 16);
             for (i in 0..n) {
                 printf("  ");
                 for (int64 k = 0; k < hs[i].nlen; k++) { printf("%c", (int)hs[i].name[k]); }

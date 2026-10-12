@@ -1,5 +1,5 @@
 // RFC 9110 §5.5: a NUL in a field value (or in the request target) is
-// rejected. HttpRequest_parse and http_parse_head used to accept it, and a
+// rejected. HttpRequest_parse and HttpReq_parse_head used to accept it, and a
 // header lookup then stopped at the NUL ("ab" for "ab\0cd").
 import <http>;
 extern int printf(string fmt, ...);
@@ -17,7 +17,7 @@ void check(string tag, String* s) {
     const int a = r.parse((*uint8)s.data, (int)s.len);
     r.free();
     let q: HttpReq; HttpReq_init(&q);
-    const int b = http_parse_head(&q, (*uint8)s.data, (int)s.len);
+    const int b = HttpReq_parse_head(&q, (*uint8)s.data, (int)s.len);
     q.free();
     printf("%s: parse=%d head=%d\n", tag, a, b);
 }

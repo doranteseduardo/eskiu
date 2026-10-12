@@ -1039,7 +1039,7 @@ int _http_parse_head_v(HttpReq* r, *uint8 buf, int hend, *int version) {
 
 // Parse request line + headers from buf[0..hend) into r; 1, or 0 if the head
 // is malformed (see _http_parse_head_v).
-int http_parse_head(HttpReq* r, *uint8 buf, int hend) {
+int HttpReq_parse_head(HttpReq* r, *uint8 buf, int hend) {
     int version = 0;
     return _http_parse_head_v(r, buf, hend, &version);
 }
@@ -1250,3 +1250,7 @@ void http_reply_error(int fd, int status, string extra, string msg) {
     b.append("\"}");
     http_reply(fd, status, "application/json", extra, &b);
 }
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use HttpReq_parse_head.
+int http_parse_head(HttpReq* r, *uint8 buf, int hend) { return HttpReq_parse_head(r, buf, hend); }

@@ -238,7 +238,7 @@ when you add a test.
 | `http_header_edges` | HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an overflowing or malformed Content-Length is a 400 (it used to wrap to 0),... |
 | `http_host_value` | A Host value must be uri-host [":" port] (RFC 9110 §7.2): whitespace, a list, a bad port, a bad `%` escape or an unclosed IP-literal is 400 in `http_recv` and `HttpRequest_parse_status`. |
 | `http_reply_null_body` | `http_reply` with a null body sends Content-Length: 0 (it used to read body.len through the null pointer). |
-| `http_nul_header` | RFC 9110 §5.5: a NUL in a header value or the request target makes `HttpRequest_parse` and `http_parse_head` fail (a lookup used to stop at the NUL). |
+| `http_nul_header` | RFC 9110 §5.5: a NUL in a header value or the request target makes `HttpRequest_parse` and `HttpReq_parse_head` fail (a lookup used to stop at the NUL). |
 | `http_parse_framing` | `HttpRequest_parse` frames by RFC 9112 like `http_recv`: the body is exactly Content-Length bytes, an invalid or conflicting Content-Length is 400, a request cut short (no blank line, a short body) is incomplete (-1 from `HttpRequest_parse_status`); `HttpConnBuf_feed` waits for a request fed a few bytes at a time. |
 | `http_no_content_length` | RFC 9110 §8.6: `HttpResponse_render` and `http_reply` send no Content-Length and no body for a 1xx or 204 status (they used to add `Content-Length: 0`). |
 | `http_strict` | HTTP/1.1 strictness: a body cut short by the peer is 400, conflicting Content-Length values are 400, a bare CR/LF in the head or an empty method/path is malformed (the servers answer 400 without the handler), and render sends a body past an embedded NUL. |

@@ -27,6 +27,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   compilers calls the new names. The old names remain as deprecated wrappers. The type-erased
   cores `select2_hdr`, `join2_hdr` and `spawn_hdr` are internal now (`_select2_hdr`, ...); use
   `select2`, `join2` and `spawn`.
+- More functions that take a module's struct first follow the `Type_method` convention:
+  `hpack_decode` -> `HpackDecoder_decode`, `hpack_huff_decode` -> `HpackHuff_decode`,
+  `h2_settings_defaults` -> `H2Settings_defaults`, `h2_apply_settings` -> `H2Settings_apply`,
+  `h2_stream_on_recv`/`h2_stream_on_send` -> `H2Stream_on_recv`/`H2Stream_on_send`,
+  `h2_account_sent`/`h2_account_recv`/`h2_grant_window`/`h2_send_goaway` ->
+  `H2Conn_account_sent`/`H2Conn_account_recv`/`H2Conn_grant_window`/`H2Conn_send_goaway`,
+  `http_parse_head` -> `HttpReq_parse_head` and `url_resolve` -> `Url_resolve`. The old names
+  remain as deprecated wrappers.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer

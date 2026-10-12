@@ -26,7 +26,7 @@ int main() {
 
     let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
     *HpackHeader hs = alloc<HpackHeader>(16);
-    int n = hpack_decode(&dec, blk, 20, hs, 16);
+    int n = HpackDecoder_decode(&dec, blk, 20, hs, 16);
     printf("count=%d dyn=%d\n", n, dec.dyn_count);                       // count=4 dyn=1
     i = 0;
     while (i < n) {
@@ -42,7 +42,7 @@ int main() {
     string ck = "custom-key";  string cv = "custom-value";
     int p = hpack_encode_header(buf, 0, (*uint8)ck, 10, (*uint8)cv, 12);
     let d2: HpackDecoder;  HpackDecoder_init(&d2, (int64)4096);
-    int m = hpack_decode(&d2, buf, p, hs, 16);
+    int m = HpackDecoder_decode(&d2, buf, p, hs, 16);
     printf("rt=%d %.*s=%.*s\n", m, hs[0].nlen, hs[0].name, hs[0].vlen, hs[0].value);
     HpackDecoder_free(&d2);
 
@@ -54,7 +54,7 @@ int main() {
     hb[10]=(uint8)58; hb[11]=(uint8)107; hb[12]=(uint8)160; hb[13]=(uint8)171; hb[14]=(uint8)144;
     hb[15]=(uint8)244; hb[16]=(uint8)255;
     let d3: HpackDecoder;  HpackDecoder_init(&d3, (int64)4096);
-    int hn = hpack_decode(&d3, hb, 17, hs, 16);
+    int hn = HpackDecoder_decode(&d3, hb, 17, hs, 16);
     printf("huff_count=%d\n", hn);                                       // 4
     printf("huff_authority=%.*s\n", hs[3].nlen, hs[3].name);            // :authority
     printf("huff_value=%.*s\n", hs[3].vlen, hs[3].value);              // www.example.com
@@ -66,7 +66,7 @@ int main() {
     int he = hpack_huff_encode(buf, 0, (*uint8)sample, slen);
     *uint8 dout = alloc<uint8>(128);
     let huff: HpackHuff;  HpackHuff_build(&huff);
-    int dn = hpack_huff_decode(&huff, buf, he, dout, 128);
+    int dn = HpackHuff_decode(&huff, buf, he, dout, 128);
     printf("huff_rt enc=%d dec=%d match=%d\n", he, dn,
            (dn == slen) && (memcmp((*void)dout, (*void)sample, slen) == 0));
     HpackHuff_free(&huff);

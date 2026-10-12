@@ -26,7 +26,7 @@ void fuzz_one(*uint8 data, int len, string s) {
 
     let d: HpackDecoder; HpackDecoder_init(&d, tsize);
     *HpackHeader hs = alloc<HpackHeader>(64);
-    int n1 = hpack_decode(&d, b1, split, hs, 64);
+    int n1 = HpackDecoder_decode(&d, b1, split, hs, 64);
     if (n1 > 64) { fuzz_fail("more headers than the output array"); }
 
     // Round trip the first block's headers through the encoder and a fresh decoder.
@@ -46,7 +46,7 @@ void fuzz_one(*uint8 data, int len, string s) {
         if (off > cap) { fuzz_fail("encoder wrote past its buffer"); }
         let d2: HpackDecoder; HpackDecoder_init(&d2, 4096);
         *HpackHeader rs = alloc<HpackHeader>(64);
-        int n2 = hpack_decode(&d2, enc, off, rs, 64);
+        int n2 = HpackDecoder_decode(&d2, enc, off, rs, 64);
         if (n2 != n1) { fuzz_fail("hpack round trip count"); }
         i = 0;
         while (i < n1) {
@@ -62,12 +62,12 @@ void fuzz_one(*uint8 data, int len, string s) {
         free(enc);
     }
 
-    int n3 = hpack_decode(&d, b2, body - split, hs, 64);
+    int n3 = HpackDecoder_decode(&d, b2, body - split, hs, 64);
     int i3 = 0;
     while (i3 < n3) { hp_touch(hs[i3].name, hs[i3].nlen); hp_touch(hs[i3].value, hs[i3].vlen); i3 = i3 + 1; }
 
     *uint8 dst = alloc<uint8>(4 * len + 8);
-    hpack_huff_decode(&d.huff, data, len, dst, 4 * len + 8);
+    HpackHuff_decode(&d.huff, data, len, dst, 4 * len + 8);
     free(dst);
     free(hs);
     HpackDecoder_free(&d);

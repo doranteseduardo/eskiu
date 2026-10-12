@@ -317,7 +317,7 @@ int h2_response_bufsize(HttpResponse* res) {
 }
 
 // Encode and send a response on `stream_id` over the connection's socket.
-void h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
+void _h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
     *uint8 out = alloc<uint8>(h2_response_bufsize(res));
     const int n = h2_build_response(out, stream_id, res);
     net_send(conn.fd, (*void)out, n);
@@ -640,7 +640,7 @@ int H2Server_end_request(H2Server* s, H2Slot* sl) {
 // order, so the HPACK table stays in sync) and open or finish the stream.
 void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     s.hb_sid = 0;
-    const int nh = hpack_decode(&s.dec, s.hb, s.hblen, s.harr, H2_MAX_HEADERS);
+    const int nh = HpackDecoder_decode(&s.dec, s.hb, s.hblen, s.harr, H2_MAX_HEADERS);
     if (nh == -1) { H2Server_goaway(s, H2_COMPRESSION_ERROR); return; }
     const int at = H2Server_find(s, sid);
     if (s.hb_selfdep != 0) {
@@ -820,7 +820,7 @@ void H2Server_on_settings(H2Server* s, H2Frame* h, *uint8 p) {
     const int err = h2_settings_error(p, h.length);
     if (err != 0) { H2Server_goaway(s, err); return; }
     const int64 old_iw = s.conn.remote.initial_window_size;
-    h2_apply_settings(&s.conn.remote, p, h.length);
+    H2Settings_apply(&s.conn.remote, p, h.length);
     // A new INITIAL_WINDOW_SIZE shifts every open stream's send window by the
     // difference (§6.9.2); one pushed past 2^31 - 1 is a FLOW_CONTROL_ERROR.
     const int64 delta = s.conn.remote.initial_window_size - old_iw;

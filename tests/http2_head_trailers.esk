@@ -26,7 +26,7 @@ void dump(H2Server* s, HpackDecoder* d) {
     while (o + 9 <= s.outlen) {
         let f: H2Frame; h2_read_header(s.out + o, &f);
         if (f.type == H2_HEADERS) {
-            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            const int n = HpackDecoder_decode(d, s.out + o + 9, f.length, &hs[0], 8);
             for (i in 0..n) {
                 printf("  stream %d ", f.stream_id);
                 for (int64 k = 0; k < hs[i].nlen; k++) { printf("%c", (int)hs[i].name[k]); }

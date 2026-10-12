@@ -9,7 +9,7 @@ int main() {
     *uint8 buf = alloc<uint8>(256);
 
     // --- SETTINGS round-trip: write our settings, parse them back into a peer.
-    let local: H2Settings;  h2_settings_defaults(&local);
+    let local: H2Settings;  H2Settings_defaults(&local);
     local.enable_push = 0;                 // a server disables push
     local.max_concurrent_streams = (int64)100;
     local.initial_window_size = (int64)1048576;
@@ -19,8 +19,8 @@ int main() {
     // 5 of 6 params present (max_header_list_size stays -1 => omitted): 5*6 = 30.
     printf("%d %d %d %d\n", n, hdr.type, hdr.length, hdr.stream_id);   // 39 4 30 0
 
-    let peer: H2Settings;  h2_settings_defaults(&peer);
-    int rc = h2_apply_settings(&peer, buf + H2_FRAME_HEADER_LEN, hdr.length);
+    let peer: H2Settings;  H2Settings_defaults(&peer);
+    int rc = H2Settings_apply(&peer, buf + H2_FRAME_HEADER_LEN, hdr.length);
     printf("%d %d %lld %lld\n", rc, peer.enable_push,
            peer.max_concurrent_streams, peer.initial_window_size); // 0 0 100 1048576
     // header_table_size was sent at its default, so it round-trips unchanged.

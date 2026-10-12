@@ -342,7 +342,7 @@ void _url_remove_dots(string p, int64 n, String* out) {
 // a relative path is merged with the directory of the base path; "." and ".."
 // segments are removed and a fragment is dropped. *out is initialized here, as
 // url_parse does. 1 if the result is a valid URL, else 0.
-int url_resolve(Url* base, string ref, Url* out) {
+int Url_resolve(Url* base, string ref, Url* out) {
     if (ref == null) { Url_init(out); return 0; }
     if (_url_scheme_len(ref) > 0) { return url_parse(ref, out); }
     let s: String;  String_init(&s, 64);
@@ -399,3 +399,7 @@ void url_query_add(String* url, string key, string value) {
     url.append(frag.cstr());
     frag.free();
 }
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use Url_resolve.
+int url_resolve(Url* base, string ref, Url* out) { return Url_resolve(base, ref, out); }

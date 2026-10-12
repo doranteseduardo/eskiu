@@ -19,14 +19,14 @@ int main() {
     memset((*void)val, 97, (int64)20000);
     *uint8 blk = alloc<uint8>(40000);
     int off = hpack_encode_header(blk, 0, (*uint8)"x-big", 5, val, 20000);
-    int n = hpack_decode(&d, blk, off, out, 64);
+    int n = HpackDecoder_decode(&d, blk, off, out, 64);
     printf("big: block=%d n=%d vlen=%d last=%c\n", off, n, out[0].vlen, (int)out[0].value[19999]);
 
     // 0x82 (:method GET) then 0x20 (size update to 0): update after a field.
     blk[0] = (uint8)130;  blk[1] = (uint8)32;
-    printf("update after field: %d\n", hpack_decode(&d, blk, 2, out, 64));
+    printf("update after field: %d\n", HpackDecoder_decode(&d, blk, 2, out, 64));
     blk[0] = (uint8)32;   blk[1] = (uint8)130;
-    printf("update first: %d\n", hpack_decode(&d, blk, 2, out, 64));
+    printf("update first: %d\n", HpackDecoder_decode(&d, blk, 2, out, 64));
 
     // 70 literals with incremental indexing: h0..h69 = v (a fresh decoder: the
     // update above emptied this one's table).
@@ -40,9 +40,9 @@ int main() {
         off = hpack_encode_str(blk, off, &nm[0], 3);
         off = hpack_encode_str(blk, off, (*uint8)"v", 1);
     }
-    printf("70 fields into 64: %d first=%.*s\n", hpack_decode(&d, blk, off, out, 64), out[0].nlen, (string)out[0].name);
+    printf("70 fields into 64: %d first=%.*s\n", HpackDecoder_decode(&d, blk, off, out, 64), out[0].nlen, (string)out[0].name);
     blk[0] = (uint8)190;                              // indexed 62: the newest entry, h69
-    n = hpack_decode(&d, blk, 1, out, 64);
+    n = HpackDecoder_decode(&d, blk, 1, out, 64);
     printf("next block: n=%d name=%.*s\n", n, out[0].nlen, (string)out[0].name);
 
     free((*void)blk);
