@@ -8,13 +8,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    # libssl is installed below, so tests/fetch_https.esk must run its HTTPS checks
+    # instead of printing "skipped".
+    env:
+      ESKIU_REQUIRE_TLS: 1
     steps:
       - uses: actions/checkout@v4
 
       - name: Install LLVM 22 + toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libc++-dev libc++abi-dev
+          # libssl-dev: OpenSSL 3, which <tls> links and <fetch_tls> loads at run time.
+          sudo apt-get install -y cmake build-essential libc++-dev libc++abi-dev libssl-dev
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 22
@@ -154,6 +159,12 @@ jobs:
       # Compare the self-host `run` to the C++ `run` over the same corpus (promotion P2).
       - name: Run self-host parity
         run: CLANG=clang-22 tests/selfhost/run_parity.sh
+
+      # The example scripts (examples/scripts/) run through their shebang line with the
+      # self-hosted compiler as `eskiuc`: repo_stats against a local fake GitHub API,
+      # organize on a temporary tree. tests/run.sh above ran them with the C++ compiler.
+      - name: Example scripts (self-hosted compiler)
+        run: CC=clang-22 CLANG=clang-22 ESKIUC=build/eskiuc-esk tests/scripts/check.sh
 
       # `eskiuc fmt`: the self-host reformatter must be byte-identical to the C++ one
       # over the whole in-repo corpus (implies idempotency; promotion P2).
