@@ -1285,7 +1285,7 @@ as for any call (<code>swap(&amp;i64, &amp;i32)</code> against <code>*T</code> i
 thread_join(*void handle) -&gt; void
 </code></pre>
 <p><code>thread_create</code> accepts any <code>fn()-&gt;void</code> value, including a closure, and returns an opaque <code>*void</code> thread handle. <code>thread_join</code> blocks the calling thread until the spawned thread completes. Any other worker type, or a <code>thread_join</code> operand that is not a <code>*void</code> handle, is a compile error.</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     *void t = thread_create(void() { printf(&quot;hello from thread\n&quot;); });
@@ -1306,7 +1306,7 @@ thread_join(t);
 <code>&lt;eventloop&gt;</code>/<code>&lt;executor&gt;</code> runtime. Single and multiple awaits, <code>async void</code>, and every
 control-flow construct containing an await (<code>if</code>/<code>while</code>/<code>do</code>-<code>while</code>/C-style
 <code>for</code>/<code>switch</code>/<code>match</code>/<code>for-in</code>, with <code>break</code>/<code>continue</code>, and <code>try</code>/<code>catch</code>) are
-supported; a pending future is cancelled with <code>future_drop</code>.</p>
+supported; a pending future is cancelled with <code>Future_drop</code>.</p>
 <p>An <code>await</code> may appear anywhere in an expression: a <code>let</code> initializer, a <code>return</code> value,
 an assignment or compound assignment (<code>x += await f();</code>), a call argument, an operand
 (<code>a + await f()</code>), a condition (<code>while (await more())</code>), a <code>switch</code> or <code>match</code> subject, a
@@ -1328,7 +1328,7 @@ last-registered first, and an exception unwinding through the try is thrown agai
 the <code>finally</code> finishes.</p>
 <p>A future dropped while suspended runs the <code>finally</code> blocks and <code>defer</code>s pending at its
 await once, innermost first, after the future it was awaiting has been dropped. When that
-cleanup awaits, it runs detached, like a task given to <code>spawn</code>: <code>future_drop</code> returns while
+cleanup awaits, it runs detached, like a task given to <code>spawn</code>: <code>Future_drop</code> returns while
 the cleanup is suspended, the event loop resumes it, and its frame is freed when it ends.
 Nobody reads the result of a dropped future, and dropping it again while its cleanup runs
 does nothing. An exception that escapes such a cleanup propagates to whatever resumed it,
@@ -1939,7 +1939,7 @@ int big = max&lt;int&gt;(10, 20);
 </code></pre>
 <h3 id="104-using-result-from-stdlib">10.4 Using Result<T,E> from stdlib</h3>
 <pre><code class="language-eskiu">import &lt;result&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let r: Result&lt;int, string&gt; = Ok&lt;int, string&gt;(42);
@@ -2179,6 +2179,7 @@ int main() {
 <h2 id="13-extern-c-interop">13. extern / C Interop</h2>
 <h3 id="131-extern-function-declarations">13.1 Extern Function Declarations</h3>
 <p>An <code>extern</code> declaration makes a C function available to Eskiu code. The declaration must match the C function's ABI exactly.</p>
+<p>The standard library already declares the common C functions: <code>&lt;io&gt;</code> has <code>printf</code>, <code>puts</code> and the rest of C stdio, <code>&lt;mem&gt;</code> the memory and string functions (<code>memcpy</code>, <code>memset</code>, <code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strstr</code>), <code>&lt;math&gt;</code> the libm ones (<code>sqrt</code>, <code>pow</code>, ...), and <code>&lt;process&gt;</code> has <code>process_exit</code>. A program imports those modules and declares an <code>extern</code> itself only for other functions; an <code>extern</code> that repeats one of them with different types is a conflicting declaration.</p>
 <pre><code class="language-eskiu">extern int printf(string fmt, ...);
 extern int64 strlen(string s);
 extern *void memcpy(*void dst, *void src, int64 n);
@@ -2266,7 +2267,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/string.esk</code></td>
-<td><code>String</code> struct; <code>String_init</code>, <code>String_from</code>, <code>String_append</code>, <code>String_concat</code>, <code>String_push</code>, <code>String_char_at</code>, <code>String_set</code>, <code>String_clear</code>, <code>String_index_of</code>, <code>String_eq</code>, <code>String_eq_cstr</code>, <code>String_reverse</code>, <code>String_substring</code>, <code>String_from_int</code>, <code>String_to_int</code>, <code>String_cstr</code>, <code>String_len</code>, <code>String_free</code>, <code>String_starts_with</code>, <code>String_ends_with</code>, <code>String_trim</code>, <code>String_next_token</code> (streaming split), <code>String_split</code>/<code>String_split_free</code> (into a <code>List&lt;String&gt;</code>); scripting helpers <code>String_find</code>, <code>String_contains</code>, <code>String_replace</code>, <code>String_replace_all</code>, <code>String_split_str</code>, <code>String_lines</code>, <code>String_join</code>, <code>str_join</code>, <code>List_join</code>, <code>String_lower</code>, <code>String_upper</code>, <code>String_repeat</code>, <code>String_pad_left</code>, <code>String_pad_right</code>, <code>String_to_double</code>, <code>String_parse_double</code>, <code>String_from_double</code>, <code>String_reserve</code>, <code>String_appendf</code>, <code>str_format</code> (see <a href="#string-scripting-helpers">String scripting helpers</a>). <code>String_to_int</code> accepts a leading sign and saturates at the <code>int</code> range. <code>String_is_space</code> is deprecated; use <code>is_space</code> from <code>&lt;ctype&gt;</code></td>
+<td><code>String</code> struct; <code>String_init</code>, <code>String_from</code>, <code>String_append</code>, <code>String_concat</code>, <code>String_push</code>, <code>String_char_at</code>, <code>String_set</code>, <code>String_clear</code>, <code>String_index_of</code>, <code>String_eq</code>, <code>String_eq_cstr</code>, <code>String_reverse</code>, <code>String_substring</code>, <code>String_from_int</code>, <code>String_to_int</code>, <code>String_cstr</code>, <code>String_len</code>, <code>String_free</code>, <code>String_starts_with</code>, <code>String_ends_with</code>, <code>String_trim</code>, <code>String_next_token</code> (streaming split), <code>String_split</code>/<code>String_split_free</code> (into a <code>List&lt;String&gt;</code>); scripting helpers <code>String_find</code>, <code>String_contains</code>, <code>String_replace</code>, <code>String_replace_all</code>, <code>String_split_str</code>, <code>String_lines</code>, <code>String_join</code>, <code>List_join</code>, <code>String_lower</code>, <code>String_upper</code>, <code>String_repeat</code>, <code>String_pad_left</code>, <code>String_pad_right</code>, <code>String_to_double</code>, <code>String_parse_double</code>, <code>String_from_double</code>, <code>String_reserve</code>, <code>String_appendf</code>, <code>String_format</code> (see <a href="#string-scripting-helpers">String scripting helpers</a>). <code>String_to_int</code> accepts a leading sign and saturates at the <code>int</code> range. <code>String_is_space</code> is deprecated; use <code>is_space</code> from <code>&lt;ctype&gt;</code></td>
 </tr>
 <tr>
 <td><code>stdlib/ctype.esk</code></td>
@@ -2298,7 +2299,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/time.esk</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; a UTC civil calendar: <code>DateTime</code> (year/month/day/hour/min/sec plus <code>wday</code>/<code>yday</code>), <code>time_to_utc(t, &amp;dt)</code> (epoch seconds to fields), <code>DateTime_to_epoch</code>, and <code>DateTime_format_iso</code> (ISO 8601, e.g. <code>2026-07-13T18:30:00Z</code>); local time (<code>time_to_local</code>, <code>time_local_offset</code>), <code>time_format</code>/<code>time_parse</code>/<code>time_parse_local</code> with strftime-style specifiers, <code>duration_format</code>, <code>Stopwatch</code></td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>time_sleep_ms</code>; a UTC civil calendar: <code>DateTime</code> (year/month/day/hour/min/sec plus <code>wday</code>/<code>yday</code>), <code>time_to_utc(t, &amp;dt)</code> (epoch seconds to fields), <code>DateTime_to_epoch</code>, and <code>DateTime_format_iso</code> (ISO 8601, e.g. <code>2026-07-13T18:30:00Z</code>); local time (<code>time_to_local</code>, <code>time_local_offset</code>), <code>time_format</code>/<code>time_parse</code>/<code>time_parse_local</code> with strftime-style specifiers, <code>time_format_duration</code>, <code>Stopwatch</code></td>
 </tr>
 <tr>
 <td><code>stdlib/random.esk</code></td>
@@ -2310,11 +2311,11 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/sort.esk</code></td>
-<td>Generic in-place heapsort <code>sort&lt;T&gt;(a, n, cmp)</code> and binary search <code>bsearch&lt;T&gt;(a, n, key, cmp)</code> (index or <code>-1</code>) over a <code>*T</code> array; <code>cmp</code> is <code>fn(*T, *T)-&gt;int</code> (negative / zero / positive); <code>List_sort_by(&amp;list, cmp)</code> sorts a <code>List&lt;T&gt;</code> in place</td>
+<td>Generic in-place heapsort <code>sort&lt;T&gt;(a, n, cmp)</code> and binary search <code>sort_search&lt;T&gt;(a, n, key, cmp)</code> (index or <code>-1</code>) over a <code>*T</code> array; <code>cmp</code> is <code>fn(*T, *T)-&gt;int</code> (negative / zero / positive); <code>List_sort_by(&amp;list, cmp)</code> sorts a <code>List&lt;T&gt;</code> in place</td>
 </tr>
 <tr>
 <td><code>stdlib/url.esk</code></td>
-<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (keys and values are decoded, <code>+</code> to a space); <code>url_parse(text, &amp;u)</code> into a <code>Url</code> (<code>scheme</code>, <code>host</code>, <code>port</code>, <code>path</code>, <code>query</code>), <code>url_resolve(&amp;base, ref, &amp;u)</code> (RFC 3986 reference resolution), <code>Url_to_string</code>, <code>Url_target</code>, <code>Url_host_port</code>, <code>url_default_port</code>, <code>url_query_add(&amp;text, key, value)</code> (see <a href="#http-client-fetch">HTTP client</a>)</td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code> (and <code>url_decode_range</code>), plus <code>url_query_get(query, key, &amp;out)</code> for <code>a=1&amp;b=2</code> query strings (keys and values are decoded, <code>+</code> to a space); <code>url_parse(text, &amp;u)</code> into a <code>Url</code> (<code>scheme</code>, <code>host</code>, <code>port</code>, <code>path</code>, <code>query</code>), <code>Url_resolve(&amp;base, ref, &amp;u)</code> (RFC 3986 reference resolution), <code>Url_to_string</code>, <code>Url_target</code>, <code>Url_host_port</code>, <code>url_default_port</code>, <code>url_query_add(&amp;text, key, value)</code> (see <a href="#http-client-fetch">HTTP client</a>)</td>
 </tr>
 <tr>
 <td><code>stdlib/uuid.esk</code></td>
@@ -2390,15 +2391,15 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/hash.esk</code></td>
-<td>Pure-Eskiu digests: <code>Sha256</code>, <code>Sha1</code>, <code>Md5</code>, <code>HmacSha256</code> (streaming <code>_init</code>/<code>_update</code>/<code>_update_str</code>/<code>_final</code>/<code>_final_hex</code>) and one-shot <code>sha256</code>/<code>sha256_hex</code>/<code>sha256_str</code> (same for <code>sha1</code>, <code>md5</code>), <code>hmac_sha256</code>/<code>hmac_sha256_str</code>, <code>hex_encode</code>/<code>hex_decode</code>, constant-time <code>hash_equal</code>/<code>hash_equal_str</code></td>
+<td>Pure-Eskiu digests: <code>Sha256</code>, <code>Sha1</code>, <code>Md5</code>, <code>HmacSha256</code> (streaming <code>_init</code>/<code>_update</code>/<code>_update_str</code>/<code>_final</code>/<code>_final_hex</code>) and one-shot <code>hash_sha256</code>/<code>hash_sha256_hex</code>/<code>hash_sha256_str</code> (same for <code>hash_sha1</code>, <code>hash_md5</code>), <code>hash_hmac_sha256</code>/<code>hash_hmac_sha256_str</code>, <code>hash_hex_encode</code>/<code>hash_hex_decode</code>, constant-time <code>hash_equal</code>/<code>hash_equal_str</code></td>
 </tr>
 <tr>
 <td><code>stdlib/args.esk</code></td>
-<td>Command-line parsing: <code>ArgParser</code> (<code>_init</code>/<code>_parse</code>/<code>_parse_or_exit</code>/<code>_help</code>/<code>_usage</code>/<code>_error</code>/<code>_free</code>), declared with <code>args_flag</code>, <code>args_option</code>, <code>args_option_int</code>, <code>args_argument</code>, read with <code>args_get</code>, <code>args_get_int</code>, <code>args_get_flag</code>, <code>args_count</code>, <code>args_get_at</code>, <code>args_get_all</code>, <code>args_positional</code>, <code>args_rest</code></td>
+<td>Command-line parsing: <code>ArgParser</code> (<code>_init</code>/<code>_parse</code>/<code>_parse_or_exit</code>/<code>_help</code>/<code>_usage</code>/<code>_error</code>/<code>_free</code>), declared with <code>ArgParser_flag</code>, <code>ArgParser_option</code>, <code>ArgParser_option_int</code>, <code>ArgParser_argument</code>, read with <code>ArgParser_get</code>, <code>ArgParser_get_int</code>, <code>ArgParser_get_flag</code>, <code>ArgParser_count</code>, <code>ArgParser_get_at</code>, <code>ArgParser_get_all</code>, <code>ArgParser_positional</code>, <code>ArgParser_rest</code></td>
 </tr>
 <tr>
 <td><code>stdlib/term.esk</code></td>
-<td>Terminal output: styles as <code>int64</code> bit sets (<code>TERM_BOLD</code>, <code>TERM_RED</code>, <code>TERM_BG_BLUE</code>, <code>term_fg256</code>, <code>term_rgb</code>, ...), <code>term_style</code>/<code>term_style_fd</code>/<code>term_print</code>/<code>term_println</code>/<code>term_sgr</code>/<code>term_reset</code>/<code>term_strip</code>, <code>term_is_tty</code>, <code>term_width</code>, <code>term_color_enabled</code>, <code>term_set_color_mode</code></td>
+<td>Terminal output: styles as <code>int64</code> bit sets (<code>TERM_BOLD</code>, <code>TERM_RED</code>, <code>TERM_BG_BLUE</code>, <code>term_fg256</code>, <code>term_fg_rgb</code>, ...), <code>term_style</code>/<code>term_style_fd</code>/<code>term_print</code>/<code>term_println</code>/<code>term_sgr</code>/<code>term_reset</code>/<code>term_strip</code>, <code>term_is_tty</code>, <code>term_width</code>, <code>term_color_enabled</code>, <code>term_set_color_mode</code></td>
 </tr>
 <tr>
 <td><code>stdlib/log.esk</code></td>
@@ -2410,7 +2411,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/future.esk</code></td>
-<td>The async runtime's <code>Future&lt;T&gt;</code> (the interface the compiler's async lowering targets): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>future_complete</code>/<code>future_poll</code>/<code>future_drop</code>/<code>free_future</code>/<code>free_future_polled</code> (the latter also frees the waker a hand-driven <code>future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
+<td>The async runtime's <code>Future&lt;T&gt;</code> (the interface the compiler's async lowering targets): the <code>state</code>/<code>waker</code>/<code>on_drop</code> handshake, <code>future_new</code>/<code>Future_complete</code>/<code>Future_poll</code>/<code>Future_drop</code>/<code>Future_free</code>/<code>Future_free_polled</code> (the latter also frees the waker a hand-driven <code>Future_poll</code> installed), and the generic combinators <code>spawn&lt;T&gt;</code>, <code>select2&lt;A,B&gt;</code> (first of two), <code>join2&lt;A,B&gt;</code> (all of two)</td>
 </tr>
 <tr>
 <td><code>stdlib/executor.esk</code></td>
@@ -2430,7 +2431,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/either.esk</code></td>
-<td>The standard sum types <code>Option&lt;T&gt;</code> and <code>Either&lt;A,B&gt;</code> (generic algebraic enums) plus helpers (<code>opt_is_some</code>/<code>opt_unwrap_or</code>, …)</td>
+<td>The standard sum types <code>Option&lt;T&gt;</code> and <code>Either&lt;A,B&gt;</code> (generic algebraic enums) plus helpers (<code>Option_is_some</code>/<code>Option_unwrap_or</code>, …)</td>
 </tr>
 <tr>
 <td><code>stdlib/futureval.esk</code></td>
@@ -2462,10 +2463,10 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 </tbody>
 </table></div>
-<p>Modules built around a struct name their operations <code>Type_method</code>, so they can also be called with dot syntax (<code>rng.next()</code> calls <code>Rng_next(&amp;rng)</code>). A keyword after <code>.</code> is a member name, so <code>j.int(5)</code> and <code>j.bool(1)</code> call <code>&lt;json&gt;</code>'s <code>Json_int</code> and <code>Json_bool</code>. Functions that create a value keep a lowercase module name (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>, <code>regex_compile</code>). Release 0.9.2 renamed the older lowercase forms: <code>rng_*</code> to <code>Rng_*</code>, <code>regex_search</code>/<code>regex_free</code>/<code>match_*</code> to <code>Regex_*</code>/<code>Match_*</code>, <code>heap_*</code> to <code>Heap_*</code>, <code>el_*</code> to <code>EventLoop_*</code>, <code>executor_*</code> to <code>Executor_*</code>, <code>chan_*</code> to <code>Chan_*</code>, <code>hpack_decoder_init</code>/<code>hpack_decoder_free</code> and <code>hpack_huff_build</code>/<code>hpack_huff_free</code> to <code>HpackDecoder_init</code>/<code>HpackDecoder_free</code> and <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (the other <code>hpack_huff_*</code> functions, <code>hpack_huff_code</code>, <code>hpack_huff_len</code>, <code>hpack_huff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code>, keep their names), <code>h2_conn_init</code>/<code>h2_stream_init</code>/<code>h2_can_send</code> to <code>H2Conn_init</code>/<code>H2Stream_init</code>/<code>H2Conn_can_send</code>, and <code>time_from_utc</code>/<code>time_format_iso</code> to <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>. The old names still work as deprecated wrappers and will be removed in a later release.</p>
+<p>Modules built around a struct name their operations <code>Type_method</code>, so they can also be called with dot syntax (<code>rng.next()</code> calls <code>Rng_next(&amp;rng)</code>). A keyword after <code>.</code> is a member name, so <code>j.int(5)</code> and <code>j.bool(1)</code> call <code>&lt;json&gt;</code>'s <code>Json_int</code> and <code>Json_bool</code>. Functions that create a value keep a lowercase module name (<code>el_new</code>, <code>executor_new</code>, <code>chan_new</code>, <code>regex_compile</code>). Release 0.9.2 renamed the older lowercase forms: <code>rng_*</code> to <code>Rng_*</code>, <code>regex_search</code>/<code>regex_free</code>/<code>match_*</code> to <code>Regex_*</code>/<code>Match_*</code>, <code>heap_*</code> to <code>Heap_*</code>, <code>el_*</code> to <code>EventLoop_*</code>, <code>executor_*</code> to <code>Executor_*</code>, <code>chan_*</code> to <code>Chan_*</code>, <code>hpack_decoder_init</code>/<code>hpack_decoder_free</code> and <code>hpack_huff_build</code>/<code>hpack_huff_free</code> to <code>HpackDecoder_init</code>/<code>HpackDecoder_free</code> and <code>HpackHuff_build</code>/<code>HpackHuff_free</code> (the other <code>hpack_huff_*</code> functions, <code>hpack_huff_code</code>, <code>hpack_huff_len</code>, <code>HpackHuff_decode</code>, <code>hpack_huff_encode</code> and <code>hpack_huff_encoded_len</code>, keep their names), <code>h2_conn_init</code>/<code>h2_stream_init</code>/<code>h2_can_send</code> to <code>H2Conn_init</code>/<code>H2Stream_init</code>/<code>H2Conn_can_send</code>, and <code>time_from_utc</code>/<code>time_format_iso</code> to <code>DateTime_to_epoch</code>/<code>DateTime_format_iso</code>. The old names still work as deprecated wrappers and will be removed in a later release.</p>
 <h3 id="result">Result<T,E></h3>
 <pre><code class="language-eskiu">import &lt;result&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 Result&lt;int, string&gt; divide(int a, int b) {
     if (b == 0) return Err&lt;int, string&gt;(&quot;division by zero&quot;);
@@ -2484,7 +2485,7 @@ int main() {
 </code></pre>
 <h3 id="list">List<T></h3>
 <pre><code class="language-eskiu">import &lt;list&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let items: List&lt;int&gt;;
@@ -2500,7 +2501,7 @@ int main() {
 </code></pre>
 <h3 id="string">String</h3>
 <pre><code class="language-eskiu">import &lt;string&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let s: String;
@@ -2561,8 +2562,8 @@ changes ASCII letters only and leaves every other byte (UTF-8 included) as is.</
 <td>Split on <code>\n</code> or <code>\r\n</code>; a final terminator adds no empty line, an empty String has none</td>
 </tr>
 <tr>
-<td><code>void str_join(List&lt;string&gt;* parts, string sep, String* out)</code></td>
-<td>Join C strings into <code>out</code>; <code>parts.join(sep, &amp;out)</code> (<code>List_join</code>) does the same</td>
+<td><code>void List_join&lt;T&gt;(List&lt;T&gt;* self, string sep, String* out)</code></td>
+<td>Join the C strings of a <code>List&lt;string&gt;</code> into <code>out</code>: <code>parts.join(sep, &amp;out)</code></td>
 </tr>
 <tr>
 <td><code>void String_join(String* self, List&lt;String&gt;* parts, string sep)</code></td>
@@ -2593,8 +2594,8 @@ changes ASCII letters only and leaves every other byte (UTF-8 included) as is.</
 <td>Shortest of <code>%.15g</code> / <code>%.17g</code> that reads back as <code>d</code> (<code>0.1</code>, <code>3</code>, <code>1e+20</code>)</td>
 </tr>
 <tr>
-<td><code>void str_format(String* out, string fmt, ...)</code></td>
-<td><code>printf</code>-style formatting into <code>out</code>, through the C library's <code>vsnprintf</code> (C rules: <code>%lld</code> for <code>int64</code>, <code>s.cstr()</code> for a String)</td>
+<td><code>void String_format(String* self, string fmt, ...)</code></td>
+<td><code>printf</code>-style formatting into <code>self</code> (cleared first), through the C library's <code>vsnprintf</code> (C rules: <code>%lld</code> for <code>int64</code>, <code>s.cstr()</code> for a String)</td>
 </tr>
 <tr>
 <td><code>void String_appendf(String* self, string fmt, ...)</code></td>
@@ -2612,7 +2613,7 @@ s.split_str(&quot;;&quot;, &amp;parts);                   // [a=1] [b=2] [] [c=3
 String_split_free(&amp;parts);
 s.replace_all(&quot;;&quot;, &quot;, &quot;);                   // &quot;a=1, b=2, , c=3&quot;
 let out: String;  out.init(16);
-str_format(&amp;out, &quot;%s has %d bytes&quot;, s.cstr(), (int)s.len);
+String_format(&amp;out, &quot;%s has %d bytes&quot;, s.cstr(), (int)s.len);
 out.free();
 s.free();
 </code></pre>
@@ -2721,8 +2722,7 @@ common path; the raw <code>extern</code>s (<code>socket</code>, <code>bind</code
 stdlib module. Sockets need no compiler support beyond the C FFI.</p>
 <pre><code class="language-eskiu">import &lt;net&gt;;
 import &lt;mem&gt;;
-
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     int fd = net_tcp_listen(8080);            // bind + listen on 0.0.0.0:8080
@@ -2964,7 +2964,7 @@ C runtime and the Win32 environment are both updated, and an empty value removes
 variable.</p>
 <h3 id="dns-dns">DNS (<code>&lt;dns&gt;</code>)</h3>
 <pre><code class="language-eskiu">import &lt;dns&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let addrs: List&lt;string&gt;;  List_init&lt;string&gt;(&amp;addrs, 4);
@@ -2981,7 +2981,7 @@ numeric host resolves to itself. The strings are heap copies: free the list with
 <code>dns_free_list</code>. <code>&lt;net&gt;</code> imports <code>&lt;dns&gt;</code>, so <code>net_tcp_connect</code> accepts host names.</p>
 <h3 id="http-client-fetch">HTTP client (<code>&lt;fetch&gt;</code>)</h3>
 <pre><code class="language-eskiu">import &lt;fetch&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let o: FetchOptions;  FetchOptions_init(&amp;o);
@@ -3041,7 +3041,7 @@ bytes past a <code>Content-Length</code> are ignored. Interim <code>1xx</code> r
 are not decoded (no <code>Accept-Encoding</code> is sent).</p>
 <p>Redirects (301, 302, 303, 307, 308 with a <code>Location</code>) are followed up to <code>max_redirects</code>
 times; one more is <code>FETCH_ERR_REDIRECTS</code>. A relative <code>Location</code> is resolved against the
-current URL with <code>url_resolve</code>. After 301, 302 or 303 the request becomes a <code>GET</code> without
+current URL with <code>Url_resolve</code>. After 301, 302 or 303 the request becomes a <code>GET</code> without
 a body (a <code>HEAD</code> stays a <code>HEAD</code>); 307 and 308 repeat it unchanged. A redirect from
 <code>https</code> to <code>http</code> is followed, as browsers and <code>curl -L</code> do. A redirect to another origin
 (scheme, host or port) drops the <code>Authorization</code> and <code>Cookie</code> headers.</p>
@@ -3054,7 +3054,10 @@ library path, and on macOS also in Homebrew (<code>/opt/homebrew/opt/openssl@3/l
 <code>/usr/local/opt/openssl@3/lib</code>) and MacPorts; <code>fetch_tls_available()</code> reports whether it
 was found. The client sends SNI, verifies the certificate against OpenSSL's default trust
 store and checks the host name (<code>SSL_set1_host</code>); <code>verify_tls = 0</code> skips both, for local
-tests only. On Windows OpenSSL's default store is usually empty, so set <code>ca_file</code>.
+tests only. On Windows OpenSSL's default store is usually empty, so a verifying request
+without <code>ca_file</code> also trusts the certificates of the system "ROOT" store (read with
+<code>CertOpenSystemStoreW</code> from crypt32 and added to the context's <code>X509_STORE</code>), the roots
+Windows itself trusts. With <code>ca_file</code> set, only that file and OpenSSL's default store count.
 Defining <code>ESKIU_FETCH_NO_TLS</code> before <code>import &lt;fetch&gt;</code> leaves HTTPS out of the program.</p>
 <p><code>fetch_async(lp, url, &amp;o, &amp;r)</code> runs the same request over an <code>&lt;eventloop&gt;</code> and returns a
 <code>Future&lt;int&gt;</code> that completes with the same code. Connecting, the TLS handshake and the
@@ -3067,7 +3070,7 @@ when the call starts; <code>url</code> and <code>r</code> must stay valid until 
     Future&lt;int&gt;* fb = fetch_async(lp, &quot;https://example.com/b&quot;, o, &amp;b);
     int both = await join2(fa, fb);           // the two requests run at the same time
     int rc = fa.value != 0 ? fa.value : fb.value;
-    free_future&lt;int&gt;(fa);  free_future&lt;int&gt;(fb);
+    Future_free&lt;int&gt;(fa);  Future_free&lt;int&gt;(fb);
     Response_free(&amp;a);  Response_free(&amp;b);
     return rc;
 }
@@ -3079,7 +3082,7 @@ connection closes.</p>
 <hr>
 <h3 id="json-documents-json">JSON documents (<code>&lt;json&gt;</code>)</h3>
 <pre><code class="language-eskiu">import &lt;json&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     *JsonValue doc = JsonValue_object();
@@ -3118,7 +3121,7 @@ inside them): <code>json_get(doc, "data.items[0].name")</code>. It returns a bor
 null when a step is missing, has the wrong kind, or the path is malformed.</p>
 <h3 id="csv-csv">CSV (<code>&lt;csv&gt;</code>)</h3>
 <pre><code class="language-eskiu">import &lt;csv&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let t: CsvTable;
@@ -3158,7 +3161,7 @@ quoting only fields that contain the delimiter, a quote, CR or LF; <code>CsvTabl
 delim, &amp;out)</code> writes a whole table (cleared first).</p>
 <h3 id="env-files-dotenv"><code>.env</code> files (<code>&lt;dotenv&gt;</code>)</h3>
 <pre><code class="language-eskiu">import &lt;dotenv&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     if (dotenv_load(&quot;.env&quot;) &lt; 0) {
@@ -3185,11 +3188,11 @@ without touching the environment and returns the number of assignments; the map 
 the value copies, so free it with <code>dotenv_free</code>.</p>
 <h3 id="hashes-hash">Hashes (<code>&lt;hash&gt;</code>)</h3>
 <pre><code class="language-eskiu">import &lt;hash&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let hex: String;  hex.init(65);
-    sha256_str(&quot;abc&quot;, &amp;hex);                     // ba7816bf...f20015ad
+    hash_sha256_str(&quot;abc&quot;, &amp;hex);                // ba7816bf...f20015ad
     printf(&quot;%s\n&quot;, hex.data);
 
     let h: Sha256;  h.init();                    // streaming
@@ -3197,7 +3200,7 @@ int main() {
     let digest: uint8[32];
     h.final(&amp;digest[0]);
 
-    hmac_sha256_str(&quot;key&quot;, &quot;The quick brown fox jumps over the lazy dog&quot;, &amp;hex);
+    hash_hmac_sha256_str(&quot;key&quot;, &quot;The quick brown fox jumps over the lazy dog&quot;, &amp;hex);
     printf(&quot;%d\n&quot;, hash_equal_str((string)hex.data, &quot;f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8&quot;));
     hex.free();
     return 0;
@@ -3207,11 +3210,11 @@ int main() {
 (<code>Sha256</code>, <code>Sha1</code>, <code>Md5</code>) with <code>_init</code>, <code>_update(data, n)</code>, <code>_update_str(s)</code>,
 <code>_final(out)</code> (the raw digest: <code>SHA256_SIZE</code> 32, <code>SHA1_SIZE</code> 20, <code>MD5_SIZE</code> 16 bytes into
 a caller buffer) and <code>_final_hex(&amp;out)</code>; a value is <code>init</code>ed again before reuse. The
-one-shot forms are <code>sha256(data, n, out)</code> (raw), <code>sha256_hex(data, n, &amp;out)</code> and
-<code>sha256_str(s, &amp;out)</code> (lowercase hex), and the same for <code>sha1</code> and <code>md5</code>. <code>HmacSha256</code>
-(<code>_init(key, klen)</code>, <code>_update</code>, <code>_final</code>) and <code>hmac_sha256(key, klen, data, n, out)</code> /
-<code>hmac_sha256_str(key, msg, &amp;out)</code> implement RFC 2104 (keys over 64 bytes are hashed
-first). <code>hex_encode(data, n, &amp;out)</code> writes lowercase hex; <code>hex_decode(s, out, cap)</code>
+one-shot forms are <code>hash_sha256(data, n, out)</code> (raw), <code>hash_sha256_hex(data, n, &amp;out)</code> and
+<code>hash_sha256_str(s, &amp;out)</code> (lowercase hex), and the same for <code>hash_sha1</code> and <code>hash_md5</code>. <code>HmacSha256</code>
+(<code>_init(key, klen)</code>, <code>_update</code>, <code>_final</code>) and <code>hash_hmac_sha256(key, klen, data, n, out)</code> /
+<code>hash_hmac_sha256_str(key, msg, &amp;out)</code> implement RFC 2104 (keys over 64 bytes are hashed
+first). <code>hash_hex_encode(data, n, &amp;out)</code> writes lowercase hex; <code>hash_hex_decode(s, out, cap)</code>
 returns the byte count, or -1 for an odd length, a non-hex character or more than <code>cap</code>
 bytes. <code>hash_equal(a, b, n)</code> and <code>hash_equal_str(a, b)</code> compare in time that depends
 only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
@@ -3249,9 +3252,9 @@ int main() {
     time_format(time_now_s(), &quot;%a %F %T %Z (%z)&quot;, TIME_LOCAL, &amp;s);
     int64 t = 0;
     time_parse(&quot;2026-10-11T10:30:05+02:00&quot;, &quot;%FT%T%z&quot;, &amp;t);   // 1791707405
-    duration_format(3723000, &amp;s);                              // &quot;1h 2m 3s&quot;
+    time_format_duration(3723000, &amp;s);                              // &quot;1h 2m 3s&quot;
     let sw: Stopwatch;  sw.start();
-    sleep_ms(10);
+    time_sleep_ms(10);
     printf(&quot;%lld ms\n&quot;, sw.elapsed_ms());
     s.free();
     return 0;
@@ -3272,7 +3275,7 @@ or <code>+hh:mm</code> and <code>%Z</code> takes <code>UTC</code>, <code>GMT</co
 00:00:00, a date that does not exist (2023-02-29, month 13, hour 24) is an error (-1),
 and the time is UTC unless an offset is parsed or <code>%s</code> sets the instant.
 <code>time_parse_local</code> reads a time without an offset in the local zone.</p>
-<p><code>duration_format(ms, &amp;out)</code> writes <code>1d 2h 3m 4s 5ms</code>, leaving out zero parts (<code>0ms</code> for
+<p><code>time_format_duration(ms, &amp;out)</code> writes <code>1d 2h 3m 4s 5ms</code>, leaving out zero parts (<code>0ms</code> for
 zero, a leading <code>-</code> when negative). A <code>Stopwatch</code> measures on the monotonic clock:
 <code>start</code> (or restart), <code>elapsed_ms</code>, and <code>lap</code> (milliseconds since the previous lap or the
 start).</p>
@@ -3285,7 +3288,7 @@ int main() {
     term_style(&amp;s, &quot;error:&quot;, TERM_BOLD | TERM_RED);
     s.append(&quot; not found&quot;);
     println(s.cstr());
-    term_print(&quot;sunset\n&quot;, term_rgb(255, 128, 0) | term_bg256(17));
+    term_print(&quot;sunset\n&quot;, term_fg_rgb(255, 128, 0) | term_bg256(17));
     printf(&quot;%d columns\n&quot;, term_width());
     s.free();
     return 0;
@@ -3294,7 +3297,7 @@ int main() {
 <p>A style is an <code>int64</code> combined with <code>|</code>: attributes <code>TERM_BOLD</code>, <code>TERM_DIM</code>,
 <code>TERM_ITALIC</code>, <code>TERM_UNDERLINE</code>, <code>TERM_BLINK</code>, <code>TERM_REVERSE</code>, <code>TERM_HIDDEN</code>,
 <code>TERM_STRIKE</code>; one foreground color (<code>TERM_BLACK</code> ... <code>TERM_WHITE</code>, <code>TERM_BRIGHT_*</code>,
-<code>TERM_GRAY</code>, <code>term_fg256(n)</code>, <code>term_rgb(r, g, b)</code>); one background color (<code>TERM_BG_*</code>,
+<code>TERM_GRAY</code>, <code>term_fg256(n)</code>, <code>term_fg_rgb(r, g, b)</code>); one background color (<code>TERM_BG_*</code>,
 <code>term_bg256(n)</code>, <code>term_bg_rgb(r, g, b)</code>). <code>TERM_PLAIN</code> is no style. <code>term_sgr(&amp;out,
 style)</code> appends the escape sequence and <code>term_reset(&amp;out)</code> the reset, always.
 <code>term_style(&amp;out, text, style)</code> appends the text wrapped in them only when colors are
@@ -3340,39 +3343,39 @@ int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&amp;p, &quot;copy&quot;, &quot;Copy files.&quot;);
     defer ArgParser_free(&amp;p);
-    args_flag(&amp;p, &quot;-v&quot;, &quot;--verbose&quot;, &quot;say more&quot;);
-    args_option(&amp;p, &quot;-o&quot;, &quot;--output&quot;, &quot;DIR&quot;, &quot;.&quot;, &quot;where to copy&quot;);
-    args_option_int(&amp;p, &quot;-j&quot;, &quot;--jobs&quot;, &quot;N&quot;, 1, &quot;parallel copies&quot;);
-    args_argument(&amp;p, &quot;files&quot;, &quot;files to copy&quot;, ARGS_REQUIRED | ARGS_MANY);
+    ArgParser_flag(&amp;p, &quot;-v&quot;, &quot;--verbose&quot;, &quot;say more&quot;);
+    ArgParser_option(&amp;p, &quot;-o&quot;, &quot;--output&quot;, &quot;DIR&quot;, &quot;.&quot;, &quot;where to copy&quot;);
+    ArgParser_option_int(&amp;p, &quot;-j&quot;, &quot;--jobs&quot;, &quot;N&quot;, 1, &quot;parallel copies&quot;);
+    ArgParser_argument(&amp;p, &quot;files&quot;, &quot;files to copy&quot;, ARGS_REQUIRED | ARGS_MANY);
     ArgParser_parse_or_exit(&amp;p, argc, argv);
-    for (i in 0..args_count(&amp;p, &quot;files&quot;)) {
-        printf(&quot;%s -&gt; %s\n&quot;, args_get_at(&amp;p, &quot;files&quot;, i), args_get(&amp;p, &quot;output&quot;));
+    for (i in 0..ArgParser_count(&amp;p, &quot;files&quot;)) {
+        printf(&quot;%s -&gt; %s\n&quot;, ArgParser_get_at(&amp;p, &quot;files&quot;, i), ArgParser_get(&amp;p, &quot;output&quot;));
     }
     return 0;
 }
 </code></pre>
-<p><code>args_flag(p, short, long, help)</code>, <code>args_option(p, short, long, metavar, default, help)</code>
-and <code>args_option_int(...)</code> (an <code>int</code> default; a value that is not an integer is a parse
-error) declare options; either name may be <code>null</code>. <code>args_argument(p, name, help, mode)</code>
+<p><code>ArgParser_flag(p, short, long, help)</code>, <code>ArgParser_option(p, short, long, metavar, default, help)</code>
+and <code>ArgParser_option_int(...)</code> (an <code>int</code> default; a value that is not an integer is a parse
+error) declare options; either name may be <code>null</code>. <code>ArgParser_argument(p, name, help, mode)</code>
 declares a positional argument: <code>ARGS_OPTIONAL</code>, <code>ARGS_REQUIRED</code>, and <code>ARGS_MANY</code> for the
 last one (zero or more, one or more with <code>ARGS_REQUIRED</code>). A parser that declares no
 arguments accepts any positionals; one that declares some rejects extras.</p>
 <p>Accepted forms: <code>-v</code>, <code>--verbose</code>, <code>-o x</code>, <code>-ox</code>, <code>--output x</code>, <code>--output=x</code>, short
 clusters (<code>-vo x</code>: an option in a cluster takes the rest of it or the next argument),
-<code>--</code> (everything after it is positional, also kept for <code>args_rest</code>), and <code>-</code> as a
+<code>--</code> (everything after it is positional, also kept for <code>ArgParser_rest</code>), and <code>-</code> as a
 positional. An option's value is the next argument even when it starts with <code>-</code>; <code>-5</code> is a
 positional unless a short option is a digit. A repeated option keeps all its values
-(<code>args_get</code> returns the last, <code>args_get_all</code>/<code>args_get_at</code> every one) and a repeated flag
-counts (<code>args_count</code>). <code>-h</code>/<code>--help</code> are automatic unless the program declares those
+(<code>ArgParser_get</code> returns the last, <code>ArgParser_get_all</code>/<code>ArgParser_get_at</code> every one) and a repeated flag
+counts (<code>ArgParser_count</code>). <code>-h</code>/<code>--help</code> are automatic unless the program declares those
 names.</p>
 <p><code>ArgParser_parse(p, argc, argv)</code> returns <code>ARGS_OK</code>, <code>ARGS_HELP</code> after printing the
 generated help to stdout, or <code>ARGS_ERROR</code> after printing the usage line and <code>prog: error:
 ...</code> to stderr (the message is also <code>ArgParser_error(p)</code>). <code>ArgParser_parse_or_exit</code>
 exits with 0 after the help and with 2 after an error. <code>ArgParser_help(p, &amp;out)</code> and
 <code>ArgParser_usage(p, &amp;out)</code> produce the texts. Accessors take a long name without dashes
-(<code>"output"</code>), a short name (<code>"o"</code> or <code>"-o"</code>) or an argument name: <code>args_get</code> (the value or
-the default, <code>null</code> if neither), <code>args_get_int</code>, <code>args_get_flag</code>, <code>args_count</code>,
-<code>args_get_at</code>, <code>args_get_all</code>, and <code>args_positional(p, i)</code> / <code>args_positional_count(p)</code>
+(<code>"output"</code>), a short name (<code>"o"</code> or <code>"-o"</code>) or an argument name: <code>ArgParser_get</code> (the value or
+the default, <code>null</code> if neither), <code>ArgParser_get_int</code>, <code>ArgParser_get_flag</code>, <code>ArgParser_count</code>,
+<code>ArgParser_get_at</code>, <code>ArgParser_get_all</code>, and <code>ArgParser_positional(p, i)</code> / <code>ArgParser_positional_count(p)</code>
 for every positional in order. Returned strings point into <code>argv</code> or the defaults.</p>
 <h2 id="15-inline-assembly">15. Inline Assembly</h2>
 <p>Eskiu supports inline assembly via the <code>asm(...)</code> statement, which lowers directly to an LLVM inline asm node.</p>
@@ -3694,7 +3697,7 @@ printf(&quot;%s:%d: reached\n&quot;, __FILE__, __LINE__);
     ((x) * (x)         \
      + 2 * (x) + 1)
 
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     int n = MAX;          // 100
