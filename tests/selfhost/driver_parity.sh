@@ -250,6 +250,9 @@ for drv in "$BIN" "$ESKMAIN"; do
         maok=0; echo "      $drv failed:"; sed 's/^/        /' "$WORK/ma.log" | head -5
     elif ! { [ -s "$WORK/ma.o" ] && grep -aq '__muldf3' "$WORK/ma.o"; }; then
         maok=0; echo "      $drv: no __muldf3 in the object"
+        nm_bin="$(dirname "${CLANG:-clang}")/llvm-nm"
+        [ -x "$nm_bin" ] || nm_bin=nm
+        { file "$WORK/ma.o"; "$nm_bin" "$WORK/ma.o"; sed 's/^/log: /' "$WORK/ma.log"; } 2>&1 | head -12 | sed 's/^/        /'
     fi
 done
 if [ "$maok" -eq 1 ]; then echo "ok    mattr-softfloat"
