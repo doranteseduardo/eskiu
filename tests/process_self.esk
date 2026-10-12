@@ -1,0 +1,276 @@
+// <process> on every platform: the children are copies of this program
+// (argv[1] picks what they do), so no shell command is needed beyond `echo` and
+// `exit`, which sh and cmd.exe both have. Covers argument quoting, exit codes,
+// stdout/stderr capture, stdin text, large output on both pipes, a timeout that
+// also kills a grandchild (a process group on POSIX, a Job object on Windows),
+// cwd, extra env, merged stderr, a missing program, a bad cwd, and spawn with
+// pipes and kill. CRs are dropped from captured text, since a Windows child
+// writes "\r\n" in text mode.
+import <process>;
+import <io>;
+import <fs>;
+import <env>;
+import <time>;
+
+extern int strcmp(string a, string b);
+extern int atoi(string s);
+
+void strip_cr(String* s) {
+    int64 j = 0;
+    for (int64 i = 0; i < s.len; i++) {
+        if (s.data[i] != '\r') { s.data[j] = s.data[i]; j++; }
+    }
+    s.len = j;
+    s.data[j] = 0;
+}
+
+void show(string label, ProcessResult* r) {
+    strip_cr(&r.stdout);
+    strip_cr(&r.stderr);
+    printf("%s: code=%d timed_out=%d out=[%s] err=[%s]\n", label, r.exit_code,
+        r.timed_out ? 1 : 0, r.stdout.data, r.stderr.data);
+}
+
+int child(int argc, string* argv) {
+    string mode = argv[1];
+    if (strcmp(mode, "echo") == 0) {
+        for (int i = 2; i < argc; i++) { printf("%s[%s]", i > 2 ? " " : "", argv[i]); }
+        printf("\n");
+        return 0;
+    }
+    if (strcmp(mode, "exit") == 0) { return 3; }
+    if (strcmp(mode, "both") == 0) {
+        print("out\n");
+        println_err("err");
+        return 1;
+    }
+    if (strcmp(mode, "count") == 0) {
+        let inp: String;  inp.init(64);
+        read_all_stdin(&inp);
+        int n = 0;
+        for (int64 i = 0; i < inp.len; i++) { if (inp.data[i] == '\n') { n++; } }
+        printf("%d\n", n);
+        inp.free();
+        return 0;
+    }
+    if (strcmp(mode, "cat") == 0 || strcmp(mode, "upper") == 0) {
+        let inp: String;  inp.init(64);
+        read_all_stdin(&inp);
+        if (mode[0] == 'u') {
+            for (int64 i = 0; i < inp.len; i++) {
+                if (inp.data[i] >= 'a' && inp.data[i] <= 'z') { inp.data[i] = (char)(inp.data[i] - 32); }
+            }
+        }
+        fwrite((*void)inp.data, 1, inp.len, io_stdout());
+        inp.free();
+        return 0;
+    }
+    if (strcmp(mode, "large") == 0) {
+        *void out = io_stdout();
+        *void err = io_stderr();
+        for (i in 0..3000) {
+            fputs("0123456789012345678901234567890123456789\n", out);
+            fputs("abcdefghijabcdefghijabcdefghijabcdefghij\n", err);
+        }
+        return 0;
+    }
+    if (strcmp(mode, "sleep") == 0) {
+        sleep_ms((int64)atoi(argv[2]));
+        printf("woke\n");
+        return 0;
+    }
+    if (strcmp(mode, "tree") == 0) {
+        // Start a grandchild that writes argv[2] after 1.5 s, then wait long.
+        let av: List<string>;  List_init<string>(&av, 3);
+        av.push(argv[0]);
+        av.push("later");
+        av.push(argv[2]);
+        let p: Process;
+        if (process_spawn(&av, null, &p) != 0) { return 1; }
+        sleep_ms(10000);
+        return 0;
+    }
+    if (strcmp(mode, "later") == 0) {
+        sleep_ms(1500);
+        fs_write_text(argv[2], "late");
+        return 0;
+    }
+    if (strcmp(mode, "where") == 0) {
+        printf("marker=%d A=%s\n", fs_exists("marker.txt"), env_get_or("ESKIU_PROC_A", "(unset)"));
+        return 0;
+    }
+    return 99;
+}
+
+void run_self(string self, string a, string b, ProcessOptions* o, ProcessResult* r) {
+    let av: List<string>;  List_init<string>(&av, 4);
+    av.push(self);
+    av.push(a);
+    if (b != null) { av.push(b); }
+    process_run(&av, o, r);
+    List_free<string>(&av);
+}
+
+int main(int argc, string* argv) {
+    if (argc > 1) { return child(argc, argv); }
+    // The children run in another cwd too, so name this program absolutely.
+    let selfp: String;  selfp.init(256);
+    const string a0 = argv[0];
+    if (a0[0] != '/' && a0[0] != '\\' && (a0[0] == 0 || a0[1] != ':')) {
+        fs_cwd(&selfp);
+        selfp.push('/');
+    }
+    selfp.append(a0);
+    string self = selfp.cstr();
+    let r: ProcessResult;
+    let opts: ProcessOptions;
+
+    // Through the shell.
+    sh("echo hello", &r);
+    show("sh echo", &r);
+    ProcessResult_free(&r);
+    sh("exit 3", &r);
+    show("sh exit 3", &r);
+    ProcessResult_free(&r);
+
+    // argv without a shell: each argument arrives as it was given.
+    let av: List<string>;  List_init<string>(&av, 8);
+    av.push(self);
+    av.push("echo");
+    av.push("a b");
+    av.push("c\"d");
+    av.push("e\\f");
+    av.push("");
+    av.push("g h\\");
+    av.push("\\\"i\\\\\"");
+    process_run(&av, null, &r);
+    show("argv", &r);
+    ProcessResult_free(&r);
+    List_free<string>(&av);
+
+    run_self(self, "exit", null, null, &r);
+    show("exit", &r);
+    ProcessResult_free(&r);
+    run_self(self, "both", null, null, &r);
+    show("both", &r);
+    ProcessResult_free(&r);
+
+    // stdin text.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.stdin_text = "line one\nline two\n";
+    run_self(self, "count", null, &opts, &r);
+    show("stdin", &r);
+    ProcessResult_free(&r);
+
+    // Large output on both pipes at once (a deadlock if they were read in turn).
+    run_self(self, "large", null, null, &r);
+    strip_cr(&r.stdout);
+    strip_cr(&r.stderr);
+    printf("large: code=%d out=%lld err=%lld\n", r.exit_code, r.stdout.len, r.stderr.len);
+    ProcessResult_free(&r);
+
+    // Large stdin echoed back while it is still being written.
+    let big: String;  big.init(200000);
+    for (i in 0..5000) { big.append("0123456789012345678901234567890123456789\n"); }
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.stdin_text = big.cstr();
+    run_self(self, "cat", null, &opts, &r);
+    strip_cr(&r.stdout);
+    printf("cat: code=%d same=%d\n", r.exit_code, r.stdout.eq(&big));
+    ProcessResult_free(&r);
+    big.free();
+
+    // Timeout.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.timeout_ms = 300;
+    int64 t0 = time_monotonic_ms();
+    run_self(self, "sleep", "5000", &opts, &r);
+    show("timeout", &r);
+    printf("timeout fast: %d\n", time_monotonic_ms() - t0 < 3000 ? 1 : 0);
+    ProcessResult_free(&r);
+
+    let dir: String;  dir.init(64);
+    if (fs_temp_dir("eskiu_proc_", &dir) != 0) { printf("no temp dir\n"); return 1; }
+
+    // A timeout ends what the child started too: the grandchild never writes.
+    let late: String;  String_from(&late, dir.cstr());  late.append("/late.txt");
+    t0 = time_monotonic_ms();
+    run_self(self, "tree", late.cstr(), &opts, &r);
+    printf("tree: code=%d timed_out=%d fast=%d\n", r.exit_code, r.timed_out ? 1 : 0,
+        time_monotonic_ms() - t0 < 3000 ? 1 : 0);
+    ProcessResult_free(&r);
+    sleep_ms(2500);
+    printf("grandchild killed: %d\n", fs_exists(late.cstr()) == 0 ? 1 : 0);
+    late.free();
+
+    // cwd and extra environment.
+    let marker: String;  String_from(&marker, dir.cstr());  marker.append("/marker.txt");
+    fs_write_text(marker.cstr(), "x");
+    marker.free();
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.cwd = dir.cstr();
+    let extra: List<string>;  List_init<string>(&extra, 2);
+    extra.push("ESKIU_PROC_A=alpha");
+    opts.env = &extra;
+    run_self(self, "where", null, &opts, &r);
+    show("cwd+env", &r);
+    ProcessResult_free(&r);
+    List_free<string>(&extra);
+    run_self(self, "where", null, null, &r);
+    show("inherited", &r);
+    ProcessResult_free(&r);
+    fs_remove_all(dir.cstr());
+    dir.free();
+
+    // Merged stderr (the child flushes stdout before it writes stderr).
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.merge_stderr = true;
+    run_self(self, "both", null, &opts, &r);
+    show("merged", &r);
+    ProcessResult_free(&r);
+
+    // Not found: -1 and an error message.
+    List_init<string>(&av, 2);
+    av.push("eskiu-no-such-command-xyz");
+    const int rc = process_run(&av, null, &r);
+    let msg: String;  msg.init(16);
+    process_last_error(&msg);
+    printf("not found: rc=%d code=%d msg=%d\n", rc, r.exit_code, msg.len > 0 ? 1 : 0);
+    ProcessResult_free(&r);
+    msg.free();
+    List_free<string>(&av);
+
+    // Bad cwd.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.cwd = "/eskiu/no/such/dir";
+    printf("bad cwd: rc=%d\n", sh_with("exit 0", &opts, &r));
+    ProcessResult_free(&r);
+
+    // Spawn: write to stdin, read the reply, wait.
+    List_init<string>(&av, 2);
+    av.push(self);
+    av.push("upper");
+    let p: Process;
+    printf("spawn %d\n", process_spawn(&av, null, &p));
+    Process_write_stdin(&p, "shout this\n");
+    Process_close_stdin(&p);
+    let got: String;  got.init(16);
+    Process_read_all(&p, 1, &got);
+    strip_cr(&got);
+    printf("spawned out=[%s] code=%d\n", got.data, Process_wait(&p));
+    Process_free(&p);
+    got.free();
+    List_free<string>(&av);
+
+    // Spawn and kill.
+    List_init<string>(&av, 3);
+    av.push(self);
+    av.push("sleep");
+    av.push("10000");
+    process_spawn(&av, null, &p);
+    printf("kill %d code=%d\n", Process_kill(&p), Process_wait(&p));
+    Process_free(&p);
+    List_free<string>(&av);
+    selfp.free();
+    return 0;
+}
