@@ -1,0 +1,96 @@
+// <log>: level filtering (log_set_level and LOG_LEVEL), the line format with a
+// frozen clock in UTC, local time and none, colored tags, a long message, and
+// a log file read back.
+import <log>;
+import <env>;
+import <fs>;
+
+void all_levels(string tag) {
+    log_trace("%s trace", tag);
+    log_debug("%s debug", tag);
+    log_info("%s info", tag);
+    log_warn("%s warn", tag);
+    log_error("%s error", tag);
+}
+
+int main() {
+    log_freeze_time(1791707405123);
+    env_unset("LOG_LEVEL");
+    println("-- default (info)");
+    all_levels("default");
+    println("-- LOG_LEVEL=Debug");
+    env_set("LOG_LEVEL", "Debug");
+    all_levels("env");
+    println("-- LOG_LEVEL=warning");
+    env_set("LOG_LEVEL", "warning");
+    all_levels("env");
+    println("-- LOG_LEVEL=bogus");
+    env_set("LOG_LEVEL", "bogus");
+    all_levels("bogus");
+    println("-- set trace (env ignored)");
+    env_set("LOG_LEVEL", "error");
+    log_set_level(LOG_TRACE);
+    all_levels("set");
+    log_set_level(LOG_OFF);
+    println("-- off");
+    all_levels("off");
+    log_set_level(-1);
+    printf("level from env %d, names %d %d %d %d\n", log_level(), log_level_from_name("TRACE"),
+        log_level_from_name("4"), log_level_from_name("off"), log_level_from_name("x"));
+    printf("enabled warn=%d error=%d\n", log_enabled(LOG_WARN), log_enabled(LOG_ERROR));
+    env_unset("LOG_LEVEL");
+
+    println("-- formats");
+    log_at(LOG_WARN, "int64 %lld, double %.2f, str [%s], pct %d%%", (int64)1 << 40, 2.5, "x", 50);
+    env_set("TZ", "EST5EDT,M3.2.0,M11.1.0");
+    log_set_time(LOG_TIME_LOCAL);
+    log_info("local time");
+    log_set_time(LOG_TIME_NONE);
+    log_info("no time");
+    log_set_time(LOG_TIME_UTC);
+    log_freeze_time(-1);
+    log_info("before the epoch");
+    log_freeze_time(1791707405123);
+
+    println("-- colors");
+    log_set_color(TERM_ALWAYS);
+    log_set_level(LOG_TRACE);
+    all_levels("color");
+    log_set_color(TERM_NEVER);
+    env_set("FORCE_COLOR", "1");
+    log_info("never, even forced");
+    log_set_color(TERM_AUTO);
+    log_info("auto, forced");
+    env_unset("FORCE_COLOR");
+    log_info("auto, not a terminal");
+
+    println("-- long message");
+    let big: String;  big.init(16);
+    for (i in 0..300) { big.append("abcdefghij"); }
+    log_info("%s|%d", big.cstr(), 7);
+    big.free();
+
+    println("-- file");
+    let dir: String;  dir.init(64);
+    fs_temp_dir("eskiu_log", &dir);
+    let path: String;  path.init(64);
+    path.append(dir.cstr());
+    path.append("/app.log");
+    printf("set_file=%d\n", log_set_file(path.cstr()));
+    log_set_color(TERM_ALWAYS);
+    log_info("to the file %d", 1);
+    log_error("to the file %d", 2);
+    log_set_stderr();
+    log_info("back on stderr");
+    printf("bad file=%d\n", log_set_file("/no/such/dir/x.log"));
+    log_set_color(TERM_NEVER);
+    log_info("still stderr");
+    let text: String;  text.init(64);
+    fs_read_text(path.cstr(), &text);
+    printf("file:\n%s", text.cstr());
+    fs_remove_all(dir.cstr());
+    text.free();
+    path.free();
+    dir.free();
+    return 0;
+}
