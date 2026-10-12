@@ -8,6 +8,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- CI runs `tests/leaks.sh` (AddressSanitizer with LeakSanitizer) as its own job, and a
+  macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
+
+---
+
 ## [0.10.0] - 2026-10-11
 
 ### Added
