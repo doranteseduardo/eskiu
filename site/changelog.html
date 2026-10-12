@@ -223,6 +223,11 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>C ABI: on AArch64 Linux and on Windows x64, an <code>extern</code>'s narrow integer parameters and
+  results (<code>int8</code>, <code>int16</code>, <code>uint8</code>, <code>uint16</code>, <code>char</code>, and <code>bool</code> on AArch64) no longer carry
+  <code>signext</code>/<code>zeroext</code>, matching clang. Eskiu trusted the upper bits of a narrow result that a
+  clang-compiled C function leaves unspecified, so <code>c_ret_s8()</code> read garbage (code built with
+  gcc happened to extend them). Both compilers.</li>
 <li>The self-hosted compiler resolves a dot-call on a generic instance to a non-generic function
   named after the instance (<code>w.count(10)</code> with <code>w: List&lt;string&gt;</code> calls <code>List_string_count</code>), as
   the C++ compiler does; it reported "undefined method". Test <code>generic_instance_method_free</code>.</li>

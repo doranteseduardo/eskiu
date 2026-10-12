@@ -7139,6 +7139,10 @@ string cg_ext_attr(Codegen* g, string t) {
     string d = cg_dealias(g, cg_apply_sub(g, t));
     string lt = cg_lltype(g, d);
     if (cg_streq(lt, "i1") == 0 && cg_streq(lt, "i8") == 0 && cg_streq(lt, "i16") == 0) { return ""; }
+    // As clang: AAPCS64 outside Darwin leaves the upper bits unspecified (the receiver
+    // extends), and Windows x64 extends only a bool.
+    if (g.abi == 2) { return ""; }
+    if (g.abi == 4) { if (cg_streq(lt, "i1") == 1) { return " zeroext"; } return ""; }
     if (cg_streq(d, "char") == 1) {
         if (g.wintgt == 0 && (g.abi == 2 || g.abi == 5 || g.abi == 6)) { return " zeroext"; }
         return " signext";

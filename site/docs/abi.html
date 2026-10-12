@@ -408,7 +408,10 @@ type's signedness; <code>char</code> follows the target's C <code>char</code>, u
 32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
 32 bits. Every Eskiu function returning one extends its result (<code>define signext
 i8 @f</code>), since a C caller (a callback, or C calling it by name) relies on that on
-AArch64 Darwin and x86-64.</p>
+AArch64 Darwin and x86-64. Two targets extend nothing, as clang: AArch64 outside Darwin
+(AAPCS64 leaves the upper bits unspecified, so the receiver extends) and Windows x64,
+where only a <code>bool</code> is <code>zeroext</code>. Declaring <code>signext</code> there would make Eskiu trust bits a
+clang-compiled callee never set.</p>
 <p><strong>Callbacks from C.</strong> An Eskiu function handed to C as a raw function pointer
 (<code>(*void)f</code>, the cast of a top-level function name to a pointer type) is called
 with the C convention. When it takes or returns an aggregate by value, the cast

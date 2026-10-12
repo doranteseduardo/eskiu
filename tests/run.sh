@@ -399,6 +399,14 @@ else
     bad "codegen/freestanding-no-builtins" "a freestanding -O2 object references memset/memcpy"
 fi
 
+# Narrow C integers: like clang, AArch64 outside Darwin and Windows x64 put no signext or
+# zeroext on extern params and results (bool stays zeroext on Windows x64); Darwin does.
+na_l=$("$ESKIUC" "$here/c_abi_narrow.esk" --target aarch64-unknown-linux-gnu --test-codegen 2>/dev/null | grep -cE '^declare .*(signext|zeroext)')
+na_w=$("$ESKIUC" "$here/c_abi_narrow.esk" --target x86_64-w64-windows-gnu --test-codegen 2>/dev/null | grep -E '^declare ' | grep -E '(signext|zeroext)' | grep -cv 'i1 zeroext')
+na_d=$("$ESKIUC" "$here/c_abi_narrow.esk" --target arm64-apple-macosx --test-codegen 2>/dev/null | grep -cE '^declare .*signext')
+if [[ "$na_l" == 0 && "$na_w" == 0 && "$na_d" -gt 0 ]]; then ok "codegen/narrow-int-ext-per-target"
+else bad "codegen/narrow-int-ext-per-target" "aarch64-linux=$na_l win64=$na_w darwin=$na_d"; fi
+
 # An output named .obj is an object file (Windows spelling), not an executable to link.
 printf 'int main() { return 0; }\n' > "$work/obj.esk"
 if "$ESKIUC" "$work/obj.esk" -o "$work/obj.obj" >/dev/null 2>&1 && [[ -s "$work/obj.obj" ]] \

@@ -71,6 +71,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   catch-all blocks, guaranteeing that nesting limits (`NestingError`) and unexpected exceptions propagate immediately.
 
 ### Fixed
+- C ABI: on AArch64 Linux and on Windows x64, an `extern`'s narrow integer parameters and
+  results (`int8`, `int16`, `uint8`, `uint16`, `char`, and `bool` on AArch64) no longer carry
+  `signext`/`zeroext`, matching clang. Eskiu trusted the upper bits of a narrow result that a
+  clang-compiled C function leaves unspecified, so `c_ret_s8()` read garbage (code built with
+  gcc happened to extend them). Both compilers.
 - The self-hosted compiler resolves a dot-call on a generic instance to a non-generic function
   named after the instance (`w.count(10)` with `w: List<string>` calls `List_string_count`), as
   the C++ compiler does; it reported "undefined method". Test `generic_instance_method_free`.

@@ -34,6 +34,14 @@ CodeGen::CAbiTarget CodeGen::cabiTarget() const {
 llvm::Attribute::AttrKind CodeGen::cabiExtAttr(const std::string& eskiuType, llvm::Type* llty) const {
     if (!llty->isIntegerTy(1) && !llty->isIntegerTy(8) && !llty->isIntegerTy(16))
         return llvm::Attribute::None;
+    // As clang: AAPCS64 outside Darwin leaves the upper bits unspecified (the receiver
+    // extends), and Windows x64 extends only a bool.
+    {
+        llvm::Triple t(module->getTargetTriple());
+        if (t.isAArch64() && !t.isOSDarwin()) return llvm::Attribute::None;
+        if (t.getArch() == llvm::Triple::x86_64 && t.isOSWindows())
+            return llty->isIntegerTy(1) ? llvm::Attribute::ZExt : llvm::Attribute::None;
+    }
     std::string s = tyq::strip(expandAlias(eskiuType));
     auto ov = typeParamOverride.find(s);
     if (ov != typeParamOverride.end()) s = tyq::strip(expandAlias(ov->second));
