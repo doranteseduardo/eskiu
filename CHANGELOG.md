@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.10.0] - 2026-10-11
 
 ### Added
 
