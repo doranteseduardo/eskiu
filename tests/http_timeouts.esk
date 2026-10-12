@@ -84,7 +84,9 @@ void over_limit(int port) {
     int b = connect_retry(port);           // past max_open: closed at once
     uint8[16] buf;
     const int64 n = net_recv(b, (*void)&buf[0], (int64)16);
-    printf("over max_open: recv=%lld (at once=%d)\n", n, time_monotonic_ms() - t0 < 60 ? 1 : 0);
+    // "At once": well before the slot holder's header_ms (150 ms, about 130 ms from here),
+    // with room for a slow CI runner.
+    printf("over max_open: recv=%lld (at once=%d)\n", n, time_monotonic_ms() - t0 < 100 ? 1 : 0);
     net_close(b);
     show("slot holder", a, t0, 40);
     int64 t1 = time_monotonic_ms();
