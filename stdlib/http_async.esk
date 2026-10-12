@@ -13,7 +13,7 @@
 //   int fd = net_tcp_listen(8080);
 //   EventLoop* lp = el_new(256);
 //   Future<uint8>* f = http_serve_async(lp, fd, hello, 1000);
-//   future_poll<uint8>(f, void(){ });   // drive: EventLoop_run(lp) until it completes
+//   Future_poll<uint8>(f, void(){ });   // drive: EventLoop_run(lp) until it completes
 //
 // Timeouts and the open-connection bound come from <http>'s HttpLimits: the
 // defaults, or pass your own to http_serve_async_with.

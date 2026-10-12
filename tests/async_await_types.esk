@@ -3,7 +3,7 @@
 import <future>;
 extern int printf(string fmt, ...);
 
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 struct Src { int64 big; string s; }
 Future<int64>* Src_get(Src* self) { return rdy<int64>(self.big); }
 Future<string>* Src_name(Src* self) { return rdy<string>(self.s); }
@@ -16,10 +16,10 @@ async double a5() { return await rdy(0.75); }
 
 int main() {
     let s: Src = Src{ big: 5000000000, s: "hello" };
-    Future<double>* f1 = a1(); printf("%.2f\n", f1.value); free_future<double>(f1);
-    Future<int64>* f2 = a2(&s); printf("%lld\n", f2.value); free_future<int64>(f2);
-    Future<string>* f3 = a3(&s); printf("%s\n", f3.value); free_future<string>(f3);
-    Future<int>* f4 = a4(); printf("%d\n", f4.value); free_future<int>(f4);
-    Future<double>* f5 = a5(); printf("%.2f\n", f5.value); free_future<double>(f5);
+    Future<double>* f1 = a1(); printf("%.2f\n", f1.value); Future_free<double>(f1);
+    Future<int64>* f2 = a2(&s); printf("%lld\n", f2.value); Future_free<int64>(f2);
+    Future<string>* f3 = a3(&s); printf("%s\n", f3.value); Future_free<string>(f3);
+    Future<int>* f4 = a4(); printf("%d\n", f4.value); Future_free<int>(f4);
+    Future<double>* f5 = a5(); printf("%.2f\n", f5.value); Future_free<double>(f5);
     return 0;
 }

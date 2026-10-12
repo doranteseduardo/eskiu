@@ -158,9 +158,9 @@ async int split_try(int k) {
 }
 
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;
-    free_future_polled<int>(f);
+    Future_free_polled<int>(f);
     return v;
 }
 
@@ -181,14 +181,14 @@ int main() {
     printf("twice %d\n", run(twice<int>(7)));
     printf("split_try %d\n", run(split_try(4)));
     Future<int>* st = split_try(1);
-    future_drop((FutureHdr*)st);
+    Future_drop((FutureHdr*)st);
     Future<int>* p = dropped_plain(1);
-    future_drop((FutureHdr*)p);
+    Future_drop((FutureHdr*)p);
     printf("dropped_plain\n");
     Future<int>* d = dropped_defer(2);
-    future_drop((FutureHdr*)d);
+    Future_drop((FutureHdr*)d);
     Future<int>* x = dropped_detached(3);
-    future_drop((FutureHdr*)x);
+    Future_drop((FutureHdr*)x);
     run(timer_after(g, (int64)40));
     EventLoop_free(g);
     return 0;

@@ -16,13 +16,13 @@ uint8[8] rb;
 EventLoop* g;
 
 int run(Future<Either<int, int>>* f) {
-    if (future_poll<Either<int, int>>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<Either<int, int>>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int r = 0;
     match f.value {
         Left(a)  -> r = a;            // read won: byte count
         Right(b) -> r = 100 + b;      // timer won
     }
-    free_future<Either<int, int>>(f);
+    Future_free<Either<int, int>>(f);
     return r;
 }
 

@@ -131,9 +131,9 @@ int main() {
 
     g_lp = el_new(64);
     Future<int>* f = get_async(g_lp, &r);
-    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     check("fetch_async over TLS", f.value == 0 && r.status == 200 && r.body.len == 9);
-    free_future<int>(f);
+    Future_free<int>(f);
     EventLoop_free(g_lp);
     Response_free(&r);
 

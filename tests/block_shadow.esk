@@ -20,7 +20,7 @@ int siblings() {
     return s;
 }
 
-Future<int>* produce() { Future<int>* f = future_new<int>(); future_complete<int>(f, 41); return f; }
+Future<int>* produce() { Future<int>* f = future_new<int>(); Future_complete<int>(f, 41); return f; }
 async int one(int a) {
     let x: int = 1;
     { let x: int = await produce(); x = x + 1; }

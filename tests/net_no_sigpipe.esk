@@ -35,9 +35,9 @@ int main() {
     net_set_nonblocking(fd);
     g = el_new(8);
     Future<int>* w = net_write_async(g, fd, (*uint8)"hello", 5);
-    if (future_poll<int>(w, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(w, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     printf("net_write_async: %d\n", w.value);
-    free_future_polled<int>(w);
+    Future_free_polled<int>(w);
     EventLoop_free(g);
     net_close(fd);
     return 0;

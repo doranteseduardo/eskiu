@@ -225,7 +225,7 @@ def gen_async_await():
 extern int printf(string fmt, ...);
 Future<int>* produce() {{
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, {val});
+    Future_complete<int>(f, {val});
     return f;
 }}
 async int run() {{
@@ -234,7 +234,7 @@ async int run() {{
 int main() {{
     Future<int>* r = run();
     printf("%d\\n", r.value);
-    free_future<int>(r);
+    Future_free<int>(r);
     return 0;
 }}
 """

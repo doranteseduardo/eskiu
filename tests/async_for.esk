@@ -4,7 +4,7 @@ import <future>;
 extern int printf(string fmt, ...);
 Future<int>* produce(int v) {
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, v);
+    Future_complete<int>(f, v);
     return f;
 }
 async int sumN(int n) {
@@ -18,6 +18,6 @@ async int sumN(int n) {
 int main() {
     Future<int>* r = sumN(5);              // 0+1+2+3+4
     printf("%d\n", r.value);
-    free_future<int>(r);
+    Future_free<int>(r);
     return 0;
 }

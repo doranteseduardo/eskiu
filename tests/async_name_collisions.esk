@@ -3,7 +3,7 @@
 // the shadow renames, the resume function) must not collide with them.
 import <future>;
 extern int printf(string fmt, ...);
-Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); Future_complete<int>(f, v); return f; }
 int __g_resume = 7;
 async int g(int __fr, int st) {
     int ret = 1; int awaiting = 2; int __aw0 = 3; int __aw_t0 = 4; int __forin_i_0 = 5;

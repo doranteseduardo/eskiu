@@ -14,9 +14,9 @@ Future<int>* g_f;
 
 void start(int fd, string msg) {
     g_f = net_write_async(g_lp, fd, (*uint8)msg, (int64)strlen(msg));
-    future_poll<int>(g_f, void() {
+    Future_poll<int>(g_f, void() {
         g_total = g_total + g_f.value;
-        free_future<int>(g_f);
+        Future_free<int>(g_f);
         g_left = g_left - 1;
         if (g_left == 0) { EventLoop_stop(g_lp); }
     });

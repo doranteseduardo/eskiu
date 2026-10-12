@@ -51,8 +51,8 @@ int main() {
     });
 
     Future<uint8>* f = http_serve_async(g_lp, fd, hello, 1);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
-    free_future<uint8>(f);
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    Future_free<uint8>(f);
 
     printf("completed=1 bad=%d\n", g_bad_fd);
     net_close(c);

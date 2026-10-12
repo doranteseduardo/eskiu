@@ -1031,7 +1031,7 @@ Available modules:
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
 | `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |
 | `<atomic>`   | atomic `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
-| `<future>`   | the `async`/`await` runtime: `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
+| `<future>`   | the `async`/`await` runtime: `Future<T>`, `Future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
 | `<executor>` | `Executor`: event loop + thread-safe ready-queue + self-pipe wakeup |
 | `<net_async>`| async leaf futures: `net_read_async`, `net_accept_async` |
 | `<timer>`    | `timer_after(lp, ms)`: a `*Future<int>` that completes after a delay (timeouts) |

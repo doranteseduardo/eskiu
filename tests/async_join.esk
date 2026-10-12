@@ -15,7 +15,7 @@ async int both(EventLoop* lp, int fa, int fb) {
     Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
     int done = await join2(ra, rb);
     int total = ra.value + rb.value;
-    free_future<int>(ra);  free_future<int>(rb);
+    Future_free<int>(ra);  Future_free<int>(rb);
     return total;
 }
 int main() {
@@ -25,9 +25,9 @@ int main() {
     write(pb[1], (*void)"cde", (int64)3);
     g_lp = el_new(64);
     Future<int>* f = both(g_lp, pa[0], pb[0]);
-    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     printf("%d\n", f.value);          // 2 + 3 = 5
-    free_future<int>(f);
+    Future_free<int>(f);
     EventLoop_free(g_lp);
     return 0;
 }

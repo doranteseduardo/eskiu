@@ -23,19 +23,19 @@ int main() {
     Chan<int>* b = chan_new<int>(8);
     Chan_send<int>(b, 10);  Chan_send<int>(b, 20);  Chan_send<int>(b, 30);
     Future<int>* fb = consume3(b);
-    future_poll<int>(fb, void() {});                  // all ready -> completes synchronously
+    Future_poll<int>(fb, void() {});                  // all ready -> completes synchronously
     printf("buffered=%d\n", fb.value);                // 60
-    free_future<int>(fb);  Chan_free<int>(b);
+    Future_free<int>(fb);  Chan_free<int>(b);
 
     // Parked handoff: the consumer parks on an empty channel; each send resumes
     // it (which immediately reparks on the next recv) until all three arrive.
     Chan<int>* p = chan_new<int>(8);
     Future<int>* fp = consume3(p);
-    future_poll<int>(fp, void() {});                  // parks on the first recv
+    Future_poll<int>(fp, void() {});                  // parks on the first recv
     Chan_send<int>(p, 1);                              // resume -> park on 2nd
     Chan_send<int>(p, 2);                              // resume -> park on 3rd
     Chan_send<int>(p, 4);                              // resume -> complete
     printf("parked=%d\n", fp.value);                  // 7
-    free_future<int>(fp);  Chan_free<int>(p);
+    Future_free<int>(fp);  Chan_free<int>(p);
     return 0;
 }

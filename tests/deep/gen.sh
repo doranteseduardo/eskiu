@@ -50,7 +50,7 @@ run_test() { # name expected-output < program
     printf 'T sum<T>(T a) { return a'; rep ' + a' 9999; echo '; }'
     echo 'Future<int>* ready(int v) {'
     echo '    Future<int>* f = future_new<int>();'
-    echo '    future_complete<int>(f, v);'
+    echo '    Future_complete<int>(f, v);'
     echo '    return f;'
     echo '}'
     echo 'async int twice(int k) {'
@@ -60,7 +60,7 @@ run_test() { # name expected-output < program
     echo 'int main() {'
     echo '    Future<int>* r = twice(21);'
     echo '    printf("%d %d\n", sum<int>(1), r.value);'
-    echo '    free_future<int>(r);'
+    echo '    Future_free<int>(r);'
     echo '    return 0;'
     echo '}'
 } | run_test generic_async_chain "10000 42"

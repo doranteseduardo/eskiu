@@ -205,7 +205,7 @@ async int finally_throws() {
     return 0;
 }
 
-Future<T>* later<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* later<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 
 async T keep<T>(T v) {
     defer { int z = await timer_after(g, (int64)1); printf("generic defer %d\n", z); }
@@ -237,9 +237,9 @@ async int sw(int k) {
 }
 
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;
-    free_future_polled<int>(f);
+    Future_free_polled<int>(f);
     return v;
 }
 
@@ -260,13 +260,13 @@ int main() {
     printf("finally_throws = %d\n", run(finally_throws()));
     printf("keep = %d\n", run(keep<int>(4)));
     Future<double>* d = keep<double>(2.5);
-    if (future_poll<double>(d, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<double>(d, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     printf("keep<double> = %f\n", d.value);
-    free_future_polled<double>(d);
+    Future_free_polled<double>(d);
     printf("sw = %d\n", run(sw(1)));
     Future<uint8>* v = void_finally();
-    if (future_poll<uint8>(v, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
-    free_future_polled<uint8>(v);
+    if (Future_poll<uint8>(v, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    Future_free_polled<uint8>(v);
     EventLoop_free(g);
     return 0;
 }

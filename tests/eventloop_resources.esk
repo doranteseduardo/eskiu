@@ -35,9 +35,9 @@ int main() {
     g_t0 = timer_after(g_lp, (int64)1);
     g_t1 = timer_after(g_lp, (int64)2);
     g_t2 = timer_after(g_lp, (int64)3);
-    future_poll<int>(g_t0, void() { free_future<int>(g_t0); done(); });
-    future_poll<int>(g_t1, void() { free_future<int>(g_t1); done(); });
-    future_poll<int>(g_t2, void() { free_future<int>(g_t2); done(); });
+    Future_poll<int>(g_t0, void() { Future_free<int>(g_t0); done(); });
+    Future_poll<int>(g_t1, void() { Future_free<int>(g_t1); done(); });
+    Future_poll<int>(g_t2, void() { Future_free<int>(g_t2); done(); });
     EventLoop_run(g_lp);
     printf("timers fired: %d (tcap grew: %d)\n", g_fired, g_lp.tcap > 2);
     EventLoop_free(g_lp);

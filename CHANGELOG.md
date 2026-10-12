@@ -21,6 +21,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<either>`: `opt_is_some`, `opt_is_none`, `opt_unwrap_or` -> `Option_is_some`,
   `Option_is_none`, `Option_unwrap_or` and `either_is_left` -> `Either_is_left`, so
   `o.is_some()` works as a dot-call. The old names remain as deprecated wrappers.
+- `<future>`: `future_poll`, `future_complete`, `future_drop`, `free_future` and
+  `free_future_polled` -> `Future_poll`, `Future_complete`, `Future_drop`, `Future_free` and
+  `Future_free_polled` (`future_new` stays, it is a factory). The async lowering of both
+  compilers calls the new names. The old names remain as deprecated wrappers. The type-erased
+  cores `select2_hdr`, `join2_hdr` and `spawn_hdr` are internal now (`_select2_hdr`, ...); use
+  `select2`, `join2` and `spawn`.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer

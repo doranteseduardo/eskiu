@@ -85,8 +85,8 @@ void run(string label) {
     g_calls = 0;
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async(g_lp, sv[0], echo, done);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
-    free_future<uint8>(f);
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    Future_free<uint8>(f);
     Chan_free<int>(done);
 
     *uint8 rb = alloc<uint8>(65536);

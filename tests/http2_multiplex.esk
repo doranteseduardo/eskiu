@@ -55,7 +55,7 @@ int main() {
     g_lp = el_new(64);
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async(g_lp, srv, echo_path, done);
-    future_poll<uint8>(f, void() { EventLoop_stop(g_lp); });
+    Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); });
     EventLoop_run(g_lp);
 
     // Walk the server's frames; record each stream's :status and body.

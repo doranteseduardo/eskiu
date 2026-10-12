@@ -80,9 +80,9 @@ void run(string label, int64 lo, bool ping) {
     const int64 t0 = time_monotonic_ms();
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async_with(g_lp, sv[0], hello, done, g_lim, null);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     const int64 dt = time_monotonic_ms() - t0;
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     Chan_free<int>(done);
     if (ping) { atomic_store(&g_stop, 1);  thread_join(t); }
 

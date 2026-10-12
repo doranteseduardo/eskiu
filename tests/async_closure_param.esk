@@ -22,9 +22,9 @@ int churn(int n) { int[64] buf; for (i in 0..64) { buf[i] = n + i; } return buf[
 int main() {
     gate = future_new<int>();
     Future<int>* f = start(4);
-    future_poll<int>(f, void() {});
+    Future_poll<int>(f, void() {});
     printf("%d ", churn(7));
-    future_complete<int>(gate, 2);
+    Future_complete<int>(gate, 2);
     printf("%d %d\n", f.state, f.value);
     return 0;
 }

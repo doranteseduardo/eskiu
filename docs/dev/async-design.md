@@ -142,7 +142,7 @@ if (CAS(&F.state, PENDING -> WAITING)) {
     frame.awaiting = (FutureHdr*)F; return;  // parked; executor will resume us
 }
 // CAS failed -> F is already READY (completer beat us): take the value inline
-let x: T = F.value;  frame.awaiting = null;  free_future(F);
+let x: T = F.value;  frame.awaiting = null;  Future_free(F);
 // ...continue with x...
 ```
 
@@ -157,27 +157,27 @@ if (old == WAITING) F.waker();               // awaiter parked -> schedule its r
 // old == CANCELLED: dropped first -> producer releases <result> and frees (§3.4 arbitration)
 ```
 
-**Where the continuation runs.** `future_complete` calls the waker on the
+**Where the continuation runs.** `Future_complete` calls the waker on the
 completing thread, and the waker the transform generates resumes the coroutine
 directly (`fr.st = N; __f_resume(fr);`). Thread affinity is the executor's job: a
 producer that completes a future on another thread hands the resume to the
 awaiter's executor with `Executor_schedule`, which queues it and wakes that
 executor, so the continuation runs on the executor's own thread (§6).
 
-### 3.3 Drop / cancel (any thread): `future_drop((FutureHdr*)F)`
+### 3.3 Drop / cancel (any thread): `Future_drop((FutureHdr*)F)`
 
 ```
 old = SWAP(&F.state, CANCELLED);
-if (old == READY) { free_future(F); }        // completed already: just free memory
+if (old == READY) { Future_free(F); }        // completed already: just free memory
 else { F.on_drop(); }                        // PENDING/WAITING: release + cascade + free
 ```
 
 - A **leaf** future's `on_drop` deregisters its fd/timer from the loop, frees itself.
-- A **coroutine** future's `on_drop` cascades: `if (frame.awaiting) future_drop(frame.awaiting);`,
+- A **coroutine** future's `on_drop` cascades: `if (frame.awaiting) Future_drop(frame.awaiting);`,
   runs the `defer`/`finally` code pending at the await it is parked at (§7), and the
   frame is freed. The coroutine does not continue past the await. When that cleanup
   awaits, `on_drop` first sets `state` to `DETACHED` (4) and the frame outlives
-  `future_drop` (§7.1).
+  `Future_drop` (§7.1).
 
 ### 3.4 Arbitration (the one invariant)
 
@@ -243,11 +243,11 @@ case 0:
   f.waker_of_g = <closure capturing f: "f.st=1; __fetch_len_resume(f)">;
   // park via §3.1 against g; if g already ready, fall through with g.value
   ... if parked: f.awaiting=(FutureHdr*)g; f.st=1; return;
-  f.fd = g.value; f.awaiting=null; free_future(g);
+  f.fd = g.value; f.awaiting=null; Future_free(g);
 case 1:
   Future<int>* h = net_read_async(f.lp, f.fd, f.buf, 64);
   ... (same park/fast-path against h, resume label 2) ...
-  int n = h.value; f.awaiting=null; free_future(h);
+  int n = h.value; f.awaiting=null; Future_free(h);
   // return n: complete our own future (§3.2), then the awaiter's waker frees f
   f.ret.value = n; f.ret.on_drop = <just-free f>;
   old = SWAP(&f.ret.state, READY); if (old==WAITING) f.ret.waker();
@@ -398,12 +398,12 @@ resume on the right thread.
 ## 7. Memory and cancellation: one invariant
 
 > **Every future is finalized exactly once**: *awaited to completion* (the awaiter
-> frees it), or *dropped* (`future_drop` frees it via `on_drop`). The atomic swap to
+> frees it), or *dropped* (`Future_drop` frees it via `on_drop`). The atomic swap to
 > a terminal state picks the single winner (§3.4); the other path only frees.
 
 One allocation per async call (frame + embedded return future), one per leaf future.
 A future created but never awaited, handed to a combinator or `spawn`, or dropped
-leaks: the caller owns it and must release it (`future_drop`, or `spawn` for a
+leaks: the caller owns it and must release it (`Future_drop`, or `spawn` for a
 detached task). The transform does not insert an implicit drop.
 
 **Closure locals.** Every local is a frame field, so a lambda bound to a local gets a heap
@@ -445,22 +445,22 @@ ends. The hand-off uses three more values of `state`, reached only on this path 
 by a coroutine future, so leaf futures and the four-state handshake are unchanged:
 
 ```
-on_drop:        future_drop(awaiting); atomic_store(&ret.state, DETACHED /*4*/);
+on_drop:        Future_drop(awaiting); atomic_store(&ret.state, DETACHED /*4*/);
                 st = <cleanup>; resume();            // may park on the cleanup's own awaits
-future_drop:    ... f.on_drop(); free_closure(waker); free_closure(on_drop);
+Future_drop:    ... f.on_drop(); free_closure(waker); free_closure(on_drop);
                 if (CAS(&f.state, DETACHED -> ORPHANED /*5*/)) return;   // the cleanup owns f
                 free(f);
-cleanup end:    if (CAS(&ret.state, DETACHED -> CLEANED /*6*/)) return;  // still inside future_drop
+cleanup end:    if (CAS(&ret.state, DETACHED -> CLEANED /*6*/)) return;  // still inside Future_drop
                 free(frame);                          // ORPHANED: the frame frees itself
 ```
 
 The awaited future is dropped first (the cascade), then the cleanup starts. A cleanup
-whose awaits are all ready finishes inside `future_drop` (`CLEANED`) and is freed there
-as before; one that suspends is freed by its last state. `future_drop` returns at once
+whose awaits are all ready finishes inside `Future_drop` (`CLEANED`) and is freed there
+as before; one that suspends is freed by its last state. `Future_drop` returns at once
 for a state of 4 or more, so dropping the future again while its cleanup runs is a no-op.
 A coroutine's own normal path never runs after a drop, so no completion can follow it.
 An exception that escapes a detached cleanup propagates to whatever resumed it (the event
-loop, or the `future_drop` caller before the first suspension), the same as one escaping
+loop, or the `Future_drop` caller before the first suspension), the same as one escaping
 a task given to `spawn`. The cleanup's awaits record no drop sites of their own: nobody
 holds the future any more.
 
@@ -477,12 +477,12 @@ holds the future any more.
 - Calling an `async` function without `await` yields `Future<T>*` (start now, await later,
   or hand to a combinator or `spawn`). The caller owns a future it neither awaits nor
   hands off and must drop it (§7).
-- `future_drop(f)` is the explicit cancel entry.
-- At the top level a future is driven by hand: `future_poll(f, waker)` installs a
+- `Future_drop(f)` is the explicit cancel entry.
+- At the top level a future is driven by hand: `Future_poll(f, waker)` installs a
   waker that calls `EventLoop_stop`, `EventLoop_run(lp)` runs the loop until then (skip it when
-  `future_poll` returns 1, the future is already ready), and the caller reads
-  `f.value` and releases `f` with `free_future_polled`, which also frees the waker it
-  passed (`free_future` leaves the waker alone, since an `await` frees its own). There
+  `Future_poll` returns 1, the future is already ready), and the caller reads
+  `f.value` and releases `f` with `Future_free_polled`, which also frees the waker it
+  passed (`Future_free` leaves the waker alone, since an `await` frees its own). There
   is no `future_block` helper.
 
 ---
@@ -494,8 +494,8 @@ The async stack decomposes into independently testable layers:
 - **Atomic intrinsics** (`<atomic>`): `atomic_load`/`atomic_store`/`atomic_cas`/
   `atomic_swap` with acquire/release, lowering to LLVM atomics. The lock-free
   primitives the §3 handshake stands on; `<threading>` uses them too.
-- **`stdlib/future.esk`**: `Future<T>` + `FutureHdr` + `free_future` /
-  `future_drop`, implementing the §3 atomic protocol. The runtime model is
+- **`stdlib/future.esk`**: `Future<T>` + `FutureHdr` + `Future_free` /
+  `Future_drop`, implementing the §3 atomic protocol. The runtime model is
   validated by a hand-written coroutine over this contract that drives a real
   non-blocking socket read via `<eventloop>`, is cleanly cancelled, and resumes on
   a different thread than it completed on (cross-thread completion: a worker thread

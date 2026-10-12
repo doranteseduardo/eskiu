@@ -3015,7 +3015,7 @@ pre.code-block {
  extern int printf(string fmt, ...);</pre>
 <pre class="code-block"> Future&lt;int&gt;* produce() {
        Future&lt;int&gt;* f = future_new&lt;int&gt;();
-       future_complete&lt;int&gt;(f, 41);
+       Future_complete&lt;int&gt;(f, 41);
        return f;
  }</pre>
 <pre class="code-block"> async int one() {
@@ -3025,12 +3025,12 @@ pre.code-block {
 <pre class="code-block"> int main() {
        Future&lt;int&gt;* r = one();
        printf(&quot;%d&quot;, r.value);     // 42
-       free_future&lt;int&gt;(r);
+       Future_free&lt;int&gt;(r);
        return 0;
  }</pre>
 <p>The compiler transforms an async function into a state machine. Each await is a suspension point: the function can be paused there and resumed later without blocking any OS thread. Every control-flow form can contain an await: <code>if</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, <code>for</code>-in, <code>switch</code>, <code>match</code> and <code>try</code>/<code>catch</code>. A <code>defer</code> in an async function runs when its block exits, even if the block awaited in between, and a lambda inside it can capture the function&#x27;s locals. Labeled <code>break</code>/<code>continue</code> is not supported inside an async function.</p>
 <p>An <code>await</code> can sit anywhere in an expression: a <code>let</code> initializer, a <code>return</code>, an assignment or compound assignment (<code>r += await f();</code>), a call argument, an operand (<code>a + await f()</code>), a condition (<code>while (await more())</code>), a <code>switch</code> or <code>match</code> subject, a <code>for</code>-in iterable and a range bound (<code>for (i in 0..await f())</code>). The order of evaluation is the one the synchronous expression would have: a call written before the await runs before it, the target of <code>a[i()] += await f()</code> is computed once, before the await, and an await on the right of <code>&amp;&amp;</code> or <code>||</code>, or in an arm of <code>?:</code>, runs only when that operand does.</p>
-<p>Inside <code>try</code>, an await may sit in the body, in a <code>catch</code> and in the <code>finally</code>. An exception thrown before or after the suspension goes to the handler of the try it was thrown in, and the <code>finally</code> runs exactly once however the try is left: normally, by an exception, by <code>return</code>, <code>break</code> or <code>continue</code>, or because the future was cancelled. A <code>finally</code> or a <code>defer</code> may await too: the cleanup suspends like the rest of the function, a <code>return</code> value is kept until it finishes, and an exception passing through the try is thrown again once the <code>finally</code> is done. A future dropped while it waits runs the <code>finally</code> blocks and <code>defer</code>s pending at its await, after the future it was waiting on has been dropped. When that cleanup awaits, it carries on by itself, like a task given to <code>spawn</code>: <code>future_drop</code> returns, the event loop resumes the cleanup, and the memory is freed when it ends. Keep the loop running until then.</p>
+<p>Inside <code>try</code>, an await may sit in the body, in a <code>catch</code> and in the <code>finally</code>. An exception thrown before or after the suspension goes to the handler of the try it was thrown in, and the <code>finally</code> runs exactly once however the try is left: normally, by an exception, by <code>return</code>, <code>break</code> or <code>continue</code>, or because the future was cancelled. A <code>finally</code> or a <code>defer</code> may await too: the cleanup suspends like the rest of the function, a <code>return</code> value is kept until it finishes, and an exception passing through the try is thrown again once the <code>finally</code> is done. A future dropped while it waits runs the <code>finally</code> blocks and <code>defer</code>s pending at its await, after the future it was waiting on has been dropped. When that cleanup awaits, it carries on by itself, like a task given to <code>spawn</code>: <code>Future_drop</code> returns, the event loop resumes the cleanup, and the memory is freed when it ends. Keep the loop running until then.</p>
 <pre class="code-block"> async int fetch(EventLoop* lp) {
        try {
            int n = await timer_after(lp, 10);
@@ -3070,7 +3070,7 @@ pre.code-block {
        int fd = net_tcp_connect(&quot;127.0.0.1&quot;, 7000);
        Future&lt;int&gt;* f = read_line(lp, fd);
        EventLoop_run(lp);    // drives the event loop until all tasks complete
-       free_future&lt;int&gt;(f);
+       Future_free&lt;int&gt;(f);
        EventLoop_free(lp);   net_close(fd);
        return 0;
  }</pre>
@@ -3093,7 +3093,7 @@ pre.code-block {
        EventLoop* lp = el_new(256);
        Future&lt;uint8&gt;* f = http_serve_async(lp, fd, hello, 1000);
        EventLoop_run(lp);
-       free_future&lt;uint8&gt;(f);
+       Future_free&lt;uint8&gt;(f);
        EventLoop_free(lp);   net_close(fd);
        return 0;
  }</pre>
@@ -3108,12 +3108,12 @@ pre.code-block {
 <pre class="code-block"> // select2&lt;A,B&gt;: whichever finishes first. Completes with the winner's
  // index (0 if fa won, 1 if fb won); read the winner's value, then free it.
  int w = await select2(fa, fb);
- if (w == 0) { use(fa.value);  free_future&lt;int&gt;(fa); }
- else        { use(fb.value);  free_future&lt;int&gt;(fb); }</pre>
+ if (w == 0) { use(fa.value);  Future_free&lt;int&gt;(fa); }
+ else        { use(fb.value);  Future_free&lt;int&gt;(fb); }</pre>
 <pre class="code-block"> // join2&lt;A,B&gt;: wait for both, then read and free both
  await join2(fa, fb);
  int sum = fa.value + fb.value;
- free_future&lt;int&gt;(fa);   free_future&lt;int&gt;(fb);</pre>
+ Future_free&lt;int&gt;(fa);   Future_free&lt;int&gt;(fb);</pre>
 <pre class="code-block"> select2 cancels the loser future automatically: its on_drop cascade cleans up any resources the losing
  task held.</pre>
 <p>Dropping a combinator before it resolves cascades the same way. When a <code>select2</code>, <code>join2</code>, <code>select2v</code> or <code>join2v</code> future is itself cancelled (for example by an outer timeout that wins its own <code>select2</code>), it drops both of its inputs, so their producers are cancelled and their wakers unhooked. A late completion of an input can no longer write into the freed combinator.</p>
@@ -3139,7 +3139,7 @@ pre.code-block {
        Future&lt;int&gt;* f = consume(ch);
        // drive on event loop or poll directly
        printf(&quot;%d\n&quot;, f.value);       // 30
-       free_future&lt;int&gt;(f);
+       Future_free&lt;int&gt;(f);
        Chan_free&lt;int&gt;(ch);
        return 0;
  }</pre>
@@ -3318,8 +3318,8 @@ pre.code-block {
        await join2(fa, fb);                  // the two requests are in flight together
        int rc = fa.value != 0 ? fa.value : fb.value;
        if (rc == 0) { printf(&quot;%d and %d, %lld + %lld bytes\n&quot;, a.status, b.status, a.body.len, b.body.len); }
-       free_future&lt;int&gt;(fa);
-       free_future&lt;int&gt;(fb);
+       Future_free&lt;int&gt;(fa);
+       Future_free&lt;int&gt;(fb);
        Response_free(&amp;a);
        Response_free(&amp;b);
        return rc;
@@ -3329,10 +3329,10 @@ pre.code-block {
        let o: FetchOptions;  FetchOptions_init(&amp;o);
        EventLoop* lp = el_new(64);
        Future&lt;int&gt;* f = both(lp, &amp;o);
-       if (future_poll&lt;int&gt;(f, void() { EventLoop_stop(lp); }) == 0) { EventLoop_run(lp); }
+       if (Future_poll&lt;int&gt;(f, void() { EventLoop_stop(lp); }) == 0) { EventLoop_run(lp); }
        int rc = f.value;
        if (rc != 0) { printf(&quot;failed: %s\n&quot;, fetch_last_error()); }
-       free_future&lt;int&gt;(f);
+       Future_free&lt;int&gt;(f);
        EventLoop_free(lp);
        FetchOptions_free(&amp;o);
        return rc == 0 ? 0 : 1;
@@ -4025,7 +4025,7 @@ pre.code-block {
  import &lt;threading&gt;;    Mutex     Cond    Sem    (pairs with thread_create/thread_join)
  import &lt;atomic&gt;;       atomic_load       atomic_store       atomic_swap     atomic_cas</pre>
 <pre class="code-block"> // Async/await runtime
- import &lt;future&gt;;     Future&lt;T&gt;   future_new        future_complete       future_poll    free_future
+ import &lt;future&gt;;     Future&lt;T&gt;   future_new        Future_complete       Future_poll    Future_free
  import &lt;eventloop&gt;;    el_new    EventLoop_add_read           EventLoop_add_timer    EventLoop_run   EventLoop_stop    EventLoop_free
  import &lt;executor&gt;;     Executor (thread-safe ready-queue + wakeup)
  import &lt;net_async&gt;;    net_read_async      net_accept_async           net_write_async
@@ -4097,7 +4097,7 @@ pre.code-block {
 <h3 class="subsection">freestanding</h3>
 <p>Compilation mode without libc. <code>--freestanding</code> redirects <code>alloc</code> and <code>free</code> to <code>esk_alloc</code> and <code>esk_free</code>, which the user provides.</p>
 <h3 class="subsection">Future</h3>
-<p>A handle to a value of type T that may not exist yet. Produced by async functions and leaf I/O primitives. Release with <code>free_future(f)</code>. Import from <code>&lt;future&gt;</code>.</p>
+<p>A handle to a value of type T that may not exist yet. Produced by async functions and leaf I/O primitives. Release with <code>Future_free(f)</code>. Import from <code>&lt;future&gt;</code>.</p>
 <h3 class="subsection">GEP</h3>
 <p><code>getelementptr</code>. The LLVM IR instruction for pointer arithmetic, used to access struct fields and array elements without loading data.</p>
 <h3 class="subsection">heap</h3>

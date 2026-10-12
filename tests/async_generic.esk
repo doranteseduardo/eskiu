@@ -9,7 +9,7 @@ extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
 
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 
 struct Box<T> { T v; }
 
@@ -54,7 +54,7 @@ async int run() {
 int main() {
     Future<int>* r = run();
     printf("%d %d\n", r.value, r.state);
-    free_future<int>(r);
+    Future_free<int>(r);
     spawn(task<int>(3));
     spawn(task<string>("s"));
     printf("%d\n", g_done);
@@ -62,9 +62,9 @@ int main() {
     write(fds[1], (*void)"abc", (int64)3);
     EventLoop* lp = el_new(64);
     Future<int>* f = reader<double>(lp, fds[0], 1.5);
-    if (future_poll<int>(f, void() { }) == 0) { EventLoop_run(lp); }
+    if (Future_poll<int>(f, void() { }) == 0) { EventLoop_run(lp); }
     printf("%d\n", f.value);
-    free_future<int>(f);
+    Future_free<int>(f);
     EventLoop_free(lp);
     return 0;
 }

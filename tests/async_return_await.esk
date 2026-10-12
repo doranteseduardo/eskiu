@@ -4,7 +4,7 @@ import <future>;
 extern int printf(string fmt, ...);
 Future<int>* produce(int v) {
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, v);
+    Future_complete<int>(f, v);
     return f;
 }
 async int direct() {
@@ -19,7 +19,7 @@ int main() {
     Future<int>* r = direct();
     Future<uint8>* t = task();
     printf("%d %d %d\n", r.value, g_side, t.state);   // 7 6 2
-    free_future<int>(r);
-    free_future<uint8>(t);
+    Future_free<int>(r);
+    Future_free<uint8>(t);
     return 0;
 }

@@ -68,8 +68,8 @@ void run(string label, int async_mode) {
     } else {
         Chan<int>* done = chan_new<int>(1);
         Future<uint8>* f = http2_tls_conn_async(g_lp, sv[0], ctx, echo, done);
-        if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
-        free_future<uint8>(f);
+        if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+        Future_free<uint8>(f);
         Chan_free<int>(done);
     }
     SSL_CTX_free(ctx);

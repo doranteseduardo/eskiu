@@ -82,7 +82,7 @@ int main() {
     List<int> seen; seen.init(2);
     Future<int>* r = consume(ch, &seen);
     printf("%d %d %d %d\n", r.ready(), r.value, seen.len(), seen.get(1));   // 1 30 2 20
-    free_future<int>(r);
+    Future_free<int>(r);
     seen.free();
     ch.free();
     return 0;

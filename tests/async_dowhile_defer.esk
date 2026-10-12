@@ -4,7 +4,7 @@ extern int printf(string fmt, ...);
 
 Future<int>* produce(int v) {
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, v);
+    Future_complete<int>(f, v);
     return f;
 }
 
@@ -55,12 +55,12 @@ async int lam(int n) {
 int main() {
     Future<int>* a = dw(4);
     printf("dw %d\n", a.value);
-    free_future<int>(a);
+    Future_free<int>(a);
     Future<int>* b = df(4);
     printf("df %d\n", b.value);
-    free_future<int>(b);
+    Future_free<int>(b);
     Future<int>* c = lam(4);
     printf("lam %d\n", c.value);
-    free_future<int>(c);
+    Future_free<int>(c);
     return 0;
 }

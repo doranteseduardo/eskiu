@@ -50,7 +50,7 @@ async int run(EventLoop* lp) {
     int first = await select2(fb, fa);
     printf("first to finish: %s\n", first == 0 ? "fast" : "slow");
     // select2 dropped the loser; fetch the slow one again and wait for it.
-    if (first == 0) { show("fast", fb.value, &b); free_future<int>(fb); }
+    if (first == 0) { show("fast", fb.value, &b); Future_free<int>(fb); }
     Response_free(&a);
     Response_free(&b);
     int rc = await fetch_async(lp, "http://127.0.0.1:18434/slow", &o, &a);
@@ -91,7 +91,7 @@ async int run(EventLoop* lp) {
     // itself when its thread ends).
     Future<int>* fl = fetch_async(lp, "http://localhost:18434/fast", &o, &a);
     Future<int>* ft = timer_after(lp, 0);
-    if (await select2(fl, ft) == 0) { free_future<int>(fl); } else { free_future<int>(ft); }
+    if (await select2(fl, ft) == 0) { Future_free<int>(fl); } else { Future_free<int>(ft); }
     printf("dropped during lookup: ok\n");
     Response_free(&a);
     FetchOptions_free(&o);
@@ -111,9 +111,9 @@ int main() {
     }
     g_lp = el_new(64);
     Future<int>* f = run(g_lp);
-    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     printf("done %d\n", f.value);
-    free_future<int>(f);
+    Future_free<int>(f);
     EventLoop_free(g_lp);
     net_close(hang);
     return 0;

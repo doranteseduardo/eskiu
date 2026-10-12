@@ -3,7 +3,7 @@
 import <future>;
 extern int printf(string fmt, ...);
 Future<double>* mk(double v) {
-    Future<double>* f = future_new<double>(); future_complete<double>(f, v * 7.0); return f;
+    Future<double>* f = future_new<double>(); Future_complete<double>(f, v * 7.0); return f;
 }
 async double compute() {
     Future<double>* fut = mk(1.5);

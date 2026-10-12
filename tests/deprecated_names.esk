@@ -116,5 +116,12 @@ int main() {
     Either<int, string> ee = Right<int, string>("r");
     printf("either: %d %d %d %d\n", opt_is_some<int>(&oo), opt_is_none<int>(&oo), opt_unwrap_or<int>(&oo, 0),
         either_is_left<int, string>(&ee));
+    Future<int>* f1 = future_new<int>();
+    int parked = future_poll<int>(f1, void() { g_ticks = g_ticks + 1000; });
+    future_complete<int>(f1, 8);
+    printf("future: %d %d %d\n", parked, f1.value, g_ticks);
+    free_future_polled<int>(f1);
+    Future<int>* f2 = future_new<int>();
+    future_drop((FutureHdr*)f2);
     return 0;
 }

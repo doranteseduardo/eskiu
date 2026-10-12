@@ -8,7 +8,7 @@ import <eventloop>;
 extern int  printf(string fmt, ...);
 extern int  pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
-Future<int>* produce(int v){ Future<int>* f=future_new<int>(); future_complete<int>(f,v); return f; }
+Future<int>* produce(int v){ Future<int>* f=future_new<int>(); Future_complete<int>(f,v); return f; }
 uint8[64] gb;
 int g_ready = 0;
 int g_susp  = 0;

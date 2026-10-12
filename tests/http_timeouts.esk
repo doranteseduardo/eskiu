@@ -109,9 +109,9 @@ void serve_async(int port, int n, escaping fn()->void cl) {
     const int fd = net_tcp_listen((uint16)port);
     Future<uint8>* f = http_serve_async_with(g_lp, fd, handle, n, g_lim);
     let t: *void = thread_create(cl);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t);
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     net_close(fd);
 }
 

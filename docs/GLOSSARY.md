@@ -105,7 +105,7 @@ In HTTP/2, the credit-based mechanism that bounds how much DATA a sender may tra
 AST node representing a function definition, including its name, parameter list, return type, and body (`BlockStmt`). During type checking, parameters are pushed into a new scope and the body is validated against the declared return type. During code generation, a new LLVM `Function` object is created and populated. See also: declaration, scope.
 
 **Future**
-A handle to a value that may not exist yet: the result of an `async` function call or a leaf primitive. `Future<T>` (in `<future>`) is a fixed-layout struct `{ state, waker, on_drop, value }`: `state` advances through PENDING/WAITING/READY/CANCELLED, `waker` resumes the awaiter on completion, and `on_drop` releases resources on cancellation. A pending future is cancelled with `future_drop`. See also: async, await, executor.
+A handle to a value that may not exist yet: the result of an `async` function call or a leaf primitive. `Future<T>` (in `<future>`) is a fixed-layout struct `{ state, waker, on_drop, value }`: `state` advances through PENDING/WAITING/READY/CANCELLED, `waker` resumes the awaiter on completion, and `on_drop` releases resources on cancellation. A pending future is cancelled with `Future_drop`. See also: async, await, executor.
 
 **fuzzer / differential oracle**
 A generative test harness (`tests/fuzz/eskiu_fuzz.py`, added in v0.2.2) that synthesizes random valid Eskiu programs and compiles each at `-O0` and `-O2`, then compares their output. A mismatch is a differential failure: it catches miscompiles that pass the LLVM verifier yet behave differently across optimization levels. See also: codegen, LLVM IR.

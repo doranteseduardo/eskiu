@@ -8,7 +8,7 @@ import <future>;
 extern int printf(string fmt, ...);
 
 struct P { int a; int b; }
-Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); Future_complete<int>(f, v); return f; }
 int add(int a, int b) { return a + b; }
 
 async int f() {
@@ -23,8 +23,8 @@ async int f() {
 
 int main() {
     Future<int>* fut = f();
-    future_poll<int>(fut, void() {});
+    Future_poll<int>(fut, void() {});
     printf("%d\n", fut.value);       // 582
-    free_future<int>(fut);
+    Future_free<int>(fut);
     return 0;
 }

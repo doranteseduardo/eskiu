@@ -40,9 +40,9 @@ int main() {
     let t0: *void = thread_create(client);
     let t1: *void = thread_create(client);
     let t2: *void = thread_create(client);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t0);  thread_join(t1);  thread_join(t2);
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     EventLoop_free(g_lp);
     net_close(fd);
     printf("ok=%d\n", g_ok);

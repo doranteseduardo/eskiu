@@ -46,7 +46,7 @@ bool Chan_send<T>(Chan<T>* ch, T v) {
     if (ch.waiter != null) {
         Future<T>* w = ch.waiter;
         ch.waiter = null;                   // clear first: completing may resume an
-        future_complete<T>(w, v);           // awaiter that immediately recvs again
+        Future_complete<T>(w, v);           // awaiter that immediately recvs again
         return true;
     }
     if (ch.count >= ch.cap) { return false; }       // full, no receiver
@@ -68,7 +68,7 @@ Future<T>* Chan_recv<T>(Chan<T>* ch) {
         ch.head++;
         if (ch.head >= ch.cap) { ch.head = 0; }
         ch.count--;
-        future_complete<T>(f, v);           // ready immediately (fast path)
+        Future_complete<T>(f, v);           // ready immediately (fast path)
     } else {
         ch.waiter = f;                      // park; a future Chan_send hands off
         // Cancel path (e.g. the losing side of a select2 timeout): unpark, so a

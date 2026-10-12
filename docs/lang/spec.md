@@ -1075,7 +1075,7 @@ An `async` function lowers to a resumable state machine and executes over the
 `<eventloop>`/`<executor>` runtime. Single and multiple awaits, `async void`, and every
 control-flow construct containing an await (`if`/`while`/`do`-`while`/C-style
 `for`/`switch`/`match`/`for-in`, with `break`/`continue`, and `try`/`catch`) are
-supported; a pending future is cancelled with `future_drop`.
+supported; a pending future is cancelled with `Future_drop`.
 
 An `await` may appear anywhere in an expression: a `let` initializer, a `return` value,
 an assignment or compound assignment (`x += await f();`), a call argument, an operand
@@ -1100,7 +1100,7 @@ the `finally` finishes.
 
 A future dropped while suspended runs the `finally` blocks and `defer`s pending at its
 await once, innermost first, after the future it was awaiting has been dropped. When that
-cleanup awaits, it runs detached, like a task given to `spawn`: `future_drop` returns while
+cleanup awaits, it runs detached, like a task given to `spawn`: `Future_drop` returns while
 the cleanup is suspended, the event loop resumes it, and its frame is freed when it ends.
 Nobody reads the result of a dropped future, and dropping it again while its cleanup runs
 does nothing. An exception that escapes such a cleanup propagates to whatever resumed it,
@@ -2358,7 +2358,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
 | `stdlib/log.esk`      | Leveled logging: `log_trace`/`log_debug`/`log_info`/`log_warn`/`log_error`/`log_at` (printf-style), `log_set_level` (or `LOG_LEVEL`), `log_set_file`/`log_set_stderr`, `log_set_time`, `log_set_color`, `log_freeze_time` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
-| `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`/`free_future_polled` (the latter also frees the waker a hand-driven `future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
+| `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`Future_complete`/`Future_poll`/`Future_drop`/`Future_free`/`Future_free_polled` (the latter also frees the waker a hand-driven `Future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run`, `Executor_stop`, `Executor_free` |
 | `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async`, each registers an fd and completes its `*Future<int>` when ready; `net_read_deadline_async`, `net_write_deadline_async` and `net_ready_deadline_async` race the same against a `timer_after` (via `select2`) and complete with `NET_TIMED_OUT` once the deadline passes |
 | `stdlib/timer.esk`    | `timer_after(lp, ms)`, a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
@@ -2853,7 +2853,7 @@ async int get_both(EventLoop* lp, FetchOptions* o) {
     Future<int>* fb = fetch_async(lp, "https://example.com/b", o, &b);
     int both = await join2(fa, fb);           // the two requests run at the same time
     int rc = fa.value != 0 ? fa.value : fb.value;
-    free_future<int>(fa);  free_future<int>(fb);
+    Future_free<int>(fa);  Future_free<int>(fb);
     Response_free(&a);  Response_free(&b);
     return rc;
 }
