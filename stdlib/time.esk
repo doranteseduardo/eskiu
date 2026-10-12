@@ -102,7 +102,7 @@ struct DateTime {
 // Days since the Unix epoch for a civil (y, m, d). Inverse of the split below.
 // Integer division truncates toward zero, so negative values are biased first
 // to round the era down.
-int64 time_days_from_civil(int64 y, int m, int d) {
+int64 _time_days_from_civil(int64 y, int m, int d) {
     if (m <= 2) { y--; }
     const int64 era = (y >= 0 ? y : y - 399) / 400;
     const int64 yoe = y - era * 400;
@@ -136,18 +136,18 @@ void time_to_utc(int64 t, DateTime* dt) {
     dt.month = (int)(mp < 10 ? mp + 3 : mp - 9);
     dt.year = (int)(dt.month <= 2 ? y + 1 : y);
 
-    dt.yday = (int)(days - time_days_from_civil(dt.year, 1, 1));
+    dt.yday = (int)(days - _time_days_from_civil(dt.year, 1, 1));
 }
 
 // The epoch-seconds timestamp (UTC) for a DateTime's y/m/d/h/m/s fields.
 int64 DateTime_to_epoch(DateTime* dt) {
-    const int64 days = time_days_from_civil(dt.year, dt.month, dt.day);
+    const int64 days = _time_days_from_civil(dt.year, dt.month, dt.day);
     return days * 86400 + (int64)dt.hour * 3600 + (int64)dt.min * 60 + (int64)dt.sec;
 }
 
 // Append `v` as `width` zero-padded decimal digits to `out` (helper). A
 // negative value gets its sign first, then the padded magnitude ("-0001").
-void time_pad(String* out, int v, int width) {
+void _time_pad(String* out, int v, int width) {
     let tmp: String;
     tmp.init(8);
     defer tmp.free();
@@ -166,17 +166,17 @@ void time_pad(String* out, int v, int width) {
 // Append the ISO 8601 UTC form "YYYY-MM-DDTHH:MM:SSZ" to `out`. A year before
 // 0 uses the expanded sign form ("-0001-..."); a year past 9999 uses more digits.
 void DateTime_format_iso(DateTime* dt, String* out) {
-    time_pad(out, dt.year, 4);
+    _time_pad(out, dt.year, 4);
     out.push('-');
-    time_pad(out, dt.month, 2);
+    _time_pad(out, dt.month, 2);
     out.push('-');
-    time_pad(out, dt.day, 2);
+    _time_pad(out, dt.day, 2);
     out.push('T');
-    time_pad(out, dt.hour, 2);
+    _time_pad(out, dt.hour, 2);
     out.push(':');
-    time_pad(out, dt.min, 2);
+    _time_pad(out, dt.min, 2);
     out.push(':');
-    time_pad(out, dt.sec, 2);
+    _time_pad(out, dt.sec, 2);
     out.push('Z');
 }
 
@@ -266,9 +266,9 @@ int time_local_offset(int64 t) {
     return time_to_local(t, &dt);
 }
 
-// Append `n` with at least `width` digits, as time_pad but for int64 values.
+// Append `n` with at least `width` digits, as _time_pad but for int64 values.
 void _time_pad64(String* out, int64 n, int width) {
-    if (n >= -2147483647 && n <= 2147483647) { time_pad(out, (int)n, width); return; }
+    if (n >= -2147483647 && n <= 2147483647) { _time_pad(out, (int)n, width); return; }
     String_appendf(out, "%lld", n);
 }
 
@@ -280,13 +280,13 @@ int _time_format_into(String* out, string fmt, int64 t, DateTime* dt, int off, i
         i++;
         const char k = fmt[i];
         if (k == 0) { out.push('%'); return -1; }
-        if (k == 'Y') { time_pad(out, dt.year, 4); }
-        else if (k == 'm') { time_pad(out, dt.month, 2); }
-        else if (k == 'd') { time_pad(out, dt.day, 2); }
-        else if (k == 'H') { time_pad(out, dt.hour, 2); }
-        else if (k == 'M') { time_pad(out, dt.min, 2); }
-        else if (k == 'S') { time_pad(out, dt.sec, 2); }
-        else if (k == 'j') { time_pad(out, dt.yday + 1, 3); }
+        if (k == 'Y') { _time_pad(out, dt.year, 4); }
+        else if (k == 'm') { _time_pad(out, dt.month, 2); }
+        else if (k == 'd') { _time_pad(out, dt.day, 2); }
+        else if (k == 'H') { _time_pad(out, dt.hour, 2); }
+        else if (k == 'M') { _time_pad(out, dt.min, 2); }
+        else if (k == 'S') { _time_pad(out, dt.sec, 2); }
+        else if (k == 'j') { _time_pad(out, dt.yday + 1, 3); }
         else if (k == 'a') { _string_append_bytes(out, (*char)TIME_WDAY_NAMES[dt.wday], 3); }
         else if (k == 'A') { out.append(TIME_WDAY_NAMES[dt.wday]); }
         else if (k == 'b') { _string_append_bytes(out, (*char)TIME_MONTH_NAMES[dt.month - 1], 3); }
@@ -298,8 +298,8 @@ int _time_format_into(String* out, string fmt, int64 t, DateTime* dt, int off, i
         else if (k == 'z') {
             int a = off;
             if (a < 0) { out.push('-'); a = -a; } else { out.push('+'); }
-            time_pad(out, a / 3600, 2);
-            time_pad(out, (a % 3600) / 60, 2);
+            _time_pad(out, a / 3600, 2);
+            _time_pad(out, (a % 3600) / 60, 2);
         } else if (k == 'Z') {
             if (local == 0) { out.append("UTC"); }
             else {
@@ -498,13 +498,13 @@ int _time_parse_civil(string text, string fmt, _time_parse_st* st, *int64 civil)
     int64 days = 0;
     if (st.yday > 0 && !st.has_md) {
         if (st.yday == 366 && !_time_leap(st.year)) { return -1; }
-        days = time_days_from_civil(st.year, 1, 1) + st.yday - 1;
+        days = _time_days_from_civil(st.year, 1, 1) + st.yday - 1;
     } else {
         int dim = 31;
         if (st.month == 4 || st.month == 6 || st.month == 9 || st.month == 11) { dim = 30; }
         if (st.month == 2) { dim = _time_leap(st.year) ? 29 : 28; }
         if (st.day > dim) { return -1; }
-        days = time_days_from_civil(st.year, st.month, st.day);
+        days = _time_days_from_civil(st.year, st.month, st.day);
     }
     civil[0] = days * 86400 + (int64)st.hour * 3600 + (int64)st.min * 60 + (int64)st.sec;
     return 0;

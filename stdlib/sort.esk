@@ -16,7 +16,7 @@
 import <list>;   // List_sort_by
 
 // Restore the max-heap property at `root` within the first `n` elements.
-void heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
+void _heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
     while (true) {
         int child = 2 * root + 1;
         if (child >= n) { return; }
@@ -34,14 +34,14 @@ void sort<T>(*T a, int n, fn(*T, *T)->int cmp) {
     if (n < 2) { return; }
     // Build the max-heap bottom-up, from the last parent down to the root.
     for (int i = n / 2 - 1; i >= 0; i--) {
-        heap_sift<T>(a, i, n, cmp);
+        _heap_sift<T>(a, i, n, cmp);
     }
     // Move the max to the end of the shrinking heap, then repair the root.
     for (int end = n - 1; end > 0; end--) {
         const T tmp = a[0];
         a[0] = a[end];
         a[end] = tmp;
-        heap_sift<T>(a, 0, end, cmp);
+        _heap_sift<T>(a, 0, end, cmp);
     }
 }
 

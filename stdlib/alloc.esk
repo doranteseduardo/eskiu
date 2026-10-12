@@ -21,7 +21,7 @@
 //   *int xs = alloc_with(&a, int, 16);
 
 // Round n up to the next multiple of 8 (alignment for any scalar/pointer).
-int64 alloc_align8(int64 n) {
+int64 _alloc_align8(int64 n) {
     return ((n + 7) / 8) * 8;
 }
 
@@ -35,7 +35,7 @@ void Bump_init(Bump* self, *uint8 buf, int64 cap) {
     self.buf = buf; self.cap = cap; self.off = 0;
 }
 *void Bump_alloc(Bump* self, int64 n) {
-    const int64 start = alloc_align8(self.off);
+    const int64 start = _alloc_align8(self.off);
     if (n < 0 || start > self.cap || n > self.cap - start) { return null; }   // no `start + n` wrap
     self.off = start + n;
     return (*void)(self.buf + start);
@@ -52,7 +52,7 @@ void Arena_init(Arena* self, *uint8 buf, int64 cap) {
     self.buf = buf; self.cap = cap; self.off = 0;
 }
 *void Arena_alloc(Arena* self, int64 n) {
-    const int64 start = alloc_align8(self.off);
+    const int64 start = _alloc_align8(self.off);
     if (n < 0 || start > self.cap || n > self.cap - start) { return null; }   // no `start + n` wrap
     self.off = start + n;
     return (*void)(self.buf + start);
@@ -71,7 +71,7 @@ struct Pool {
     int64      highWater;
 }
 void Pool_init(Pool* self, *uint8 buf, int64 cap, int64 blockSize) {
-    const int64 bs = alloc_align8(blockSize);
+    const int64 bs = _alloc_align8(blockSize);
     self.buf = buf; self.cap = cap; self.blockSize = bs < 8 ? 8 : bs;
     self.freeHead = null; self.highWater = 0;
 }
@@ -125,9 +125,9 @@ void FirstFit_init(FirstFit* self, *uint8 buf, int64 cap) {
 }
 *void FirstFit_alloc(FirstFit* self, int64 n) {
     // No region is larger than the buffer, so a bigger (or negative) request can
-    // never fit; rejecting it first also keeps alloc_align8(n) from wrapping.
+    // never fit; rejecting it first also keeps _alloc_align8(n) from wrapping.
     if (n < 0 || n > self.cap) { return null; }
-    const int64 want = alloc_align8(n);
+    const int64 want = _alloc_align8(n);
     *FFNode prev = null;
     *FFNode cur  = self.freeHead;
     while (cur != null) {

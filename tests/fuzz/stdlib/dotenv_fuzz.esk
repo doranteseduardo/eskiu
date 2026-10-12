@@ -43,7 +43,7 @@ void fuzz_one(*uint8 data, int len, string s) {
             string a = null;
             string b = null;
             Map_get<string>(&m, name, &a);
-            if (Map_get<string>(&m2, name, &b) == 0 || map_streq((*char)a, b) == 0) { fuzz_fail("write + parse changed a value"); }
+            if (Map_get<string>(&m2, name, &b) == 0 || _map_streq((*char)a, b) == 0) { fuzz_fail("write + parse changed a value"); }
         }
         dotenv_free(&m2);
         text.free();

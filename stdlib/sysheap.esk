@@ -31,7 +31,7 @@ extern int   VirtualFree(*void addr, int64 size, int free_type);
 }
 
 // MEM_RELEASE = 0x8000 = 32768; the size must be 0 for a full release.
-void sys_unpages(*uint8 p, int64 length) { VirtualFree((*void)p, 0, 32768); }
+void _sys_unpages(*uint8 p, int64 length) { VirtualFree((*void)p, 0, 32768); }
 #else
 extern *void mmap(*void addr, int64 length, int prot, int flags, int fd, int64 offset);
 extern int   munmap(*void addr, int64 length);
@@ -53,7 +53,7 @@ const int _sys_map_flags = 34;       // 0x0022
     return (*uint8)p;
 }
 
-void sys_unpages(*uint8 p, int64 length) { munmap((*void)p, length); }
+void _sys_unpages(*uint8 p, int64 length) { munmap((*void)p, length); }
 #endif
 
 // A general-purpose heap: one OS mapping with FirstFit allocation over it.
@@ -78,7 +78,7 @@ bool Heap_init(Heap* self, int64 size) {
 void  Heap_free(Heap* self, *void p)        { self.ff.free(p); }   // null is a no-op
 
 // Return all the heap's pages to the OS. Frees everything at once.
-void Heap_destroy(Heap* self) { sys_unpages(self.base, self.size); }
+void Heap_destroy(Heap* self) { _sys_unpages(self.base, self.size); }
 
 // ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
 // deprecated: use Heap_init

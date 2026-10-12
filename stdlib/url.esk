@@ -14,11 +14,11 @@
 import <mem>;
 import <string>;
 
-uint8 url_hex(int v) {
+uint8 _url_hex(int v) {
     return v < 10 ? (uint8)('0' + v) : (uint8)('A' + v - 10);   // uppercase A-F (RFC 3986 normal form)
 }
 
-int url_unhex(int c) {
+int _url_unhex(int c) {
     if (c >= '0' && c <= '9') { return c - '0'; }
     if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
     if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
@@ -26,7 +26,7 @@ int url_unhex(int c) {
 }
 
 // Unreserved per RFC 3986: A-Z a-z 0-9 - _ . ~
-int url_is_unreserved(int c) {
+int _url_is_unreserved(int c) {
     if (c >= '0' && c <= '9') { return 1; }
     if (c >= 'A' && c <= 'Z') { return 1; }
     if (c >= 'a' && c <= 'z') { return 1; }
@@ -39,12 +39,12 @@ void url_encode(string s, String* out) {
     const int64 n = strlen(s);
     for (i in 0..n) {
         const int c = (int)((uint8)s[i]);
-        if (url_is_unreserved(c) == 1) {
+        if (_url_is_unreserved(c) == 1) {
             out.push((char)c);
         } else {
             out.push('%');
-            out.push((char)url_hex(c / 16));
-            out.push((char)url_hex(c % 16));
+            out.push((char)_url_hex(c / 16));
+            out.push((char)_url_hex(c % 16));
         }
     }
 }
@@ -56,8 +56,8 @@ void url_decode_range(string s, int64 start, int64 end, String* out, int plus_as
     while (i < end) {
         const int c = (int)((uint8)s[i]);
         if (c == '%' && i + 2 < end) {
-            const int hi = url_unhex((int)((uint8)s[i + 1]));
-            const int lo = url_unhex((int)((uint8)s[i + 2]));
+            const int hi = _url_unhex((int)((uint8)s[i + 1]));
+            const int lo = _url_unhex((int)((uint8)s[i + 2]));
             if (hi >= 0 && lo >= 0) {
                 out.push((char)(hi * 16 + lo));
                 i += 3;
@@ -180,8 +180,8 @@ int _url_copy_part(string s, int64 from, int64 to, String* out) {
         if (c < 32 || c == 127) { return 0; }
         if (c == ' ' || c > 127) {
             out.push('%');
-            out.push((char)url_hex(c / 16));
-            out.push((char)url_hex(c % 16));
+            out.push((char)_url_hex(c / 16));
+            out.push((char)_url_hex(c % 16));
         } else {
             out.push((char)c);
         }
@@ -202,7 +202,7 @@ int _url_parse_hostport(string s, int64 from, int64 to, Url* out) {
         i++;
         while (i < to && s[i] != ']') {
             const int c = (int)((uint8)s[i]);
-            if (url_unhex(c) < 0 && c != ':' && c != '.') { return 0; }
+            if (_url_unhex(c) < 0 && c != ':' && c != '.') { return 0; }
             out.host.push(_url_lc(c));
             i++;
         }

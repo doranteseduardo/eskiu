@@ -140,24 +140,24 @@ void _log_timestamp(String* line) {
     let dt: DateTime;
     int off = 0;
     if (_log_time == LOG_TIME_LOCAL) { off = time_to_local(s, &dt); } else { time_to_utc(s, &dt); }
-    time_pad(line, dt.year, 4);
+    _time_pad(line, dt.year, 4);
     line.push('-');
-    time_pad(line, dt.month, 2);
+    _time_pad(line, dt.month, 2);
     line.push('-');
-    time_pad(line, dt.day, 2);
+    _time_pad(line, dt.day, 2);
     line.push('T');
-    time_pad(line, dt.hour, 2);
+    _time_pad(line, dt.hour, 2);
     line.push(':');
-    time_pad(line, dt.min, 2);
+    _time_pad(line, dt.min, 2);
     line.push(':');
-    time_pad(line, dt.sec, 2);
+    _time_pad(line, dt.sec, 2);
     line.push('.');
-    time_pad(line, (int)frac, 3);
+    _time_pad(line, (int)frac, 3);
     if (_log_time != LOG_TIME_LOCAL) { line.push('Z'); return; }
     if (off < 0) { line.push('-'); off = -off; } else { line.push('+'); }
-    time_pad(line, off / 3600, 2);
+    _time_pad(line, off / 3600, 2);
     line.push(':');
-    time_pad(line, (off % 3600) / 60, 2);
+    _time_pad(line, (off % 3600) / 60, 2);
 }
 
 int64 _log_level_style(int level) {

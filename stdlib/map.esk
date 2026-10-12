@@ -27,7 +27,7 @@ struct Map<V> {
 // magnitude, as the signed version did, so bucket order is unchanged; the one
 // value whose magnitude does not fit (0x80000000) maps to 0 instead of staying
 // negative (a negative bucket index).
-int map_hash(string s) {
+int _map_hash(string s) {
     uint32 h = (uint32)5381;
     for (int i = 0; s[i] != 0; i++) {
         h = h * (uint32)33 + (uint32)((int)s[i] & 255);
@@ -36,7 +36,7 @@ int map_hash(string s) {
     return (int)(h & (uint32)2147483647);
 }
 
-int map_streq(*char a, string b) {
+int _map_streq(*char a, string b) {
     int i = 0;
     while (a[i] != 0 && b[i] != 0) {
         if (a[i] != b[i]) { return 0; }
@@ -79,7 +79,7 @@ void Map_grow<V>(Map<V>* m) {
     *V     nv = alloc<V>(newcap);
     for (i in 0..oldcap) {
         if (oldk[i] != null) {
-            int j = map_hash(oldk[i]) % newcap;
+            int j = _map_hash(oldk[i]) % newcap;
             while (nk[j] != null) { j = (j + 1) % newcap; }
             nk[j] = oldk[i];
             nv[j] = oldv[i];
@@ -96,9 +96,9 @@ void Map_grow<V>(Map<V>* m) {
 // valid until the next insert that grows the map.
 *V Map_at<V>(Map<V>* m, string key, *int created) {
     if ((m.count + 1) * 4 >= m.cap * 3) { Map_grow<V>(m); }   // load factor 0.75
-    int i = map_hash(key) % m.cap;
+    int i = _map_hash(key) % m.cap;
     while (m.keys[i] != null) {
-        if (map_streq(m.keys[i], key) == 1) { created[0] = 0; return &m.vals[i]; }
+        if (_map_streq(m.keys[i], key) == 1) { created[0] = 0; return &m.vals[i]; }
         i = (i + 1) % m.cap;
     }
     m.keys[i] = map_dup(key);
@@ -110,9 +110,9 @@ void Map_grow<V>(Map<V>* m) {
 // Read-only lookup. Copies the value into *out and returns 1, or returns 0.
 int Map_get<V>(Map<V>* m, string key, *V out) {
     if (m.cap == 0) { return 0; }                     // freed (or never grown): empty
-    int i = map_hash(key) % m.cap;
+    int i = _map_hash(key) % m.cap;
     for (int n = 0; m.keys[i] != null && n < m.cap; n++) {
-        if (map_streq(m.keys[i], key) == 1) { out[0] = m.vals[i]; return 1; }
+        if (_map_streq(m.keys[i], key) == 1) { out[0] = m.vals[i]; return 1; }
         i = (i + 1) % m.cap;
     }
     return 0;
@@ -121,9 +121,9 @@ int Map_get<V>(Map<V>* m, string key, *V out) {
 // Slot index of `key`, or -1.
 int _map_slot<V>(Map<V>* m, string key) {
     if (m.cap == 0) { return -1; }
-    int i = map_hash(key) % m.cap;
+    int i = _map_hash(key) % m.cap;
     for (int n = 0; m.keys[i] != null && n < m.cap; n++) {
-        if (map_streq(m.keys[i], key) == 1) { return i; }
+        if (_map_streq(m.keys[i], key) == 1) { return i; }
         i = (i + 1) % m.cap;
     }
     return -1;
@@ -165,7 +165,7 @@ int Map_remove<V>(Map<V>* m, string key) {
     m.count--;
     int j = (hole + 1) % m.cap;
     while (m.keys[j] != null) {
-        const int home = map_hash(m.keys[j]) % m.cap;
+        const int home = _map_hash(m.keys[j]) % m.cap;
         if (_map_home_between(home, hole, j) == 0) {
             m.keys[hole] = m.keys[j];
             m.vals[hole] = m.vals[j];
@@ -316,7 +316,7 @@ uint64 cstr_hash(*string k) {
     }
     return h;
 }
-int cstr_eq(*string a, *string b) { return map_streq((*char)a[0], b[0]); }
+int cstr_eq(*string a, *string b) { return _map_streq((*char)a[0], b[0]); }
 
 // Slot index of `key`, or -1.
 int _hashmap_slot<K, V>(HashMap<K, V>* m, K key) {

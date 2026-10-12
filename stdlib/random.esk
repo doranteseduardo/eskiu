@@ -24,14 +24,14 @@ struct Rng {
 }
 
 // Rotate-left, the engine's mixing primitive.
-uint64 rng_rotl(uint64 x, int k) {
+uint64 _rng_rotl(uint64 x, int k) {
     return (x << k) | (x >> (64 - k));
 }
 
 // SplitMix64: expands one seed word into the four well-mixed state words, so a
 // small or zero seed still gives a good starting state (all-zero state is fatal
 // for xoshiro, and SplitMix never returns all-zero from a stepping counter).
-uint64 rng_splitmix(uint64* st) {
+uint64 _rng_splitmix(uint64* st) {
     *st += 0x9E3779B97F4A7C15;
     uint64 z = *st;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9;
@@ -42,22 +42,22 @@ uint64 rng_splitmix(uint64* st) {
 // Seed a generator from a single 64-bit value.
 void Rng_seed(Rng* r, uint64 seed) {
     uint64 sm = seed;
-    r.s0 = rng_splitmix(&sm);
-    r.s1 = rng_splitmix(&sm);
-    r.s2 = rng_splitmix(&sm);
-    r.s3 = rng_splitmix(&sm);
+    r.s0 = _rng_splitmix(&sm);
+    r.s1 = _rng_splitmix(&sm);
+    r.s2 = _rng_splitmix(&sm);
+    r.s3 = _rng_splitmix(&sm);
 }
 
 // The next raw 64-bit value. All the bounded helpers build on this.
 uint64 Rng_next(Rng* r) {
-    const uint64 result = rng_rotl(r.s1 * 5, 7) * 9;
+    const uint64 result = _rng_rotl(r.s1 * 5, 7) * 9;
     const uint64 t = r.s1 << 17;
     r.s2 ^= r.s0;
     r.s3 ^= r.s1;
     r.s1 ^= r.s2;
     r.s0 ^= r.s3;
     r.s2 ^= t;
-    r.s3 = rng_rotl(r.s3, 45);
+    r.s3 = _rng_rotl(r.s3, 45);
     return result;
 }
 
