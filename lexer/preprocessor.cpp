@@ -762,7 +762,7 @@ void preprocess(const std::string& src,
 
         size_t h = line.find_first_not_of(" \t");
         bool handled = false;
-        // A `#!` first line is a shebang (`#!/usr/bin/env eskiuc run`), not a directive.
+        // A `#!` first line is a shebang (`#!/usr/bin/env -S eskiuc run`), not a directive.
         bool shebang = lineNo == 1 && line.compare(0, 2, "#!") == 0;
         bool dirOpen = false;            // the directive line leaves a /* comment open
         if (!inBlockComment && !inString && h != std::string::npos && line[h] == '#') {

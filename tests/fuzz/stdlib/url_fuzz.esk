@@ -1,5 +1,6 @@
-// Fuzz target: <url> percent-decoding and query lookup on arbitrary text, plus an
-// encode/decode round trip (decoding the encoding gives back the input).
+// Fuzz target: <url> percent-decoding, query lookup, url_parse and url_resolve on
+// arbitrary text, plus round trips: decoding the encoding gives back the input,
+// and a parsed URL printed and parsed again prints the same.
 import "harness.esk";
 import <url>;
 import <string>;
@@ -22,4 +23,26 @@ void fuzz_one(*uint8 data, int len, string s) {
     String_free(&out);
     String_free(&enc);
     String_free(&back);
+
+    // url_parse: a valid URL prints to a form that parses to the same text.
+    let u: Url;
+    if (url_parse(s, &u) == 1) {
+        let t1: String; String_init(&t1, 32);
+        Url_to_string(&u, &t1);
+        let u2: Url;
+        if (url_parse(String_cstr(&t1), &u2) != 1) { fuzz_fail("url_parse reparse"); }
+        let t2: String; String_init(&t2, 32);
+        Url_to_string(&u2, &t2);
+        if (String_eq(&t1, &t2) != 1) { fuzz_fail("url_parse round trip"); }
+        String_free(&t1);
+        String_free(&t2);
+        Url_free(&u2);
+    }
+    Url_free(&u);
+    let base: Url;
+    url_parse("http://a/b/c/d;p?q", &base);
+    let res: Url;
+    url_resolve(&base, s, &res);
+    Url_free(&res);
+    Url_free(&base);
 }

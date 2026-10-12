@@ -1,0 +1,54 @@
+// processes.esk: run commands and capture their output with <process>.
+//
+//   eskiuc examples/processes.esk -o processes && ./processes
+
+import <process>;
+import <io>;
+
+int main() {
+    let r: ProcessResult;
+
+    // Through the shell: pipes, redirections and $VARS work.
+    if (sh("echo hello from $0; ls / | wc -l", &r) == 0) {
+        printf("exit %d, stdout:\n%s", r.exit_code, r.stdout.data);
+    }
+    ProcessResult_free(&r);
+
+    // Without a shell: each argument is passed as is (no quoting needed).
+    let argv: List<string>;  List_init<string>(&argv, 4);
+    argv.push("printf");
+    argv.push("%s|%s\n");
+    argv.push("one argument with spaces");
+    argv.push("$HOME is not expanded");
+    process_run(&argv, null, &r);
+    printf("%s", r.stdout.data);
+    ProcessResult_free(&r);
+    List_free<string>(&argv);
+
+    // Options: stdin text, a working directory, extra environment, a timeout.
+    let opts: ProcessOptions;
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.stdin_text = "banana\napple\ncherry\n";
+    opts.cwd = "/";
+    let env: List<string>;  List_init<string>(&env, 2);
+    env.push("GREETING=hola");
+    opts.env = &env;
+    opts.timeout_ms = 2000;
+    sh_with("sort; echo \"$GREETING from $(pwd)\"", &opts, &r);
+    printf("%s", r.stdout.data);
+    ProcessResult_free(&r);
+    List_free<string>(&env);
+
+    // A command that runs too long is killed.
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.timeout_ms = 200;
+    sh_with("sleep 10", &opts, &r);
+    printf("timed out: %d (exit %d)\n", r.timed_out ? 1 : 0, r.exit_code);
+    ProcessResult_free(&r);
+
+    // A failing command: its exit code and stderr.
+    sh("ls /no/such/path", &r);
+    printf("exit %d, stderr: %s", r.exit_code, r.stderr.data);
+    ProcessResult_free(&r);
+    return 0;
+}

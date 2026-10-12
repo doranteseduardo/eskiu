@@ -1,6 +1,6 @@
-// boot.s — ARM64 bare-metal entry point for QEMU -M virt
+// boot.s: ARM64 bare-metal entry point for QEMU -M virt
 // Sets up the stack and jumps to kernel_main.
-// Everything else is written in Eskiu.
+// Everything else, including clearing .bss, is written in Eskiu.
 
 .global _start
 .section .text.boot, "ax"
@@ -9,4 +9,5 @@ _start:
     mov sp, x0
     bl  kernel_main
 .hang:
+    wfi
     b   .hang

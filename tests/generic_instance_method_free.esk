@@ -1,0 +1,14 @@
+// A dot-call on a generic instance reaches a non-generic function named after the instance
+// (`w.count(10)` with `w: List<string>` is `List_string_count(&w, 10)`), in both compilers.
+import <list>;
+extern int printf(string fmt, ...);
+int List_string_count(List<string>* self, int k) { return self.size + k; }
+int main() {
+    let w: List<string>;
+    List_init<string>(&w, 4);
+    List_push<string>(&w, "a");
+    printf("%d\n", w.count(10));
+    let p: *List<string> = &w;
+    printf("%d\n", p.count(1));
+    return 0;
+}

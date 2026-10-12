@@ -1,0 +1,120 @@
+// <hash>: SHA-256 / SHA-1 / MD5 against the FIPS 180 and RFC 1321 vectors,
+// HMAC-SHA256 against RFC 4231, streaming in uneven pieces, hex and hash_equal.
+// The "lcg" lines hash generated data of many lengths; the expected digests come
+// from Python's hashlib over the same generator (tests/hash_gen.py).
+import <hash>;
+import <mem>;
+
+extern int printf(string fmt, ...);
+
+void all3(string label, *uint8 p, int64 n) {
+    let a: String;  a.init(65);
+    let b: String;  b.init(41);
+    let c: String;  c.init(33);
+    sha256_hex(p, n, &a);
+    sha1_hex(p, n, &b);
+    md5_hex(p, n, &c);
+    printf("%s %s %s %s\n", label, a.data, b.data, c.data);
+    a.free();  b.free();  c.free();
+}
+
+void hmac_case(string label, *uint8 key, int64 kl, *uint8 msg, int64 ml) {
+    let mac: uint8[32];
+    hmac_sha256(key, kl, msg, ml, &mac[0]);
+    let hex: String;  hex.init(65);
+    hex_encode(&mac[0], 32, &hex);
+    printf("%s %s\n", label, hex.data);
+    hex.free();
+}
+
+int main() {
+    all3("empty", (*uint8)"", 0);
+    all3("abc", (*uint8)"abc", 3);
+    all3("448", (*uint8)"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", 56);
+    all3("896", (*uint8)"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu", 112);
+
+    // One million 'a', fed in uneven pieces through the streaming API.
+    *uint8 big = alloc<uint8>(1000000);
+    memset((*void)big, 'a', 1000000);
+    let s2: Sha256;  s2.init();
+    let s1: Sha1;    s1.init();
+    let m5: Md5;     m5.init();
+    int64 off = 0;
+    int64 step = 1;
+    while (off < 1000000) {
+        int64 k = step;
+        if (off + k > 1000000) { k = 1000000 - off; }
+        s2.update(big + off, k);  s1.update(big + off, k);  m5.update(big + off, k);
+        off += k;
+        step = (step * 7 + 3) % 1000;
+    }
+    let h: String;  h.init(65);
+    s2.final_hex(&h);  printf("million sha256 %s\n", h.data);
+    s1.final_hex(&h);  printf("million sha1 %s\n", h.data);
+    m5.final_hex(&h);  printf("million md5 %s\n", h.data);
+    free(big);
+
+    sha256_str("The quick brown fox jumps over the lazy dog", &h);  printf("fox %s\n", h.data);
+    md5_str("The quick brown fox jumps over the lazy dog", &h);     printf("fox %s\n", h.data);
+    sha1_str("The quick brown fox jumps over the lazy dog", &h);    printf("fox %s\n", h.data);
+
+    // Generated data: lengths 0..129 and 1000 from a fixed LCG.
+    *uint8 buf = alloc<uint8>(1000);
+    uint32 x = 12345;
+    for (int i = 0; i < 1000; i++) {
+        x = x * 1103515245 + 12345;
+        buf[i] = (uint8)(x >> 16);
+    }
+    for (int n = 0; n < 130; n += 13) {
+        let lab: String;  lab.init(16);
+        str_format(&lab, "lcg%d", n);
+        all3((string)lab.data, buf, n);
+        lab.free();
+    }
+    all3("lcg1000", buf, 1000);
+    free(buf);
+
+    // RFC 4231 test cases 1, 2, 3, 4, 6, 7.
+    let key: uint8[131];
+    let msg: uint8[50];
+    for (int i = 0; i < 20; i++) { key[i] = 0x0b; }
+    hmac_case("rfc4231-1", &key[0], 20, (*uint8)"Hi There", 8);
+    hmac_case("rfc4231-2", (*uint8)"Jefe", 4, (*uint8)"what do ya want for nothing?", 28);
+    for (int i = 0; i < 20; i++) { key[i] = 0xaa; }
+    for (int i = 0; i < 50; i++) { msg[i] = 0xdd; }
+    hmac_case("rfc4231-3", &key[0], 20, &msg[0], 50);
+    for (int i = 0; i < 25; i++) { key[i] = (uint8)(i + 1); }
+    for (int i = 0; i < 50; i++) { msg[i] = 0xcd; }
+    hmac_case("rfc4231-4", &key[0], 25, &msg[0], 50);
+    for (int i = 0; i < 131; i++) { key[i] = 0xaa; }
+    hmac_case("rfc4231-6", &key[0], 131, (*uint8)"Test Using Larger Than Block-Size Key - Hash Key First", 54);
+    string m7 = "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.";
+    hmac_case("rfc4231-7", &key[0], 131, (*uint8)m7, strlen(m7));
+    hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &h);
+    printf("hmac fox %s\n", h.data);
+
+    // Streaming HMAC in pieces equals the one-shot.
+    let hm: HmacSha256;
+    hm.init((*uint8)"key", 3);
+    hm.update_str("The quick brown ");
+    hm.update_str("fox jumps over the lazy dog");
+    let h2: String;  h2.init(65);
+    hm.final_hex(&h2);
+    printf("hmac stream %d\n", hash_equal_str((string)h.data, (string)h2.data));
+
+    // Hex decode.
+    let out: uint8[8];
+    printf("hex %lld %d %d %d\n", hex_decode("00fFA5", &out[0], 8), (int)out[0], (int)out[1], (int)out[2]);
+    printf("hex bad %lld %lld %lld %lld\n", hex_decode("abc", &out[0], 8), hex_decode("zz", &out[0], 8),
+           hex_decode("000000000000000000", &out[0], 8), hex_decode("", &out[0], 8));
+    hex_encode(&out[0], 0, &h);
+    printf("hex empty [%s]\n", h.data);
+
+    // Constant-time compare.
+    let a: uint8[4] = {1, 2, 3, 4};
+    let b: uint8[4] = {1, 2, 3, 5};
+    printf("equal %d %d %d\n", hash_equal(&a[0], &b[0], 3), hash_equal(&a[0], &b[0], 4), hash_equal_str("ab", "abc"));
+    h.free();
+    h2.free();
+    return 0;
+}

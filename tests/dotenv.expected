@@ -1,0 +1,30 @@
+count 14
+PLAIN=[hello world]
+EXPORTED=[yes]
+SPACED=[spaced value]
+HASH=[a#b]
+COMMENT_ONLY=[]
+EMPTY=[]
+SINGLE=[literal $x \n # kept]
+DOUBLE=[a
+b "q" \ 	|\x]
+MULTI=[line1
+line2]
+DUP=[second]
+dotted.name-x=[ok]
+TABBED=[1]
+LAST=[no newline]
+export unset
+len 13
+bad -1 (2) line 2: expected '=' after the variable name
+bad -1 (3) line 3: expected a variable name
+bad -1 (2) line 2: unterminated double-quoted value
+bad -1 (1) line 1: unterminated single-quoted value
+bad -1 (1) line 1: unexpected text after the closing quote
+bad -1 (1) line 1: expected a variable name
+after success [] line 0
+load 1 A=preset B=two words
+override 2 A=from-file
+broken -1 line 2 C=0
+missing -1 line 0
+message starts 1

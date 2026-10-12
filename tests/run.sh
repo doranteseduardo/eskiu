@@ -218,6 +218,20 @@ if [[ $code -eq 3 && "$out" == $'[a]\n[b c]' ]]; then ok "run/args"; else bad "r
 "$ESKIUC" run "$args_esk" crash >/dev/null 2>&1; code=$?
 if [[ $code -eq 139 ]]; then ok "run/signal"; else bad "run/signal" "exit $code (expected 139)"; fi
 
+# The example scripts in examples/scripts/, run through their shebang line against a
+# local fake API and a temporary directory tree (tests/scripts/check.sh). Not under a
+# sanitizer: they run through `eskiuc run`, which builds without one.
+if [[ -z "$SANITIZE" ]]; then
+    echo "Example scripts:"
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*)   ok "scripts/${line#ok }" ;;
+            "FAIL "*) bad "scripts/${line#FAIL }" "transcript differs from tests/scripts/*.expected" ;;
+            *)        echo "$line" ;;
+        esac
+    done < <(ESKIUC="$ESKIUC" bash "$here/scripts/check.sh" 2>&1)
+fi
+
 # $CC may carry arguments; a $CC that does not exist warns and falls back.
 if CC="$CC -O0" "$ESKIUC" "$args_esk" -o "$work/cc_args" >/dev/null 2>&1 && [[ -x "$work/cc_args" ]]; then
     ok "cli/cc-with-args"
@@ -389,6 +403,24 @@ else
     bad "cli/file-macro-escape" "__FILE__ for '$qdir/f.esk' is not the path"
 fi
 
+# --freestanding at -O2 keeps byte loops as loops: no memset/memcpy call that no libc
+# provides. The same loops in a hosted build may become those calls.
+fs_obj="$work/fs_nb.o"
+if "$ESKIUC" "$here/run_cmd/freestanding_no_builtins.esk" --freestanding --target aarch64-unknown-none-elf \
+       -O2 -c -o "$fs_obj" >/dev/null 2>&1 && [[ -s "$fs_obj" ]] && ! grep -aqE 'memset|memcpy|memmove|malloc' "$fs_obj"; then
+    ok "codegen/freestanding-no-builtins"
+else
+    bad "codegen/freestanding-no-builtins" "a freestanding -O2 object references memset/memcpy"
+fi
+
+# Narrow C integers: like clang, AArch64 outside Darwin and Windows x64 put no signext or
+# zeroext on extern params and results (bool stays zeroext on Windows x64); Darwin does.
+na_l=$("$ESKIUC" "$here/c_abi_narrow.esk" --target aarch64-unknown-linux-gnu --test-codegen 2>/dev/null | grep -cE '^declare .*(signext|zeroext)')
+na_w=$("$ESKIUC" "$here/c_abi_narrow.esk" --target x86_64-w64-windows-gnu --test-codegen 2>/dev/null | grep -E '^declare ' | grep -E '(signext|zeroext)' | grep -cv 'i1 zeroext')
+na_d=$("$ESKIUC" "$here/c_abi_narrow.esk" --target arm64-apple-macosx --test-codegen 2>/dev/null | grep -cE '^declare .*signext')
+if [[ "$na_l" == 0 && "$na_w" == 0 && "$na_d" -gt 0 ]]; then ok "codegen/narrow-int-ext-per-target"
+else bad "codegen/narrow-int-ext-per-target" "aarch64-linux=$na_l win64=$na_w darwin=$na_d"; fi
+
 # An output named .obj is an object file (Windows spelling), not an executable to link.
 printf 'int main() { return 0; }\n' > "$work/obj.esk"
 if "$ESKIUC" "$work/obj.esk" -o "$work/obj.obj" >/dev/null 2>&1 && [[ -s "$work/obj.obj" ]] \
@@ -421,11 +453,12 @@ if command -v node >/dev/null 2>&1; then
     if [[ "$lsp_out" == "ok" ]]; then ok "editor/lsp-server"; else bad "editor/lsp-server" "$lsp_out"; fi
 fi
 
-# ---- go-to-definition -------------------------------------------------------
+# ---- go-to-definition and hover ---------------------------------------------
 # tests/lsp/NAME.esk lists `// DEF L:C L2:C2` queries: --definition-at L:C must
 # resolve to L2:C2 in the same file (the symbol scope lookup picked, not a
 # same-named one elsewhere).
-echo "Go-to-definition:"
+# `// HOVER L:C TYPE` queries: --hover-at L:C must resolve to TYPE.
+echo "Go-to-definition and hover:"
 for esk in "$here"/lsp/*.esk; do
     [[ -e "$esk" ]] || continue
     name="lsp/$(basename "$esk" .esk)"
@@ -437,7 +470,64 @@ for esk in "$here"/lsp/*.esk; do
             bad "$name $q" "expected $want, got '$got'"
         fi
     done < <(grep '^// DEF ' "$esk" | sed 's#^// DEF ##')
+
+    while read -r q want; do
+        got="$("$ESKIUC" "$esk" --hover-at "$q" 2>/dev/null | tail -n 1)"
+        if [[ "$got" == "$want" ]]; then
+            ok "$name hover $q"
+        else
+            bad "$name hover $q" "expected '$want', got '$got'"
+        fi
+    done < <(grep '^// HOVER ' "$esk" | sed 's#^// HOVER ##')
 done
+
+# LSP error handling: parse error, semantic error, and missing symbol
+echo "LSP diagnostics:"
+lsp_tmp="$work/lsp_syntax_err.tmp.esk"
+echo "int f( {" > "$lsp_tmp"
+got_parse="$("$ESKIUC" "$lsp_tmp" --hover-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_parse" == "(parse error)" ]]; then
+    ok "lsp/hover parse error"
+else
+    bad "lsp/hover parse error" "expected '(parse error)', got '$got_parse'"
+fi
+
+got_parse_def="$("$ESKIUC" "$lsp_tmp" --definition-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_parse_def" == "(parse error)" ]]; then
+    ok "lsp/definition parse error"
+else
+    bad "lsp/definition parse error" "expected '(parse error)', got '$got_parse_def'"
+fi
+
+lsp_sema_tmp="$work/lsp_sema_err.tmp.esk"
+echo "int f() { return undefined_var; }" > "$lsp_sema_tmp"
+got_sema="$("$ESKIUC" "$lsp_sema_tmp" --hover-at 1:18 2>/dev/null | tail -n 1)"
+if [[ "$got_sema" == "(semantic error)" ]]; then
+    ok "lsp/hover semantic error"
+else
+    bad "lsp/hover semantic error" "expected '(semantic error)', got '$got_sema'"
+fi
+
+got_sema_def="$("$ESKIUC" "$lsp_sema_tmp" --definition-at 1:18 2>/dev/null | tail -n 1)"
+if [[ "$got_sema_def" == "(semantic error)" ]]; then
+    ok "lsp/definition semantic error"
+else
+    bad "lsp/definition semantic error" "expected '(semantic error)', got '$got_sema_def'"
+fi
+
+got_empty_hover="$("$ESKIUC" "$here/lsp/scoped_defs.esk" --hover-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_empty_hover" == "(no type at 1:1)" ]]; then
+    ok "lsp/hover no symbol"
+else
+    bad "lsp/hover no symbol" "expected '(no type at 1:1)', got '$got_empty_hover'"
+fi
+
+got_empty_def="$("$ESKIUC" "$here/lsp/scoped_defs.esk" --definition-at 1:1 2>/dev/null | tail -n 1)"
+if [[ "$got_empty_def" == "(no definition at 1:1)" ]]; then
+    ok "lsp/definition no symbol"
+else
+    bad "lsp/definition no symbol" "expected '(no definition at 1:1)', got '$got_empty_def'"
+fi
 
 # ---- formatter idempotency ------------------------------------------------
 # `eskiuc fmt` must be idempotent: formatting an already-formatted file is a
@@ -497,6 +587,16 @@ if [ -f "$rt_src" ]; then
         else bad "unit/type_roundtrip" "round-trip assertions failed"; fi
     else
         bad "unit/type_roundtrip" "compile failed: $(head -1 "$work/rt_cerr")"
+    fi
+fi
+
+# ---- structural LLVM IR assertions ----------------------------------------
+if [ -x "$here/ir_golden.sh" ]; then
+    echo "Structural LLVM IR checks:"
+    if "$here/ir_golden.sh" "$ESKIUC" >"$work/ir_golden.log" 2>&1; then
+        ok "ir/golden_assertions"
+    else
+        bad "ir/golden_assertions" "$(cat "$work/ir_golden.log")"
     fi
 fi
 

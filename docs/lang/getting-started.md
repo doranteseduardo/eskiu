@@ -3,7 +3,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.9.3**.
+All code blocks in this document compile and run with **Eskiu v0.10.0**.
 
 ---
 
@@ -52,7 +52,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.9.3 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.10.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -116,7 +116,7 @@ Add a shebang line and a `.esk` file becomes directly executable, the way a Pyth
 script is:
 
 ```eskiu
-#!/usr/bin/env eskiuc run
+#!/usr/bin/env -S eskiuc run
 extern int printf(string fmt, ...);
 int main() { printf("hello\n"); return 0; }
 ```
@@ -989,13 +989,13 @@ Available modules:
 | Module              | Contents                                              |
 | ------------------- | ----------------------------------------------------- |
 | `<result>`   | `Result<T,E>`, `Ok<T,E>()`, `Err<T,E>()`             |
-| `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free` |
-| `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers |
+| `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free`; `map`, `filter`, `reduce`, `find`, `any`, `all`, `contains`, `index_of`, `reverse`, `slice`, `unique`, `clear`, `pop`, `insert` |
+| `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers; both with `has`, `get_or`, `len`, `remove`, `keys`, `values`, `each`; `Set<T>`: hash set (`add`/`has`/`remove`/`len`/`each`/`items`) |
 | `<bytes>`    | `Bytes`: growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
-| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token` |
+| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `str_join`, `str_format` |
 | `<ctype>`    | ASCII character classes: `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
-| `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
+| `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`; `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin` |
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit`: explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
 | `<either>`   | sum types: `Option<T>`, `Either<A,B>` + helpers (built on generic algebraic enums) |
@@ -1005,19 +1005,28 @@ Available modules:
 | `<http2_server>`| HTTP/2 (h2c, cleartext) server over the event loop: `http2_serve_async`, multiplexed streams, same handler interface as `<http>` |
 | `<tls>`      | h2 over TLS via OpenSSL with ALPN `"h2"`: `http2_tls_serve_conn` (blocking) / `http2_tls_serve_async` |
 | `<sysheap>`  | `Heap`: a general heap that `mmap`s OS pages and runs `FirstFit` on them (no libc `malloc`) |
-| `<fs>`       | `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error` |
-| `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect`, `net_send`, `net_recv`, `net_close` |
+| `<fs>`       | `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`; `fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`, `fs_stat`, `fs_exists`, `fs_is_dir`, `fs_is_file`, `fs_mkdir`, `fs_mkdir_p`, `fs_remove`, `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir`, `fs_walk`, `fs_glob`, `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, `fs_last_error` |
+| `<net>`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_tcp_connect` (IPv4 address or host name), `net_send`, `net_recv`, `net_close` |
+| `<dns>`      | `dns_resolve` (IPv4 and IPv6 addresses of a host), `dns_free_list`, `dns_last_error` |
 | `<http>`     | HTTP/1.1: `HttpRequest`/`HttpResponse`, threaded `http_serve(port, workers, handler)` |
-| `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree |
+| `<fetch>`    | HTTP client for `http://` and `https://`: `fetch`, `fetch_with` + `FetchOptions` (method, headers, body, JSON body, timeout, redirects, body cap), `fetch_async`; `Response` with `Response_header`, `Response_text`, `Response_bytes`, `Response_json`, `Response_ok`; `fetch_last_error` |
+| `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree; build and edit with `JsonValue_object`/`_array`/`_set`/`_push`/`_remove`, print with `JsonValue_stringify`/`_pretty`, paths with `json_get` |
+| `<csv>`      | RFC 4180 CSV: `csv_parse` into a `CsvTable` (`CsvTable_get(t, row, "column")`), `csv_write_row` |
+| `<dotenv>`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` |
+| `<hash>`     | SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), `hex_encode`/`hex_decode`, `hash_equal` |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
 | `<regex>`    | linear-time regex (Thompson NFA) over UTF-8: `regex_match`, `regex_compile`/`Regex_search` with capture groups (`Match_group`), `\d \w \s`, `\p{L}` Unicode classes, `* + ? {m,n}`, `|`, `( )`, `(?:)`, `(?i)`, `^ $`, `\b \B`, `\Q..\E` (RE2 syntax, as Go's regexp) |
-| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function |
-| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, and form-query lookup `url_query_get` |
+| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
+| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, form-query lookup `url_query_get`; `url_parse` into a `Url`, `url_resolve`, `url_query_add` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`) |
-| `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int` |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `duration_format`, `Stopwatch` |
+| `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
+| `<process>`  | `process_run` (capture output, stdin text, cwd, env, timeout), `sh`, `sh_with`, `process_spawn` + `Process_write_stdin`/`_read`/`_wait`/`_kill`, `process_exit`, `process_pid` |
+| `<args>`     | command-line parsing: `ArgParser`, `args_flag`, `args_option`, `args_option_int`, `args_argument`, generated `--help`, `ArgParser_parse_or_exit`, `args_get`/`args_get_int`/`args_get_flag`/`args_count` |
+| `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
+| `<log>`      | `log_info`/`log_warn`/`log_error`/`log_debug`/`log_trace` (printf-style), `LOG_LEVEL` or `log_set_level`, timestamps, `log_set_file` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
 | `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |
@@ -1096,6 +1105,99 @@ void handle(HttpRequest* req, HttpResponse* res) {
 
 int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
 ```
+
+### Fetching a URL
+
+`<fetch>` is an HTTP/1.1 client. `fetch(url, &r)` does a GET and returns 0 once a
+response arrived (any status), or a negative error code; `fetch_last_error()` says
+what went wrong. Free the response with `Response_free` either way.
+
+```eskiu
+import <fetch>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Response;
+    defer Response_free(&r);
+    if (fetch("https://api.github.com/repos/llvm/llvm-project", &r) != 0) {
+        printf("error: %s\n", fetch_last_error());
+        return 1;
+    }
+    printf("HTTP %d, %lld bytes\n", r.status, r.body.len);
+    *JsonValue repo = Response_json(&r);            // null if the body is not JSON
+    if (repo != null) {
+        printf("stars: %lld\n", JsonValue_as_int(JsonValue_get(repo, "stargazers_count")));
+        JsonValue_free(repo);
+    }
+    return 0;
+}
+```
+
+For a POST, headers or a timeout, fill a `FetchOptions` and call `fetch_with`:
+
+```eskiu
+let o: FetchOptions;  FetchOptions_init(&o);
+defer FetchOptions_free(&o);
+FetchOptions_method(&o, "POST");
+FetchOptions_header(&o, "Authorization", "Bearer abc");
+FetchOptions_body_text(&o, "{\"name\":\"eskiu\"}");
+o.timeout_ms = 5000;
+int rc = fetch_with("https://example.com/api/items", &o, &r);
+```
+
+Redirects are followed (up to 10). HTTPS loads OpenSSL (libssl 3 or 1.1) the first
+time it is needed, so a program that only fetches `http://` URLs runs without it; on
+macOS install it with `brew install openssl@3`, on Debian or Ubuntu it is the `libssl3`
+package (usually present already).
+
+### Scripting
+
+With `eskiuc run` and a `#!/usr/bin/env -S eskiuc run` line (see
+[Run it like a script](#run-it-like-a-script)), the modules above cover what small
+tools usually need: `<fs>` for files and directories, `<process>` to run commands,
+`<fetch>` for HTTP, `<json>`, `<csv>`, `<dotenv>` and `<hash>` for data, `<args>`,
+`<term>` and `<log>` for the command line, and `<time>` for dates. This script
+counts the lines of each `.esk` file under a directory, largest first:
+
+```eskiu
+#!/usr/bin/env -S eskiuc run
+import <args>;
+import <fs>;
+import <sort>;
+
+struct Count { String path; int lines; }
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&p, "count_lines", "Count the lines of the .esk files under DIR.");
+    args_argument(&p, "dir", "where to look", ARGS_REQUIRED);
+    ArgParser_parse_or_exit(&p, argc, argv);
+
+    let pattern: String;  pattern.from(args_get(&p, "dir"));
+    pattern.append("/**/*.esk");
+    let files: List<String>;  List_init<String>(&files, 16);
+    fs_glob(pattern.cstr(), &files);
+
+    let counts: List<Count>;  List_init<Count>(&counts, 16);
+    let lines: List<String>;  List_init<String>(&lines, 64);
+    for (i in 0..files.size) {
+        if (fs_read_lines(files.data[i].cstr(), &lines) == 0) {
+            counts.push(Count { path: files.data[i], lines: lines.size });
+        }
+        fs_list_free(&lines);
+        List_init<String>(&lines, 64);
+    }
+    counts.sort_by(int(*Count a, *Count b) { return b.lines - a.lines; });
+    for (i in 0..counts.size) { printf("%6d  %s\n", counts.data[i].lines, counts.data[i].path.cstr()); }
+    return 0;
+}
+```
+
+`examples/scripts/` has two longer ones: `repo_stats.esk` (the GitHub API through
+`<fetch>`, a colored summary or JSON) and `organize.esk` (sorting a directory's files
+into folders, with duplicates found by SHA-256 and a CSV report). Chapter 25 of
+[The Book of Eskiu](https://eskiu-lang.org/the-book-of-eskiu.html#chapter-25) walks
+through every module with a runnable example.
 
 ---
 

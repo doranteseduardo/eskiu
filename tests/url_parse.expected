@@ -1,0 +1,46 @@
+http://example.com -> scheme=http host=example.com port=80 path=/ query= | http://example.com/
+HTTPS://Example.COM/A/b?x=1&y=2#frag -> scheme=https host=example.com port=443 path=/A/b query=x=1&y=2 | https://example.com/A/b?x=1&y=2
+http://user:pass@host.test:8080/p -> scheme=http host=host.test port=8080 path=/p query= | http://host.test:8080/p
+https://[::1]:8443/v6?q -> scheme=https host=::1 port=8443 path=/v6 query=q | https://[::1]:8443/v6?q
+http://[2001:DB8::1]/ -> scheme=http host=2001:db8::1 port=80 path=/ query= | http://[2001:db8::1]/
+http://127.0.0.1:80/same-port -> scheme=http host=127.0.0.1 port=80 path=/same-port query= | http://127.0.0.1/same-port
+https://h/a b/é?q=a b -> scheme=https host=h port=443 path=/a%20b/%C3%A9 query=q=a%20b | https://h/a%20b/%C3%A9?q=a%20b
+ws://chat.test/socket -> scheme=ws host=chat.test port=80 path=/socket query= | ws://chat.test/socket
+ftp://files.test/x -> scheme=ftp host=files.test port=0 path=/x query= | ftp://files.test/x
+http://h:/empty-port -> scheme=http host=h port=80 path=/empty-port query= | http://h/empty-port
+example.com/no-scheme -> invalid
+http:/one-slash -> invalid
+http:// -> invalid
+http://bad host/ -> invalid
+http://h:99999/ -> invalid
+http://h:0/ -> invalid
+http://h:8x/ -> invalid
+http://[::1/ -> invalid
+http://[1.2.3.4]/ -> invalid
+crlf in path -> 0
+del in path -> 0
+null -> 0
+resolve g -> http://a/b/c/g
+resolve ./g -> http://a/b/c/g
+resolve g/ -> http://a/b/c/g/
+resolve /g -> http://a/g
+resolve //g -> http://g/
+resolve ?y -> http://a/b/c/d;p?y
+resolve g?y -> http://a/b/c/g?y
+resolve #s -> http://a/b/c/d;p?q
+resolve  -> http://a/b/c/d;p?q
+resolve . -> http://a/b/c/
+resolve ./ -> http://a/b/c/
+resolve .. -> http://a/b/
+resolve ../ -> http://a/b/
+resolve ../g -> http://a/b/g
+resolve ../.. -> http://a/
+resolve ../../g -> http://a/g
+resolve ../../../g -> http://a/g
+resolve /./g -> http://a/g
+resolve /../g -> http://a/g
+resolve g/../h -> http://a/b/c/h
+resolve https://other.test/x -> https://other.test/x
+resolve other?k=v -> http://[::1]:8080/dir/other?k=v
+https://api.test/search?q=a%20b%26c&lang=es
+http://h/p?k=v%2Fw#top

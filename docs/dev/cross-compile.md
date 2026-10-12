@@ -82,8 +82,8 @@ Eskiu declarations compile to C-ABI symbols, so a `main.c` can call an Eskiu fun
 declaring it `extern`. In the other direction, a struct passed to or returned from an
 `extern` C function by value follows the target's C calling convention (AArch64, x86-64
 System V, Windows x64, 32-bit ARM including the hard-float HFA rules, and 32-bit x86); see
-[`abi.md`](abi.md). The self-hosted compiler forwards `--mcpu` but not `--mattr`/`--reloc`,
-so 3DS builds use the C++ `eskiuc`.
+[`abi.md`](abi.md). The self-hosted compiler passes `--mcpu`, `--mattr` and `--reloc` on to
+clang, which assembles its IR, so it builds for these targets too.
 
 ## Example: Windows (x86-64)
 

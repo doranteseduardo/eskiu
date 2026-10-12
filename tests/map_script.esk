@@ -1,0 +1,150 @@
+// <map> scripting helpers: has/get_or/len/remove/keys/values/each on Map<V> and
+// HashMap<K,V>, and Set<T>. Removal uses backward-shift deletion, so lookups
+// after many removes (and colliding probe runs) must still find every key.
+import <map>;
+import <sort>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int sprintf(string buf, string fmt, ...);
+
+int cmp_str(*string a, *string b) {
+    int i = 0;
+    string x = a[0];
+    string y = b[0];
+    while (x[i] != 0 && x[i] == y[i]) { i++; }
+    return (int)x[i] - (int)y[i];
+}
+int cmp_int(*int a, *int b) { return *a - *b; }
+// Every key in one bucket: the worst case for probe runs and deletion.
+uint64 same_hash(*int k) { return (uint64)7; }
+
+void put(Map<int>* m, string k, int v) {
+    int c = 0;
+    *int slot = Map_at<int>(m, k, &c);
+    slot[0] = v;
+}
+
+int main() {
+    let m: Map<int>;  Map_init<int>(&m, 8);
+    defer Map_free<int>(&m);
+    printf("empty: len %d has %d get_or %d remove %d\n", m.len(), m.has("x"), m.get_or("x", -1), m.remove("x"));
+    put(&m, "apple", 3);
+    put(&m, "banana", 5);
+    put(&m, "cherry", 7);
+    put(&m, "apple", 4);
+    printf("len %d has %d %d get_or %d %d\n", m.len(), m.has("apple"), m.has("durian"),
+           m.get_or("banana", 0), m.get_or("durian", 99));
+
+    // keys come back in table order: sort them for a stable output
+    let keys: List<string>;  List_init<string>(&keys, 4);
+    defer List_free<string>(&keys);
+    m.keys(&keys);
+    keys.sort_by(cmp_str);
+    let joined: String;  joined.init(16);
+    defer joined.free();
+    keys.join(",", &joined);
+    printf("keys: %s\n", joined.cstr());
+    let vals: List<int>;  List_init<int>(&vals, 4);
+    defer List_free<int>(&vals);
+    m.values(&vals);
+    vals.sort_by(cmp_int);
+    printf("values: %d %d %d\n", vals.get(0), vals.get(1), vals.get(2));
+
+    // each with a closure that captures a pointer to an accumulator
+    int total = 0;
+    *int tp = &total;
+    int[1] seen = {0};
+    *int sp = &seen[0];
+    m.each(void(string k, int v) { tp[0] = tp[0] + v; sp[0] = sp[0] + 1; });
+    printf("each: total %d seen %d\n", total, seen[0]);
+
+    printf("remove: %d %d len %d has %d\n", m.remove("banana"), m.remove("banana"), m.len(), m.has("banana"));
+    printf("after: %d %d\n", m.get_or("apple", 0), m.get_or("cherry", 0));
+
+    // many inserts and removes through grows: every survivor must stay reachable
+    let big: Map<int>;  Map_init<int>(&big, 8);
+    defer Map_free<int>(&big);
+    char[32] buf;
+    for (i in 0..5000) {
+        sprintf((string)&buf[0], "key%d", i);
+        put(&big, (string)&buf[0], i);
+    }
+    int removed = 0;
+    for (i in 0..5000) {
+        if (i % 3 != 0) {
+            sprintf((string)&buf[0], "key%d", i);
+            removed = removed + big.remove((string)&buf[0]);
+        }
+    }
+    int ok = 1;
+    for (i in 0..5000) {
+        sprintf((string)&buf[0], "key%d", i);
+        const int want = i % 3 == 0 ? i : -1;
+        if (big.get_or((string)&buf[0], -1) != want) { ok = 0; }
+    }
+    printf("big: removed %d len %d ok %d\n", removed, big.len(), ok);
+    // a removed key can be inserted again
+    put(&big, "key1", 11);
+    printf("reinsert: %d %d\n", big.get_or("key1", 0), big.len());
+
+    // HashMap with every key colliding, removing from the middle of the run
+    let hm: HashMap<int, int>;  HashMap_init<int, int>(&hm, 8, same_hash, int_eq);
+    defer HashMap_free<int, int>(&hm);
+    for (i in 0..40) {
+        int c = 0;
+        *int s = HashMap_at<int, int>(&hm, i, &c);
+        s[0] = i * 10;
+    }
+    for (i in 0..40) {
+        if (i % 2 == 1) { hm.remove(i); }
+    }
+    int hok = 1;
+    for (i in 0..40) {
+        const int want = i % 2 == 0 ? i * 10 : -1;
+        if (hm.get_or(i, -1) != want) { hok = 0; }
+    }
+    printf("hashmap: len %d ok %d has %d %d remove %d\n", hm.len(), hok, hm.has(4), hm.has(5), hm.remove(5));
+    let hk: List<int>;  List_init<int>(&hk, 4);
+    defer List_free<int>(&hk);
+    hm.keys(&hk);
+    hk.sort_by(cmp_int);
+    let hv: List<int>;  List_init<int>(&hv, 4);
+    defer List_free<int>(&hv);
+    hm.values(&hv);
+    int ksum = 0;
+    *int kp = &ksum;
+    hm.each(void(int k, int v) { kp[0] = kp[0] + k; });
+    int vsum = hv.reduce(0, int(int a, int x) { return a + x; });
+    printf("hashmap keys: %d first %d last %d ksum %d vsum %d\n", hk.len(), hk.get(0), hk.get(hk.len() - 1), ksum, vsum);
+
+    // string keys by content
+    let sm: HashMap<string, int>;  HashMap_init<string, int>(&sm, 8, cstr_hash, cstr_eq);
+    defer HashMap_free<string, int>(&sm);
+    int c2 = 0;
+    *int s1 = HashMap_at<string, int>(&sm, "one", &c2);  s1[0] = 1;
+    sprintf((string)&buf[0], "o%s", "ne");
+    printf("cstr: %d %d\n", sm.get_or((string)&buf[0], 0), sm.has("two"));
+
+    // Set
+    let set: Set<int>;  Set_init<int>(&set, 4, int_hash, int_eq);
+    defer set.free();
+    printf("set empty: %d %d %d\n", set.len(), set.has(1), set.remove(1));
+    printf("add: %d %d %d\n", set.add(3), set.add(3), set.add(9));
+    for (i in 0..100) { set.add(i % 17); }
+    printf("set: len %d has %d %d\n", set.len(), set.has(16), set.has(17));
+    printf("remove: %d %d len %d\n", set.remove(16), set.remove(16), set.len());
+    let items: List<int>;  List_init<int>(&items, 4);
+    defer List_free<int>(&items);
+    set.items(&items);
+    items.sort_by(cmp_int);
+    printf("items: %d first %d last %d\n", items.len(), items.get(0), items.get(items.len() - 1));
+    int count = 0;
+    *int cp = &count;
+    set.each(void(int x) { cp[0] = cp[0] + x; });
+    printf("each sum: %d\n", count);
+    let words: Set<string>;  Set_init<string>(&words, 4, cstr_hash, cstr_eq);
+    defer words.free();
+    words.add("to");  words.add("be");  words.add("or");  words.add("not");  words.add("to");  words.add("be");
+    printf("words: %d %d %d\n", words.len(), words.has("not"), words.has("question"));
+    return 0;
+}

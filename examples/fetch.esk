@@ -1,0 +1,51 @@
+// fetch.esk: GET a JSON API and print a few fields.
+//
+//   eskiuc run examples/fetch.esk                  # the llvm/llvm-project repository
+//   eskiuc run examples/fetch.esk -- torvalds/linux
+//
+// Uses the network (https://api.github.com), so it is not part of the test
+// suite. HTTPS needs OpenSSL (libssl 3 or 1.1) installed; <fetch> loads it at
+// run time.
+import <fetch>;
+import <json>;
+import <string>;
+extern int printf(string fmt, ...);
+
+int main(int argc, string* argv) {
+    let url: String;  String_from(&url, "https://api.github.com/repos/");
+    url.append(argc > 1 ? argv[1] : "llvm/llvm-project");
+    defer url.free();
+
+    let o: FetchOptions;  FetchOptions_init(&o);
+    defer FetchOptions_free(&o);
+    FetchOptions_header(&o, "Accept", "application/vnd.github+json");
+    o.timeout_ms = 10000;
+
+    let r: Response;
+    defer Response_free(&r);
+    if (fetch_with(url.cstr(), &o, &r) != 0) {
+        printf("fetch failed: %s\n", fetch_last_error());
+        return 1;
+    }
+    if (Response_ok(&r) == 0) {
+        printf("HTTP %d %s\n", r.status, r.reason.cstr());
+        return 1;
+    }
+    *JsonValue repo = Response_json(&r);
+    if (repo == null) {
+        printf("the answer is not JSON\n");
+        return 1;
+    }
+    defer JsonValue_free(repo);
+    *JsonValue name = JsonValue_get(repo, "full_name");
+    *JsonValue stars = JsonValue_get(repo, "stargazers_count");
+    *JsonValue lang = JsonValue_get(repo, "language");
+    if (name == null || stars == null) {
+        printf("unexpected answer\n");
+        return 1;
+    }
+    printf("%s: %lld stars", JsonValue_as_cstr(name), JsonValue_as_int(stars));
+    if (lang != null && JsonValue_kind(lang) == JString) { printf(", written in %s", JsonValue_as_cstr(lang)); }
+    printf("\n");
+    return 0;
+}

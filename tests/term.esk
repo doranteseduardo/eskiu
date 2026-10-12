@@ -1,0 +1,99 @@
+// <term>: SGR sequences for attributes, basic/bright/256/RGB colors, the
+// NO_COLOR / FORCE_COLOR / TERM=dumb / mode rules on a non-terminal stdout,
+// term_strip and the COLUMNS fallback of term_width.
+import <term>;
+import <env>;
+
+// Print `s` with ESC shown as "\e".
+void show(string label, String* s) {
+    printf("%-10s ", label);
+    for (int64 i = 0; i < s.len; i++) {
+        if (s.data[i] == (char)27) { printf("\\e"); } else { printf("%c", s.data[i]); }
+    }
+    printf("\n");
+}
+
+void sgr(string label, int64 style) {
+    let s: String;  s.init(16);
+    term_sgr(&s, style);
+    s.append("x");
+    show(label, &s);
+    s.free();
+}
+
+void styled(string label) {
+    let s: String;  s.init(16);
+    term_style(&s, "hi", TERM_BOLD | TERM_RED);
+    show(label, &s);
+    s.free();
+}
+
+int main() {
+    sgr("plain", TERM_PLAIN);
+    sgr("bold", TERM_BOLD);
+    sgr("attrs", TERM_BOLD | TERM_DIM | TERM_ITALIC | TERM_UNDERLINE | TERM_BLINK | TERM_REVERSE | TERM_HIDDEN | TERM_STRIKE);
+    sgr("red", TERM_RED);
+    sgr("bright", TERM_BRIGHT_CYAN | TERM_BG_BRIGHT_BLACK);
+    sgr("bg", TERM_BOLD | TERM_WHITE | TERM_BG_BLUE);
+    sgr("black", TERM_BLACK | TERM_BG_BLACK);
+    sgr("256", term_fg256(208) | term_bg256(0));
+    sgr("rgb", term_rgb(255, 128, 0) | term_bg_rgb(1, 2, 3) | TERM_UNDERLINE);
+    sgr("clamp", term_rgb(300, -5, 128) | term_fg256(999) & 0);
+    let r: String;  r.init(8);
+    term_reset(&r);
+    show("reset", &r);
+    r.free();
+
+    // stdout is not a terminal here.
+    env_unset("FORCE_COLOR");
+    env_unset("NO_COLOR");
+    printf("tty stdout=%d enabled=%d\n", term_is_tty(1), term_color_enabled(1));
+    styled("auto");
+    env_set("FORCE_COLOR", "1");
+    printf("force enabled=%d\n", term_color_enabled(1));
+    styled("forced");
+    env_set("NO_COLOR", "1");
+    printf("force+no_color enabled=%d\n", term_color_enabled(1));
+    env_set("FORCE_COLOR", "0");
+    printf("force=0 enabled=%d\n", term_color_enabled(1));
+    env_unset("FORCE_COLOR");
+    env_set("NO_COLOR", "");
+    env_set("TERM", "dumb");
+    printf("dumb enabled=%d\n", term_color_enabled(1));
+    env_set("TERM", "xterm-256color");
+    term_set_color_mode(TERM_ALWAYS);
+    printf("always enabled=%d\n", term_color_enabled(1));
+    styled("always");
+    env_set("NO_COLOR", "1");
+    printf("always+no_color enabled=%d\n", term_color_enabled(1));
+    term_set_color_mode(TERM_NEVER);
+    env_set("FORCE_COLOR", "1");
+    printf("never+force enabled=%d\n", term_color_enabled(1));
+    styled("never");
+    term_set_color_mode(TERM_AUTO);
+    env_unset("FORCE_COLOR");
+    env_unset("NO_COLOR");
+
+    term_print("plain print\n", TERM_GREEN);
+    term_println("plain println", TERM_BOLD);
+
+    let s: String;  s.init(16);
+    term_sgr(&s, TERM_BOLD | term_rgb(1, 2, 3));
+    s.append("bold");
+    term_reset(&s);
+    s.append(" and ");
+    s.push((char)27);
+    s.append("(B");
+    s.append("text");
+    term_strip(&s);
+    printf("strip [%s] len=%lld\n", s.cstr(), s.len);
+    s.free();
+
+    env_set("COLUMNS", "123");
+    printf("width %d\n", term_width());
+    env_set("COLUMNS", "abc");
+    printf("width positive %d\n", term_width() > 0 ? 1 : 0);
+    env_unset("COLUMNS");
+    printf("width positive %d\n", term_width() > 0 ? 1 : 0);
+    return 0;
+}

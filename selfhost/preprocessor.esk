@@ -1225,7 +1225,7 @@ string pp_run(string src, int len, string filename, *int had_err) {
         while (h < ln && pp_is_sp((int)ls[h]) == 1) { h = h + 1; }
         int handled = 0;
 
-        // A `#!` first line is a shebang (`#!/usr/bin/env eskiuc run`), not a directive.
+        // A `#!` first line is a shebang (`#!/usr/bin/env -S eskiuc run`), not a directive.
         int shebang = 0;
         if (line_no == 1 && ln >= 2 && (int)ls[0] == 35 && (int)ls[1] == 33) { shebang = 1; }
         let dir_open: int = 0;                       // the directive leaves a /* comment open

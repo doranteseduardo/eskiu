@@ -1,0 +1,105 @@
+// data_summary.esk: load a .env file, read a CSV, hash it and print a JSON summary.
+//
+//   eskiuc examples/data_summary.esk -o data_summary && ./data_summary
+//   ./data_summary sales.csv .env        # your own files
+//
+// With no arguments it writes a small sample CSV and .env to a temp directory
+// first. REPORT_TITLE and CURRENCY come from the .env file unless they are
+// already set in the environment.
+
+import <csv>;
+import <dotenv>;
+import <hash>;
+import <json>;
+
+extern int printf(string fmt, ...);
+
+int main(int argc, string* argv) {
+    let dir: String;  dir.init(64);
+    defer dir.free();
+    let csv_path: String;  csv_path.init(64);
+    defer csv_path.free();
+    let env_path: String;  env_path.init(64);
+    defer env_path.free();
+
+    if (argc >= 3) {
+        csv_path.append(argv[1]);
+        env_path.append(argv[2]);
+    } else {
+        if (fs_temp_dir("data_summary", &dir) != 0) { printf("cannot create a temp dir\n"); return 1; }
+        str_format(&csv_path, "%s/sales.csv", dir.data);
+        str_format(&env_path, "%s/.env", dir.data);
+        fs_write_text((string)csv_path.data,
+            "region,product,amount\nnorth,widget,120.50\nsouth,\"gadget, large\",80\nnorth,gadget,42.25\nwest,widget,300\n");
+        fs_write_text((string)env_path.data, "# report settings\nREPORT_TITLE=\"Quarterly sales\"\nexport CURRENCY=EUR\n");
+    }
+
+    // 1. Settings from .env (existing variables win).
+    if (dotenv_load((string)env_path.data) < 0) {
+        let msg: String;  msg.init(64);
+        dotenv_error(&msg);
+        printf("%s: %s\n", env_path.data, msg.data);
+        msg.free();
+        return 1;
+    }
+
+    // 2. The CSV, with header-keyed access.
+    let text: String;  text.init(256);
+    defer text.free();
+    if (fs_read_text((string)csv_path.data, &text) != 0) { printf("cannot read %s\n", csv_path.data); return 1; }
+    let table: CsvTable;
+    defer CsvTable_free(&table);
+    if (csv_parse_buf((*uint8)text.data, text.len, ',', &table) != 0) {
+        let msg: String;  msg.init(64);
+        CsvTable_error(&table, &msg);
+        printf("%s: %s\n", csv_path.data, msg.data);
+        msg.free();
+        return 1;
+    }
+    if (CsvTable_col(&table, "region") < 0 || CsvTable_col(&table, "amount") < 0) {
+        printf("the CSV needs region and amount columns\n");
+        return 1;
+    }
+
+    // 3. Totals per region, kept in a JSON object as they accumulate.
+    *JsonValue doc = JsonValue_object();
+    defer JsonValue_free(doc);
+    *JsonValue regions = JsonValue_object();
+    double total = 0.0;
+    let cell: String;  cell.init(16);
+    defer cell.free();
+    for (r in 1..CsvTable_len(&table)) {
+        string region = CsvTable_get(&table, r, "region");
+        string amount = CsvTable_get(&table, r, "amount");
+        if (region == null || amount == null) { continue; }
+        cell.clear();
+        cell.append(amount);
+        double v = 0.0;
+        if (cell.parse_double(&v) == 0) { continue; }
+        total += v;
+        *JsonValue sum = JsonValue_get(regions, region);
+        if (sum == null) { JsonValue_set(regions, region, JsonValue_number(v)); }
+        else { sum.num += v; }
+    }
+
+    // 4. A SHA-256 of the input file.
+    let digest: String;  digest.init(65);
+    defer digest.free();
+    sha256_hex((*uint8)text.data, text.len, &digest);
+
+    JsonValue_set(doc, "title", JsonValue_string(env_get_or("REPORT_TITLE", "Report")));
+    JsonValue_set(doc, "currency", JsonValue_string(env_get_or("CURRENCY", "USD")));
+    JsonValue_set(doc, "rows", JsonValue_int((int64)(CsvTable_len(&table) - 1)));
+    JsonValue_set(doc, "total", JsonValue_number(total));
+    JsonValue_set(doc, "by_region", regions);
+    JsonValue_set(doc, "sha256", JsonValue_string((string)digest.data));
+
+    let out: String;  out.init(256);
+    defer out.free();
+    JsonValue_pretty(doc, 2, &out);
+    printf("%s\n", out.data);
+    printf("north total: %g\n", JsonValue_as_double(json_get(doc, "by_region.north")));
+
+    if (dir.len > 0) { fs_remove_all((string)dir.data); }
+    return 0;
+}

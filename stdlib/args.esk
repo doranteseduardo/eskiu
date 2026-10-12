@@ -1,0 +1,607 @@
+// args.esk: a declarative command-line parser with generated help.
+//
+//   import <args>;
+//
+//   int main(int argc, string* argv) {
+//       let p: ArgParser;
+//       ArgParser_init(&p, "greet", "Print a greeting for each name.");
+//       defer ArgParser_free(&p);
+//       args_flag(&p, "-v", "--verbose", "say more");
+//       args_option(&p, "-o", "--output", "FILE", "-", "write to FILE");
+//       args_option_int(&p, "-n", "--times", "N", 1, "repeat N times");
+//       args_argument(&p, "names", "who to greet", ARGS_REQUIRED | ARGS_MANY);
+//       ArgParser_parse_or_exit(&p, argc, argv);   // prints help or an error, exits 0 or 2
+//
+//       int n = args_get_int(&p, "times");
+//       for (i in 0..args_count(&p, "names")) { ... args_get_at(&p, "names", i) ... }
+//   }
+//
+// Command lines it accepts: `-v`, `--verbose`, `-o out.txt`, `-oout.txt`,
+// `--output out.txt`, `--output=out.txt`, clusters of short options (`-vo
+// out.txt`; an option in a cluster takes the rest of it, or the next argument,
+// as its value), `--` (everything after it is positional), and `-` alone as a
+// positional. An option's value is the next argument even when it starts with
+// '-'. A negative number such as `-5` is a positional when no short option is
+// a digit. A repeated option keeps every value (args_get returns the last,
+// args_get_all all of them); a repeated flag counts (args_count, for -vvv).
+//
+// Positional arguments are bound in declaration order to the ones declared with
+// args_argument; an ARGS_MANY one (it must come last) takes all that remain. A
+// program that declares none accepts any positionals (read them with
+// args_positional). `-h` and `--help` print the help unless the program uses
+// those names itself.
+//
+// ArgParser_parse returns ARGS_OK, ARGS_HELP after printing the help to stdout,
+// or ARGS_ERROR after printing the usage line and "prog: error: ..." to stderr
+// (ArgParser_error has the message). ArgParser_parse_or_exit exits with 0
+// after the help and with 2 after an error. Names given to the accessors are a
+// long name without its dashes ("output"), a short one ("o" or "-o") or an
+// argument's name; the strings returned point into argv or the defaults.
+
+import <list>;
+import <io>;
+
+extern void exit(int code);
+
+const int ARGS_OPTIONAL = 0;
+const int ARGS_REQUIRED = 1;
+const int ARGS_MANY     = 2;
+
+const int ARGS_OK    = 0;
+const int ARGS_HELP  = 1;
+const int ARGS_ERROR = 2;
+
+const int _ARGS_FLAG = 0;
+const int _ARGS_OPT  = 1;
+const int _ARGS_INT  = 2;
+const int _ARGS_POS  = 3;
+
+struct ArgSpec {
+    int kind;
+    string short_name;      // "-v", or null
+    string long_name;       // "--verbose", or null
+    string name;            // lookup key: the long name without "--", else the short one without "-"
+    string metavar;
+    string def;             // default value, or null
+    String def_buf;         // owns the text of an int default
+    string help;
+    int mode;               // arguments: ARGS_REQUIRED | ARGS_MANY
+    int count;              // times given
+    List<string> values;
+}
+
+struct ArgParser {
+    string prog;
+    String prog_buf;
+    string description;
+    List<*ArgSpec> specs;
+    List<string> positionals;
+    List<string> rest;
+    String error;
+}
+
+// Start a parser. `prog` is the name shown in usage and errors (null: the
+// base name of argv[0]); `description` (or null) is printed under the usage.
+void ArgParser_init(ArgParser* p, string prog, string description) {
+    p.prog = prog;
+    p.prog_buf.init(16);
+    p.description = description;
+    List_init<*ArgSpec>(&p.specs, 8);
+    List_init<string>(&p.positionals, 8);
+    List_init<string>(&p.rest, 4);
+    p.error.init(64);
+}
+
+void ArgParser_free(ArgParser* p) {
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        List_free<string>(&s.values);
+        s.def_buf.free();
+        free((*void)s);
+    }
+    List_free<*ArgSpec>(&p.specs);
+    List_free<string>(&p.positionals);
+    List_free<string>(&p.rest);
+    p.prog_buf.free();
+    p.error.free();
+}
+
+*ArgSpec _args_add(ArgParser* p, int kind, string short_name, string long_name, string help) {
+    *ArgSpec s = alloc<ArgSpec>(1);
+    s.kind = kind;
+    s.short_name = short_name;
+    s.long_name = long_name;
+    s.help = help;
+    if (long_name != null) {
+        int k = 0;
+        while (long_name[k] == '-') { k++; }
+        s.name = (string)((*char)long_name + k);
+    } else if (short_name != null) {
+        s.name = (string)((*char)short_name + (short_name[0] == '-' ? 1 : 0));
+    }
+    List_init<string>(&s.values, 2);
+    List_push<*ArgSpec>(&p.specs, s);
+    return s;
+}
+
+// A flag: present or not (counted when repeated). Either name may be null.
+void args_flag(ArgParser* p, string short_name, string long_name, string help) {
+    _args_add(p, _ARGS_FLAG, short_name, long_name, help);
+}
+
+// An option taking a string value shown as `metavar` in the help; `def` (or
+// null) is what args_get returns when it is not given.
+void args_option(ArgParser* p, string short_name, string long_name, string metavar, string def, string help) {
+    *ArgSpec s = _args_add(p, _ARGS_OPT, short_name, long_name, help);
+    s.metavar = metavar;
+    s.def = def;
+}
+
+// An option taking an integer; a value that is not one is a parse error.
+void args_option_int(ArgParser* p, string short_name, string long_name, string metavar, int def, string help) {
+    *ArgSpec s = _args_add(p, _ARGS_INT, short_name, long_name, help);
+    s.metavar = metavar;
+    s.def_buf.init(12);
+    String_appendf(&s.def_buf, "%d", def);
+    s.def = s.def_buf.cstr();
+}
+
+// A positional argument: ARGS_OPTIONAL, ARGS_REQUIRED, and ARGS_MANY (zero or
+// more; one or more with ARGS_REQUIRED) for the last one.
+void args_argument(ArgParser* p, string name, string help, int mode) {
+    *ArgSpec s = _args_add(p, _ARGS_POS, null, null, help);
+    s.name = name;
+    s.metavar = name;
+    s.mode = mode;
+}
+
+bool _args_streq(string a, string b) {
+    if (a == null || b == null) { return false; }
+    int i = 0;
+    while (a[i] != 0 && a[i] == b[i]) { i++; }
+    return a[i] == b[i];
+}
+
+// The spec a user-facing name refers to: "output", "--output", "o", "-o" or
+// an argument's name.
+*ArgSpec _args_find(ArgParser* p, string name) {
+    if (name == null) { return null; }
+    int k = 0;
+    while (name[k] == '-') { k++; }
+    const string bare = (string)((*char)name + k);
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (_args_streq(s.name, bare)) { return s; }
+    }
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.short_name != null && _args_streq((string)((*char)s.short_name + 1), bare)) { return s; }
+    }
+    return null;
+}
+
+// The option whose long name is the first `n` bytes of `arg`.
+*ArgSpec _args_find_long(ArgParser* p, string arg, int n) {
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind == _ARGS_POS || s.long_name == null) { continue; }
+        int j = 0;
+        while (j < n && s.long_name[j] != 0 && s.long_name[j] == arg[j]) { j++; }
+        if (j == n && s.long_name[j] == 0) { return s; }
+    }
+    return null;
+}
+
+*ArgSpec _args_find_short(ArgParser* p, char c) {
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind == _ARGS_POS || s.short_name == null) { continue; }
+        if (s.short_name[0] == '-' && s.short_name[1] == c && s.short_name[2] == 0) { return s; }
+    }
+    return null;
+}
+
+bool _args_parse_int(string v, *int out) {
+    int i = 0;
+    bool neg = false;
+    if (v[0] == '-' || v[0] == '+') { neg = v[0] == '-'; i = 1; }
+    if (v[i] == 0) { return false; }
+    int64 n = 0;
+    for (; v[i] != 0; i++) {
+        if (v[i] < '0' || v[i] > '9') { return false; }
+        n = n * 10 + (int64)((int)v[i] - 48);
+        if (n > 2147483648) { return false; }
+    }
+    if (neg) { n = -n; }
+    if (n > 2147483647) { return false; }
+    out[0] = (int)n;
+    return true;
+}
+
+// The way an option is named in messages: its long name, else its short one.
+string _args_label(*ArgSpec s) {
+    return s.long_name != null ? s.long_name : s.short_name;
+}
+
+int _args_fail(ArgParser* p, string fmt, string a, string b) {
+    p.error.clear();
+    String_appendf(&p.error, fmt, a, b);
+    return ARGS_ERROR;
+}
+
+int _args_store(ArgParser* p, *ArgSpec s, string v) {
+    if (s.kind == _ARGS_INT) {
+        int n = 0;
+        if (!_args_parse_int(v, &n)) {
+            return _args_fail(p, "invalid value '%s' for %s: expected an integer", v, _args_label(s));
+        }
+    }
+    s.count++;
+    List_push<string>(&s.values, v);
+    return ARGS_OK;
+}
+
+bool _args_digit_short(ArgParser* p) {
+    for (c in 48..58) {
+        if (_args_find_short(p, (char)c) != null) { return true; }
+    }
+    return false;
+}
+
+// Assign the positionals to the declared arguments.
+int _args_bind(ArgParser* p) {
+    const int n = List_len<string>(&p.positionals);
+    int k = 0;
+    bool declared = false;
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind != _ARGS_POS) { continue; }
+        declared = true;
+        if ((s.mode & ARGS_MANY) != 0) {
+            if (k >= n && (s.mode & ARGS_REQUIRED) != 0) {
+                return _args_fail(p, "missing argument '%s'%s", s.name, "");
+            }
+            while (k < n) { _args_store(p, s, List_get<string>(&p.positionals, k)); k++; }
+        } else if (k < n) {
+            _args_store(p, s, List_get<string>(&p.positionals, k));
+            k++;
+        } else if ((s.mode & ARGS_REQUIRED) != 0) {
+            return _args_fail(p, "missing argument '%s'%s", s.name, "");
+        }
+    }
+    if (declared && k < n) {
+        return _args_fail(p, "unexpected argument '%s'%s", List_get<string>(&p.positionals, k), "");
+    }
+    return ARGS_OK;
+}
+
+int _args_run(ArgParser* p, int argc, *string argv) {
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        s.count = 0;
+        List_clear<string>(&s.values);
+    }
+    List_clear<string>(&p.positionals);
+    List_clear<string>(&p.rest);
+    p.error.clear();
+    const bool help_long = _args_find_long(p, "--help", 6) == null;
+    const bool help_short = _args_find_short(p, 'h') == null;
+    const bool digit_opts = _args_digit_short(p);
+    bool only_pos = false;
+    int i = 1;
+    while (i < argc) {
+        const string a = argv[i];
+        i++;
+        if (only_pos) {
+            List_push<string>(&p.positionals, a);
+            List_push<string>(&p.rest, a);
+            continue;
+        }
+        if (a[0] == '-' && a[1] == '-' && a[2] == 0) { only_pos = true; continue; }
+        if (a[0] == '-' && a[1] == '-') {
+            int eq = 2;
+            while (a[eq] != 0 && a[eq] != '=') { eq++; }
+            const bool has_eq = a[eq] == '=';
+            if (help_long && !has_eq && _args_streq(a, "--help")) { return ARGS_HELP; }
+            *ArgSpec s = _args_find_long(p, a, eq);
+            if (s == null) {
+                p.error.clear();
+                p.error.append("unknown option '");
+                _string_append_bytes(&p.error, (*char)a, (int64)eq);
+                p.error.append("'");
+                return ARGS_ERROR;
+            }
+            if (s.kind == _ARGS_FLAG) {
+                if (has_eq) { return _args_fail(p, "option %s does not take a value%s", s.long_name, ""); }
+                s.count++;
+                continue;
+            }
+            string v = null;
+            if (has_eq) { v = (string)((*char)a + eq + 1); }
+            else if (i < argc) { v = argv[i]; i++; }
+            else { return _args_fail(p, "option %s needs a value (%s)", s.long_name, s.metavar != null ? s.metavar : "VALUE"); }
+            if (_args_store(p, s, v) != ARGS_OK) { return ARGS_ERROR; }
+            continue;
+        }
+        const bool negative_number = a[1] >= '0' && a[1] <= '9' && !digit_opts;
+        if (a[0] == '-' && a[1] != 0 && !negative_number) {
+            int j = 1;
+            while (a[j] != 0) {
+                const char c = a[j];
+                j++;
+                if (c == 'h' && help_short) { return ARGS_HELP; }
+                *ArgSpec s = _args_find_short(p, c);
+                if (s == null) {
+                    p.error.clear();
+                    p.error.append("unknown option '-");
+                    p.error.push(c);
+                    p.error.append("'");
+                    if (j > 2) {
+                        p.error.append(" in '");
+                        p.error.append(a);
+                        p.error.append("'");
+                    }
+                    return ARGS_ERROR;
+                }
+                if (s.kind == _ARGS_FLAG) { s.count++; continue; }
+                string v = null;
+                if (a[j] != 0) { v = (string)((*char)a + j); }
+                else if (i < argc) { v = argv[i]; i++; }
+                else { return _args_fail(p, "option %s needs a value (%s)", s.short_name, s.metavar != null ? s.metavar : "VALUE"); }
+                if (_args_store(p, s, v) != ARGS_OK) { return ARGS_ERROR; }
+                break;
+            }
+            continue;
+        }
+        List_push<string>(&p.positionals, a);
+    }
+    return _args_bind(p);
+}
+
+string _args_prog(ArgParser* p) {
+    if (p.prog != null) { return p.prog; }
+    if (p.prog_buf.len > 0) { return p.prog_buf.cstr(); }
+    return "program";
+}
+
+void _args_upper(String* out, string s) {
+    for (int i = 0; s[i] != 0; i++) {
+        const char c = s[i];
+        if (c >= 'a' && c <= 'z') { out.push((char)((int)c - 32)); }
+        else if (c == '-') { out.push('_'); }
+        else { out.push(c); }
+    }
+}
+
+void _args_metavar(String* out, *ArgSpec s) {
+    if (s.metavar != null) { out.append(s.metavar); } else { _args_upper(out, s.name); }
+}
+
+// The usage line ("usage: prog [-h] [-v] [-o FILE] input [files...]") into
+// `out` (cleared first), without a newline.
+void ArgParser_usage(ArgParser* p, String* out) {
+    out.clear();
+    out.append("usage: ");
+    out.append(_args_prog(p));
+    if (_args_find_short(p, 'h') == null) { out.append(" [-h]"); }
+    else if (_args_find_long(p, "--help", 6) == null) { out.append(" [--help]"); }
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind == _ARGS_POS) { continue; }
+        out.append(" [");
+        out.append(s.short_name != null ? s.short_name : s.long_name);
+        if (s.kind != _ARGS_FLAG) {
+            out.push(' ');
+            _args_metavar(out, s);
+        }
+        out.push(']');
+    }
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind != _ARGS_POS) { continue; }
+        out.push(' ');
+        const bool req = (s.mode & ARGS_REQUIRED) != 0;
+        if (!req) { out.push('['); }
+        out.append(s.name);
+        if ((s.mode & ARGS_MANY) != 0) { out.append("..."); }
+        if (!req) { out.push(']'); }
+    }
+}
+
+// The left column of an entry in the help.
+void _args_entry(String* out, *ArgSpec s, bool any_short) {
+    out.clear();
+    if (s.kind == _ARGS_POS) { out.append(s.name); return; }
+    if (s.short_name != null) {
+        out.append(s.short_name);
+        if (s.long_name != null) { out.append(", "); }
+    } else if (any_short) {
+        out.append("    ");
+    }
+    if (s.long_name != null) { out.append(s.long_name); }
+    if (s.kind != _ARGS_FLAG) {
+        out.push(' ');
+        _args_metavar(out, s);
+    }
+}
+
+void _args_line(String* out, string left, string help, string def, int col) {
+    out.append("  ");
+    out.append(left);
+    if (help == null && def == null) { out.push('\n'); return; }
+    int64 used = 2 + (int64)strlen(left);
+    if (used + 2 > (int64)col) {
+        out.push('\n');
+        used = 0;
+    }
+    while (used < (int64)col) { out.push(' '); used++; }
+    if (help != null) { out.append(help); }
+    if (def != null) {
+        if (help != null) { out.push(' '); }
+        out.append("(default: ");
+        out.append(def);
+        out.push(')');
+    }
+    out.push('\n');
+}
+
+// The full help text into `out` (cleared first): usage, description,
+// arguments and options with their help and defaults.
+void ArgParser_help(ArgParser* p, String* out) {
+    ArgParser_usage(p, out);
+    out.push('\n');
+    if (p.description != null) {
+        out.push('\n');
+        out.append(p.description);
+        out.push('\n');
+    }
+    const bool help_short = _args_find_short(p, 'h') == null;
+    const bool help_long = _args_find_long(p, "--help", 6) == null;
+    bool any_short = help_short;
+    bool any_pos = false;
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind == _ARGS_POS) { any_pos = true; }
+        else if (s.short_name != null) { any_short = true; }
+    }
+    // Width of the left column: the widest entry, at most 28.
+    let e: String;  e.init(32);
+    int col = 0;
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        _args_entry(&e, List_get<*ArgSpec>(&p.specs, i), any_short);
+        if ((int)e.len > col) { col = (int)e.len; }
+    }
+    if (col < 10) { col = 10; }
+    if (col > 28) { col = 28; }
+    col = col + 4;
+    if (any_pos) {
+        out.append("\narguments:\n");
+        for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+            *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+            if (s.kind != _ARGS_POS) { continue; }
+            _args_line(out, s.name, s.help, null, col);
+        }
+    }
+    out.append("\noptions:\n");
+    if (help_short || help_long) {
+        e.clear();
+        if (help_short) { e.append(help_long ? "-h, --help" : "-h"); }
+        else { e.append(any_short ? "    --help" : "--help"); }
+        _args_line(out, e.cstr(), "show this help and exit", null, col);
+    }
+    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
+        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        if (s.kind == _ARGS_POS) { continue; }
+        _args_entry(&e, s, any_short);
+        _args_line(out, e.cstr(), s.help, s.kind == _ARGS_FLAG ? null : s.def, col);
+    }
+    e.free();
+}
+
+// Parse argv[1..argc). Returns ARGS_OK; ARGS_HELP after printing the help to
+// stdout; or ARGS_ERROR after printing the usage and the error to stderr.
+int ArgParser_parse(ArgParser* p, int argc, *string argv) {
+    if (p.prog == null && argc > 0 && argv[0] != null) {
+        const string a0 = argv[0];
+        int base = 0;
+        for (int i = 0; a0[i] != 0; i++) {
+            if (a0[i] == '/' || a0[i] == '\\') { base = i + 1; }
+        }
+        p.prog_buf.clear();
+        p.prog_buf.append((string)((*char)a0 + base));
+    }
+    const int rc = _args_run(p, argc, argv);
+    let text: String;  text.init(256);
+    if (rc == ARGS_HELP) {
+        ArgParser_help(p, &text);
+        print(text.cstr());
+    } else if (rc == ARGS_ERROR) {
+        ArgParser_usage(p, &text);
+        text.push('\n');
+        text.append(_args_prog(p));
+        text.append(": error: ");
+        text.concat(&p.error);
+        text.push('\n');
+        print_err(text.cstr());
+    }
+    text.free();
+    return rc;
+}
+
+// ArgParser_parse, then exit(0) after the help or exit(2) after an error.
+void ArgParser_parse_or_exit(ArgParser* p, int argc, *string argv) {
+    const int rc = ArgParser_parse(p, argc, argv);
+    if (rc == ARGS_HELP) { fflush(null); exit(0); }
+    if (rc == ARGS_ERROR) { fflush(null); exit(2); }
+}
+
+// The message of the last parse error ("" when there was none).
+string ArgParser_error(ArgParser* p) {
+    return p.error.cstr();
+}
+
+// 1 if the flag (or option, or argument) was given, else 0.
+int args_get_flag(ArgParser* p, string name) {
+    *ArgSpec s = _args_find(p, name);
+    return s != null && s.count > 0 ? 1 : 0;
+}
+
+// How many times a flag or option was given, or how many values an argument
+// received.
+int args_count(ArgParser* p, string name) {
+    *ArgSpec s = _args_find(p, name);
+    return s == null ? 0 : s.count;
+}
+
+// An option's value (the last one when repeated) or its default; an
+// argument's (first) value; null when absent with no default.
+string args_get(ArgParser* p, string name) {
+    *ArgSpec s = _args_find(p, name);
+    if (s == null) { return null; }
+    const int n = List_len<string>(&s.values);
+    if (n == 0) { return s.def; }
+    if (s.kind == _ARGS_POS) { return List_get<string>(&s.values, 0); }
+    return List_get<string>(&s.values, n - 1);
+}
+
+// The i-th value of an option or argument (in the order given), or null.
+string args_get_at(ArgParser* p, string name, int i) {
+    *ArgSpec s = _args_find(p, name);
+    if (s == null || i < 0 || i >= List_len<string>(&s.values)) { return null; }
+    return List_get<string>(&s.values, i);
+}
+
+// args_get as an integer; 0 when absent with no default or not a number.
+int args_get_int(ArgParser* p, string name) {
+    const string v = args_get(p, name);
+    int n = 0;
+    if (v == null || !_args_parse_int(v, &n)) { return 0; }
+    return n;
+}
+
+// Append every value of an option or argument to `out`; returns how many.
+int args_get_all(ArgParser* p, string name, List<string>* out) {
+    *ArgSpec s = _args_find(p, name);
+    if (s == null) { return 0; }
+    const int n = List_len<string>(&s.values);
+    for (i in 0..n) { List_push<string>(out, List_get<string>(&s.values, i)); }
+    return n;
+}
+
+// The i-th positional value in command-line order (null past the end).
+string args_positional(ArgParser* p, int i) {
+    if (i < 0 || i >= List_len<string>(&p.positionals)) { return null; }
+    return List_get<string>(&p.positionals, i);
+}
+
+// How many positional values there were.
+int args_positional_count(ArgParser* p) {
+    return List_len<string>(&p.positionals);
+}
+
+// Append the arguments that came after `--` to `out`; returns how many.
+int args_rest(ArgParser* p, List<string>* out) {
+    const int n = List_len<string>(&p.rest);
+    for (i in 0..n) { List_push<string>(out, List_get<string>(&p.rest, i)); }
+    return n;
+}

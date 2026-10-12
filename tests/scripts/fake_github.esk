@@ -1,0 +1,52 @@
+// A stand-in for the GitHub REST API, for tests/scripts/check.sh: it answers
+// /repos/eskiu-lang/eskiu and its /languages with fixed JSON, /repos/eskiu-lang/broken
+// with text that is not JSON, and 404 for anything else.
+//
+//   fake_github PORT READY_FILE
+//
+// Once it answers it writes READY_FILE, then serves for at most 120 seconds (the
+// test kills it sooner).
+import <http>;
+import <fetch>;
+import <fs>;
+import <time>;
+extern int atoi(string s);
+
+void handler(HttpRequest* req, HttpResponse* res) {
+    HttpResponse_header(res, "Content-Type", "application/json");
+    if (req.path.eq_cstr("/repos/eskiu-lang/eskiu") == 1) {
+        HttpResponse_set_body(res,
+            "{\"full_name\":\"eskiu-lang/eskiu\",\"description\":\"A systems language that also runs scripts\","
+            "\"stargazers_count\":12345,\"forks_count\":678,\"open_issues_count\":9,"
+            "\"license\":{\"spdx_id\":\"MIT\"},\"language\":\"C++\"}");
+    } else if (req.path.eq_cstr("/repos/eskiu-lang/eskiu/languages") == 1) {
+        HttpResponse_set_body(res,
+            "{\"C++\":2400000,\"Eskiu\":1500000,\"Shell\":60000,\"Python\":30000,\"HTML\":9000,\"CMake\":1000}");
+    } else if (req.path.eq_cstr("/repos/eskiu-lang/broken") == 1) {
+        HttpResponse_header(res, "Content-Type", "text/plain");
+        HttpResponse_set_body(res, "rate limited, try later");
+    } else {
+        res.status = 404;
+        HttpResponse_set_body(res, "{\"message\":\"Not Found\"}");
+    }
+}
+
+int main(int argc, string* argv) {
+    if (argc != 3) { return 2; }
+    int port = atoi(argv[1]);
+    thread_create(void() { http_serve(port, 2, handler); });
+    let url: String;  url.init(64);
+    str_format(&url, "http://127.0.0.1:%d/ping", port);
+    let r: Response;
+    int rc = -1;
+    for (int i = 0; i < 250 && rc != 0; i++) {
+        rc = fetch(url.cstr(), &r);
+        Response_free(&r);
+        if (rc != 0) { sleep_ms(20); }
+    }
+    url.free();
+    if (rc != 0) { return 1; }
+    fs_write_text(argv[2], "ready\n");
+    sleep_ms(120000);
+    return 0;
+}

@@ -27,6 +27,7 @@ jobs:
             mingw-w64-x86_64-llvm
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
+            diffutils
 
       - name: Configure
         run: |
@@ -151,6 +152,33 @@ jobs:
           out=$(timeout 20 ./async.exe)
           echo "program output: $out"
           test "$out" = "read heo"
+
+      - name: Scripting stdlib (build every new module's tests, run the portable ones)
+        run: |
+          # Every test of the 0.10 scripting modules and the two example scripts must
+          # build for Windows. The tests whose output does not depend on the platform
+          # (no shell commands, no printf exponent format, no terminal) then run and must
+          # print their .expected text. git may check the files out with CRLF, so both
+          # sides drop CRs before the diff.
+          set -eo pipefail
+          export ESKIU_ROOT="$PWD"
+          mkdir -p winbin
+          for t in string_script list_script map_script json_build csv dotenv hash url_parse \
+                   args term log time_format console_io fs_dir process_run dns_connect \
+                   fetch_basic fetch_raw fetch_async fetch_no_tls; do
+            echo "build $t"
+            ./build/eskiuc.exe "tests/$t.esk" -o "winbin/$t.exe"
+          done
+          for s in repo_stats organize; do
+            echo "build examples/scripts/$s"
+            ./build/eskiuc.exe "examples/scripts/$s.esk" -o "winbin/$s.exe"
+          done
+          for t in list_script map_script csv dotenv hash url_parse; do
+            echo "run $t"
+            timeout 60 "./winbin/$t.exe" | tr -d '\r' > "winbin/$t.out"
+            tr -d '\r' < "tests/$t.expected" > "winbin/$t.want"
+            diff -u "winbin/$t.want" "winbin/$t.out"
+          done
 
       - name: Package
         run: |

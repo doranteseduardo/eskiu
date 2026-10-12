@@ -1,0 +1,46 @@
+// gic.esk: GICv2 interrupt controller for QEMU -M virt
+//
+// The distributor (GICD) routes interrupts and the CPU interface (GICC) is where
+// this core acknowledges them. The Makefile asks QEMU for gic-version=2.
+
+const int64 GICD_BASE = 0x08000000;
+const int64 GICC_BASE = 0x08010000;
+
+const int64 GICD_CTLR       = GICD_BASE + 0x000;
+const int64 GICD_ISENABLER  = GICD_BASE + 0x100;   // one bit per interrupt
+const int64 GICD_IPRIORITYR = GICD_BASE + 0x400;   // one byte per interrupt
+
+const int64 GICC_CTLR = GICC_BASE + 0x000;
+const int64 GICC_PMR  = GICC_BASE + 0x004;   // priority mask
+const int64 GICC_IAR  = GICC_BASE + 0x00C;   // reading it acknowledges an interrupt
+const int64 GICC_EOIR = GICC_BASE + 0x010;   // writing it ends one
+
+// What GICC_IAR reads when nothing is pending.
+const int64 GIC_SPURIOUS = 1023;
+
+void gic_init() {
+    volatile let dctlr: *uint32 = (*uint32)GICD_CTLR;
+    volatile let cctlr: *uint32 = (*uint32)GICC_CTLR;
+    volatile let pmr: *uint32 = (*uint32)GICC_PMR;
+    *dctlr = 1;
+    *pmr = 0xFF;     // let every priority through
+    *cctlr = 1;
+}
+
+void gic_enable(int64 irq) {
+    volatile let prio: *uint8 = (*uint8)GICD_IPRIORITYR;
+    volatile let enable: *uint32 = (*uint32)GICD_ISENABLER;
+    prio[irq] = 0x80;
+    enable[irq / 32] = (uint32)(1 << (irq % 32));
+}
+
+// The raw IAR value: the interrupt id is in bits [9:0], and gic_eoi wants it whole.
+int64 gic_ack() {
+    volatile let iar: *uint32 = (*uint32)GICC_IAR;
+    return (int64)*iar;
+}
+
+void gic_eoi(int64 iar) {
+    volatile let eoir: *uint32 = (*uint32)GICC_EOIR;
+    *eoir = (uint32)iar;
+}

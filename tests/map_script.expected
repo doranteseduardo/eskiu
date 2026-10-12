@@ -1,0 +1,19 @@
+empty: len 0 has 0 get_or -1 remove 0
+len 3 has 1 0 get_or 5 99
+keys: apple,banana,cherry
+values: 4 5 7
+each: total 16 seen 3
+remove: 1 0 len 2 has 0
+after: 4 7
+big: removed 3333 len 1667 ok 1
+reinsert: 11 1668
+hashmap: len 20 ok 1 has 1 0 remove 0
+hashmap keys: 20 first 0 last 38 ksum 380 vsum 3800
+cstr: 1 0
+set empty: 0 0 0
+add: 1 0 1
+set: len 17 has 1 0
+remove: 1 0 len 16
+items: 16 first 0 last 15
+each sum: 120
+words: 4 1 0

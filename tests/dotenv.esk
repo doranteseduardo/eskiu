@@ -1,0 +1,77 @@
+// <dotenv>: parsing rules, errors with line numbers, and loading into the
+// environment with and without overriding.
+import <dotenv>;
+
+extern int printf(string fmt, ...);
+
+void show(Map<string>* m, string key) {
+    string v = null;
+    if (Map_get<string>(m, key, &v) == 1) { printf("%s=[%s]\n", key, v); }
+    else { printf("%s unset\n", key); }
+}
+
+void bad(string text) {
+    let m: Map<string>;  Map_init<string>(&m, 8);
+    let msg: String;  msg.init(32);
+    const int rc = dotenv_parse(text, &m);
+    dotenv_error(&msg);
+    printf("bad %d (%d) %s\n", rc, dotenv_error_line(), msg.data);
+    msg.free();
+    dotenv_free(&m);
+}
+
+int main() {
+    let m: Map<string>;  Map_init<string>(&m, 8);
+    string text = "# comment\n\n  PLAIN=hello world  \nexport EXPORTED=yes\r\nSPACED = spaced value # trailing comment\nHASH=a#b\nCOMMENT_ONLY= # nothing\nEMPTY=\nSINGLE='literal $x \\n # kept'\nDOUBLE=\"a\\nb \\\"q\\\" \\\\ \\t|\\x\"  # after\nMULTI=\"line1\nline2\"\nDUP=first\nDUP=second\ndotted.name-x=ok\n\texport\tTABBED=\t1\t\nLAST=no newline";
+    printf("count %d\n", dotenv_parse(text, &m));
+    show(&m, "PLAIN");
+    show(&m, "EXPORTED");
+    show(&m, "SPACED");
+    show(&m, "HASH");
+    show(&m, "COMMENT_ONLY");
+    show(&m, "EMPTY");
+    show(&m, "SINGLE");
+    show(&m, "DOUBLE");
+    show(&m, "MULTI");
+    show(&m, "DUP");
+    show(&m, "dotted.name-x");
+    show(&m, "TABBED");
+    show(&m, "LAST");
+    show(&m, "export");
+    printf("len %d\n", Map_len<string>(&m));
+    dotenv_free(&m);
+
+    bad("A=1\nB\n");
+    bad("A=1\n\n9X=2\n");
+    bad("A=1\nB=\"open\nstill\n");
+    bad("A='open");
+    bad("A=\"x\" y\n");
+    bad("=nothing\n");
+    let ok: String;  ok.init(8);
+    Map_init<string>(&m, 8);
+    dotenv_parse("A=1", &m);
+    dotenv_error(&ok);
+    printf("after success [%s] line %d\n", ok.data, dotenv_error_line());
+    dotenv_free(&m);
+
+    // Loading: existing variables are kept unless overriding.
+    let path: String;  path.init(64);
+    fs_temp_file("dotenv", &path);
+    fs_write_text((string)path.data, "ESKIU_DOTENV_A=from-file\nESKIU_DOTENV_B=\"two words\"\n");
+    env_set("ESKIU_DOTENV_A", "preset");
+    env_unset("ESKIU_DOTENV_B");
+    printf("load %d A=%s B=%s\n", dotenv_load((string)path.data), env_get("ESKIU_DOTENV_A"), env_get("ESKIU_DOTENV_B"));
+    printf("override %d A=%s\n", dotenv_load_override((string)path.data), env_get("ESKIU_DOTENV_A"));
+
+    // An error sets nothing.
+    fs_write_text((string)path.data, "ESKIU_DOTENV_C=1\nbroken line\n");
+    printf("broken %d line %d C=%d\n", dotenv_load((string)path.data), dotenv_error_line(), env_has("ESKIU_DOTENV_C"));
+    fs_remove((string)path.data);
+
+    printf("missing %d line %d\n", dotenv_load((string)path.data), dotenv_error_line());
+    dotenv_error(&ok);
+    printf("message starts %d\n", ok.starts_with("cannot read "));
+    ok.free();
+    path.free();
+    return 0;
+}

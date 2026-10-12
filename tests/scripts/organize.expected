@@ -1,0 +1,129 @@
+$ organize --dry-run
+would move  Makefile -> other/
+would move  README.TXT -> txt/
+would move  cat-copy.jpg -> duplicates/  (duplicate)
+would move  data.csv -> csv/
+would move  notes.txt -> txt/
+would move  one.log -> log/
+would move  report.pdf -> pdf/
+would move  todo.txt -> duplicates/  (duplicate)
+would move  two.log -> duplicates/  (duplicate)
+
+folder        files       size
+csv               1       19 B
+duplicates        3       23 B
+log               1        4 B
+other             1        5 B
+pdf               1       14 B
+txt               2       18 B
+stderr: INFO  files already in folders: 3
+stderr: INFO  loose files: 10
+stderr: WARN  skipped draft.txt: txt/draft.txt already exists
+exit 0
+./.hidden
+./Makefile
+./README.TXT
+./cat-copy.jpg
+./data.csv
+./draft.txt
+./notes.txt
+./one.log
+./photos/cat.jpg
+./report.pdf
+./todo.txt
+./two.log
+./txt/draft.txt
+./txt/todo.txt
+$ organize --report report.csv
+moved       Makefile -> other/
+moved       README.TXT -> txt/
+moved       cat-copy.jpg -> duplicates/  (duplicate)
+moved       data.csv -> csv/
+moved       notes.txt -> txt/
+moved       one.log -> log/
+moved       report.pdf -> pdf/
+moved       todo.txt -> duplicates/  (duplicate)
+moved       two.log -> duplicates/  (duplicate)
+
+folder        files       size
+csv               1       19 B
+duplicates        3       23 B
+log               1        4 B
+other             1        5 B
+pdf               1       14 B
+txt               2       18 B
+stderr: INFO  files already in folders: 3
+stderr: INFO  loose files: 10
+stderr: WARN  skipped draft.txt: txt/draft.txt already exists
+stderr: INFO  report written to TMP/report.csv
+exit 0
+./.hidden
+./csv/data.csv
+./draft.txt
+./duplicates/cat-copy.jpg
+./duplicates/todo.txt
+./duplicates/two.log
+./log/one.log
+./other/Makefile
+./pdf/report.pdf
+./photos/cat.jpg
+./txt/README.TXT
+./txt/draft.txt
+./txt/notes.txt
+./txt/todo.txt
+file,folder,bytes,modified,sha256,action
+Makefile,other,5,2026-10-01 08:00,dadd6bd529dc891f2252764150177c3d2ef3124745fcab282c4a12ed797f6e47,move
+README.TXT,txt,12,2026-09-15 09:30,2949725604dd9eef82100f8ff39fcced9d3682700ee2fb5c4205e3e584defee6,move
+cat-copy.jpg,duplicates,8,2026-10-01 08:00,8fd093d64da687d9404c8f645ce96781b5dfd5caa4d516ea27ac693fc5d1c14a,duplicate
+data.csv,csv,19,2026-10-01 08:00,89222e6293c69aa6e0828486391186fea1c0d9d65eb05e314678b227503e3b94,move
+draft.txt,txt,3,2026-09-15 09:30,11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437,exists
+notes.txt,txt,6,2026-09-15 09:30,5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03,move
+one.log,log,4,2026-09-15 09:30,0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5,move
+report.pdf,pdf,14,2026-10-01 08:00,9bc957703ac9aeb2174ecf08607150fa7ffa369c081f9201bdf2d27ee5fcb844,move
+todo.txt,duplicates,11,2026-10-01 08:00,46a496fb049d9ca6b7083dd942d13c1e5a3766e5eb7b89c50b3553035e721119,duplicate
+two.log,duplicates,4,2026-09-15 09:30,0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5,duplicate
+$ organize (again)
+nothing to organize
+stderr: INFO  files already in folders: 12
+stderr: INFO  loose files: 1
+stderr: WARN  skipped draft.txt: txt/draft.txt already exists
+exit 0
+$ organize --by date
+moved       Makefile -> 2026-10/
+moved       README.TXT -> 2026-09/
+moved       cat-copy.jpg -> duplicates/  (duplicate)
+moved       data.csv -> 2026-10/
+moved       draft.txt -> 2026-09/
+moved       notes.txt -> 2026-09/
+moved       one.log -> 2026-09/
+moved       report.pdf -> 2026-10/
+moved       todo.txt -> duplicates/  (duplicate)
+moved       two.log -> duplicates/  (duplicate)
+
+folder        files       size
+2026-09           4       25 B
+2026-10           3       38 B
+duplicates        3       23 B
+stderr: INFO  files already in folders: 3
+stderr: INFO  loose files: 10
+exit 0
+./.hidden
+./2026-09/README.TXT
+./2026-09/draft.txt
+./2026-09/notes.txt
+./2026-09/one.log
+./2026-10/Makefile
+./2026-10/data.csv
+./2026-10/report.pdf
+./duplicates/cat-copy.jpg
+./duplicates/todo.txt
+./duplicates/two.log
+./photos/cat.jpg
+./txt/draft.txt
+./txt/todo.txt
+$ organize --by size
+stderr: ERROR --by takes ext or date, not 'size'
+exit 2
+$ organize (missing dir)
+stderr: ERROR not a directory: TMP/nope
+exit 2

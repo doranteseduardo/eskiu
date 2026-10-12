@@ -1,0 +1,29 @@
+doc {"name":"Eskiu","year":2026,"pi":3.141592653589793,"ok":true,"none":null,"tags":["systems","tab\there \"q\" \\ nl\n",[],{}]}
+set 0
+remove 1 0
+edited {"name":"Eskiu","year":0.1,"pi":3.141592653589793,"ok":true,"tags":["systems","tab\there \"q\" \\ nl\n",[],{}]}
+refused -1 -1
+{
+  "name": "Eskiu",
+  "year": 0.1,
+  "pi": 3.141592653589793,
+  "ok": true,
+  "tags": [
+    "systems",
+    "tab\there \"q\" \\ nl\n",
+    [],
+    {}
+  ]
+}
+nums [-9007199254740991,1e+300,-0,2.5e-08,null,null]
+roundtrip 1
+nul ["a\u0000b",{},[]]
+second
+7
+4
+self 1
+missing 1 1 1 1
+malformed 1 1 1 1 1
+member {"name":"first"}
+deep len 200002
+null null

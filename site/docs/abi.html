@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.0</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.9.3</a>
+        <a class="btn-install" href="../index.html#install">Install 0.10.0</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -398,13 +398,20 @@ converts to and from it, so it links against C compiled by clang/gcc:</p>
 (<code>tests/selfhost/cabi_parity.sh</code> checks the 32-bit x86 ones against clang's IR
 for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
 <code>va_list</code> are not C aggregates and keep their own layout.</p>
+<p>Where gcc and clang disagree, Eskiu follows clang. The one known case: since GCC 12, gcc on
+x86-64 classifies a struct holding a zero-width bitfield (<code>uint32 : 0;</code>) differently when it
+is passed or returned by value, so such a struct crossing an <code>extern</code> matches C compiled by
+clang, not by GCC 12 or later.</p>
 <p><strong>Narrow integers.</strong> Like clang, an <code>extern</code>'s <code>int8</code>/<code>int16</code>/<code>uint8</code>/<code>uint16</code>/
 <code>bool</code>/<code>char</code> parameters and results are declared <code>signext</code> or <code>zeroext</code> (by the
 type's signedness; <code>char</code> follows the target's C <code>char</code>, unsigned on AArch64 and
 32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
 32 bits. Every Eskiu function returning one extends its result (<code>define signext
 i8 @f</code>), since a C caller (a callback, or C calling it by name) relies on that on
-AArch64 Darwin and x86-64.</p>
+AArch64 Darwin and x86-64. Two targets extend nothing, as clang: AArch64 outside Darwin
+(AAPCS64 leaves the upper bits unspecified, so the receiver extends) and Windows x64,
+where only a <code>bool</code> is <code>zeroext</code>. Declaring <code>signext</code> there would make Eskiu trust bits a
+clang-compiled callee never set.</p>
 <p><strong>Callbacks from C.</strong> An Eskiu function handed to C as a raw function pointer
 (<code>(*void)f</code>, the cast of a top-level function name to a pointer type) is called
 with the C convention. When it takes or returns an aggregate by value, the cast

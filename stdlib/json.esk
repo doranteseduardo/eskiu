@@ -38,12 +38,12 @@ void Json_sep(Json* self) {
     self.buf.push(',');
 }
 
-// Append a JSON string literal: `"` and backslash are escaped, and every
-// control byte below 0x20 becomes \n \t \r \b \f or \u00XX (RFC 8259 §7).
-void Json_raw_str(Json* self, string s) {
-    String* out = &self.buf;
+// Append `n` bytes at `s` to `out` as a JSON string literal: `"` and backslash
+// are escaped, and every control byte below 0x20 (NUL included) becomes
+// \n \t \r \b \f or \u00XX (RFC 8259 §7). Other bytes are copied as they are.
+void _json_escape(String* out, *char s, int64 n) {
     out.push('"');
-    for (int i = 0; s[i] != 0; i++) {
+    for (int64 i = 0; i < n; i++) {
         const char c = s[i];
         const int u = (int)(uint8)c;
         if (c == '"' || c == '\\') { out.push('\\'); out.push(c); }
@@ -60,6 +60,11 @@ void Json_raw_str(Json* self, string s) {
         else { out.push(c); }
     }
     out.push('"');
+}
+
+// Append a JSON string literal for the C string `s` (see _json_escape).
+void Json_raw_str(Json* self, string s) {
+    _json_escape(&self.buf, (*char)s, strlen(s));
 }
 
 void Json_obj_begin(Json* self) { Json_sep(self); self.buf.push('{'); }
@@ -437,6 +442,261 @@ void JParser_word(JParser* self, string word) {
     if (p.err == 1) {
         JsonValue_free(v);
         return null;
+    }
+    return v;
+}
+
+// ── Building, editing and printing documents ─────────────────────────────────
+//
+//   *JsonValue doc = JsonValue_object();
+//   JsonValue_set(doc, "name", JsonValue_string("Eskiu"));
+//   *JsonValue tags = JsonValue_array();
+//   JsonValue_push(tags, JsonValue_string("systems"));
+//   JsonValue_set(doc, "tags", tags);
+//   let out: String;  out.init(64);
+//   JsonValue_stringify(doc, &out);       // {"name":"Eskiu","tags":["systems"]}
+//   *JsonValue t0 = json_get(doc, "tags[0]");
+//   out.free();
+//   JsonValue_free(doc);
+//
+// Ownership: a container owns its children. JsonValue_set and JsonValue_push
+// take ownership of `val` (a fresh value, not one already inside a container),
+// JsonValue_set and JsonValue_remove free the member they replace or remove, and
+// JsonValue_free on the root frees the whole document. JsonValue_get,
+// JsonValue_at and json_get return borrowed pointers into the tree, valid until
+// that node is removed, replaced or freed. Numbers are doubles, so an integer
+// beyond 2^53 loses precision.
+
+*JsonValue JsonValue_object() { return JsonValue_new(JObject); }
+*JsonValue JsonValue_array()  { return JsonValue_new(JArray); }
+*JsonValue JsonValue_null()   { return JsonValue_new(JNull); }
+
+*JsonValue JsonValue_string(string s) {
+    *JsonValue v = JsonValue_new(JString);
+    v.str.from(s);
+    return v;
+}
+
+*JsonValue JsonValue_number(double d) {
+    *JsonValue v = JsonValue_new(JNumber);
+    v.num = d;
+    return v;
+}
+
+*JsonValue JsonValue_int(int64 i) {
+    *JsonValue v = JsonValue_new(JNumber);
+    v.num = (double)i;
+    return v;
+}
+
+*JsonValue JsonValue_bool(int b) {
+    *JsonValue v = JsonValue_new(JBool);
+    v.boolean = b != 0 ? 1 : 0;
+    return v;
+}
+
+// Free one node and its subtree, but not its siblings.
+void _json_free_one(JsonValue* v) {
+    v.next = null;
+    JsonValue_free(v);
+}
+
+// The member of `obj` whose key is the `n` bytes at `k`, or null.
+*JsonValue _json_member(JsonValue* obj, *char k, int64 n) {
+    for (*JsonValue c = obj.child; c != null; c = c.next) {
+        if (c.key.data != null && c.key.len == n && memcmp((*void)c.key.data, (*void)k, n) == 0) { return c; }
+    }
+    return null;
+}
+
+// Set member `key` of object `obj` to `val`, which `obj` then owns. A member
+// with that key is freed and replaced in its position; otherwise the member is
+// appended. Returns 0, or -1 (and leaves `val` with the caller) when `obj` is
+// not an object or `val` is null.
+int JsonValue_set(JsonValue* obj, string key, JsonValue* val) {
+    if (obj == null || val == null || obj.kind != JObject) { return -1; }
+    if (val.key.data != null) { val.key.free(); }
+    val.key.from(key);
+    val.next = null;
+    *JsonValue prev = null;
+    for (*JsonValue c = obj.child; c != null; c = c.next) {
+        if (c.key.data != null && c.key.eq_cstr(key) == 1) {
+            val.next = c.next;
+            if (prev == null) { obj.child = val; } else { prev.next = val; }
+            _json_free_one(c);
+            return 0;
+        }
+        prev = c;
+    }
+    if (prev == null) { obj.child = val; } else { prev.next = val; }
+    return 0;
+}
+
+// Append `val` to array `arr`, which then owns it. Returns 0, or -1 (and leaves
+// `val` with the caller) when `arr` is not an array or `val` is null.
+int JsonValue_push(JsonValue* arr, JsonValue* val) {
+    if (arr == null || val == null || arr.kind != JArray) { return -1; }
+    if (val.key.data != null) { val.key.free(); }
+    val.next = null;
+    if (arr.child == null) { arr.child = val; return 0; }
+    *JsonValue last = arr.child;
+    while (last.next != null) { last = last.next; }
+    last.next = val;
+    return 0;
+}
+
+// Remove member `key` from object `obj` and free it. Returns 1 if a member was
+// removed, else 0.
+int JsonValue_remove(JsonValue* obj, string key) {
+    if (obj == null || obj.kind != JObject) { return 0; }
+    *JsonValue prev = null;
+    for (*JsonValue c = obj.child; c != null; c = c.next) {
+        if (c.key.data != null && c.key.eq_cstr(key) == 1) {
+            if (prev == null) { obj.child = c.next; } else { prev.next = c.next; }
+            _json_free_one(c);
+            return 1;
+        }
+        prev = c;
+    }
+    return 0;
+}
+
+// Append a JSON number. NaN and the infinities have no JSON form and print as
+// null. Otherwise the first of %.15g / %.16g / %.17g that reads back as the
+// same double, so a number survives stringify + json_parse unchanged.
+void _json_number(String* out, double d) {
+    if (d != d || d - d != 0.0) { out.append("null"); return; }
+    let t: String;  t.init(32);
+    str_format(&t, "%.15g", d);
+    if (strtod((string)t.data, null) != d) { str_format(&t, "%.16g", d); }
+    if (strtod((string)t.data, null) != d) { str_format(&t, "%.17g", d); }
+    out.append((string)t.data);
+    t.free();
+}
+
+void _json_newline(String* out, int indent, int depth) {
+    out.push('\n');
+    for (int64 i = 0; i < (int64)indent * (int64)depth; i++) { out.push(' '); }
+}
+
+// Append one scalar or an empty container.
+void _json_leaf(String* out, JsonValue* v) {
+    if (v.kind == JNull) { out.append("null"); }
+    else if (v.kind == JBool) { out.append(v.boolean != 0 ? "true" : "false"); }
+    else if (v.kind == JNumber) { _json_number(out, v.num); }
+    else if (v.kind == JString) {
+        if (v.str.data == null) { out.append("\"\""); } else { _json_escape(out, v.str.data, v.str.len); }
+    }
+    else if (v.kind == JArray) { out.append("[]"); }
+    else { out.append("{}"); }
+}
+
+// Write `v` into `out` (cleared first). indent <= 0 is the compact form;
+// otherwise each element and member goes on its own line, indented by `indent`
+// spaces per level, with ": " after keys. The walk keeps its own stack of open
+// containers instead of recursing, so any depth prints. The key of `v` itself
+// (when it is an object member) is not printed.
+void _json_write(JsonValue* v, int indent, String* out) {
+    out.clear();
+    if (v == null) { out.append("null"); return; }
+    let open: List<*JsonValue>;
+    List_init<*JsonValue>(&open, 16);
+    *JsonValue cur = v;
+    while (true) {
+        const int depth = List_len<*JsonValue>(&open);
+        if (depth > 0) {
+            *JsonValue parent = List_get<*JsonValue>(&open, depth - 1);
+            if (indent > 0) { _json_newline(out, indent, depth); }
+            if (parent.kind == JObject) {
+                if (cur.key.data == null) { out.append("\"\""); } else { _json_escape(out, cur.key.data, cur.key.len); }
+                out.append(indent > 0 ? ": " : ":");
+            }
+        }
+        if ((cur.kind == JArray || cur.kind == JObject) && cur.child != null) {
+            out.push(cur.kind == JArray ? '[' : '{');
+            List_push<*JsonValue>(&open, cur);
+            cur = cur.child;
+            continue;
+        }
+        _json_leaf(out, cur);
+        // Move to the next sibling, closing every container that has none left.
+        bool done = true;
+        while (List_len<*JsonValue>(&open) > 0) {
+            if (cur.next != null) {
+                out.push(',');
+                cur = cur.next;
+                done = false;
+                break;
+            }
+            cur = List_pop<*JsonValue>(&open);
+            if (indent > 0) { _json_newline(out, indent, List_len<*JsonValue>(&open)); }
+            out.push(cur.kind == JArray ? ']' : '}');
+        }
+        if (done) { break; }
+    }
+    List_free<*JsonValue>(&open);
+}
+
+// Compact JSON text for `v` into `out` (cleared first): no spaces, strings
+// escaped per RFC 8259, numbers that read back as the same double.
+void JsonValue_stringify(JsonValue* v, String* out) { _json_write(v, 0, out); }
+
+// Indented JSON text for `v` into `out` (cleared first), `indent` spaces per
+// level (the JSON.stringify(v, null, indent) layout). indent <= 0 is compact.
+void JsonValue_pretty(JsonValue* v, int indent, String* out) { _json_write(v, indent, out); }
+
+// Follow `path` from `v` and return the value there (borrowed), or null when a
+// step is missing, has the wrong kind, or the path is malformed. A path is a
+// sequence of steps: `name` or `.name` (an object member; the first step has no
+// dot), `[N]` (array element N, decimal), and `["key"]` (an object member
+// whose key may hold dots or brackets; `\"` and `\\` escape inside it).
+// Examples: "data.items[0].name", "[2]", "a[\"x.y\"].b". An empty path
+// returns `v`.
+*JsonValue json_get(JsonValue* v, string path) {
+    int64 i = 0;
+    bool first = true;
+    while (v != null && path[i] != 0) {
+        if (path[i] == '[') {
+            i++;
+            if (path[i] == '"') {
+                i++;
+                let k: String;  k.init(16);
+                while (path[i] != '"') {
+                    if (path[i] == 0) { k.free(); return null; }
+                    if (path[i] == '\\' && (path[i + 1] == '"' || path[i + 1] == '\\')) { i++; }
+                    k.push(path[i]);
+                    i++;
+                }
+                i++;
+                if (path[i] != ']' || v.kind != JObject) { k.free(); return null; }
+                i++;
+                v = _json_member(v, k.data, k.len);
+                k.free();
+            } else {
+                if (path[i] < '0' || path[i] > '9') { return null; }
+                int64 n = 0;
+                while (path[i] >= '0' && path[i] <= '9') {
+                    n = n * 10 + (int64)((int)path[i] - '0');
+                    if (n > 2147483647) { return null; }
+                    i++;
+                }
+                if (path[i] != ']' || v.kind != JArray) { return null; }
+                i++;
+                v = JsonValue_at(v, (int)n);
+            }
+        } else {
+            if (path[i] == '.') {
+                if (first) { return null; }
+                i++;
+            } else if (!first) {
+                return null;
+            }
+            const int64 start = i;
+            while (path[i] != 0 && path[i] != '.' && path[i] != '[') { i++; }
+            if (i == start || v.kind != JObject) { return null; }
+            v = _json_member(v, (*char)path + start, i - start);
+        }
+        first = false;
     }
     return v;
 }

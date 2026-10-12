@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.0</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.9.3</a>
+        <a class="btn-install" href="../index.html#install">Install 0.10.0</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -158,7 +158,7 @@ a:hover { color: var(--ink); }
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
-<p>All code blocks in this document compile and run with <strong>Eskiu v0.9.3</strong>.</p>
+<p>All code blocks in this document compile and run with <strong>Eskiu v0.10.0</strong>.</p>
 <hr>
 <h2 id="installation">Installation</h2>
 <p>Prebuilt releases for macOS and Linux install with one command; see the
@@ -215,7 +215,7 @@ cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.9.3 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.10.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
@@ -257,7 +257,7 @@ temporary executable, runs it, and cleans up, forwarding any arguments after the
 </code></pre>
 <p>Add a shebang line and a <code>.esk</code> file becomes directly executable, the way a Python or Ruby
 script is:</p>
-<pre><code class="language-eskiu">#!/usr/bin/env eskiuc run
+<pre><code class="language-eskiu">#!/usr/bin/env -S eskiuc run
 extern int printf(string fmt, ...);
 int main() { printf(&quot;hello\n&quot;); return 0; }
 </code></pre>
@@ -1001,11 +1001,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;list&gt;</code></td>
-<td><code>List&lt;T&gt;</code>: <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code></td>
+<td><code>List&lt;T&gt;</code>: <code>List_init</code>, <code>push</code>, <code>get</code>, <code>len</code>, <code>free</code>; <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>find</code>, <code>any</code>, <code>all</code>, <code>contains</code>, <code>index_of</code>, <code>reverse</code>, <code>slice</code>, <code>unique</code>, <code>clear</code>, <code>pop</code>, <code>insert</code></td>
 </tr>
 <tr>
 <td><code>&lt;map&gt;</code></td>
-<td><code>Map&lt;V&gt;</code>: string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code>: keyed on any type via <code>hash</code>/<code>eq</code> function pointers</td>
+<td><code>Map&lt;V&gt;</code>: string-keyed hash map (<code>Map_init</code>/<code>_at</code>/<code>_get</code>/<code>_free</code>); <code>HashMap&lt;K,V&gt;</code>: keyed on any type via <code>hash</code>/<code>eq</code> function pointers; both with <code>has</code>, <code>get_or</code>, <code>len</code>, <code>remove</code>, <code>keys</code>, <code>values</code>, <code>each</code>; <code>Set&lt;T&gt;</code>: hash set (<code>add</code>/<code>has</code>/<code>remove</code>/<code>len</code>/<code>each</code>/<code>items</code>)</td>
 </tr>
 <tr>
 <td><code>&lt;bytes&gt;</code></td>
@@ -1013,7 +1013,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;string&gt;</code></td>
-<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code></td>
+<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code>; <code>find</code>, <code>contains</code>, <code>replace</code>, <code>replace_all</code>, <code>split_str</code>, <code>lines</code>, <code>join</code>, <code>lower</code>, <code>upper</code>, <code>repeat</code>, <code>pad_left</code>, <code>pad_right</code>, <code>to_double</code>, <code>parse_double</code>, <code>from_double</code>, <code>appendf</code>; <code>str_join</code>, <code>str_format</code></td>
 </tr>
 <tr>
 <td><code>&lt;ctype&gt;</code></td>
@@ -1025,7 +1025,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;io&gt;</code></td>
-<td><code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code></td>
+<td><code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>; <code>print</code>, <code>println</code>, <code>print_err</code>, <code>println_err</code>, <code>read_line</code>, <code>input</code>, <code>read_all_stdin</code></td>
 </tr>
 <tr>
 <td><code>&lt;mem&gt;</code></td>
@@ -1065,19 +1065,39 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;fs&gt;</code></td>
-<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_flush</code>, <code>fs_read</code>, <code>fs_readline</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code></td>
+<td><code>fs_open</code>, <code>fs_close</code>, <code>fs_flush</code>, <code>fs_read</code>, <code>fs_readline</code>, <code>fs_write</code>, <code>fs_puts</code>, <code>fs_seek</code>, <code>fs_tell</code>, <code>fs_size</code>, <code>fs_read_all</code>, <code>fs_write_all</code>, <code>fs_eof</code>, <code>fs_error</code>; <code>fs_read_text</code>, <code>fs_write_text</code>, <code>fs_append_text</code>, <code>fs_read_lines</code>, <code>fs_stat</code>, <code>fs_exists</code>, <code>fs_is_dir</code>, <code>fs_is_file</code>, <code>fs_mkdir</code>, <code>fs_mkdir_p</code>, <code>fs_remove</code>, <code>fs_remove_all</code>, <code>fs_rename</code>, <code>fs_copy</code>, <code>fs_list_dir</code>, <code>fs_walk</code>, <code>fs_glob</code>, <code>fs_cwd</code>, <code>fs_chdir</code>, <code>fs_temp_file</code>, <code>fs_temp_dir</code>, <code>fs_last_error</code></td>
 </tr>
 <tr>
 <td><code>&lt;net&gt;</code></td>
-<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code>, <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
+<td>TCP sockets: <code>net_tcp_listen</code>, <code>net_accept</code>, <code>net_tcp_connect</code> (IPv4 address or host name), <code>net_send</code>, <code>net_recv</code>, <code>net_close</code></td>
+</tr>
+<tr>
+<td><code>&lt;dns&gt;</code></td>
+<td><code>dns_resolve</code> (IPv4 and IPv6 addresses of a host), <code>dns_free_list</code>, <code>dns_last_error</code></td>
 </tr>
 <tr>
 <td><code>&lt;http&gt;</code></td>
 <td>HTTP/1.1: <code>HttpRequest</code>/<code>HttpResponse</code>, threaded <code>http_serve(port, workers, handler)</code></td>
 </tr>
 <tr>
+<td><code>&lt;fetch&gt;</code></td>
+<td>HTTP client for <code>http://</code> and <code>https://</code>: <code>fetch</code>, <code>fetch_with</code> + <code>FetchOptions</code> (method, headers, body, JSON body, timeout, redirects, body cap), <code>fetch_async</code>; <code>Response</code> with <code>Response_header</code>, <code>Response_text</code>, <code>Response_bytes</code>, <code>Response_json</code>, <code>Response_ok</code>; <code>fetch_last_error</code></td>
+</tr>
+<tr>
 <td><code>&lt;json&gt;</code></td>
-<td><code>Json</code> builder + <code>json_parse</code> → <code>JsonValue</code> tree</td>
+<td><code>Json</code> builder + <code>json_parse</code> → <code>JsonValue</code> tree; build and edit with <code>JsonValue_object</code>/<code>_array</code>/<code>_set</code>/<code>_push</code>/<code>_remove</code>, print with <code>JsonValue_stringify</code>/<code>_pretty</code>, paths with <code>json_get</code></td>
+</tr>
+<tr>
+<td><code>&lt;csv&gt;</code></td>
+<td>RFC 4180 CSV: <code>csv_parse</code> into a <code>CsvTable</code> (<code>CsvTable_get(t, row, "column")</code>), <code>csv_write_row</code></td>
+</tr>
+<tr>
+<td><code>&lt;dotenv&gt;</code></td>
+<td><code>.env</code> files: <code>dotenv_load</code>, <code>dotenv_load_override</code>, <code>dotenv_parse</code></td>
+</tr>
+<tr>
+<td><code>&lt;hash&gt;</code></td>
+<td>SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), <code>hex_encode</code>/<code>hex_decode</code>, <code>hash_equal</code></td>
 </tr>
 <tr>
 <td><code>&lt;multipart&gt;</code></td>
@@ -1097,11 +1117,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;sort&gt;</code></td>
-<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function</td>
+<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function; <code>List_sort_by</code> sorts a <code>List&lt;T&gt;</code></td>
 </tr>
 <tr>
 <td><code>&lt;url&gt;</code></td>
-<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, and form-query lookup <code>url_query_get</code></td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, form-query lookup <code>url_query_get</code>; <code>url_parse</code> into a <code>Url</code>, <code>url_resolve</code>, <code>url_query_add</code></td>
 </tr>
 <tr>
 <td><code>&lt;uuid&gt;</code></td>
@@ -1109,11 +1129,27 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;time&gt;</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>)</td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>); local time, <code>time_format</code>/<code>time_parse</code> (strftime-style), <code>duration_format</code>, <code>Stopwatch</code></td>
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>
-<td><code>env_get</code>, <code>env_has</code>, <code>env_get_or</code>, <code>env_get_int</code></td>
+<td><code>env_get</code>, <code>env_has</code>, <code>env_get_or</code>, <code>env_get_int</code>, <code>env_set</code>, <code>env_unset</code>, <code>env_list</code></td>
+</tr>
+<tr>
+<td><code>&lt;process&gt;</code></td>
+<td><code>process_run</code> (capture output, stdin text, cwd, env, timeout), <code>sh</code>, <code>sh_with</code>, <code>process_spawn</code> + <code>Process_write_stdin</code>/<code>_read</code>/<code>_wait</code>/<code>_kill</code>, <code>process_exit</code>, <code>process_pid</code></td>
+</tr>
+<tr>
+<td><code>&lt;args&gt;</code></td>
+<td>command-line parsing: <code>ArgParser</code>, <code>args_flag</code>, <code>args_option</code>, <code>args_option_int</code>, <code>args_argument</code>, generated <code>--help</code>, <code>ArgParser_parse_or_exit</code>, <code>args_get</code>/<code>args_get_int</code>/<code>args_get_flag</code>/<code>args_count</code></td>
+</tr>
+<tr>
+<td><code>&lt;term&gt;</code></td>
+<td>ANSI styles and colors (<code>TERM_BOLD \| TERM_RED</code>, <code>term_fg256</code>, <code>term_rgb</code>), <code>term_style</code>, <code>term_println</code>, <code>term_is_tty</code>, <code>term_width</code>; honors <code>NO_COLOR</code>/<code>FORCE_COLOR</code></td>
+</tr>
+<tr>
+<td><code>&lt;log&gt;</code></td>
+<td><code>log_info</code>/<code>log_warn</code>/<code>log_error</code>/<code>log_debug</code>/<code>log_trace</code> (printf-style), <code>LOG_LEVEL</code> or <code>log_set_level</code>, timestamps, <code>log_set_file</code></td>
 </tr>
 <tr>
 <td><code>&lt;path&gt;</code></td>
@@ -1211,6 +1247,86 @@ void handle(HttpRequest* req, HttpResponse* res) {
 
 int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
 </code></pre>
+<h3 id="fetching-a-url">Fetching a URL</h3>
+<p><code>&lt;fetch&gt;</code> is an HTTP/1.1 client. <code>fetch(url, &amp;r)</code> does a GET and returns 0 once a
+response arrived (any status), or a negative error code; <code>fetch_last_error()</code> says
+what went wrong. Free the response with <code>Response_free</code> either way.</p>
+<pre><code class="language-eskiu">import &lt;fetch&gt;;
+extern int printf(string fmt, ...);
+
+int main() {
+    let r: Response;
+    defer Response_free(&amp;r);
+    if (fetch(&quot;https://api.github.com/repos/llvm/llvm-project&quot;, &amp;r) != 0) {
+        printf(&quot;error: %s\n&quot;, fetch_last_error());
+        return 1;
+    }
+    printf(&quot;HTTP %d, %lld bytes\n&quot;, r.status, r.body.len);
+    *JsonValue repo = Response_json(&amp;r);            // null if the body is not JSON
+    if (repo != null) {
+        printf(&quot;stars: %lld\n&quot;, JsonValue_as_int(JsonValue_get(repo, &quot;stargazers_count&quot;)));
+        JsonValue_free(repo);
+    }
+    return 0;
+}
+</code></pre>
+<p>For a POST, headers or a timeout, fill a <code>FetchOptions</code> and call <code>fetch_with</code>:</p>
+<pre><code class="language-eskiu">let o: FetchOptions;  FetchOptions_init(&amp;o);
+defer FetchOptions_free(&amp;o);
+FetchOptions_method(&amp;o, &quot;POST&quot;);
+FetchOptions_header(&amp;o, &quot;Authorization&quot;, &quot;Bearer abc&quot;);
+FetchOptions_body_text(&amp;o, &quot;{\&quot;name\&quot;:\&quot;eskiu\&quot;}&quot;);
+o.timeout_ms = 5000;
+int rc = fetch_with(&quot;https://example.com/api/items&quot;, &amp;o, &amp;r);
+</code></pre>
+<p>Redirects are followed (up to 10). HTTPS loads OpenSSL (libssl 3 or 1.1) the first
+time it is needed, so a program that only fetches <code>http://</code> URLs runs without it; on
+macOS install it with <code>brew install openssl@3</code>, on Debian or Ubuntu it is the <code>libssl3</code>
+package (usually present already).</p>
+<h3 id="scripting">Scripting</h3>
+<p>With <code>eskiuc run</code> and a <code>#!/usr/bin/env -S eskiuc run</code> line (see
+<a href="#run-it-like-a-script">Run it like a script</a>), the modules above cover what small
+tools usually need: <code>&lt;fs&gt;</code> for files and directories, <code>&lt;process&gt;</code> to run commands,
+<code>&lt;fetch&gt;</code> for HTTP, <code>&lt;json&gt;</code>, <code>&lt;csv&gt;</code>, <code>&lt;dotenv&gt;</code> and <code>&lt;hash&gt;</code> for data, <code>&lt;args&gt;</code>,
+<code>&lt;term&gt;</code> and <code>&lt;log&gt;</code> for the command line, and <code>&lt;time&gt;</code> for dates. This script
+counts the lines of each <code>.esk</code> file under a directory, largest first:</p>
+<pre><code class="language-eskiu">#!/usr/bin/env -S eskiuc run
+import &lt;args&gt;;
+import &lt;fs&gt;;
+import &lt;sort&gt;;
+
+struct Count { String path; int lines; }
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&amp;p, &quot;count_lines&quot;, &quot;Count the lines of the .esk files under DIR.&quot;);
+    args_argument(&amp;p, &quot;dir&quot;, &quot;where to look&quot;, ARGS_REQUIRED);
+    ArgParser_parse_or_exit(&amp;p, argc, argv);
+
+    let pattern: String;  pattern.from(args_get(&amp;p, &quot;dir&quot;));
+    pattern.append(&quot;/**/*.esk&quot;);
+    let files: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;files, 16);
+    fs_glob(pattern.cstr(), &amp;files);
+
+    let counts: List&lt;Count&gt;;  List_init&lt;Count&gt;(&amp;counts, 16);
+    let lines: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;lines, 64);
+    for (i in 0..files.size) {
+        if (fs_read_lines(files.data[i].cstr(), &amp;lines) == 0) {
+            counts.push(Count { path: files.data[i], lines: lines.size });
+        }
+        fs_list_free(&amp;lines);
+        List_init&lt;String&gt;(&amp;lines, 64);
+    }
+    counts.sort_by(int(*Count a, *Count b) { return b.lines - a.lines; });
+    for (i in 0..counts.size) { printf(&quot;%6d  %s\n&quot;, counts.data[i].lines, counts.data[i].path.cstr()); }
+    return 0;
+}
+</code></pre>
+<p><code>examples/scripts/</code> has two longer ones: <code>repo_stats.esk</code> (the GitHub API through
+<code>&lt;fetch&gt;</code>, a colored summary or JSON) and <code>organize.esk</code> (sorting a directory's files
+into folders, with duplicates found by SHA-256 and a CSV report). Chapter 25 of
+<a href="https://eskiu-lang.org/the-book-of-eskiu.html#chapter-25">The Book of Eskiu</a> walks
+through every module with a runnable example.</p>
 <hr>
 <h2 id="lambdas">Lambdas</h2>
 <p>Eskiu supports anonymous functions (lambdas) as first-class values. The syntax

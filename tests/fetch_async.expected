@@ -1,0 +1,9 @@
+first to finish: fast
+fast: 200 [fast done] redirects=0
+slow: 200 [slow done] redirects=0
+both within 2 s: 1
+redirect: 200 [fast done] redirects=1
+put: 200 [PUT:payload] redirects=0
+timeout: rc=-4 (timed out after 300 ms (waiting for the response))
+refused: rc=-3
+done 0

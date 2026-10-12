@@ -10,6 +10,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Passes/PassBuilder.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
 #include "llvm/Transforms/Instrumentation/BoundsChecking.h"
 #include "llvm/TargetParser/Host.h"
@@ -226,6 +227,16 @@ void CodeGen::optimizeModule() {
     llvm::FunctionAnalysisManager FAM;
     llvm::CGSCCAnalysisManager CGAM;
     llvm::ModuleAnalysisManager MAM;
+    // Freestanding: there is no libc, so no library function may be assumed (clang
+    // -ffreestanding). Registering the TargetLibraryInfo first makes it the one the
+    // pipeline uses; "no-builtins" also covers the backend.
+    llvm::TargetLibraryInfoImpl tlii(triple);
+    if (freestanding) {
+        tlii.disableAllFunctions();
+        FAM.registerPass([&] { return llvm::TargetLibraryAnalysis(tlii); });
+        for (llvm::Function& F : *module)
+            if (!F.isDeclaration()) F.addFnAttr("no-builtins");
+    }
     llvm::PassBuilder PB(tm.get());
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);

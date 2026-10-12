@@ -1,0 +1,108 @@
+// sched.esk: a round-robin scheduler
+//
+// A task's saved context is the TrapFrame on its own stack. Switching tasks happens
+// inside an exception: the handler stores the current frame, picks the next task and
+// returns that task's frame, which trap_return in vectors.s restores. There are two
+// ways in:
+//
+//   yield()        `svc #0`, so a task gives up the CPU when it chooses to
+//   the timer IRQ  once `preempt` is on, every tick moves on to the next task
+//
+// Task 0 is kernel_main itself, running on the boot stack. The others get a stack
+// from the heap and start in task_entry, which calls their closure.
+
+enum TaskState { Ready, Running, Done }
+
+struct Task {
+    string name;
+    TaskState state;
+    *TrapFrame frame;      // where the task resumes while it is not running
+    fn()->void body;
+    int64 switches;        // how many times it has been scheduled in
+}
+
+const int64 MAX_TASKS = 8;
+const int64 STACK_SIZE = 16 * 1024;
+const int64 SPSR_EL1H = 0x5;     // return to EL1 on SP_EL1, interrupts unmasked
+
+Task[8] tasks;
+int64 task_count;
+int64 current;
+bool preempt;
+
+void sched_init() {
+    tasks[0].name = "main";
+    tasks[0].state = Running;
+    task_count = 1;
+}
+
+void yield() {
+    asm("svc #0" ::: "memory");
+}
+
+// A new task's first frame sends trap_return to task_entry(id).
+void task_entry(int64 id) {
+    let body: fn()->void = tasks[id].body;
+    body();
+    tasks[id].state = Done;
+    while (true) {
+        yield();     // a finished task is never picked again
+    }
+}
+
+// Returns the task id, or -1 when there is no room.
+int64 task_spawn(string name, escaping fn()->void body) {
+    if (task_count == MAX_TASKS) {
+        return -1;
+    }
+    *uint8 stack = alloc<uint8>(STACK_SIZE);
+    if (stack == null) {
+        return -1;
+    }
+    int64 top = ((int64)stack + STACK_SIZE) & ~15;
+    int64 base = top - sizeof(TrapFrame);
+    *TrapFrame f = (*TrapFrame)base;
+    int64 id = task_count;
+    f.x[0] = id;
+    f.elr = (int64)(*void)task_entry;
+    f.spsr = SPSR_EL1H;
+
+    int64 daif = cpu_irq_save();     // the timer must not schedule a half-made task
+    tasks[id].name = name;
+    tasks[id].body = body;
+    tasks[id].frame = f;
+    tasks[id].state = Ready;
+    task_count++;
+    cpu_irq_restore(daif);
+    return id;
+}
+
+void task_join(int64 id) {
+    while (tasks[id].state != Done) {
+        yield();
+    }
+}
+
+// Called with interrupts masked, from trap_sync (yield) or trap_irq (preemption).
+*TrapFrame schedule(*TrapFrame f) {
+    tasks[current].frame = f;
+    if (tasks[current].state == Running) {
+        tasks[current].state = Ready;
+    }
+    int64 next = current;
+    do {
+        next = (next + 1) % task_count;
+    } while (tasks[next].state == Done);    // task 0 never finishes
+    current = next;
+    tasks[next].state = Running;
+    tasks[next].switches++;
+    return tasks[next].frame;
+}
+
+string state_name(TaskState s) {
+    match s {
+        Ready   -> return "ready";
+        Running -> return "running";
+        Done    -> return "done";
+    }
+}

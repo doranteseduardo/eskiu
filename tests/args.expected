@@ -1,0 +1,204 @@
+exit (none): code=0
+stdout:
+parsed verbose=0
+stderr:
+exit -v: code=0
+stdout:
+parsed verbose=1
+stderr:
+exit --help: code=0
+stdout:
+usage: kid [-h] [-v]
+
+A child.
+
+options:
+  -h, --help     show this help and exit
+  -v, --verbose  louder
+stderr:
+exit --nope: code=2
+stdout:
+stderr:
+usage: kid [-h] [-v]
+kid: error: unknown option '--nope'
+$ tool in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=out.txt count=3 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool -v in.txt a b
+  rc=0
+  verbose=1 q=0 dry=0 output=out.txt count=3 include=0[] input=in.txt extra=[a,b] pos=3 rest=[]
+$ tool -vvq --dry-run in.txt
+  rc=0
+  verbose=2 q=1 dry=1 output=out.txt count=3 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool -o x.txt -n 5 in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=x.txt count=5 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool -ox.txt -n-2 in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=x.txt count=-2 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool --output=y.txt --count=7 in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=y.txt count=7 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool --output y.txt --count 8 in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=y.txt count=8 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool --output= in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output= count=3 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool -vo z.txt in.txt
+  rc=0
+  verbose=1 q=0 dry=0 output=z.txt count=3 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool -vnq in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: invalid value 'q' for --count: expected an integer
+  rc=2 error=[invalid value 'q' for --count: expected an integer]
+$ tool -I a -I b --include=c -Id in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=out.txt count=3 include=4[a,b,c,d] input=in.txt extra=[] pos=1 rest=[]
+$ tool -o first -o second in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=second count=3 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool in.txt -- -v --output x
+  rc=0
+  verbose=0 q=0 dry=0 output=out.txt count=3 include=0[] input=in.txt extra=[-v,--output,x] pos=4 rest=[-v,--output,x]
+$ tool -- -in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=out.txt count=3 include=0[] input=-in.txt extra=[] pos=1 rest=[-in.txt]
+$ tool - -5 -v
+  rc=0
+  verbose=1 q=0 dry=0 output=out.txt count=3 include=0[] input=- extra=[-5] pos=2 rest=[]
+$ tool -o -v in.txt
+  rc=0
+  verbose=0 q=0 dry=0 output=-v count=3 include=0[] input=in.txt extra=[] pos=1 rest=[]
+$ tool _ _
+  rc=0
+  verbose=0 q=0 dry=0 output=out.txt count=3 include=0[] input= extra=[] pos=2 rest=[]
+$ tool 
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: missing argument 'input'
+  rc=2 error=[missing argument 'input']
+$ tool --bogus in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: unknown option '--bogus'
+  rc=2 error=[unknown option '--bogus']
+$ tool --bogus=1 in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: unknown option '--bogus'
+  rc=2 error=[unknown option '--bogus']
+$ tool -x in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: unknown option '-x'
+  rc=2 error=[unknown option '-x']
+$ tool -vxq in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: unknown option '-x' in '-vxq'
+  rc=2 error=[unknown option '-x' in '-vxq']
+$ tool --verbose=yes in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: option --verbose does not take a value
+  rc=2 error=[option --verbose does not take a value]
+$ tool in.txt -o
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: option -o needs a value (FILE)
+  rc=2 error=[option -o needs a value (FILE)]
+$ tool in.txt --output
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: option --output needs a value (FILE)
+  rc=2 error=[option --output needs a value (FILE)]
+$ tool -n abc in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: invalid value 'abc' for --count: expected an integer
+  rc=2 error=[invalid value 'abc' for --count: expected an integer]
+$ tool --count=99999999999 in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: invalid value '99999999999' for --count: expected an integer
+  rc=2 error=[invalid value '99999999999' for --count: expected an integer]
+$ tool --count= in.txt
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+tool: error: invalid value '' for --count: expected an integer
+  rc=2 error=[invalid value '' for --count: expected an integer]
+$ tool --help
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+
+Copy INPUT to the outputs, maybe loudly.
+
+arguments:
+  input                         the file to read
+  extra                         more files
+
+options:
+  -h, --help                    show this help and exit
+  -v, --verbose                 say more (repeat for more)
+  -q                            say nothing
+      --dry-run                 do not write anything
+  -o, --output FILE             write to FILE (default: out.txt)
+  -n, --count N                 how many copies (default: 3)
+  -I, --include DIR             add DIR to the search path
+      --a-very-long-option-name VALUE
+                                a long one
+  rc=1
+$ tool in.txt -h
+usage: tool [-h] [-v] [-q] [--dry-run] [-o FILE] [-n N] [-I DIR] [--a-very-long-option-name VALUE] input [extra...]
+
+Copy INPUT to the outputs, maybe loudly.
+
+arguments:
+  input                         the file to read
+  extra                         more files
+
+options:
+  -h, --help                    show this help and exit
+  -v, --verbose                 say more (repeat for more)
+  -q                            say nothing
+      --dry-run                 do not write anything
+  -o, --output FILE             write to FILE (default: out.txt)
+  -n, --count N                 how many copies (default: 3)
+  -I, --include DIR             add DIR to the search path
+      --a-very-long-option-name VALUE
+                                a long one
+  rc=1
+$ tool -h a -5 b -- -c
+  rc=0
+  human=1 five=1 pos0=a pos2=-c pos9=(null)
+$ tool --help
+usage: tool [--help] [-h] [-5]
+
+options:
+      --help   show this help and exit
+  -h, --human  human-readable sizes
+  -5           five
+  rc=1
+$ tool a
+  rc=0
+  first=a second=(null)
+$ tool a b
+  rc=0
+$ tool a b c
+usage: pair [-h] first [second]
+pair: error: unexpected argument 'c'
+  rc=2 error=[unexpected argument 'c']
+$ tool -h
+usage: pair [-h] first [second]
+
+arguments:
+  first
+  second      optional
+
+options:
+  -h, --help  show this help and exit
+  rc=1
+$ tool 
+usage: cat [-h] files...
+cat: error: missing argument 'files'
+  rc=2 error=[missing argument 'files']
+$ tool a b c
+  rc=0
+help text:
+usage: cat [-h] files...
+
+arguments:
+  files       files to print
+
+options:
+  -h, --help  show this help and exit
+usage text: [usage: cat [-h] files...]

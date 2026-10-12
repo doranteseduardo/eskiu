@@ -1,0 +1,49 @@
+-- default (info)
+2026-10-11T08:30:05.123Z INFO  default info
+2026-10-11T08:30:05.123Z WARN  default warn
+2026-10-11T08:30:05.123Z ERROR default error
+-- LOG_LEVEL=Debug
+2026-10-11T08:30:05.123Z DEBUG env debug
+2026-10-11T08:30:05.123Z INFO  env info
+2026-10-11T08:30:05.123Z WARN  env warn
+2026-10-11T08:30:05.123Z ERROR env error
+-- LOG_LEVEL=warning
+2026-10-11T08:30:05.123Z WARN  env warn
+2026-10-11T08:30:05.123Z ERROR env error
+-- LOG_LEVEL=bogus
+2026-10-11T08:30:05.123Z INFO  bogus info
+2026-10-11T08:30:05.123Z WARN  bogus warn
+2026-10-11T08:30:05.123Z ERROR bogus error
+-- set trace (env ignored)
+2026-10-11T08:30:05.123Z TRACE set trace
+2026-10-11T08:30:05.123Z DEBUG set debug
+2026-10-11T08:30:05.123Z INFO  set info
+2026-10-11T08:30:05.123Z WARN  set warn
+2026-10-11T08:30:05.123Z ERROR set error
+-- off
+level from env 4, names 0 4 5 -1
+enabled warn=0 error=1
+-- formats
+2026-10-11T08:30:05.123Z WARN  int64 1099511627776, double 2.50, str [x], pct 50%
+2026-10-11T04:30:05.123-04:00 INFO  local time
+INFO  no time
+1969-12-31T23:59:59.999Z INFO  before the epoch
+-- colors
+2026-10-11T08:30:05.123Z [90mTRACE[0m color trace
+2026-10-11T08:30:05.123Z [36mDEBUG[0m color debug
+2026-10-11T08:30:05.123Z [32mINFO [0m color info
+2026-10-11T08:30:05.123Z [33mWARN [0m color warn
+2026-10-11T08:30:05.123Z [1;31mERROR[0m color error
+2026-10-11T08:30:05.123Z INFO  never, even forced
+2026-10-11T08:30:05.123Z [32mINFO [0m auto, forced
+2026-10-11T08:30:05.123Z INFO  auto, not a terminal
+-- long message
+2026-10-11T08:30:05.123Z INFO  abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij|7
+-- file
+set_file=0
+2026-10-11T08:30:05.123Z [32mINFO [0m back on stderr
+bad file=-1
+2026-10-11T08:30:05.123Z INFO  still stderr
+file:
+2026-10-11T08:30:05.123Z INFO  to the file 1
+2026-10-11T08:30:05.123Z ERROR to the file 2

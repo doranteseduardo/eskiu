@@ -1,0 +1,168 @@
+// <args>: flags, string/int options with defaults, repeated options, short
+// clusters, -ovalue / --opt=value / --opt value, `--`, `-` and negative
+// numbers as positionals, required/optional/variadic arguments, every error
+// (printed usage + message), the generated help, and a free-form parser.
+import <args>;
+import <process>;
+
+void setup(ArgParser* p) {
+    ArgParser_init(p, "tool", "Copy INPUT to the outputs, maybe loudly.");
+    args_flag(p, "-v", "--verbose", "say more (repeat for more)");
+    args_flag(p, "-q", null, "say nothing");
+    args_flag(p, null, "--dry-run", "do not write anything");
+    args_option(p, "-o", "--output", "FILE", "out.txt", "write to FILE");
+    args_option_int(p, "-n", "--count", "N", 3, "how many copies");
+    args_option(p, "-I", "--include", "DIR", null, "add DIR to the search path");
+    args_option(p, null, "--a-very-long-option-name", "VALUE", null, "a long one");
+    args_argument(p, "input", "the file to read", ARGS_REQUIRED);
+    args_argument(p, "extra", "more files", ARGS_MANY);
+}
+
+void dump(ArgParser* p) {
+    printf("  verbose=%d q=%d dry=%d output=%s count=%d include=%d[", args_count(p, "verbose"),
+        args_get_flag(p, "q"), args_get_flag(p, "dry-run"), args_get(p, "output"), args_get_int(p, "n"),
+        args_count(p, "include"));
+    let inc: List<string>;  List_init<string>(&inc, 4);
+    args_get_all(p, "-I", &inc);
+    for (i in 0..inc.size) { printf("%s%s", i > 0 ? "," : "", List_get<string>(&inc, i)); }
+    List_free<string>(&inc);
+    printf("] input=%s extra=[", args_get(p, "input"));
+    for (i in 0..args_count(p, "extra")) { printf("%s%s", i > 0 ? "," : "", args_get_at(p, "extra", i)); }
+    printf("] pos=%d rest=[", args_positional_count(p));
+    let rest: List<string>;  List_init<string>(&rest, 4);
+    args_rest(p, &rest);
+    for (i in 0..rest.size) { printf("%s%s", i > 0 ? "," : "", List_get<string>(&rest, i)); }
+    List_free<string>(&rest);
+    printf("]\n");
+}
+
+// Run the parser over `cmd`, split on spaces ("_" stands for an empty argument).
+// The argument strings are kept alive (not freed) since the parser points into
+// them, as it points into a real argv.
+void run_with(ArgParser* p, string cmd, bool full) {
+    let src: String;  src.from(cmd);
+    let parts: List<String>;  List_init<String>(&parts, 8);
+    if (src.len > 0) { String_split(&src, ' ', &parts); }
+    let argv: List<string>;  List_init<string>(&argv, 8);
+    argv.push("/usr/bin/tool");
+    for (i in 0..parts.size) {
+        *String s = &parts.data[i];
+        if (String_eq_cstr(s, "_") == 1) { s.clear(); }
+        argv.push(s.cstr());
+    }
+    printf("$ tool %s\n", cmd);
+    const int rc = ArgParser_parse(p, argv.size, argv.data);
+    printf("  rc=%d", rc);
+    if (rc == ARGS_ERROR) { printf(" error=[%s]\n", ArgParser_error(p)); }
+    else { printf("\n"); }
+    if (rc == ARGS_OK && full) { dump(p); }
+}
+
+void run(ArgParser* p, string cmd) { run_with(p, cmd, true); }
+
+// ArgParser_parse_or_exit in a child copy of this program: argv[1] is "child".
+int child(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&p, "kid", "A child.");
+    args_flag(&p, "-v", "--verbose", "louder");
+    ArgParser_parse_or_exit(&p, argc - 1, &argv[1]);
+    printf("parsed verbose=%d\n", args_get_flag(&p, "verbose"));
+    ArgParser_free(&p);
+    return 0;
+}
+
+void exit_case(string self, string arg) {
+    let av: List<string>;  List_init<string>(&av, 3);
+    av.push(self);
+    av.push("child");
+    if (arg != null) { av.push(arg); }
+    let r: ProcessResult;
+    process_run(&av, null, &r);
+    printf("exit %s: code=%d\nstdout:\n%sstderr:\n%s", arg == null ? "(none)" : arg, r.exit_code, r.stdout.data, r.stderr.data);
+    ProcessResult_free(&r);
+    List_free<string>(&av);
+}
+
+int main(int argc, string* argv) {
+    if (argc > 1) { return child(argc, argv); }
+    exit_case(argv[0], null);
+    exit_case(argv[0], "-v");
+    exit_case(argv[0], "--help");
+    exit_case(argv[0], "--nope");
+
+    let p: ArgParser;
+    setup(&p);
+
+    run(&p, "in.txt");
+    run(&p, "-v in.txt a b");
+    run(&p, "-vvq --dry-run in.txt");
+    run(&p, "-o x.txt -n 5 in.txt");
+    run(&p, "-ox.txt -n-2 in.txt");
+    run(&p, "--output=y.txt --count=7 in.txt");
+    run(&p, "--output y.txt --count 8 in.txt");
+    run(&p, "--output= in.txt");
+    run(&p, "-vo z.txt in.txt");
+    run(&p, "-vnq in.txt");
+    run(&p, "-I a -I b --include=c -Id in.txt");
+    run(&p, "-o first -o second in.txt");
+    run(&p, "in.txt -- -v --output x");
+    run(&p, "-- -in.txt");
+    run(&p, "- -5 -v");
+    run(&p, "-o -v in.txt");
+    run(&p, "_ _");
+
+    run(&p, "");
+    run(&p, "--bogus in.txt");
+    run(&p, "--bogus=1 in.txt");
+    run(&p, "-x in.txt");
+    run(&p, "-vxq in.txt");
+    run(&p, "--verbose=yes in.txt");
+    run(&p, "in.txt -o");
+    run(&p, "in.txt --output");
+    run(&p, "-n abc in.txt");
+    run(&p, "--count=99999999999 in.txt");
+    run(&p, "--count= in.txt");
+
+    run(&p, "--help");
+    run(&p, "in.txt -h");
+    ArgParser_free(&p);
+
+    // No declared arguments: any positionals; -h belongs to the program, so
+    // only --help is automatic; a digit short option makes -5 an option.
+    let q: ArgParser;
+    ArgParser_init(&q, null, null);
+    args_flag(&q, "-h", "--human", "human-readable sizes");
+    args_flag(&q, "-5", null, "five");
+    run_with(&q, "-h a -5 b -- -c", false);
+    printf("  human=%d five=%d pos0=%s pos2=%s pos9=%s\n", args_get_flag(&q, "human"), args_get_flag(&q, "5"),
+        args_positional(&q, 0), args_positional(&q, 2), args_positional(&q, 9));
+    run_with(&q, "--help", false);
+    ArgParser_free(&q);
+
+    // An optional argument, then nothing variadic: extras are an error.
+    let r: ArgParser;
+    ArgParser_init(&r, "pair", null);
+    args_argument(&r, "first", null, ARGS_REQUIRED);
+    args_argument(&r, "second", "optional", ARGS_OPTIONAL);
+    run_with(&r, "a", false);
+    printf("  first=%s second=%s\n", args_get(&r, "first"), args_get(&r, "second") == null ? "(null)" : "set");
+    run_with(&r, "a b", false);
+    run_with(&r, "a b c", false);
+    run_with(&r, "-h", false);
+    ArgParser_free(&r);
+
+    // One or more files.
+    let s: ArgParser;
+    ArgParser_init(&s, "cat", null);
+    args_argument(&s, "files", "files to print", ARGS_REQUIRED | ARGS_MANY);
+    run_with(&s, "", false);
+    run_with(&s, "a b c", false);
+    let help: String;  help.init(64);
+    ArgParser_help(&s, &help);
+    printf("help text:\n%s", help.cstr());
+    ArgParser_usage(&s, &help);
+    printf("usage text: [%s]\n", help.cstr());
+    help.free();
+    ArgParser_free(&s);
+    return 0;
+}

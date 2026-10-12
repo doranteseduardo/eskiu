@@ -1,0 +1,337 @@
+// term.esk: terminal colors and styles, TTY detection and terminal width.
+//
+//   import <term>;
+//   term_println("done", TERM_BOLD | TERM_GREEN);
+//   let s: String;  s.init(64);
+//   term_style(&s, "error:", TERM_BOLD | TERM_RED);
+//   s.append(" file not found");
+//   println(s.cstr());
+//   term_print("orange\n", term_rgb(255, 128, 0) | TERM_BG_BLACK);
+//   int cols = term_width();
+//
+// A style is an int64 built with `|` from attributes (TERM_BOLD, TERM_DIM,
+// TERM_ITALIC, TERM_UNDERLINE, TERM_BLINK, TERM_REVERSE, TERM_HIDDEN,
+// TERM_STRIKE), at most one foreground color (TERM_RED ... TERM_BRIGHT_WHITE,
+// term_fg256(n), term_rgb(r, g, b)) and at most one background color
+// (TERM_BG_RED ..., term_bg256(n), term_bg_rgb(r, g, b)). TERM_PLAIN is no
+// style.
+//
+// Colors are used on a stream only when term_color_enabled(fd) says so:
+// FORCE_COLOR set to anything but "" or "0" turns them on; otherwise NO_COLOR
+// set to anything but "" turns them off, and so does TERM=dumb; otherwise they
+// are on when the stream is a terminal. term_set_color_mode overrides all of
+// that for the whole program. On Windows the console's virtual terminal mode
+// (ENABLE_VIRTUAL_TERMINAL_PROCESSING) is switched on the first time colors are
+// used on it; a console that refuses it gets no colors.
+//
+// term_style / term_print / term_println follow stdout's setting, and
+// term_style_fd takes the stream (2 for stderr). term_sgr writes the escape
+// sequence unconditionally.
+
+import <io>;
+
+extern string getenv(string name);
+
+#ifdef _WIN32
+extern int    _isatty(int fd);
+extern *void  GetStdHandle(uint32 which);
+extern int    GetConsoleMode(*void h, *uint32 mode);
+extern int    SetConsoleMode(*void h, uint32 mode);
+extern int    GetConsoleScreenBufferInfo(*void h, *void info);
+#else
+extern int isatty(int fd);
+extern int ioctl(int fd, uint64 request, ...);
+#ifdef __APPLE__
+#define _TERM_TIOCGWINSZ 1074295912
+#else
+#define _TERM_TIOCGWINSZ 21523
+#endif
+struct _term_winsize {
+    uint16 rows;
+    uint16 cols;
+    uint16 xpixel;
+    uint16 ypixel;
+}
+#endif
+
+const int64 TERM_PLAIN     = 0;
+const int64 TERM_BOLD      = 1;
+const int64 TERM_DIM       = 2;
+const int64 TERM_ITALIC    = 4;
+const int64 TERM_UNDERLINE = 8;
+const int64 TERM_BLINK     = 16;
+const int64 TERM_REVERSE   = 32;
+const int64 TERM_HIDDEN    = 64;
+const int64 TERM_STRIKE    = 128;
+
+// A color field is 26 bits: a kind (1 basic, 2 palette index, 3 RGB) above a
+// 24-bit value. The foreground field starts at bit 8, the background at bit 34.
+const int64 TERM_BLACK          = (int64)16777216 << 8;
+const int64 TERM_RED            = (int64)16777217 << 8;
+const int64 TERM_GREEN          = (int64)16777218 << 8;
+const int64 TERM_YELLOW         = (int64)16777219 << 8;
+const int64 TERM_BLUE           = (int64)16777220 << 8;
+const int64 TERM_MAGENTA        = (int64)16777221 << 8;
+const int64 TERM_CYAN           = (int64)16777222 << 8;
+const int64 TERM_WHITE          = (int64)16777223 << 8;
+const int64 TERM_BRIGHT_BLACK   = (int64)16777224 << 8;
+const int64 TERM_BRIGHT_RED     = (int64)16777225 << 8;
+const int64 TERM_BRIGHT_GREEN   = (int64)16777226 << 8;
+const int64 TERM_BRIGHT_YELLOW  = (int64)16777227 << 8;
+const int64 TERM_BRIGHT_BLUE    = (int64)16777228 << 8;
+const int64 TERM_BRIGHT_MAGENTA = (int64)16777229 << 8;
+const int64 TERM_BRIGHT_CYAN    = (int64)16777230 << 8;
+const int64 TERM_BRIGHT_WHITE   = (int64)16777231 << 8;
+const int64 TERM_GRAY           = (int64)16777224 << 8;
+
+const int64 TERM_BG_BLACK          = (int64)16777216 << 34;
+const int64 TERM_BG_RED            = (int64)16777217 << 34;
+const int64 TERM_BG_GREEN          = (int64)16777218 << 34;
+const int64 TERM_BG_YELLOW         = (int64)16777219 << 34;
+const int64 TERM_BG_BLUE           = (int64)16777220 << 34;
+const int64 TERM_BG_MAGENTA        = (int64)16777221 << 34;
+const int64 TERM_BG_CYAN           = (int64)16777222 << 34;
+const int64 TERM_BG_WHITE          = (int64)16777223 << 34;
+const int64 TERM_BG_BRIGHT_BLACK   = (int64)16777224 << 34;
+const int64 TERM_BG_BRIGHT_RED     = (int64)16777225 << 34;
+const int64 TERM_BG_BRIGHT_GREEN   = (int64)16777226 << 34;
+const int64 TERM_BG_BRIGHT_YELLOW  = (int64)16777227 << 34;
+const int64 TERM_BG_BRIGHT_BLUE    = (int64)16777228 << 34;
+const int64 TERM_BG_BRIGHT_MAGENTA = (int64)16777229 << 34;
+const int64 TERM_BG_BRIGHT_CYAN    = (int64)16777230 << 34;
+const int64 TERM_BG_BRIGHT_WHITE   = (int64)16777231 << 34;
+
+// term_set_color_mode values.
+const int TERM_AUTO   = 0;
+const int TERM_ALWAYS = 1;
+const int TERM_NEVER  = 2;
+
+int _term_mode = 0;
+#ifdef _WIN32
+int _term_vt_out = 0;   // 0 not tried, 1 enabled, -1 refused (stdout)
+int _term_vt_err = 0;   // the same for stderr
+#endif
+
+int _term_clamp(int v, int hi) {
+    if (v < 0) { return 0; }
+    return v > hi ? hi : v;
+}
+
+// Foreground color `n` (0-255) of the 256-color palette.
+int64 term_fg256(int n) { return ((int64)33554432 + (int64)_term_clamp(n, 255)) << 8; }
+
+// Background color `n` (0-255) of the 256-color palette.
+int64 term_bg256(int n) { return ((int64)33554432 + (int64)_term_clamp(n, 255)) << 34; }
+
+int64 _term_rgb_field(int r, int g, int b) {
+    return (int64)50331648 + ((int64)_term_clamp(r, 255) << 16) + ((int64)_term_clamp(g, 255) << 8)
+        + (int64)_term_clamp(b, 255);
+}
+
+// 24-bit foreground color.
+int64 term_rgb(int r, int g, int b) { return _term_rgb_field(r, g, b) << 8; }
+
+// 24-bit background color.
+int64 term_bg_rgb(int r, int g, int b) { return _term_rgb_field(r, g, b) << 34; }
+
+// 1 if `fd` (0 stdin, 1 stdout, 2 stderr) is a terminal, else 0.
+int term_is_tty(int fd) {
+#ifdef _WIN32
+    return _isatty(fd) != 0 ? 1 : 0;
+#else
+    return isatty(fd) != 0 ? 1 : 0;
+#endif
+}
+
+// Use colors always (TERM_ALWAYS), never (TERM_NEVER) or by the rules above
+// (TERM_AUTO, the default).
+void term_set_color_mode(int mode) {
+    _term_mode = mode;
+}
+
+#ifdef _WIN32
+*void _term_handle(int fd) {
+    if (fd == 2) { return GetStdHandle((uint32)4294967284); }
+    if (fd == 0) { return GetStdHandle((uint32)4294967286); }
+    return GetStdHandle((uint32)4294967285);
+}
+
+// Switch the console behind `fd` to virtual terminal processing, once. 1 if it
+// accepts escape sequences (or is not a console, e.g. a pipe), else 0.
+int _term_enable_vt(int fd) {
+    const int state = fd == 2 ? _term_vt_err : _term_vt_out;
+    if (state != 0) { return state > 0 ? 1 : 0; }
+    int ok = 1;
+    *void h = _term_handle(fd);
+    uint32 mode = 0;
+    if (GetConsoleMode(h, &mode) != 0) {
+        if (SetConsoleMode(h, mode | (uint32)4) == 0) { ok = 0; }
+    }
+    if (fd == 2) { _term_vt_err = ok == 1 ? 1 : -1; } else { _term_vt_out = ok == 1 ? 1 : -1; }
+    return ok;
+}
+#endif
+
+int _term_env_set(string name) {
+    const string v = getenv(name);
+    return v != null && v[0] != 0 ? 1 : 0;
+}
+
+// 1 if colors should be written to `fd`, by term_set_color_mode, FORCE_COLOR,
+// NO_COLOR, TERM=dumb and whether `fd` is a terminal (in that order).
+int term_color_enabled(int fd) {
+    int on = 0;
+    if (_term_mode == TERM_ALWAYS) { on = 1; }
+    else if (_term_mode == TERM_NEVER) { return 0; }
+    else {
+        const string force = getenv("FORCE_COLOR");
+        const string term = getenv("TERM");
+        if (force != null && force[0] != 0) {
+            on = force[0] == '0' && force[1] == 0 ? 0 : 1;
+        } else if (_term_env_set("NO_COLOR") == 1) {
+            on = 0;
+        } else if (term != null && term[0] == 'd' && term[1] == 'u' && term[2] == 'm' && term[3] == 'b' && term[4] == 0) {
+            on = 0;
+        } else {
+            on = term_is_tty(fd);
+        }
+    }
+#ifdef _WIN32
+    if (on == 1 && term_is_tty(fd) == 1 && _term_enable_vt(fd) == 0) { on = 0; }
+#endif
+    return on;
+}
+
+void _term_code(String* out, *bool first, int code) {
+    if (!first[0]) { out.push(';'); }
+    first[0] = false;
+    String_appendf(out, "%d", code);
+}
+
+void _term_color(String* out, *bool first, int64 field, int base) {
+    const int kind = (int)((field >> 24) & 3);
+    const int v = (int)(field & 16777215);
+    if (kind == 1) {
+        _term_code(out, first, v < 8 ? base + v : base + 60 + (v - 8));
+    } else if (kind == 2) {
+        _term_code(out, first, base + 8);
+        _term_code(out, first, 5);
+        _term_code(out, first, v);
+    } else if (kind == 3) {
+        _term_code(out, first, base + 8);
+        _term_code(out, first, 2);
+        _term_code(out, first, (v >> 16) & 255);
+        _term_code(out, first, (v >> 8) & 255);
+        _term_code(out, first, v & 255);
+    }
+}
+
+// Append the escape sequence that selects `style` (nothing for TERM_PLAIN),
+// whatever the color settings.
+void term_sgr(String* out, int64 style) {
+    if (style == 0) { return; }
+    out.push((char)27);
+    out.push('[');
+    bool first = true;
+    const int[8] attr_codes = {1, 2, 3, 4, 5, 7, 8, 9};
+    for (int i = 0; i < 8; i++) {
+        if ((style & ((int64)1 << i)) != 0) { _term_code(out, &first, attr_codes[i]); }
+    }
+    _term_color(out, &first, (style >> 8) & 67108863, 30);
+    _term_color(out, &first, (style >> 34) & 67108863, 40);
+    out.push('m');
+}
+
+// Append the escape sequence that resets every style.
+void term_reset(String* out) {
+    out.push((char)27);
+    out.append("[0m");
+}
+
+// Append `text` to `out` in `style`, with escapes only when colors are enabled
+// for stream `fd`.
+void term_style_fd(int fd, String* out, string text, int64 style) {
+    if (style == 0 || term_color_enabled(fd) == 0) { out.append(text); return; }
+    term_sgr(out, style);
+    out.append(text);
+    term_reset(out);
+}
+
+// Append `text` to `out` in `style`, following stdout's color setting.
+void term_style(String* out, string text, int64 style) {
+    term_style_fd(1, out, text, style);
+}
+
+// Print `text` to stdout in `style`.
+void term_print(string text, int64 style) {
+    let s: String;  s.init(32);
+    term_style_fd(1, &s, text, style);
+    print(s.cstr());
+    s.free();
+}
+
+// Print `text` in `style` and a newline to stdout.
+void term_println(string text, int64 style) {
+    let s: String;  s.init(32);
+    term_style_fd(1, &s, text, style);
+    println(s.cstr());
+    s.free();
+}
+
+// Remove ANSI escape sequences (CSI "ESC [ ... letter" and "ESC x", where x
+// may follow intermediate bytes such as the "(" of "ESC ( B")
+// from `s` in place, e.g. to measure the visible width of styled text.
+void term_strip(String* s) {
+    int64 w = 0;
+    int64 i = 0;
+    while (i < s.len) {
+        const char c = s.data[i];
+        if (c == (char)27 && i + 1 < s.len) {
+            if (s.data[i + 1] == '[') {
+                i = i + 2;
+                while (i < s.len && !(s.data[i] >= '@' && s.data[i] <= '~')) { i++; }
+                i++;
+            } else {
+                i++;
+                while (i < s.len && s.data[i] >= ' ' && s.data[i] <= '/') { i++; }
+                i++;
+            }
+            continue;
+        }
+        s.data[w] = c;
+        w++;
+        i++;
+    }
+    s.len = w;
+    if (s.data != null) { s.data[w] = 0; }
+}
+
+// Columns of the terminal: the COLUMNS variable when it is a positive number,
+// else the size of stdout, stderr or stdin, whichever is a terminal, else 80.
+int term_width() {
+    const string c = getenv("COLUMNS");
+    if (c != null) {
+        int n = 0;
+        int i = 0;
+        while (c[i] >= '0' && c[i] <= '9' && n < 100000) { n = n * 10 + ((int)c[i] - 48); i++; }
+        if (c[i] == 0 && n > 0) { return n; }
+    }
+#ifdef _WIN32
+    for (int fd = 1; fd >= 0; fd--) {
+        int16[11] info;
+        memset((*void)&info[0], 0, 22);
+        if (GetConsoleScreenBufferInfo(_term_handle(fd), (*void)&info[0]) != 0) {
+            const int w = (int)info[7] - (int)info[5] + 1;
+            if (w > 0) { return w; }
+        }
+    }
+#else
+    const int[3] fds = {1, 2, 0};
+    for (int i = 0; i < 3; i++) {
+        let ws: _term_winsize;
+        ws.cols = 0;
+        if (ioctl(fds[i], (uint64)_TERM_TIOCGWINSZ, (*void)&ws) == 0 && ws.cols > 0) { return (int)ws.cols; }
+    }
+#endif
+    return 80;
+}

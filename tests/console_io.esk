@@ -1,0 +1,78 @@
+// <io> console helpers: print/println and the stderr pair, then read_line, input
+// and read_all_stdin in a child copy of this program fed through <process>
+// (CRLF lines, a last line without "\n", NUL bytes, a large input, empty stdin).
+import <io>;
+import <process>;
+
+int child(string mode) {
+    let line: String;  line.init(16);
+    if (mode[0] == 'l') {
+        int n = 0;
+        while (read_line(&line) == 0) {
+            printf("[%s]", line.cstr());
+            n++;
+        }
+        printf(" lines=%d eof=%d\n", n, read_line(&line));
+    } else if (mode[0] == 'i') {
+        while (input("> ", &line) == 0) { printf("got %s\n", line.cstr()); }
+        println("<eof>");
+    } else if (mode[0] == 'a') {
+        const int64 n = read_all_stdin(&line);
+        int64 nul = 0;
+        int64 sum = 0;
+        for (int64 i = 0; i < line.len; i++) {
+            if (line.data[i] == 0) { nul++; }
+            sum = sum + (int64)(uint8)line.data[i];
+        }
+        printf("bytes=%lld len=%lld nul=%lld sum=%lld\n", n, line.len, nul, sum);
+    }
+    line.free();
+    return 0;
+}
+
+void feed(string self, string mode, string text) {
+    let argv: List<string>;  List_init<string>(&argv, 2);
+    argv.push(self);
+    argv.push(mode);
+    let opts: ProcessOptions;
+    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    opts.stdin_text = text;
+    let r: ProcessResult;
+    process_run(&argv, &opts, &r);
+    printf("%s: code=%d out=%s", mode, r.exit_code, r.stdout.data);
+    ProcessResult_free(&r);
+    List_free<string>(&argv);
+}
+
+int main(int argc, string* argv) {
+    if (argc > 1) { return child(argv[1]); }
+
+    print("a");
+    print("b");
+    println("c");
+    println("");
+    print_err("to stderr ");
+    println_err("after stdout");
+    println("back on stdout");
+
+    feed(argv[0], "lines", "one\ntwo\r\n\nlast");
+    feed(argv[0], "lines", "");
+    feed(argv[0], "lines", "\n");
+    feed(argv[0], "input", "ann\nbob\n");
+
+    // read_all_stdin: process_run passes text up to its first NUL, so the
+    // binary case writes through a shell with printf.
+    let r: ProcessResult;
+    let big: String;  big.init(16);
+    str_format(&big, "printf 'a\\000b\\000\\377' | '%s' all", argv[0]);
+    sh(big.cstr(), &r);
+    printf("binary: %s", r.stdout.data);
+    ProcessResult_free(&r);
+
+    big.clear();
+    for (i in 0..20000) { big.append("0123456789abcdefghij\n"); }
+    feed(argv[0], "all", big.cstr());
+    feed(argv[0], "all", "");
+    big.free();
+    return 0;
+}

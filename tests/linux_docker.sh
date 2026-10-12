@@ -3,7 +3,7 @@
 # not a CI gate.
 #
 # The compiler cross-compiles for Linux on the host (no Linux build of eskiuc needed);
-# the objects are linked with gcc and run inside a Linux container:
+# the objects are linked with gcc (C companions built with clang) and run inside a Linux container:
 #   1. every run/smoke test in tests/*.esk (or the ones named in $TESTS): a run test
 #      must exit 0 and print exactly its .expected, a smoke test must exit 0;
 #   2. the self-hosted drivers (selfhost/esk_main.esk, selfhost/cg_main.esk) type-check
@@ -41,11 +41,12 @@ esac
 command -v "$CLANG" >/dev/null 2>&1 || { echo "linux_docker: $CLANG not found (set CLANG)"; exit 2; }
 docker info >/dev/null 2>&1 || { echo "linux_docker: docker is not available"; exit 2; }
 
-# The base image plus gcc, built once and reused (the tag names the base and platform).
-SMOKE_IMAGE="eskiu-linux-smoke:$(echo "$IMAGE-$PLATFORM" | tr '/:' '--')"
+# The base image plus gcc (the linker) and clang (the C companions), built once and reused
+# (the tag names the base and platform).
+SMOKE_IMAGE="eskiu-linux-smoke-clang:$(echo "$IMAGE-$PLATFORM" | tr '/:' '--')"
 if ! docker image inspect "$SMOKE_IMAGE" >/dev/null 2>&1; then
     echo "Building $SMOKE_IMAGE (once)..."
-    printf 'FROM %s\nRUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*\n' "$IMAGE" \
+    printf 'FROM %s\nRUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc g++ clang libc6-dev && rm -rf /var/lib/apt/lists/*\n' "$IMAGE" \
         | docker build --platform "$PLATFORM" -q -t "$SMOKE_IMAGE" - >/dev/null \
         || { echo "linux_docker: could not build $SMOKE_IMAGE"; exit 2; }
 fi
@@ -92,7 +93,9 @@ run_one() {
     name="$1"
     extra=""
     if [[ -f "/src/tests/$name.c" ]]; then
-        gcc -c "/src/tests/$name.c" -o "/work/obj/$name.c.o" 2>/work/out/$name.cc || { echo "FAIL  $name (C companion)"; return; }
+        # clang, as in CI: Eskiu follows clang's C ABI where gcc differs (GCC 12 changed how
+        # x86-64 passes a struct with a zero-width bitfield).
+        clang -c "/src/tests/$name.c" -o "/work/obj/$name.c.o" 2>/work/out/$name.cc || { echo "FAIL  $name (C companion)"; return; }
         extra="/work/obj/$name.c.o"
     fi
     gcc "/work/obj/$name.o" $extra -o "/work/bin/$name" $LIBS 2>/work/out/$name.ld \

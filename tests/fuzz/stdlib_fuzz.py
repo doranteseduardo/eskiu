@@ -3,14 +3,14 @@
 stdlib_fuzz.py: mutation fuzzing of the stdlib parsers under AddressSanitizer.
 
 Each target is an Eskiu program in tests/fuzz/stdlib/ (json, base64, url, regex,
-hpack, http, multipart, uuid_time) built with `eskiuc --asan`. The driver mutates
+hpack, http, fetch, multipart, uuid_time, csv, dotenv) built with `eskiuc --asan`. The driver mutates
 a seed corpus (hand-written seeds plus the string literals of the matching
 tests/*.esk files), packs the inputs into batch files, and runs the target on
 each batch. A finding is any of:
 
   CRASH     the target died (a signal, an AddressSanitizer report, or a broken
             invariant: the harnesses check round trips such as base64 and url
-            encode/decode, hpack encode/decode, and epoch/calendar conversion)
+            encode/decode, hpack encode/decode, epoch/calendar conversion, csv and dotenv write/parse)
   HANG      the batch exceeded its time limit
   OOM       the target's resident memory passed the cap (tests/fuzz/fuzz_util.py)
 
@@ -87,7 +87,8 @@ def target_seeds(name):
     if name == "base64":
         return literals("base64*.esk") + [b"TWFu", b"TWE=", b"TQ==", b"", b"====", b"Zm9v\nYmFy"]
     if name == "url":
-        return literals("url*.esk") + [b"a=1&b=%41%42&q=hello+world", b"%", b"%zz", b"a&&=&q"]
+        return literals("url*.esk") + [b"a=1&b=%41%42&q=hello+world", b"%", b"%zz", b"a&&=&q",
+                                         b"http://user@[::1]:8080/a/../b?q#f", b"https://h:443/./x", b"../g?y"]
     if name == "regex":
         return [s.replace(b"\n", b" ") + b"\n" + t for s, t in
                 zip(literals("regex*.esk")[::2], literals("regex*.esk")[1::2])] + [
@@ -103,6 +104,13 @@ def target_seeds(name):
             b"POST /up HTTP/1.1\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nhello",
             b"POST / HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n",
             b"GET / HTTP/1.1\nX: y\n\n", b"\r\n\r\n"]
+    if name == "fetch":
+        return literals("fetch_raw.esk") + [
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX: y\r\n\r\n",
+            b"HTTP/1.0 200 OK\r\n\r\nuntil close",
+            b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 204 No Content\r\n\r\n",
+            b"HTTP/1.1 302 Found\r\nLocation: /x\r\nContent-Length: 0\r\n\r\n"]
     if name == "multipart":
         body = (b"--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nvalue\r\n"
                 b"--XyZ\r\nContent-Disposition: form-data; name=\"file\"; filename=\"f.bin\"\r\n"
@@ -110,6 +118,14 @@ def target_seeds(name):
         return [b"multipart/form-data; boundary=XyZ\n" + body,
                 b"multipart/form-data; boundary=\"XyZ\"\n" + body,
                 b"multipart/form-data; boundary=\n--\r\n", b"boundary=a\n--a"] + literals("multipart*.esk")
+    if name == "csv":
+        return [b"\x00" + x for x in literals("csv*.esk")] + [
+            b"\x00a,b,c\r\n1,\"x,y\",3\r\n", b"\x01a;\"q\"\"q\";\n\n;", b"\x02k\tv\nx\t\"1\n2\"",
+            b"\x00\"open", b"\x00\"x\"y", b"\x03a|b\r"]
+    if name == "dotenv":
+        return literals("dotenv*.esk") + [
+            b"# c\nA=1\nexport B = two words # x\nC='lit'\nD=\"e\\n\\\"q\\\"\"\r\nE=\n",
+            b"M=\"multi\nline\"\nX=a#b", b"=bad", b"A='open", b"A=\"x\" y"]
     if name == "uuid_time":
         return [bytes(40), bytes([255] * 40), struct.pack("<qqiiiiii", 1, 1700000000, 2024, 2, 29, 23, 59, 60),
                 struct.pack("<qq", -1, -62135596800)]
@@ -117,9 +133,9 @@ def target_seeds(name):
 
 DICTS = {
     "json": [b"{", b"}", b"[", b"]", b'"', b":", b",", b"true", b"false", b"null", b"\\u", b"\\ud800",
-             b"\\\\", b"1e999", b"-", b"0.", b"\x00", b" "],
+             b"\\\\", b"1e999", b"-", b"0.", b"\x00", b" ", b"[0]", b".a", b"[\"a.b\"]"],
     "base64": [b"=", b"==", b"+", b"/", b"\n", b"A", b"\xff"],
-    "url": [b"%", b"%2", b"%41", b"+", b"&", b"=", b"a=", b"q=", b"\xff"],
+    "url": [b"%", b"%2", b"%41", b"+", b"&", b"=", b"a=", b"q=", b"\xff", b"://", b"[", b"]", b":", b"@", b"/..", b"/.", b"?", b"#"],
     "regex": [b"(", b")", b"|", b"*", b"+", b"?", b"{", b"}", b"{2,}", b"[", b"]", b"[^", b"\\d", b"\\w",
               b"\\s", b"\\", b"^", b"$", b".", b"\n", b"(?:", b"-", b"(?i)", b"(?s:", b"(?m)", b"(?U)",
               b"(?P<n>", b"\\Q", b"\\E", b"\\pL", b"\\p{Greek}", b"\\P{Lu}", b"[[:alpha:]]", b"\\x{212A}",
@@ -127,11 +143,15 @@ DICTS = {
     "hpack": [b"\x80", b"\xff", b"\x7f", b"\x40", b"\x00", b"\x20", b"\x3f\xe1\x1f", b"\x10", b"\x0f"],
     "http": [b"\r\n", b"\r\n\r\n", b": ", b"Content-Length: ", b"content-length:", b"0", b"-1",
              b"Host: ", b" ", b"\t", b"\n", b"GET ", b" HTTP/1.1"],
+    "fetch": [b"\r\n", b"\r\n\r\n", b"HTTP/1.1 ", b"200 ", b"100 ", b"Content-Length: ", b"Transfer-Encoding: chunked",
+              b"0\r\n\r\n", b"ff\r\n", b";x=y", b": ", b"\n", b"-1"],
     "multipart": [b"--", b"\r\n", b"boundary=", b"name=\"", b"\"", b";", b"form-data", b"\r\n\r\n"],
+    "csv": [b",", b";", b"\t", b"|", b"\"", b"\"\"", b"\r\n", b"\n", b"\r", b"\x00"],
+    "dotenv": [b"=", b"#", b" #", b"export ", b"'", b"\"", b"\\", b"\\n", b"\n", b"\r\n", b"\t", b"A", b"_x.y-z"],
     "uuid_time": [b"\xff\xff\xff\xff", b"\x00\x00\x00\x80", b"\xff\xff\xff\x7f"],
 }
-MAX_LEN = {"http": 12000, "regex": 600, "hpack": 3000}
-TARGETS = ["json", "base64", "url", "regex", "hpack", "http", "multipart", "uuid_time"]
+MAX_LEN = {"http": 12000, "fetch": 12000, "regex": 600, "hpack": 3000}
+TARGETS = ["json", "base64", "url", "regex", "hpack", "http", "fetch", "multipart", "uuid_time", "csv", "dotenv"]
 
 
 # ── Mutation ───────────────────────────────────────────────────────────────────

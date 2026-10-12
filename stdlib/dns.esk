@@ -1,0 +1,165 @@
+// dns.esk: host name resolution through the system resolver (getaddrinfo).
+//
+//   import <dns>;
+//   let addrs: List<string>;  List_init<string>(&addrs, 4);
+//   if (dns_resolve("example.com", &addrs) < 0) { printf("%s\n", dns_last_error()); }
+//   for (i in 0..addrs.size) { printf("%s\n", List_get<string>(&addrs, i)); }
+//   dns_free_list(&addrs);
+//
+// dns_resolve appends each address of the host as a numeric string ("93.184.215.14",
+// "2606:2800:21f:cb07:6820:80da:af6b:8b2c") in the resolver's order, without
+// duplicates. A numeric host ("127.0.0.1", "::1") resolves to itself. It returns
+// how many addresses were added, or -1 when the name does not resolve; then
+// dns_last_error() describes why. The strings are heap copies the list owns:
+// free them with dns_free_list. <net>'s net_tcp_connect uses the same lookup.
+
+import <mem>;
+import <list>;
+
+#define DNS_AF_UNSPEC 0
+#ifdef _WIN32
+#pragma link("ws2_32")
+extern int WSAStartup(int version, *void data);
+#define DNS_AF_INET6 23
+#else
+#ifdef __APPLE__
+#define DNS_AF_INET6 30
+#else
+#define DNS_AF_INET6 10
+#endif
+#endif
+#define DNS_AF_INET 2
+
+// struct addrinfo: Linux puts ai_addr before ai_canonname; macOS/BSD and
+// Windows the other way round, and Windows' ai_addrlen is a size_t.
+#ifdef __linux__
+struct _dns_addrinfo {
+    int    ai_flags;
+    int    ai_family;
+    int    ai_socktype;
+    int    ai_protocol;
+    uint32 ai_addrlen;
+    *void  ai_addr;
+    string ai_canonname;
+    *_dns_addrinfo ai_next;
+}
+#else
+#ifdef _WIN32
+struct _dns_addrinfo {
+    int    ai_flags;
+    int    ai_family;
+    int    ai_socktype;
+    int    ai_protocol;
+    int64  ai_addrlen;
+    string ai_canonname;
+    *void  ai_addr;
+    *_dns_addrinfo ai_next;
+}
+#else
+struct _dns_addrinfo {
+    int    ai_flags;
+    int    ai_family;
+    int    ai_socktype;
+    int    ai_protocol;
+    uint32 ai_addrlen;
+    string ai_canonname;
+    *void  ai_addr;
+    *_dns_addrinfo ai_next;
+}
+#endif
+#endif
+
+extern int  getaddrinfo(string node, string service, *_dns_addrinfo hints, **_dns_addrinfo res);
+extern void freeaddrinfo(*_dns_addrinfo ai);
+#ifdef _WIN32
+extern string inet_ntop(int af, *void src, *char dst, int64 size);
+#else
+extern string inet_ntop(int af, *void src, *char dst, uint32 size);
+extern string gai_strerror(int code);
+#endif
+
+int _dns_last = 0;
+
+#ifdef _WIN32
+bool _dns_wsa_ready = false;
+void _dns_wsa_init() {
+    if (!_dns_wsa_ready) {
+        uint8[512] wsadata;
+        WSAStartup(514, (*void)&wsadata);
+        _dns_wsa_ready = true;
+    }
+}
+#else
+void _dns_wsa_init() { }
+#endif
+
+// Look up `host` for TCP (`port` as a decimal string, or null) into *res
+// (free it with freeaddrinfo). 0, or the getaddrinfo error (also kept for
+// dns_last_error).
+int _dns_lookup(string host, string port, **_dns_addrinfo res) {
+    _dns_wsa_init();
+    let hints: _dns_addrinfo;
+    memset((*void)&hints, 0, sizeof(_dns_addrinfo));
+    hints.ai_family = DNS_AF_UNSPEC;
+    hints.ai_socktype = 1;   // SOCK_STREAM: one entry per address
+    *res = null;
+    const int rc = getaddrinfo(host, port, &hints, res);
+    _dns_last = rc;
+    return rc;
+}
+
+// A readable message for the last failed lookup.
+string dns_last_error() {
+    if (_dns_last == 0) { return "no error"; }
+#ifdef _WIN32
+    if (_dns_last == 11001) { return "No such host is known"; }
+    if (_dns_last == 11002) { return "Temporary failure in name resolution"; }
+    if (_dns_last == 11003) { return "Non-recoverable failure in name resolution"; }
+    if (_dns_last == 11004) { return "No address for this name"; }
+    return "Name resolution failed";
+#else
+    return gai_strerror(_dns_last);
+#endif
+}
+
+// Write the numeric form of the address in a sockaddr into dst (64 bytes).
+// Returns 1, or 0 for an address family other than IPv4/IPv6.
+int _dns_numeric(*_dns_addrinfo ai, *char dst) {
+    *uint8 sa = (*uint8)ai.ai_addr;
+    string r = null;
+    if (ai.ai_family == DNS_AF_INET) { r = inet_ntop(DNS_AF_INET, (*void)(sa + 4), dst, 64); }
+    else if (ai.ai_family == DNS_AF_INET6) { r = inet_ntop(DNS_AF_INET6, (*void)(sa + 8), dst, 64); }
+    return r != null ? 1 : 0;
+}
+
+extern int strcmp(string a, string b);
+
+// Append the addresses of `host` to `out` (see the top of the file). The
+// number added, or -1 when the name does not resolve.
+int dns_resolve(string host, List<string>* out) {
+    *_dns_addrinfo res = null;
+    if (_dns_lookup(host, null, &res) != 0) { return -1; }
+    const int first = List_len<string>(out);
+    *char buf = alloc<char>(64);
+    for (*_dns_addrinfo ai = res; ai != null; ai = ai.ai_next) {
+        if (_dns_numeric(ai, buf) == 0) { continue; }
+        bool dup = false;
+        for (int i = first; i < List_len<string>(out); i++) {
+            if (strcmp(List_get<string>(out, i), (string)buf) == 0) { dup = true; }
+        }
+        if (dup) { continue; }
+        const int64 n = strlen((string)buf);
+        *char copy = alloc<char>(n + 1);
+        memcpy((*void)copy, (*void)buf, n + 1);
+        List_push<string>(out, (string)copy);
+    }
+    free((*void)buf);
+    freeaddrinfo(res);
+    return List_len<string>(out) - first;
+}
+
+// Free every string in a list filled by dns_resolve, then the list.
+void dns_free_list(List<string>* list) {
+    for (i in 0..List_len<string>(list)) { free((*void)List_get<string>(list, i)); }
+    List_free<string>(list);
+}

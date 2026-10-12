@@ -1,0 +1,210 @@
+// dotenv.esk: read `.env` files.
+//
+//   if (dotenv_load(".env") < 0) {
+//       let msg: String;  msg.init(64);
+//       dotenv_error(&msg);                  // "line 4: expected '=' after the variable name"
+//       ...
+//   }
+//   string url = env_get("DATABASE_URL");
+//
+//   let vars: Map<string>;  Map_init<string>(&vars, 16);   // without touching the environment
+//   dotenv_parse(text, &vars);
+//   dotenv_free(&vars);
+//
+// Format, one `KEY=VALUE` per line:
+//   # a comment line            blank lines are skipped too
+//   export KEY=value            an `export ` prefix is allowed
+//   KEY = value  # comment      unquoted: trimmed; ` #` (whitespace, then #) starts a comment
+//   KEY=a#b                     a `#` with no whitespace before it is data
+//   KEY='literal $x \n'         single quotes: taken as written, may span lines
+//   KEY="a\nb \"q\" \\ \t"      double quotes: \n \t \r \" \\ escapes, may span lines
+//   KEY=                        empty value
+// A name starts with a letter or `_` and continues with letters, digits, `_`,
+// `.` or `-`. A later assignment of the same name wins. CRLF line endings are
+// accepted. Anything else (no `=`, a bad name, an unterminated quote, text after
+// a closing quote) is an error with its line number.
+
+import <env>;
+import <map>;
+
+int    _dotenv_line = 0;      // line of the last error; 0 for none or a read failure
+string _dotenv_msg = null;    // static text of the last error
+*char  _dotenv_path = null;   // file whose read failed (heap copy), else null
+
+void _dotenv_reset() {
+    _dotenv_line = 0;
+    _dotenv_msg = null;
+    if (_dotenv_path != null) { free((*void)_dotenv_path); _dotenv_path = null; }
+}
+
+int _dotenv_fail(int line, string msg) {
+    _dotenv_line = line;
+    _dotenv_msg = msg;
+    return -1;
+}
+
+// The line of the last parse error, or 0 (no error, or the file could not be
+// read).
+int dotenv_error_line() { return _dotenv_line; }
+
+// Describe the last error into `out` (cleared first): "line N: what", or
+// "cannot read PATH: reason"; empty when the last call succeeded.
+void dotenv_error(String* out) {
+    out.clear();
+    if (_dotenv_path != null) {
+        let why: String;  why.init(32);
+        fs_last_error(&why);
+        String_appendf(out, "cannot read %s: %s", _dotenv_path, why.data);
+        why.free();
+        return;
+    }
+    if (_dotenv_msg != null) { String_appendf(out, "line %d: %s", _dotenv_line, _dotenv_msg); }
+}
+
+bool _dotenv_name_start(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+
+bool _dotenv_name_char(char c) {
+    return _dotenv_name_start(c) || (c >= '0' && c <= '9') || c == '.' || c == '-';
+}
+
+bool _dotenv_blank(char c) { return c == ' ' || c == '\t'; }
+
+// Store key = value in `m`, replacing (and freeing) an earlier value.
+void _dotenv_store(Map<string>* m, String* key, String* value) {
+    int created = 0;
+    *string slot = Map_at<string>(m, (string)key.data, &created);
+    if (created == 0) { free((*void)slot[0]); }
+    slot[0] = (string)map_dup((string)value.data);
+}
+
+// Parse `n` bytes at `p` into `m`. Returns the number of assignments, or -1.
+int _dotenv_parse_buf(*char p, int64 n, Map<string>* m) {
+    _dotenv_reset();
+    int line = 1;
+    int count = 0;
+    int64 i = 0;
+    let key: String;    key.init(32);
+    let value: String;  value.init(64);
+    defer key.free();
+    defer value.free();
+    while (i < n) {
+        while (i < n && (_dotenv_blank(p[i]) || p[i] == '\r')) { i++; }
+        if (i >= n) { break; }
+        if (p[i] == '\n') { i++; line++; continue; }
+        if (p[i] == '#') {
+            while (i < n && p[i] != '\n') { i++; }
+            continue;
+        }
+        if (i + 6 < n && memcmp((*void)(p + i), (*void)"export", 6) == 0 && _dotenv_blank(p[i + 6])) {
+            i += 6;
+            while (i < n && _dotenv_blank(p[i])) { i++; }
+        }
+        if (i >= n || !_dotenv_name_start(p[i])) { return _dotenv_fail(line, "expected a variable name"); }
+        const int64 kstart = i;
+        while (i < n && _dotenv_name_char(p[i])) { i++; }
+        key.clear();
+        _string_append_bytes(&key, p + kstart, i - kstart);
+        while (i < n && _dotenv_blank(p[i])) { i++; }
+        if (i >= n || p[i] != '=') { return _dotenv_fail(line, "expected '=' after the variable name"); }
+        i++;
+        while (i < n && _dotenv_blank(p[i])) { i++; }
+        value.clear();
+        if (i < n && (p[i] == '\'' || p[i] == '"')) {
+            const char q = p[i];
+            const int qline = line;
+            i++;
+            while (true) {
+                if (i >= n) {
+                    return _dotenv_fail(qline, q == '"' ? "unterminated double-quoted value" : "unterminated single-quoted value");
+                }
+                char c = p[i];
+                if (c == q) { i++; break; }
+                if (c == '\n') { line++; }
+                if (c == '\\' && q == '"' && i + 1 < n) {
+                    const char e = p[i + 1];
+                    i += 2;
+                    if (e == 'n') { value.push('\n'); }
+                    else if (e == 't') { value.push('\t'); }
+                    else if (e == 'r') { value.push('\r'); }
+                    else if (e == '"' || e == '\\') { value.push(e); }
+                    else {
+                        value.push('\\');
+                        if (e == '\n') { line++; }
+                        value.push(e);
+                    }
+                    continue;
+                }
+                value.push(c);
+                i++;
+            }
+            while (i < n && (_dotenv_blank(p[i]) || p[i] == '\r')) { i++; }
+            if (i < n && p[i] != '\n' && p[i] != '#') {
+                return _dotenv_fail(line, "unexpected text after the closing quote");
+            }
+            while (i < n && p[i] != '\n') { i++; }
+        } else {
+            const int64 vstart = i;
+            while (i < n && p[i] != '\n') {
+                if (p[i] == '#' && _dotenv_blank(p[i - 1])) { break; }   // p[i - 1] is at worst the '='
+                i++;
+            }
+            int64 vend = i;
+            while (vend > vstart && (_dotenv_blank(p[vend - 1]) || p[vend - 1] == '\r')) { vend--; }
+            _string_append_bytes(&value, p + vstart, vend - vstart);
+            while (i < n && p[i] != '\n') { i++; }
+        }
+        if (String_index_of(&value, (char)0) >= 0) { return _dotenv_fail(line, "a value cannot hold a NUL byte"); }
+        _dotenv_store(m, &key, &value);
+        count++;
+    }
+    return count;
+}
+
+// Parse .env text into `m` (an initialised Map<string>) without touching the
+// environment. Each value is a heap copy the map owns; free the map with
+// dotenv_free. Returns the number of assignments read, or -1 on an error (see
+// dotenv_error; the assignments before the error stay in `m`).
+int dotenv_parse(string text, Map<string>* m) {
+    return _dotenv_parse_buf((*char)text, strlen(text), m);
+}
+
+// Free the values dotenv_parse stored, then the map.
+void dotenv_free(Map<string>* m) {
+    for (i in 0..m.cap) {
+        if (m.keys[i] != null) { free((*void)m.vals[i]); }
+    }
+    Map_free<string>(m);
+}
+
+int _dotenv_load(string path, bool override) {
+    _dotenv_reset();
+    let text: String;  text.init(256);
+    defer text.free();
+    if (fs_read_text(path, &text) != 0) {
+        _dotenv_path = map_dup(path);
+        return -1;
+    }
+    let m: Map<string>;  Map_init<string>(&m, 16);
+    defer dotenv_free(&m);
+    if (_dotenv_parse_buf(text.data, text.len, &m) < 0) { return -1; }
+    let keys: List<string>;  List_init<string>(&keys, 16);
+    defer List_free<string>(&keys);
+    Map_keys<string>(&m, &keys);
+    int set = 0;
+    for (k in 0..List_len<string>(&keys)) {
+        const string name = List_get<string>(&keys, k);
+        if (!override && env_has(name) == 1) { continue; }
+        string val = null;
+        Map_get<string>(&m, name, &val);
+        if (env_set(name, val) == 0) { set++; }
+    }
+    return set;
+}
+
+// Load the file at `path` into the environment. A variable that is already set
+// keeps its value. Returns the number of variables set, or -1 when the file
+// cannot be read or has an error (then nothing is set; see dotenv_error).
+int dotenv_load(string path) { return _dotenv_load(path, false); }
+
+// dotenv_load, but the file's values replace variables that are already set.
+int dotenv_load_override(string path) { return _dotenv_load(path, true); }

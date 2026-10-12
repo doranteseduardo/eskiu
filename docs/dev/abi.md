@@ -191,13 +191,21 @@ The coerced types match what clang emits for the same C signature
 for the tests' C companions). Other targets keep the first-class lowering. Fat values (closures, slices) and
 `va_list` are not C aggregates and keep their own layout.
 
+Where gcc and clang disagree, Eskiu follows clang. The one known case: since GCC 12, gcc on
+x86-64 classifies a struct holding a zero-width bitfield (`uint32 : 0;`) differently when it
+is passed or returned by value, so such a struct crossing an `extern` matches C compiled by
+clang, not by GCC 12 or later.
+
 **Narrow integers.** Like clang, an `extern`'s `int8`/`int16`/`uint8`/`uint16`/
 `bool`/`char` parameters and results are declared `signext` or `zeroext` (by the
 type's signedness; `char` follows the target's C `char`, unsigned on AArch64 and
 32-bit ARM outside Darwin and Windows), so the caller extends such an argument to
 32 bits. Every Eskiu function returning one extends its result (`define signext
 i8 @f`), since a C caller (a callback, or C calling it by name) relies on that on
-AArch64 Darwin and x86-64.
+AArch64 Darwin and x86-64. Two targets extend nothing, as clang: AArch64 outside Darwin
+(AAPCS64 leaves the upper bits unspecified, so the receiver extends) and Windows x64,
+where only a `bool` is `zeroext`. Declaring `signext` there would make Eskiu trust bits a
+clang-compiled callee never set.
 
 **Callbacks from C.** An Eskiu function handed to C as a raw function pointer
 (`(*void)f`, the cast of a top-level function name to a pointer type) is called

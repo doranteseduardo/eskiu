@@ -153,7 +153,7 @@ static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::init(0),
     llvm::cl::cat(EskiuCat));
 
-const char* VERSION = "0.9.3";
+const char* VERSION = "0.10.0";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
@@ -268,6 +268,7 @@ static int testCodegen(const std::string& filename) {
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
         if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
+        codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.optLevel = OptLevel;
         llvm::Module* module = codegen.generateCode(program);
@@ -335,7 +336,7 @@ static int compilerMain(int argc, char** argv) {
 
     // `eskiuc run script.esk [args...]` — compile to a temporary executable, run
     // it forwarding [args...], then delete it. Enables shebang scripts
-    // (`#!/usr/bin/env eskiuc run`). Rewritten here before option parsing: any
+    // (`#!/usr/bin/env -S eskiuc run`). Rewritten here before option parsing: any
     // leading flags and the first non-flag token (the script) go to the option
     // parser; everything after the script becomes the program's argv.
     if (argc >= 2 && std::string(argv[1]) == "run") {
@@ -427,11 +428,23 @@ static int compilerMain(int argc, char** argv) {
         try {
             TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
             tc.sourceFile = std::string(InputFilename);
-            tc.check(program.get());
+            bool ok = tc.check(program.get());
             std::string type = tc.getTypeAtPosition(line, col);
-            if (type.empty()) std::cout << "(no type at " << line << ":" << col << ")\n";
-            else              std::cout << type << "\n";
-        } catch (...) { std::cout << "(error)\n"; }
+            if (type.empty()) {
+                if (!ok) std::cout << "(semantic error)\n";
+                else     std::cout << "(no type at " << line << ":" << col << ")\n";
+            } else {
+                std::cout << type << "\n";
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "error: internal error during hover: " << e.what() << "\n";
+            std::cout << "(internal error)\n";
+            return 1;
+        } catch (...) {
+            std::cerr << "error: unknown internal error during hover\n";
+            std::cout << "(internal error)\n";
+            return 1;
+        }
         return 0;
     }
 
@@ -446,11 +459,23 @@ static int compilerMain(int argc, char** argv) {
         try {
             TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
             tc.sourceFile = std::string(InputFilename);
-            tc.check(program.get());
+            bool ok = tc.check(program.get());
             std::string loc = tc.getDefinitionAt(line, col);
-            if (loc.empty()) std::cout << "(no definition at " << line << ":" << col << ")\n";
-            else             std::cout << loc << "\n";
-        } catch (...) { std::cout << "(error)\n"; }
+            if (loc.empty()) {
+                if (!ok) std::cout << "(semantic error)\n";
+                else     std::cout << "(no definition at " << line << ":" << col << ")\n";
+            } else {
+                std::cout << loc << "\n";
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "error: internal error during definition: " << e.what() << "\n";
+            std::cout << "(internal error)\n";
+            return 1;
+        } catch (...) {
+            std::cerr << "error: unknown internal error during definition\n";
+            std::cout << "(internal error)\n";
+            return 1;
+        }
         return 0;
     }
 
@@ -494,6 +519,7 @@ static int compilerMain(int argc, char** argv) {
         if (!TargetCPU.empty()) codegen.targetCPU = std::string(TargetCPU);
         if (!TargetFeatures.empty()) codegen.targetFeatures = std::string(TargetFeatures);
         if (!RelocModel.empty()) codegen.relocModel = std::string(RelocModel);
+        codegen.freestanding = Freestanding;
         codegen.safe = Safe;
         codegen.asan = Asan;
         codegen.ubsan = Ubsan;
@@ -609,14 +635,23 @@ int main(int argc, char** argv) {
     pthread_attr_t attr;
     pthread_t tid;
     if (pthread_attr_init(&attr) == 0) {
-        bool started = pthread_attr_setstacksize(&attr, kPipelineStackBytes) == 0 &&
-                       pthread_create(&tid, &attr, runCompilerMain, &args) == 0;
+        bool started = false;
+        // Try requested large stack (1 GB), then graceful fallbacks (64 MB, 16 MB)
+        // if virtual memory limits prevent 1 GB allocation.
+        for (unsigned stackBytes : { kPipelineStackBytes, 64u << 20, 16u << 20 }) {
+            if (pthread_attr_setstacksize(&attr, stackBytes) == 0 &&
+                pthread_create(&tid, &attr, runCompilerMain, &args) == 0) {
+                started = true;
+                break;
+            }
+        }
         pthread_attr_destroy(&attr);
         if (started) {
             pthread_join(tid, nullptr);
             return args.rc;
         }
     }
+    std::cerr << "warning: could not allocate dedicated stack thread; falling back to caller stack\n";
     return compilerMain(argc, argv);
 #endif
 }

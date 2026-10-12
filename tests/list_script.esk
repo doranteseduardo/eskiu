@@ -1,0 +1,129 @@
+// <list> scripting helpers: map/filter/reduce/find/any/all, contains/index_of,
+// reverse, slice, unique, clear/pop/insert, sort_by (<sort>) and join (<string>).
+import <list>;
+import <sort>;
+import <string>;
+import <map>;   // int_eq
+extern int printf(string fmt, ...);
+
+struct Item { string name; int qty; }
+
+int item_eq(*Item a, *Item b) { return a.qty == b.qty ? 1 : 0; }
+int by_qty(*Item a, *Item b) { return a.qty - b.qty; }
+int int_desc(*int a, *int b) { return *b - *a; }
+
+void show(string label, List<int>* l) {
+    printf("%s(%d):", label, List_len<int>(l));
+    for (i in 0..List_len<int>(l)) { printf(" %d", List_get<int>(l, i)); }
+    printf("\n");
+}
+
+int main() {
+    let nums: List<int>;  List_init<int>(&nums, 4);
+    defer List_free<int>(&nums);
+    for (i in 1..11) { nums.push(i); }
+    show("nums", &nums);
+
+    // map to another element type, with a closure that captures state
+    int factor = 3;
+    let scaled: List<double>;  List_init<double>(&scaled, 4);
+    defer List_free<double>(&scaled);
+    nums.map(double(int x) { return (double)(x * factor) / 2.0; }, &scaled);
+    printf("map: %d %.1f %.1f\n", scaled.len(), scaled.get(0), scaled.get(9));
+
+    let evens: List<int>;  List_init<int>(&evens, 4);
+    defer List_free<int>(&evens);
+    nums.filter(bool(int x) { return x % 2 == 0; }, &evens);
+    show("evens", &evens);
+
+    int sum = nums.reduce(0, int(int acc, int x) { return acc + x; });
+    int64 prod = List_reduce<int, int64>(&nums, (int64)1, int64(int64 acc, int x) { return acc * (int64)x; });
+    printf("reduce: %d %lld\n", sum, prod);
+
+    int limit = 7;
+    printf("find: %d %d\n", nums.find(bool(int x) { return x > limit; }), nums.find(bool(int x) { return x > 100; }));
+    printf("any/all: %d %d %d %d\n", nums.any(bool(int x) { return x == 5; }), nums.any(bool(int x) { return x < 0; }),
+           nums.all(bool(int x) { return x > 0; }), nums.all(bool(int x) { return x < 10; }));
+    printf("contains: %d %d index_of: %d %d\n", nums.contains(4, int_eq), nums.contains(42, int_eq),
+           nums.index_of(10, int_eq), nums.index_of(0, int_eq));
+
+    // empty list edge cases
+    let empty: List<int>;  List_init<int>(&empty, 0);
+    defer List_free<int>(&empty);
+    printf("empty: find %d any %d all %d reduce %d pop %d len %d\n",
+           empty.find(bool(int x) { return true; }), empty.any(bool(int x) { return true; }),
+           empty.all(bool(int x) { return false; }), empty.reduce(7, int(int a, int x) { return a + x; }),
+           empty.pop(), empty.len());
+    empty.reverse();
+    empty.sort_by(int_desc);
+    empty.unique(int_eq);
+    show("empty", &empty);
+
+    // reverse / slice
+    nums.reverse();
+    show("reversed", &nums);
+    let mid: List<int>;  List_init<int>(&mid, 4);
+    defer List_free<int>(&mid);
+    nums.slice(2, 5, &mid);
+    show("slice", &mid);
+    mid.clear();
+    nums.slice(-3, 2, &mid);
+    nums.slice(8, 99, &mid);
+    nums.slice(6, 3, &mid);
+    show("clamped", &mid);
+
+    // pop / insert / clear
+    printf("pop: %d %d\n", nums.pop(), nums.pop());
+    nums.insert(0, 100);
+    nums.insert(3, 200);
+    nums.insert(99, 300);
+    nums.insert(-5, 400);
+    show("inserted", &nums);
+    nums.clear();
+    show("cleared", &nums);
+    nums.push(5);
+    show("reused", &nums);
+
+    // unique keeps first occurrences
+    let dup: List<int>;  List_init<int>(&dup, 4);
+    defer List_free<int>(&dup);
+    int[10] raw = {3, 1, 3, 2, 1, 3, 4, 4, 2, 5};
+    for (i in 0..10) { dup.push(raw[i]); }
+    dup.unique(int_eq);
+    show("unique", &dup);
+
+    // sort_by
+    dup.sort_by(int_desc);
+    show("desc", &dup);
+
+    // a large list: 100000 elements through filter, map, sort and reduce
+    let big: List<int>;  List_init<int>(&big, 4);
+    defer List_free<int>(&big);
+    for (i in 0..100000) { big.push((i * 7919) % 100003); }
+    let odd: List<int>;  List_init<int>(&odd, 4);
+    defer List_free<int>(&odd);
+    big.filter(bool(int x) { return x % 2 == 1; }, &odd);
+    odd.sort_by(int_desc);
+    int64 total = List_reduce<int, int64>(&odd, (int64)0, int64(int64 a, int x) { return a + (int64)x; });
+    printf("big: %d %d %d %lld\n", odd.len(), odd.get(0), odd.get(odd.len() - 1), total);
+
+    // structs, with a struct equality and comparison
+    let items: List<Item>;  List_init<Item>(&items, 2);
+    defer List_free<Item>(&items);
+    items.push(Item{"pear", 4});
+    items.push(Item{"fig", 1});
+    items.push(Item{"plum", 4});
+    items.push(Item{"kiwi", 2});
+    items.unique(item_eq);
+    items.sort_by(by_qty);
+    for (i in 0..items.len()) { printf("%s:%d ", items.get(i).name, items.get(i).qty); }
+    printf("\n");
+    let names: List<string>;  List_init<string>(&names, 4);
+    defer List_free<string>(&names);
+    items.map(string(Item it) { return it.name; }, &names);
+    let joined: String;  joined.init(8);
+    defer joined.free();
+    names.join(" + ", &joined);
+    printf("%s\n", joined.cstr());
+    return 0;
+}

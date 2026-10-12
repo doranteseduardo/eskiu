@@ -1,0 +1,246 @@
+#!/usr/bin/env -S eskiuc run
+// repo_stats.esk: a GitHub repository at a glance.
+//
+//   ./repo_stats.esk llvm/llvm-project
+//   ./repo_stats.esk --top 3 torvalds/linux
+//   ./repo_stats.esk --json rust-lang/rust > rust.json
+//   GITHUB_TOKEN=... ./repo_stats.esk owner/repo     # a higher API rate limit
+//
+// Asks the GitHub REST API for /repos/OWNER/REPO and /repos/OWNER/REPO/languages,
+// then prints a colored summary, or JSON with --json. --api-url points it at
+// another server (tests/scripts/check.sh runs it against a local fake). Exit codes:
+// 0 ok, 1 the request failed, 2 bad usage. HTTPS needs OpenSSL at run time.
+
+import <args>;
+import <term>;
+import <log>;
+import <fetch>;
+import <json>;
+import <list>;
+import <sort>;
+import <string>;
+import <env>;
+
+extern int strcmp(string a, string b);
+
+struct Language {
+    string name;
+    int64  bytes;
+}
+
+// GET `url` and parse the answer as JSON into *out. Returns an exit code.
+int get_json(string url, FetchOptions* o, **JsonValue out) {
+    let r: Response;
+    defer Response_free(&r);
+    log_debug("GET %s", url);
+    if (fetch_with(url, o, &r) != 0) {
+        log_error("%s: %s", url, fetch_last_error());
+        return 1;
+    }
+    if (r.status == 404) {
+        log_error("not found: %s", url);
+        return 1;
+    }
+    if (Response_ok(&r) == 0) {
+        log_error("%s: HTTP %d %s", url, r.status, r.reason.cstr());
+        return 1;
+    }
+    *out = Response_json(&r);
+    if (*out == null) {
+        log_error("%s: the answer is not JSON", url);
+        return 1;
+    }
+    return 0;
+}
+
+// 1234567 -> "1,234,567"
+void group_digits(int64 n, String* out) {
+    let digits: String;  digits.init(24);
+    str_format(&digits, "%lld", n);
+    out.clear();
+    for (i in 0..digits.len) {
+        if (i > 0 && digits.data[0] != '-' && (digits.len - i) % 3 == 0) { out.push(','); }
+        out.push(digits.data[i]);
+    }
+    digits.free();
+}
+
+int64 json_int(JsonValue* repo, string path) {
+    *JsonValue v = json_get(repo, path);
+    if (v == null || JsonValue_kind(v) != JNumber) { return 0; }
+    return JsonValue_as_int(v);
+}
+
+string json_text(JsonValue* repo, string path, string fallback) {
+    *JsonValue v = json_get(repo, path);
+    if (v == null || JsonValue_kind(v) != JString) { return fallback; }
+    return (string)JsonValue_as_cstr(v);
+}
+
+// One "  label    value" line of the summary.
+void stat_line(string label, int64 value, int64 style) {
+    let line: String;  line.from("  ");
+    let cell: String;  cell.from(label);
+    cell.pad_right(14, ' ');
+    line.concat(&cell);
+    group_digits(value, &cell);
+    term_style(&line, cell.cstr(), style);
+    println(line.cstr());
+    line.free();
+    cell.free();
+}
+
+void print_summary(JsonValue* repo, List<Language>* langs, int64 total, int top) {
+    let line: String;  line.init(128);
+    term_style(&line, json_text(repo, "full_name", "?"), TERM_BOLD);
+    println(line.cstr());
+    string desc = json_text(repo, "description", "");
+    if (desc[0] != '\0') {
+        line.clear();
+        line.append("  ");
+        term_style(&line, desc, TERM_DIM);
+        println(line.cstr());
+    }
+    println("");
+    stat_line("stars", json_int(repo, "stargazers_count"), TERM_YELLOW);
+    stat_line("forks", json_int(repo, "forks_count"), TERM_CYAN);
+    stat_line("open issues", json_int(repo, "open_issues_count"), TERM_RED);
+    line.clear();
+    line.append("  ");
+    let cell: String;  cell.from("license");
+    cell.pad_right(14, ' ');
+    line.concat(&cell);
+    line.append(json_text(repo, "license.spdx_id", "none"));
+    println(line.cstr());
+
+    if (langs.size == 0) { line.free(); cell.free(); return; }
+    println("");
+    println("  languages");
+    int shown = langs.size < top ? langs.size : top;
+    for (i in 0..shown) {
+        *Language l = &langs.data[i];
+        double pct = 100.0 * (double)l.bytes / (double)total;
+        line.clear();
+        line.append("    ");
+        cell.clear();
+        cell.append(l.name);
+        cell.pad_right(14, ' ');
+        line.concat(&cell);
+        str_format(&cell, "%.1f%%", pct);
+        cell.pad_left(6, ' ');
+        line.concat(&cell);
+        line.append("  ");
+        cell.clear();
+        cell.push('#');
+        cell.repeat((int64)(pct / 5.0 + 0.5));
+        if (pct < 2.5) { cell.clear(); cell.push('.'); }
+        term_style(&line, cell.cstr(), TERM_GREEN);
+        println(line.cstr());
+    }
+    if (langs.size > shown) {
+        str_format(&line, "    (%d more)", langs.size - shown);
+        term_println(line.cstr(), TERM_DIM);
+    }
+    line.free();
+    cell.free();
+}
+
+void print_json(JsonValue* repo, List<Language>* langs, int64 total) {
+    *JsonValue doc = JsonValue_object();
+    JsonValue_set(doc, "repo", JsonValue_string(json_text(repo, "full_name", "")));
+    JsonValue_set(doc, "description", JsonValue_string(json_text(repo, "description", "")));
+    JsonValue_set(doc, "stars", JsonValue_int(json_int(repo, "stargazers_count")));
+    JsonValue_set(doc, "forks", JsonValue_int(json_int(repo, "forks_count")));
+    JsonValue_set(doc, "open_issues", JsonValue_int(json_int(repo, "open_issues_count")));
+    *JsonValue list = JsonValue_array();
+    for (i in 0..langs.size) {
+        *Language l = &langs.data[i];
+        *JsonValue item = JsonValue_object();
+        JsonValue_set(item, "name", JsonValue_string(l.name));
+        JsonValue_set(item, "bytes", JsonValue_int(l.bytes));
+        // One decimal, like the text output.
+        double pct = (double)(int64)(1000.0 * (double)l.bytes / (double)total + 0.5) / 10.0;
+        JsonValue_set(item, "percent", JsonValue_number(pct));
+        JsonValue_push(list, item);
+    }
+    JsonValue_set(doc, "languages", list);
+    let out: String;  out.init(256);
+    JsonValue_pretty(doc, 2, &out);
+    println(out.cstr());
+    out.free();
+    JsonValue_free(doc);
+}
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&p, "repo_stats", "Show a GitHub repository's stars, forks, issues and languages.");
+    defer ArgParser_free(&p);
+    args_flag(&p, "-j", "--json", "print JSON instead of text");
+    args_option_int(&p, "-t", "--top", "N", 5, "languages to list");
+    args_option_int(&p, null, "--timeout", "SECONDS", 10, "give up after this long");
+    args_option(&p, null, "--api-url", "URL", "https://api.github.com", "the API server");
+    args_argument(&p, "repo", "the repository, as OWNER/NAME", ARGS_REQUIRED);
+    ArgParser_parse_or_exit(&p, argc, argv);
+
+    string repo_name = args_get(&p, "repo");
+    let name: String;  name.from(repo_name);
+    defer name.free();
+    int64 slash = name.find("/", 0);
+    if (slash <= 0 || slash == name.len - 1 || name.find("/", slash + 1) >= 0) {
+        log_error("expected OWNER/NAME, got '%s'", repo_name);
+        return 2;
+    }
+    int timeout = args_get_int(&p, "timeout");
+    if (timeout <= 0) {
+        log_error("--timeout must be positive");
+        return 2;
+    }
+
+    let o: FetchOptions;  FetchOptions_init(&o);
+    defer FetchOptions_free(&o);
+    FetchOptions_header(&o, "Accept", "application/vnd.github+json");
+    o.timeout_ms = timeout * 1000;
+    string token = env_get("GITHUB_TOKEN");
+    if (token != null) {
+        let auth: String;  auth.from("Bearer ");
+        auth.append(token);
+        FetchOptions_header(&o, "Authorization", auth.cstr());
+        auth.free();
+    }
+
+    let url: String;  url.init(128);
+    defer url.free();
+    str_format(&url, "%s/repos/%s", args_get(&p, "api-url"), repo_name);
+    *JsonValue repo = null;
+    int rc = get_json(url.cstr(), &o, &repo);
+    if (rc != 0) { return rc; }
+    defer JsonValue_free(repo);
+
+    url.append("/languages");
+    *JsonValue by_lang = null;
+    rc = get_json(url.cstr(), &o, &by_lang);
+    if (rc != 0) { return rc; }
+    defer JsonValue_free(by_lang);
+
+    // The languages object maps a name to a byte count; sort by size, largest first.
+    let langs: List<Language>;  List_init<Language>(&langs, 8);
+    defer List_free<Language>(&langs);
+    int64 total = 0;
+    for (*JsonValue m = by_lang.child; m != null; m = m.next) {
+        if (JsonValue_kind(m) != JNumber) { continue; }
+        langs.push(Language { name: (string)m.key.cstr(), bytes: JsonValue_as_int(m) });
+        total += JsonValue_as_int(m);
+    }
+    langs.sort_by(int(*Language a, *Language b) {
+        if (a.bytes != b.bytes) { return a.bytes > b.bytes ? -1 : 1; }
+        return strcmp(a.name, b.name);
+    });
+    log_debug("%d languages, %lld bytes", langs.size, total);
+
+    if (args_get_flag(&p, "json") == 1) {
+        print_json(repo, &langs, total);
+    } else {
+        print_summary(repo, &langs, total, args_get_int(&p, "top"));
+    }
+    return 0;
+}

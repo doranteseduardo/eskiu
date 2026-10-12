@@ -1,0 +1,42 @@
+// env_set / env_unset / env_list, and a child process inheriting a change.
+import <env>;
+import <process>;
+import <io>;
+
+int has_entry(string entry) {
+    let all: List<String>;  List_init<String>(&all, 32);
+    env_list(&all);
+    int found = 0;
+    for (i in 0..List_len<String>(&all)) {
+        if (List_get<String>(&all, i).eq_cstr(entry) == 1) { found = 1; }
+    }
+    fs_list_free(&all);
+    return found;
+}
+
+int main() {
+    printf("set %d\n", env_set("ESKIU_ENV_SET_X", "one two"));
+    printf("get %s\n", env_get("ESKIU_ENV_SET_X"));
+    printf("listed %d\n", has_entry("ESKIU_ENV_SET_X=one two"));
+    printf("replace %d -> %s\n", env_set("ESKIU_ENV_SET_X", "three"), env_get("ESKIU_ENV_SET_X"));
+
+    let r: ProcessResult;
+    sh("echo child sees $ESKIU_ENV_SET_X", &r);
+    printf("%s", r.stdout.data);
+    ProcessResult_free(&r);
+
+    printf("bad names %d %d\n", env_set("", "x"), env_set("A=B", "x"));
+    printf("unset %d has %d listed %d\n", env_unset("ESKIU_ENV_SET_X"), env_has("ESKIU_ENV_SET_X"), has_entry("ESKIU_ENV_SET_X=three"));
+    printf("unset again %d\n", env_unset("ESKIU_ENV_SET_X"));
+
+    // The list is sorted.
+    let all: List<String>;  List_init<String>(&all, 32);
+    const int n = env_list(&all);
+    int sorted = 1;
+    for (int i = 1; i < n; i++) {
+        if (strcmp(List_get<String>(&all, i - 1).data, List_get<String>(&all, i).data) > 0) { sorted = 0; }
+    }
+    printf("sorted %d nonempty %d\n", sorted, n > 0 ? 1 : 0);
+    fs_list_free(&all);
+    return 0;
+}

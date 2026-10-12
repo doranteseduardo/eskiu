@@ -1,0 +1,85 @@
+// <csv>: RFC 4180 parsing (quotes, "" escapes, embedded newlines, CRLF/LF,
+// other delimiters, trailing newline), header lookup, errors and the writer.
+import <csv>;
+
+extern int printf(string fmt, ...);
+
+void dump(string label, CsvTable* t) {
+    printf("%s: %d rows\n", label, CsvTable_len(t));
+    for (r in 0..CsvTable_len(t)) {
+        *List<String> row = CsvTable_row(t, r);
+        printf("  ");
+        for (c in 0..List_len<String>(row)) {
+            printf("[%s]", CsvTable_cell(t, r, c));
+        }
+        printf("\n");
+    }
+}
+
+void bad(string label, string text) {
+    let t: CsvTable;
+    let msg: String;  msg.init(32);
+    const int rc = csv_parse(text, &t);
+    CsvTable_error(&t, &msg);
+    printf("%s: %d %s (kept %d rows)\n", label, rc, msg.data, CsvTable_len(&t));
+    msg.free();
+    CsvTable_free(&t);
+}
+
+int main() {
+    let t: CsvTable;
+    printf("rc %d\n", csv_parse("name,age,city\r\nAda,36,London\r\n\"Hopper, Grace\",85,\"New\nYork\"\r\n\"say \"\"hi\"\"\",,\r\n", &t));
+    dump("basic", &t);
+    printf("col %d %d %d\n", CsvTable_col(&t, "name"), CsvTable_col(&t, "city"), CsvTable_col(&t, "zip"));
+    printf("get %s | %s | %s\n", CsvTable_get(&t, 2, "name"), CsvTable_get(&t, 1, "age"), CsvTable_get(&t, 3, "city"));
+    printf("missing %d %d %d\n", CsvTable_get(&t, 9, "name") == null, CsvTable_get(&t, 1, "zip") == null,
+           CsvTable_cell(&t, 1, 3) == null);
+
+    // Write it back and parse the result: the same table.
+    let out: String;  out.init(64);
+    CsvTable_write(&t, ',', &out);
+    printf("written:\n%s", out.data);
+    let t2: CsvTable;
+    csv_parse((string)out.data, &t2);
+    dump("reparsed", &t2);
+    CsvTable_free(&t2);
+    CsvTable_free(&t);
+
+    // Semicolons, LF only, no trailing newline, a blank line, quotes inside
+    // unquoted fields, empty fields at both ends.
+    csv_parse_with("a;b;c\n1;x\"y;3\n\n;;\nlast;\"q;q\";end", ';', &t);
+    dump("semicolon", &t);
+    CsvTable_free(&t);
+    csv_parse_with("k\tv\nx\t1\n", '\t', &t);
+    dump("tab", &t);
+    CsvTable_free(&t);
+
+    // Empty input, a lone newline, a lone CR as a line ending.
+    csv_parse("", &t);  dump("empty", &t);  CsvTable_free(&t);
+    csv_parse("\n", &t);  dump("newline", &t);  CsvTable_free(&t);
+    csv_parse("a\rb\r", &t);  dump("cr", &t);  CsvTable_free(&t);
+    csv_parse("\"\"", &t);  dump("emptyquoted", &t);  CsvTable_free(&t);
+
+    // Errors carry the position.
+    bad("unterminated", "a,b\nc,\"open\nstill open");
+    bad("after-quote", "a,b\n\"x\"y,z");
+    bad("first", "\"abc");
+    let td: CsvTable;
+    printf("bad delim %d\n", csv_parse_with("a", '"', &td));
+    CsvTable_free(&td);
+
+    // Writer: minimal quoting.
+    let row: List<string>;  List_init<string>(&row, 4);
+    List_push<string>(&row, "plain");
+    List_push<string>(&row, "with,comma");
+    List_push<string>(&row, "with \"quote\"");
+    List_push<string>(&row, "multi\nline");
+    List_push<string>(&row, "");
+    out.clear();
+    csv_write_row(&row, &out);
+    csv_write_row_with(&row, ';', &out);
+    printf("%s", out.data);
+    List_free<string>(&row);
+    out.free();
+    return 0;
+}

@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.9.3</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.0</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.9.3</a>
+        <a class="btn-install" href="../index.html#install">Install 0.10.0</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -219,8 +219,15 @@ tests/selfhost/cabi_parity.sh           # C ABI lowering per target
 tests/selfhost/cg_bootstrap.sh          # three-stage fixpoint
 </code></pre>
 <p>They take the C++ compiler from <code>ESKIUC</code> (default <code>build/eskiuc</code>) and clang from <code>CLANG</code>.</p>
+<h2 id="execution-backend-and-distribution-model-roadmap-to-10">Execution backend and distribution model (Roadmap to 1.0)</h2>
+<p><code>eskiuc-esk</code> serves as a full self-hosting validation engine and bootstrap compiler:</p>
+<ul>
+<li><strong>Backend mechanism:</strong> It emits structured textual LLVM IR (<code>.ll</code>) directly from Eskiu and invokes an external C toolchain (<code>clang</code> via <code>$CLANG</code>) to assemble machine code and link system libraries.</li>
+<li><strong>Runtime prerequisites:</strong> <code>clang</code> is required on <code>$PATH</code> to produce executable binaries when using <code>eskiuc-esk</code>. CMake automatically detects <code>clang</code> and gracefully skips the self-hosted build target when clang is unavailable (such as under MSVC).</li>
+<li><strong>Distribution strategy for 1.0:</strong> The primary shipped binary release remains the C++ <code>eskiuc</code> (which bundles LLVM and links via system <code>cc</code>/<code>clang</code>/<code>gcc</code>). For 1.0, <code>eskiuc-esk</code> formally declares <code>clang</code> as an explicit runtime requirement for self-hosted execution, keeping the self-hosted compiler lightweight, transparent, and free of heavyweight C++ LLVM library linkage.</li>
+</ul>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#how-agreement-is-checked">How agreement is checked</a><a href="#the-bootstrap-fixpoint">The bootstrap fixpoint</a><a href="#running-the-checks">Running the checks</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#how-agreement-is-checked">How agreement is checked</a><a href="#the-bootstrap-fixpoint">The bootstrap fixpoint</a><a href="#running-the-checks">Running the checks</a><a href="#execution-backend-and-distribution-model-roadmap-to-10">Execution backend and distribution model (Roadmap to 1.0)</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

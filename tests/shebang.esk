@@ -1,4 +1,4 @@
-#!/usr/bin/env eskiuc run
+#!/usr/bin/env -S eskiuc run
 // A leading `#!` line lets a .esk file be an executable script
 // (`chmod +x file.esk` then run it). The preprocessor ignores the shebang and
 // keeps line numbers intact, so normal compilation is unaffected.

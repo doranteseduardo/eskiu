@@ -1,0 +1,28 @@
+echo: code=0 timed_out=0 out=[hello
+] err=[]
+exit 3: code=3 timed_out=0 out=[] err=[]
+both: code=1 timed_out=0 out=[out
+] err=[err
+]
+signal: code=137 timed_out=0 out=[] err=[]
+argv: code=0 timed_out=0 out=[[a b] [c]] err=[]
+stdin: code=0 timed_out=0 out=[2
+] err=[]
+large: code=0 out=123000 err=123000
+cat: code=0 same=1
+timeout: code=137 timed_out=1 out=[started
+] err=[]
+timeout fast: 1
+cwd+env: code=0 timed_out=0 out=[/
+alpha /nowhere
+] err=[]
+merged: code=0 timed_out=0 out=[a
+b
+] err=[]
+not found: rc=-1 code=-1 msg=No such file or directory
+bad cwd: rc=-1
+spawn 0
+spawned out=[SHOUT THIS
+] code=0
+kill 0 code=137
+pid positive 1

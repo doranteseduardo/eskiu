@@ -122,6 +122,7 @@ struct Codegen {
     int uses_threads;        // program calls thread_create → the driver links pthread
     int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
     int safe;                // --safe: emit runtime slice/array index bounds checks (opt-in)
+    int freestanding;        // --freestanding: closure envs use esk_alloc/esk_free, not malloc/free
     int uses_trap;           // a bounds check was emitted → declare @llvm.trap once
     string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
     string cur_lbl;          // label of the basic block being emitted (for phi incoming edges)
@@ -931,9 +932,32 @@ string cg_ensure_method_inst(Codegen* g, string sname, string method) {
 
 // The function a method call `recv.m(...)` targets, for a receiver of struct `sname`:
 // a generic struct instance's method (instantiated on demand), else `Struct_m`.
+// The flat name of a generic instance spelling as the user writes it in a function name
+// (`List<string>` -> `List_string`, `M<string, int>` -> `M_string_int`), the C++ mangleTemplate
+// rule (cg_mangle differs: it is only for the emitted IR names).
+string cg_flat_name(string t) {
+    int n = 0; while (t[n] != 0) { n = n + 1; }
+    *uint8 buf = alloc<uint8>(n + 1);
+    int o = 0; int i = 0;
+    while (i < n) {
+        int c = (int)t[i];
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { buf[o] = (uint8)c; o = o + 1; }
+        else if (c == 42) { buf[o] = 112; o = o + 1; }            // '*' -> 'p'
+        else if (c == 60 || c == 44) { buf[o] = 95; o = o + 1; }   // '<' ',' -> '_'
+        i = i + 1;
+    }
+    buf[o] = 0;
+    return (string)buf;
+}
+
 string cg_method_fn(Codegen* g, string sname, string method) {
     string gm = cg_ensure_method_inst(g, sname, method);
     if (gm[0] != 0) { return gm; }
+    // On a generic instance, a non-generic `G_int_m(G<int>* self, ...)` serves the call.
+    if (cg_has_targs(sname) == 1) {
+        string flat = cg_cat(cg_cat(cg_flat_name(sname), "_"), method);
+        if (cg_is_fn(g, flat) == 1) { return flat; }
+    }
     return cg_cat(cg_cat(sname, "_"), method);
 }
 
@@ -1565,6 +1589,11 @@ void cg_drain_thunks(Codegen* g) {
 
 // Emit a runtime `declare` once for a libc/pthread symbol the codegen calls directly
 // (pthread_create/join, free). Skips it if the symbol is already a declared extern.
+// The heap a closure environment lives on: libc's, or under --freestanding the program's
+// esk_alloc/esk_free (the same pair <mem> uses there).
+string cg_heap_alloc(Codegen* g) { if (g.freestanding == 1) { return "esk_alloc"; } return "malloc"; }
+string cg_heap_free(Codegen* g) { if (g.freestanding == 1) { return "esk_free"; } return "free"; }
+
 void cg_ensure_extern(Codegen* g, string name, string decl) {
     if (cg_is_fn(g, name) == 1) { return; }
     if (cg_seen_inst(g, cg_cat("decl:", name)) == 1) { return; }
@@ -5250,8 +5279,9 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         string fatop = cg_coerce(g, fat, "%closure");     // a bare fn decays to {@__fnptr, null} (env null)
         string env = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = extractvalue %closure "); cg_emit(g, fatop); cg_emit(g, ", 1\n");
-        cg_ensure_extern(g, "free", "declare void @free(ptr)\n");
-        cg_emit(g, "  call void @free(ptr "); cg_emit(g, env); cg_emit(g, ")\n");
+        string hf = cg_heap_free(g);
+        cg_ensure_extern(g, hf, cg_cat(cg_cat("declare void @", hf), "(ptr)\n"));
+        cg_emit(g, "  call void @"); cg_emit(g, hf); cg_emit(g, "(ptr "); cg_emit(g, env); cg_emit(g, ")\n");
         v.op = ""; v.ty = "void"; return v;
     }
 
@@ -5328,7 +5358,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
                 string szi = cg_tmp(g);
                 cg_emit(g, "  "); cg_emit(g, szi); cg_emit(g, " = ptrtoint ptr "); cg_emit(g, szg); cg_emit(g, " to i64\n");
                 env = cg_tmp(g);
-                cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @malloc(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
+                cg_emit(g, "  "); cg_emit(g, env); cg_emit(g, " = call ptr @"); cg_emit(g, cg_heap_alloc(g)); cg_emit(g, "(i64 "); cg_emit(g, szi); cg_emit(g, ")\n");
             }
             int j = 0;
             while (j < nc) {
@@ -7109,6 +7139,10 @@ string cg_ext_attr(Codegen* g, string t) {
     string d = cg_dealias(g, cg_apply_sub(g, t));
     string lt = cg_lltype(g, d);
     if (cg_streq(lt, "i1") == 0 && cg_streq(lt, "i8") == 0 && cg_streq(lt, "i16") == 0) { return ""; }
+    // As clang: AAPCS64 outside Darwin leaves the upper bits unspecified (the receiver
+    // extends), and Windows x64 extends only a bool.
+    if (g.abi == 2) { return ""; }
+    if (g.abi == 4) { if (cg_streq(lt, "i1") == 1) { return " zeroext"; } return ""; }
     if (cg_streq(d, "char") == 1) {
         if (g.wintgt == 0 && (g.abi == 2 || g.abi == 5 || g.abi == 6)) { return " zeroext"; }
         return " signext";
@@ -9077,9 +9111,12 @@ void cg_program(Codegen* g, *Program prog) {
         cg_drain_thunks(g);
     }
 
-    if (g.uses_heap_env == 1 && cg_seen_inst(g, "fn:malloc") == 0) {   // closures' env malloc
-        String_append(&g.globals, "declare ptr @malloc(i64)\n");
-        List_push<string>(&g.inst_seen, "fn:malloc");
+    if (g.uses_heap_env == 1) {                                         // closures' env allocator
+        string ha = cg_heap_alloc(g);
+        if (cg_seen_inst(g, cg_cat("fn:", ha)) == 0 && cg_is_fn(g, ha) == 0) {
+            String_append(&g.globals, cg_cat(cg_cat("declare ptr @", ha), "(i64)\n"));
+            List_push<string>(&g.inst_seen, cg_cat("fn:", ha));
+        }
     }
 
     if (g.uses_trap == 1 && cg_seen_inst(g, "fn:trap") == 0) {         // --safe bounds-check trap

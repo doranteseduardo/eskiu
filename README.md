@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml"><img src="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.9.3-6448d4" alt="Version 0.9.3"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.10.0-6448d4" alt="Version 0.10.0"></a>
   <img src="https://img.shields.io/badge/LLVM-21%2B-orange" alt="LLVM 21+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
@@ -23,7 +23,7 @@
 
 Eskiu is a systems language with C's control over memory and calling conventions, and a
 quicker feel for everyday work. It compiles to native code through LLVM and calls C
-libraries directly, and `eskiuc run file.esk` (or a `#!/usr/bin/env eskiuc run` shebang)
+libraries directly, and `eskiuc run file.esk` (or a `#!/usr/bin/env -S eskiuc run` shebang)
 runs a source file the way you would run a Python or Ruby script.
 
 - **C-style and C-compatible.** C syntax and integer rules, structs, unions, bitfields and

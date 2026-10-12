@@ -38,15 +38,15 @@ no manual import.
 
 ```bash
 cd editor/intellij/plugin
-gradle buildPlugin           # → build/distributions/eskiu-intellij-*.zip (needs Gradle 8+)
+./gradlew buildPlugin        # → build/distributions/eskiu-intellij-*.zip (needs a JDK 17+)
 ```
 
 Install the resulting zip via **Settings → Plugins → ⚙ → Install Plugin from Disk…**.
 
-> The Gradle project targets a recent IntelliJ platform (2023.2+, where the
-> `TextMateBundleProvider` API is stable). Adjust `platformVersion` in
-> `plugin/gradle.properties` to your IDE build if needed. Building requires a JDK 17+
-> and the IntelliJ Gradle plugin (fetched on first build).
+> The Gradle project builds against IntelliJ 2024.1, the first platform with the
+> `TextMateBundleProvider` API, and sets no upper bound, so the zip installs in any
+> JetBrains IDE from 2024.1 on. Building needs a JDK 17+; the Gradle wrapper fetches
+> everything else on the first build.
 
 ---
 

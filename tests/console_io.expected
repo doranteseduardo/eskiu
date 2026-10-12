@@ -1,0 +1,13 @@
+abc
+
+to stderr after stdout
+back on stdout
+lines: code=0 out=[one][two][][last] lines=4 eof=-1
+lines: code=0 out= lines=0 eof=-1
+lines: code=0 out=[] lines=1 eof=-1
+input: code=0 out=> got ann
+> got bob
+> <eof>
+binary: bytes=5 len=5 nul=2 sum=450
+all: code=0 out=bytes=420000 len=420000 nul=0 sum=31000000
+all: code=0 out=bytes=0 len=0 nul=0 sum=0

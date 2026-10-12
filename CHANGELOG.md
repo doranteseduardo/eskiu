@@ -8,7 +8,127 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.9.3] - unreleased
+## [0.10.0] - 2026-10-11
+
+### Added
+
+- A targeted leak-checking test suite in `tests/leaks.sh` validates memory-critical constructs
+  (async coroutine frames, cancellation cleanups, escaping closure envs, channels, defer unwinding,
+  and explicit allocators) under AddressSanitizer with `detect_leaks=1`.
+- Structural LLVM IR assertions in `tests/ir_golden.sh` (integrated into `tests/run.sh`) directly
+  verify ABI attributes (`sret`, `signext`/`zeroext`, `__gxx_personality_v0`, `landingpad`, and
+  `@__cabi_*` callback thunks).
+- `<fs>`: `fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`, `fs_stat`/`fs_lstat`
+  (`FileStat`), `fs_exists`, `fs_is_dir`, `fs_is_file`, `fs_mkdir`, `fs_mkdir_p`, `fs_remove`,
+  `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir` (sorted), `fs_walk`, `fs_glob` and
+  `fs_match`, `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, and `fs_last_error`/`fs_errno`.
+  Actions return 0 or -1. Paths are UTF-8 on Windows too (`_wfopen` and the wide Win32 calls).
+- `<process>`: `process_run` and `sh`/`sh_with` capture stdout and stderr into a `ProcessResult`
+  (stdin text, cwd, extra environment, timeout); `process_spawn` with `Process_write_stdin`,
+  `Process_read`, `Process_wait`, `Process_kill`; `process_exit`, `process_pid`.
+- `<env>`: `env_set`, `env_unset`, `env_list`.
+- `<dns>`: `dns_resolve` (IPv4 and IPv6 through `getaddrinfo`). `net_tcp_connect` accepts a host
+  name or an IPv6 address and tries each address; a dotted IPv4 address works as before.
+- `<string>`: `String_find`, `String_contains`, `String_replace`, `String_replace_all`,
+  `String_split_str`, `String_lines`, `String_join`, `str_join` / `List_join`, `String_lower` /
+  `String_upper` (ASCII), `String_repeat`, `String_pad_left` / `String_pad_right`,
+  `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, and
+  printf-style `str_format` / `String_appendf` over `vsnprintf`.
+- `<list>`: `List_map`, `List_filter`, `List_reduce`, `List_find`, `List_any`, `List_all`,
+  `List_contains`, `List_index_of`, `List_reverse`, `List_slice`, `List_unique`, `List_clear`,
+  `List_pop`, `List_insert`; `List_sort_by` in `<sort>`.
+- `<map>`: `_has`, `_get_or`, `_len`, `_remove` (backward-shift deletion), `_keys`, `_values` and
+  `_each` for `Map<V>` and `HashMap<K,V>`; `cstr_hash` / `cstr_eq` for `string` keys; `Set<T>`.
+- Examples `text_report.esk` and `word_count.esk`.
+- `<json>`: `JsonValue_object`, `_array`, `_string`, `_number`, `_int`, `_bool`, `_null`,
+  `JsonValue_set` (replaces in place), `JsonValue_push`, `JsonValue_remove`,
+  `JsonValue_stringify`, `JsonValue_pretty` and `json_get` paths (`"data.items[0].name"`,
+  `["a.b"]`). A container owns its children.
+- `<csv>`: RFC 4180 `csv_parse` / `csv_parse_with` / `csv_parse_buf` into a `CsvTable` with
+  header lookup (`CsvTable_col`, `CsvTable_get`), errors with line and column, and
+  `csv_write_row` / `CsvTable_write` with minimal quoting.
+- `<dotenv>`: `dotenv_load`, `dotenv_load_override` and `dotenv_parse` (comments, `export`,
+  single and double quotes, inline comments), errors with a line number.
+- `<hash>`: SHA-256, SHA-1, MD5 and HMAC-SHA256 in pure Eskiu (streaming and one-shot),
+  `hex_encode`, `hex_decode`, constant-time `hash_equal`.
+- Stdlib fuzz targets `csv` and `dotenv`; the `json` target checks a stringify/parse round trip.
+- Example `data_summary.esk` (`.env`, CSV, SHA-256, JSON output).
+- `<url>`: `url_parse` into a `Url` (scheme, host incl. `[IPv6]`, port with scheme defaults,
+  path, query), `url_resolve` (RFC 3986 references), `url_query_add`, `Url_to_string`.
+- `<fetch>`: an HTTP/1.1 client for `http://` and `https://`. `fetch`, `fetch_with` with
+  `FetchOptions` (method, headers, text/bytes/JSON body, timeout, redirects, body cap, TLS
+  verification, CA file) and `fetch_async` on the event loop; `Response` with
+  `Response_header`, `Response_text`, `Response_bytes`, `Response_json`, `Response_ok`;
+  error codes plus `fetch_last_error`. HTTPS loads OpenSSL at run time (`<fetch_tls>`), so
+  programs link without libssl. Example `fetch.esk`; stdlib fuzz target `fetch`.
+- `<args>`: a declarative command-line parser (`ArgParser`, `args_flag`, `args_option`,
+  `args_option_int`, `args_argument`) with short clusters, `--opt=value`, `--`, repeated
+  options, generated `--help` and usage errors (`ArgParser_parse_or_exit` exits 0 or 2).
+- `<term>`: ANSI styles, 16/256/RGB colors, `term_is_tty`, `term_width`; colors follow
+  `NO_COLOR`, `FORCE_COLOR` and whether the stream is a terminal; Windows VT mode.
+- `<log>`: `log_trace` to `log_error` (printf-style), `LOG_LEVEL`, UTC or local timestamps,
+  colored level tags, output to stderr or a file.
+- `<io>`: `print`, `println`, `print_err`, `println_err`, `read_line`, `input`,
+  `read_all_stdin` (binary safe).
+- `<time>`: `time_format`, `time_parse`, `time_parse_local` (strftime-style specifiers),
+  `time_to_local`, `time_local_offset`, `duration_format`, `Stopwatch`.
+- Example `dir_list.esk` (`<args>`, `<term>`, `<log>`, `<time>`).
+- Example scripts in `examples/scripts/`, run through their `#!/usr/bin/env -S eskiuc run`
+  line: `repo_stats.esk` (GitHub API through `<fetch>`, a colored summary or `--json`) and
+  `organize.esk` (files into folders by extension or month, SHA-256 duplicates, `--dry-run`,
+  a CSV report).
+- `tests/scripts/check.sh` runs both scripts without network, against a local fake API and
+  a temporary tree; `tests/run.sh` and CI run it with both compilers.
+- CI installs libssl and sets `ESKIU_REQUIRE_TLS`, so `fetch_https` fails instead of
+  skipping when OpenSSL is missing. The Windows workflow builds the scripting tests and
+  runs the portable ones.
+- The Book of Eskiu: chapter 25, "Scripting with Eskiu"; the chapters after it are
+  renumbered. A "Scripting" section in the getting started guide.
+
+### Changed
+
+- VS Code extension 0.1.0: errors as you type (checked through a hidden copy of the unsaved
+  file), Format Document with `eskiuc fmt`, an "Eskiu: Run File" command, and the
+  `eskiu.compilerPath`, `eskiu.checkOnType` and `eskiu.checkDelay` settings. It works in
+  editors built on VS Code (Cursor, Antigravity, VSCodium).
+- IntelliJ plugin: builds against IntelliJ 2024.1 (the first with the TextMate bundle API it
+  uses) with no upper bound, ships the grammar as files, and has a Gradle wrapper; the
+  grammar copies are in sync with VS Code again.
+- The bare-metal ARM64 kernel in `kernel/` uses current Eskiu: a `volatile` PL011 driver, `.bss` cleared through `extern` linker symbols, the stdlib `Bump` heap, system registers read with inline-asm outputs, and a PSCI power off at the end. `make -C kernel check` boots it in QEMU and checks its output, and CI runs it on Linux.
+- The kernel now handles CPU exceptions (it recovers from a deliberate breakpoint and data abort), takes 100 Hz timer interrupts through the GIC, runs cooperative and preempted tasks, and ends in a UART shell. `make check` types a shell session into it and boots both an `-O0` and an `-O2` build.
+- The recursive-descent parser encapsulates speculative backtracking into explicit `speculate()`
+  and `speculateIf()` templates that specifically catch syntax `ParseError`s rather than unconstrained
+  catch-all blocks, guaranteeing that nesting limits (`NestingError`) and unexpected exceptions propagate immediately.
+
+### Fixed
+- The shebang the docs and examples use is `#!/usr/bin/env -S eskiuc run`. Without `-S`, Linux
+  passes `eskiuc run` to `env` as one argument and the script fails to start ("No such file
+  or directory"); only macOS split it.
+- C ABI: on AArch64 Linux and on Windows x64, an `extern`'s narrow integer parameters and
+  results (`int8`, `int16`, `uint8`, `uint16`, `char`, and `bool` on AArch64) no longer carry
+  `signext`/`zeroext`, matching clang. Eskiu trusted the upper bits of a narrow result that a
+  clang-compiled C function leaves unspecified, so `c_ret_s8()` read garbage (code built with
+  gcc happened to extend them). Both compilers.
+- The self-hosted compiler resolves a dot-call on a generic instance to a non-generic function
+  named after the instance (`w.count(10)` with `w: List<string>` calls `List_string_count`), as
+  the C++ compiler does; it reported "undefined method". Test `generic_instance_method_free`.
+- Under `--freestanding`, the environment of an escaping closure is allocated with the
+  program's `esk_alloc` and `free_closure` releases it with `esk_free`, the pair `<mem>`
+  uses there; before, they called libc's `malloc` and `free`. Both compilers.
+- The self-hosted driver accepts `--mattr` and `--reloc` (it rejected them) and passes them
+  to clang, so it builds for targets like the Nintendo 3DS or a soft-float kernel.
+- `--freestanding` builds never call `memset`, `memcpy` or other C library functions the
+  program did not call itself: as with clang `-ffreestanding`, every function is marked
+  `"no-builtins"` and the optimizer assumes no C library, so a byte loop stays a loop at
+  `-O2` instead of becoming a call that fails to link without libc. Both compilers.
+- In the compiler driver, `--hover-at` and `--definition-at` explicitly differentiate missing
+  symbols (`(no type at L:C)` / `(no definition at L:C)`), semantic errors (`(semantic error)`),
+  and internal compiler crashes (writing to `stderr` and exiting with code 1 and `(internal error)`)
+  rather than catching all exceptions into `(error)` with exit code 0.
+
+---
+
+## [0.9.3] - 2026-10-02
 
 ### Added
 - **`await` inside `finally` and `defer`** in an async function. The cleanup suspends and
@@ -85,6 +205,22 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `SHA256SUMS`, instead of a copy of the compiler committed under `playground/dist`.
 - `kernel/Makefile` uses `clang` from `PATH`.
 
+### Known issues
+None. There are no known open miscompiles in 0.9.3.
+
+#### Resolved from 0.9.2
+These issues were open in 0.9.2 and resolved in 0.9.3 (see [0.9.3] Fixed):
+
+- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
+  when a cancelled future is dropped. In a generic async function an `await` is also
+  rejected in a `match` arm that binds a payload, after an operand with a side effect in
+  the same expression, and inside a `?:` arm.
+- A method that mutates a captured value inside a lambda acts on the closure's copy
+  (captures are by value; made an error in 0.9.3: captured values are read-only).
+- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield.
+- The self-hosted compiler generates code for deeply nested binary expressions
+  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth.
+
 ## [0.9.2] - 2026-09-29
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
@@ -94,7 +230,7 @@ ASan fuzzer for the stdlib parsers), which found about twenty more, and resolved
 known limitations left from 0.9.1 (R and S). Seven more blind audit rounds followed, each
 on a frozen tree and each fixed the same way, for about 500 fixes in total. The last
 rounds concentrated on the C ABI, generics, `volatile` and the HTTP servers under hostile
-input. What is still open is listed under Known issues.
+input. What was still open at the time was resolved in 0.9.3 (see [0.9.3] Resolved from 0.9.2).
 
 ### Added
 - **`#pragma link("name")`** links the executable with `-lname`. The driver also adds
@@ -1083,22 +1219,6 @@ input. What is still open is listed under Known issues.
 - A generic dot-call on an rvalue receiver (`mk().get(0)`, a call result) passes the address of a temporary holding it, as a struct method call does (the C++ compiler failed with an unlocated error, the self-host emitted invalid IR). Test `generic_dot_call_rvalue`.
 - An inline asm operand naming a local or parameter of an `async` function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test `asm_async_locals`.
 - A method call on a non-struct value (`x.foo()` with `x` an `int`) reports one error, `undefined method 'foo' on type 'int'`, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).
-
-### Known issues
-These are open in 0.9.2. None of them miscompiles a valid program.
-
-- An `await` inside a `finally` or a `defer` is rejected: both run without suspending
-  when a cancelled future is dropped. In a generic async function an `await` is also
-  rejected in a `match` arm that binds a payload, after an operand with a side effect in
-  the same expression, and inside a `?:` arm. Bind the awaited value to a local first.
-  (The generic cases are fixed in 0.9.3.)
-- A method that mutates a captured value inside a lambda acts on the closure's copy
-  (captures are by value); write through a pointer to share state.
-- The type checker does not fold `sizeof` of a struct with an unnamed `: 0` bitfield, so
-  constant-expression checks do not see it (codegen gets its size right).
-- The self-hosted compiler generates code for deeply nested binary expressions
-  (`a + (a + (...))`, thousands of levels) in time quadratic in their depth; the C++
-  compiler is linear. (Fixed in 0.9.3.)
 
 ## [0.9.1] - 2026-09-09
 ### Fixed

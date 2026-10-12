@@ -231,8 +231,7 @@ bool Parser::lambdaAhead() const {
 // tokens do not form one.
 ExprPtr Parser::tryParseLambda() {
     Token tok = peek();
-    size_t savePos = current;
-    try {
+    return speculate([&]() -> ExprPtr {
         std::string retType = parseType();
         consume(TokenType::LPAREN, "");
         std::vector<bool> esc;
@@ -247,11 +246,8 @@ ExprPtr Parser::tryParseLambda() {
             lambda->paramEscaping = esc;
             return lambda;
         }
-    } catch (const NestingError&) {
-        throw;
-    } catch (...) {}
-    rewindTo(savePos);
-    return nullptr;
+        throw ParseError("not a lambda");
+    });
 }
 
 ExprPtr Parser::parseUnary() {
@@ -310,18 +306,16 @@ ExprPtr Parser::parseUnary() {
             isTypeKeyword = true;
         }
         if (isTypeKeyword) {
-            size_t savePos = current;
-            try {
+            ExprPtr castExpr = speculate([&]() -> ExprPtr {
                 Token lpTok = advance(); // consume (
                 std::string castType = parseType();
                 if (match(TokenType::RPAREN)) {
                     ExprPtr expr = parseUnary();
                     return withPos(std::make_shared<CastExpr>(castType, expr), lpTok);
                 }
-            } catch (const NestingError&) {
-                throw;
-            } catch (...) {}
-            rewindTo(savePos);
+                throw ParseError("not a cast");
+            });
+            if (castExpr) return castExpr;
         }
     }
 
@@ -337,8 +331,7 @@ ExprPtr Parser::parsePostfix() {
         // (function, enum variant or type) or every argument can only be a type.
         if (auto* ident = dynamic_cast<IdentExpr*>(expr.get())) {
             if (check(TokenType::LT)) {
-                size_t savePos = current;
-                try {
+                ExprPtr templExpr = speculate([&]() -> ExprPtr {
                     advance(); // consume <
                     std::vector<std::string> typeArgs;
                     do { typeArgs.push_back(parseType()); } while (match(TokenType::COMMA));
@@ -356,8 +349,7 @@ ExprPtr Parser::parsePostfix() {
                             consume(TokenType::RPAREN, "Expected ')'");
                             auto tc = std::make_shared<TemplateCallExpr>(ident->name, typeArgs, std::move(args));
                             tc->line = ident->line; tc->col = ident->col;
-                            expr = tc;
-                            continue;
+                            return tc;
                         }
                         if (check(TokenType::LBRACE)) {
                             // Template struct literal: Name<T,...> { ... }
@@ -367,14 +359,15 @@ ExprPtr Parser::parsePostfix() {
                                 typeStr += typeArgs[i];
                             }
                             typeStr += ">";
-                            expr = parseStructInit(typeStr);
-                            continue;
+                            return parseStructInit(typeStr);
                         }
                     }
-                } catch (const NestingError&) {
-                    throw;
-                } catch (...) {}
-                rewindTo(savePos);
+                    throw ParseError("not a template call");
+                });
+                if (templExpr) {
+                    expr = templExpr;
+                    continue;
+                }
             }
         }
         if (match(TokenType::LPAREN)) {
@@ -483,20 +476,16 @@ ExprPtr Parser::parsePrimary() {
     // evaluated.
     if (match(TokenType::SIZEOF)) {
         consume(TokenType::LPAREN, "Expected '(' after sizeof");
-        size_t save = current;
         std::string typeName;
-        bool asType = false;
-        try {
+        bool asType = speculate([&]() -> bool {
             typeName = parseType();
-            asType = check(TokenType::RPAREN) &&
-                     (typeName.find_first_of("*[?") == std::string::npos || typeArgIsEvident(typeName));
-        } catch (const NestingError&) {
-            throw;
-        } catch (...) {
-            asType = false;
-        }
+            if (check(TokenType::RPAREN) &&
+                (typeName.find_first_of("*[?") == std::string::npos || typeArgIsEvident(typeName))) {
+                return true;
+            }
+            throw ParseError("not a sizeof type");
+        });
         if (!asType) {
-            rewindTo(save);
             ExprPtr operand = parseExpression();
             consume(TokenType::RPAREN, "Expected ')'");
             auto sz = withPos(std::make_shared<SizeofExpr>(""), tok);

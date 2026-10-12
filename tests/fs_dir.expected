@@ -1,0 +1,40 @@
+temp dir exists: 1 is_dir: 1
+text len 20
+lines [one, two, three, four]
+stat size=20 file=1 dir=0 mtime_set=1
+is_file 1 is_dir 0
+mkdir_p 0
+mkdir_p again 0
+mkdir existing -1
+list . [a.txt, b.txt, src]
+walk:
+  src/.hidden.esk
+  src/lib/
+  src/lib/deep/
+  src/lib/deep/x.esk
+  src/lib/deep/y.txt
+  src/lib/util.esk
+  src/main.esk
+glob *.txt -> 2
+   [a.txt, b.txt]
+glob src/**/*.esk [src/lib/deep/x.esk, src/lib/util.esk, src/main.esk]
+glob src/*/[d-e]* [src/lib/deep]
+glob src/.* [src/.hidden.esk]
+glob src/lib/** [src/lib/deep, src/lib/deep/x.esk, src/lib/deep/y.txt, src/lib/util.esk]
+match 1 0 1 0 1 1
+copy 0
+copied len 20
+rename 0 exists old 0 new 1
+remove file 0
+remove non-empty dir -1
+read missing -1
+stat missing -1 missing=1
+message set 1
+list missing -1
+walk on file -1
+cwd ends with root name 1
+remove_all src 0 exists 0
+remove_all missing 0
+temp_file 0 exists 1
+remove temp file 0
+remove_all root 0 exists 0

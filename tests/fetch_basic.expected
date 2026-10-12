@@ -1,0 +1,31 @@
+text: 200 OK ok=1 type=[text/plain] len=11 body=[hello fetch] url=http://127.0.0.1:18431/text redirects=0
+json: name=eskiu tags=2 n=3
+404: 404 Not Found ok=0 type=[] len=12 body=[no such page] url=http://127.0.0.1:18431/missing redirects=0
+query: 200 OK ok=1 type=[] len=8 body=[query ok] url=http://127.0.0.1:18431/q?a=1&b=x%20y redirects=0
+post-json: 200 OK ok=1 type=[] len=22 body=[{"msg":"hi \"there\""}] url=http://127.0.0.1:18431/echo redirects=0
+  method=POST
+  sent type=application/json
+303: 200 OK ok=1 type=[] len=0 body=[] url=http://127.0.0.1:18431/echo redirects=1
+  method=GET
+307: 200 OK ok=1 type=[] len=9 body=[kept body] url=http://127.0.0.1:18431/echo redirects=1
+  method=POST
+header ok=1
+headers: 200 OK ok=1 type=[] len=62 body=[x-custom=one two ua=eskiu/0.10.0 accept=*/* auth=Bearer secret] url=http://127.0.0.1:18431/headers redirects=0
+cross-origin: 200 OK ok=1 type=[] len=43 body=[x-custom=one two ua=eskiu/0.10.0 accept=*/*] url=http://localhost:18431/headers redirects=1
+agent: 200 OK ok=1 type=[] len=64 body=[x-custom=one two ua=custom-agent/1 accept=*/* auth=Bearer secret] url=http://127.0.0.1:18431/headers redirects=0
+relative: 200 OK ok=1 type=[text/plain] len=11 body=[hello fetch] url=http://127.0.0.1:18431/text redirects=1
+absolute: 200 OK ok=1 type=[application/json] len=39 body=[{"name":"eskiu","tags":["a","b"],"n":3}] url=http://127.0.0.1:18431/json redirects=1
+loop: rc=-8 (too many redirects (more than 10))
+  status after error=0
+no-follow: 302 Found ok=0 type=[] len=0 body=[] url=http://127.0.0.1:18431/r/rel redirects=0
+max-0: rc=-8 (too many redirects (more than 0))
+head: 200 OK ok=1 type=[text/plain] len=0 body=[] url=http://127.0.0.1:18431/text redirects=0
+inject value=0
+inject name=0
+inject: rc=-10 (invalid request header (a name must be a token; a value may not hold CR or LF))
+bad-method: rc=-10 (invalid request method)
+bad-target: rc=-1 (invalid URL 'http://127.0.0.1:18431/a??X-Evil: 1')
+refused: rc=-3
+dns: rc=-2
+invalid-url: rc=-1 (invalid URL 'not a url')
+scheme: rc=-1 (unsupported scheme 'ftp' (only http and https))

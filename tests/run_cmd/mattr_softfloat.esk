@@ -1,0 +1,2 @@
+// --mattr=-fp-armv8,-neon: a double multiply becomes a soft-float call (__muldf3).
+double scale(double x) { return x * 2.5; }

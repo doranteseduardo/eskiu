@@ -1,0 +1,67 @@
+// <dns> lookups, and net_tcp_connect by host name ("localhost") and by
+// dotted IPv4 to a loopback echo server.
+import <net>;
+import <mem>;
+extern int printf(string fmt, ...);
+extern int usleep(int us);
+
+int contains(List<string>* l, string s) {
+    for (i in 0..List_len<string>(l)) {
+        if (strcmp(List_get<string>(l, i), s) == 0) { return 1; }
+    }
+    return 0;
+}
+
+void echo_server() {
+    int fd = net_tcp_listen(54341);
+    if (fd < 0) { return; }
+    for (round in 0..2) {
+        int c = net_accept(fd);
+        *uint8 buf = alloc<uint8>(64);
+        int64 n = net_recv(c, (*void)buf, 64);
+        net_send(c, (*void)buf, n);
+        net_close(c);
+        free(buf);
+    }
+    net_close(fd);
+}
+
+void ping(string host) {
+    int fd = net_tcp_connect(host, 54341);
+    if (fd < 0) { printf("%s: connect failed\n", host); return; }
+    net_send_str(fd, host);
+    *uint8 buf = alloc<uint8>(64);
+    int64 n = net_recv(fd, (*void)buf, 63);
+    buf[n] = 0;
+    printf("%s: echoed %s\n", host, (string)buf);
+    net_close(fd);
+    free(buf);
+}
+
+int main() {
+    let a: List<string>;  List_init<string>(&a, 4);
+    const int n = dns_resolve("localhost", &a);
+    printf("localhost: resolved %d, has 127.0.0.1 or ::1: %d\n", n > 0 ? 1 : 0,
+        contains(&a, "127.0.0.1") == 1 || contains(&a, "::1") == 1 ? 1 : 0);
+    dns_free_list(&a);
+
+    List_init<string>(&a, 4);
+    int k = dns_resolve("127.0.0.1", &a);
+    printf("numeric v4: %d %s\n", k, List_get<string>(&a, 0));
+    dns_free_list(&a);
+    List_init<string>(&a, 4);
+    k = dns_resolve("::1", &a);
+    printf("numeric v6: %d %s\n", k, List_get<string>(&a, 0));
+    dns_free_list(&a);
+    List_init<string>(&a, 4);
+    printf("bad name: %d message: %d\n", dns_resolve("no-such-host.invalid", &a), dns_last_error()[0] != 0 ? 1 : 0);
+    dns_free_list(&a);
+
+    *void t = thread_create(echo_server);
+    usleep(150000);
+    ping("localhost");
+    ping("127.0.0.1");
+    thread_join(t);
+    printf("refused: %d\n", net_tcp_connect("localhost", 54342) < 0 ? 1 : 0);
+    return 0;
+}
