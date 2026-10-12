@@ -1,0 +1,104 @@
+$ repo_stats eskiu-lang/eskiu
+eskiu-lang/eskiu
+  A systems language that also runs scripts
+
+  stars         12,345
+  forks         678
+  open issues   9
+  license       MIT
+
+  languages
+    C++            60.0%  ############
+    Eskiu          37.5%  ########
+    Shell           1.5%  .
+    Python          0.8%  .
+    HTML            0.2%  .
+    (1 more)
+exit 0
+$ repo_stats --top 2 eskiu-lang/eskiu
+eskiu-lang/eskiu
+  A systems language that also runs scripts
+
+  stars         12,345
+  forks         678
+  open issues   9
+  license       MIT
+
+  languages
+    C++            60.0%  ############
+    Eskiu          37.5%  ########
+    (4 more)
+exit 0
+$ FORCE_COLOR=1 repo_stats --top 1
+[1meskiu-lang/eskiu[0m
+  [2mA systems language that also runs scripts[0m
+
+  stars         [33m12,345[0m
+  forks         [36m678[0m
+  open issues   [31m9[0m
+  license       MIT
+
+  languages
+    C++            60.0%  [32m############[0m
+[2m    (5 more)[0m
+exit 0
+$ repo_stats --json eskiu-lang/eskiu
+{
+  "repo": "eskiu-lang/eskiu",
+  "description": "A systems language that also runs scripts",
+  "stars": 12345,
+  "forks": 678,
+  "open_issues": 9,
+  "languages": [
+    {
+      "name": "C++",
+      "bytes": 2400000,
+      "percent": 60
+    },
+    {
+      "name": "Eskiu",
+      "bytes": 1500000,
+      "percent": 37.5
+    },
+    {
+      "name": "Shell",
+      "bytes": 60000,
+      "percent": 1.5
+    },
+    {
+      "name": "Python",
+      "bytes": 30000,
+      "percent": 0.8
+    },
+    {
+      "name": "HTML",
+      "bytes": 9000,
+      "percent": 0.2
+    },
+    {
+      "name": "CMake",
+      "bytes": 1000,
+      "percent": 0
+    }
+  ]
+}
+exit 0
+$ repo_stats eskiu-lang/missing
+stderr: ERROR not found: http://127.0.0.1:18462/repos/eskiu-lang/missing
+exit 1
+$ repo_stats eskiu-lang/broken
+stderr: ERROR http://127.0.0.1:18462/repos/eskiu-lang/broken: the answer is not JSON
+exit 1
+$ repo_stats no-slash
+stderr: ERROR expected OWNER/NAME, got 'no-slash'
+exit 2
+$ repo_stats --timeout 0 a/b
+stderr: ERROR --timeout must be positive
+exit 2
+$ repo_stats (no repo)
+stderr: usage: repo_stats [-h] [-j] [-t N] [--timeout SECONDS] [--api-url URL] repo
+stderr: repo_stats: error: missing argument 'repo'
+exit 2
+$ repo_stats (connection refused)
+stderr: ERROR http://127.0.0.1:1/repos/a/b: cannot connect to 127.0.0.1:1: Connection refused
+exit 1

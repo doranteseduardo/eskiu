@@ -218,6 +218,20 @@ if [[ $code -eq 3 && "$out" == $'[a]\n[b c]' ]]; then ok "run/args"; else bad "r
 "$ESKIUC" run "$args_esk" crash >/dev/null 2>&1; code=$?
 if [[ $code -eq 139 ]]; then ok "run/signal"; else bad "run/signal" "exit $code (expected 139)"; fi
 
+# The example scripts in examples/scripts/, run through their shebang line against a
+# local fake API and a temporary directory tree (tests/scripts/check.sh). Not under a
+# sanitizer: they run through `eskiuc run`, which builds without one.
+if [[ -z "$SANITIZE" ]]; then
+    echo "Example scripts:"
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*)   ok "scripts/${line#ok }" ;;
+            "FAIL "*) bad "scripts/${line#FAIL }" "transcript differs from tests/scripts/*.expected" ;;
+            *)        echo "$line" ;;
+        esac
+    done < <(ESKIUC="$ESKIUC" bash "$here/scripts/check.sh" 2>&1)
+fi
+
 # $CC may carry arguments; a $CC that does not exist warns and falls back.
 if CC="$CC -O0" "$ESKIUC" "$args_esk" -o "$work/cc_args" >/dev/null 2>&1 && [[ -x "$work/cc_args" ]]; then
     ok "cli/cc-with-args"
