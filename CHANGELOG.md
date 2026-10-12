@@ -40,10 +40,6 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   declared without a value, is bound to that local like an initializer: while the local is
   only called its environment lives on the stack. Before, each such assignment leaked a heap
   environment. Both compilers. Test `closure_rebind_env`, also in `tests/leaks.sh`.
-
----
-
-### Fixed
 - `<fetch>`: a response whose last transfer coding is not `chunked` (such as
   `Transfer-Encoding: gzip`) is read until the connection closes, as RFC 9112 says, instead
   of failing as malformed.
@@ -62,6 +58,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   put in a background process group, so a read stopped it until the timeout killed it.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
+
+---
+
 
 ## [0.10.0] - 2026-10-11
 
