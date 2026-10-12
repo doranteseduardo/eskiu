@@ -66,13 +66,13 @@ int req_block(*uint8 blk, string method, string path) {
 
 void settings1(int id, int64 v) {
     uint8[6] p;
-    h2_put_setting(&p[0], 0, id, v);
+    _h2_put_setting(&p[0], 0, id, v);
     frame(H2_SETTINGS, 0, 0, &p[0], 6);
 }
 
 void window_update(int sid, int64 inc) {
     uint8[4] p;
-    h2_put_u32(&p[0], 0, inc);
+    _h2_put_u32(&p[0], 0, inc);
     frame(H2_WINDOW_UPDATE, 0, sid, &p[0], 4);
 }
 
@@ -103,14 +103,14 @@ void run(string label) {
         if (fr.type == H2_HEADERS) {
             int n = HpackDecoder_decode(&dec, pl, fr.length, hs, 16);
             for (i in 0..n) {
-                if (h2_name_eq(&hs[i], ":status") != 0) { printf(" HEADERS(%.*s)", hs[i].vlen, (string)hs[i].value); }
+                if (_h2_name_eq(&hs[i], ":status") != 0) { printf(" HEADERS(%.*s)", hs[i].vlen, (string)hs[i].value); }
             }
         } else if (fr.type == H2_DATA) {
             printf(" DATA[%.*s]", fr.length, (string)pl);
         } else if (fr.type == H2_GOAWAY) {
-            printf(" GOAWAY(%lld)", h2_get_u32(pl, 4));
+            printf(" GOAWAY(%lld)", _h2_get_u32(pl, 4));
         } else if (fr.type == H2_RST_STREAM) {
-            printf(" RST(%d,%lld)", fr.stream_id, h2_get_u32(pl, 0));
+            printf(" RST(%d,%lld)", fr.stream_id, _h2_get_u32(pl, 0));
         } else if (fr.type == H2_PING) {
             printf(" PING(ack=%d,%.*s)", fr.flags & 1, 8, (string)pl);
         } else if (fr.type == H2_SETTINGS && (fr.flags & 1) != 0) {

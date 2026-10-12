@@ -24,15 +24,15 @@ void dump(H2Server* s, HpackDecoder* d) {
         if (f.type == H2_HEADERS) {
             const int n = HpackDecoder_decode(d, s.out + o + 9, f.length, &hs[0], 8);
             for (i in 0..n) {
-                if (h2_name_eq(&hs[i], ":status") != 0) {
+                if (_h2_name_eq(&hs[i], ":status") != 0) {
                     printf("  stream %d status ", f.stream_id);
                     for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
                     printf("\n");
                 }
             }
         }
-        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
-        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, _h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", _h2_get_u32(s.out + o + 9, 4)); }
         o += 9 + f.length;
     }
     s.outlen = 0;
@@ -121,7 +121,7 @@ int main() {
         int64 o = 0;
         while (o + 9 <= s.outlen) {
             let f: H2Frame;  h2_read_header(s.out + o, &f);
-            if (f.type == H2_RST_STREAM && h2_get_u32(s.out + o + 9, 0) == H2_NO_ERROR) { resets++; }
+            if (f.type == H2_RST_STREAM && _h2_get_u32(s.out + o + 9, 0) == H2_NO_ERROR) { resets++; }
             o += 9 + f.length;
         }
         s.outlen = 0;                           // the transport wrote our frames

@@ -1,4 +1,4 @@
-// h2_fill_request set the version with String_from on the already allocated
+// _h2_fill_request set the version with String_from on the already allocated
 // HttpRequest version String, leaking 16 bytes per HTTP/2 request. It now
 // clears and appends. Checked with `leaks --atExit` (macOS) or LeakSanitizer
 // under --asan on Linux; the output only shows the requests still fill.
@@ -13,7 +13,7 @@ int main() {
     int bad = 0;
     for (i in 0..1000) {
         let r: HttpRequest;  r.init();
-        if (h2_fill_request(&r, &hs[0], 3) != 0 || r.version.eq_cstr("HTTP/2.0") == 0) { bad++; }
+        if (_h2_fill_request(&r, &hs[0], 3) != 0 || r.version.eq_cstr("HTTP/2.0") == 0) { bad++; }
         r.free();
     }
     printf("filled 1000 requests, bad=%d\n", bad);

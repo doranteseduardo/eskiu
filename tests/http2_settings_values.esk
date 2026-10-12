@@ -10,7 +10,7 @@ extern int printf(string fmt, ...);
 
 void check(string label, int id, int64 v) {
     uint8[6] p;
-    h2_put_setting(&p[0], 0, id, v);
+    _h2_put_setting(&p[0], 0, id, v);
     let s: H2Settings;  H2Settings_defaults(&s);
     const int rc = H2Settings_apply(&s, &p[0], 6);
     printf("%s: error=%d apply=%d window=%lld frame=%lld push=%d\n", label, h2_settings_error(&p[0], 6),

@@ -36,7 +36,7 @@ int main() {
     printf("valid: %d\n", HpackDecoder_decode(&d, g, 4, out, 8));
 
     int nx = 0;
-    printf("int: %lld\n", hpack_decode_int_at(c, 0, 12, 8, &nx));
+    printf("int: %lld\n", _hpack_decode_int_at(c, 0, 12, 8, &nx));
 
     HpackDecoder_free(&d);
     free((*void)a); free((*void)b); free((*void)c); free((*void)e); free((*void)f); free((*void)g);

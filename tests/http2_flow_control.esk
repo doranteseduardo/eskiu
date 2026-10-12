@@ -48,7 +48,7 @@ void send_frame(int type, int flags, int sid, *uint8 p, int n) {
 }
 
 void send_wu(int sid, int64 inc) {
-    uint8[4] p;  h2_put_u32(&p[0], 0, inc);
+    uint8[4] p;  _h2_put_u32(&p[0], 0, inc);
     send_frame(H2_WINDOW_UPDATE, 0, sid, &p[0], 4);
 }
 

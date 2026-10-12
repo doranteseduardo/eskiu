@@ -75,7 +75,7 @@ void client() {
 void run(string label, int at_once, bool serve, int64 lo, int64 hi) {
     *int sv = alloc<int>(2);
     socketpair(1, 1, 0, sv);
-    net_nosigpipe(sv[1]);
+    _net_nosigpipe(sv[1]);
     g_client = sv[1];
     g_at_once = at_once;
     g_got = 0;

@@ -36,8 +36,8 @@ void dump(H2Server* s, HpackDecoder* d) {
             }
         }
         if (f.type == H2_DATA) { printf("  stream %d DATA len %d flags %d\n", f.stream_id, f.length, f.flags); }
-        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
-        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, _h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", _h2_get_u32(s.out + o + 9, 4)); }
         o += 9 + f.length;
     }
     s.outlen = 0;

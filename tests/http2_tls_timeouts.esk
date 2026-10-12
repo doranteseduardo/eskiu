@@ -76,7 +76,7 @@ void run(string label, int async_mode, int64 lo) {
         if (fr.type == H2_SETTINGS) { printf((fr.flags & 1) != 0 ? " ACK" : " SETTINGS"); }
         else if (fr.type == H2_HEADERS) { printf(" HEADERS"); }
         else if (fr.type == H2_DATA) { printf(" DATA[%.*s]", fr.length, (string)pl); }
-        else if (fr.type == H2_GOAWAY) { printf(" GOAWAY(last=%lld,%lld)", h2_get_u32(pl, 0), h2_get_u32(pl, 4)); }
+        else if (fr.type == H2_GOAWAY) { printf(" GOAWAY(last=%lld,%lld)", _h2_get_u32(pl, 0), _h2_get_u32(pl, 4)); }
         else { printf(" type%d", fr.type); }
         pos += 9 + fr.length;
     }

@@ -21,8 +21,8 @@ void dump(H2Server* s, string tag) {
     while (o + 9 <= s.outlen) {
         let f: H2Frame; h2_read_header(s.out + o, &f);
         printf(" [type %d sid %d", f.type, f.stream_id);
-        if (f.type == H2_GOAWAY) { printf(" code %lld", h2_get_u32(s.out + o + 9, 4)); }
-        if (f.type == H2_RST_STREAM) { printf(" code %lld", h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf(" code %lld", _h2_get_u32(s.out + o + 9, 4)); }
+        if (f.type == H2_RST_STREAM) { printf(" code %lld", _h2_get_u32(s.out + o + 9, 0)); }
         printf("]");
         o += 9 + f.length;
     }
@@ -73,7 +73,7 @@ int main() {
     *uint8 p = alloc<uint8>(4096);
 
     H2Server* s = fresh(p);
-    h2_put_u32(p, 0, H2_CANCEL);
+    _h2_put_u32(p, 0, H2_CANCEL);
     feed(s, H2_RST_STREAM, 0, 5, p, 4);
     dump(s, "rst on idle stream 5");
     done(s);
@@ -82,7 +82,7 @@ int main() {
     const int n = reqblock(p);
     feed(s, H2_HEADERS, 5, 1, p, n);
     dump(s, "request 1");
-    h2_put_u32(p, 0, H2_CANCEL);
+    _h2_put_u32(p, 0, H2_CANCEL);
     feed(s, H2_RST_STREAM, 0, 1, p, 4);
     dump(s, "rst on closed stream 1");
     done(s);
@@ -93,7 +93,7 @@ int main() {
     done(s);
 
     s = fresh(p);
-    h2_put_u32(p, 0, 3);  p[4] = 16;             // depends on stream 3, weight 16
+    _h2_put_u32(p, 0, 3);  p[4] = 16;             // depends on stream 3, weight 16
     const int n3 = reqblock_indexed(p + 5);
     feed(s, H2_HEADERS, 1 | 4 | 32, 3, p, n3 + 5);
     dump(s, "headers 3 depending on itself");
@@ -101,13 +101,13 @@ int main() {
     const int n5 = reqblock_ref(p);
     feed(s, H2_HEADERS, 5, 5, p, n5);
     dump(s, "request 5");
-    h2_put_u32(p, 0, 1);  p[4] = 16;
+    _h2_put_u32(p, 0, 1);  p[4] = 16;
     feed(s, H2_HEADERS, 1 | 4 | 32, 7, p, reqblock(p + 5) + 5);
     dump(s, "headers 7 depending on stream 1");
-    h2_put_u32(p, 0, 9);  p[4] = 16;
+    _h2_put_u32(p, 0, 9);  p[4] = 16;
     feed(s, H2_PRIORITY, 0, 9, p, 5);
     dump(s, "priority 9 on itself");
-    h2_put_u32(p, 0, 7);  p[4] = 16;
+    _h2_put_u32(p, 0, 7);  p[4] = 16;
     feed(s, H2_PRIORITY, 0, 11, p, 5);
     dump(s, "priority 11 on stream 7");
     done(s);

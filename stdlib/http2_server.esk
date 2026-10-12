@@ -33,14 +33,14 @@ extern int memcmp(*void a, *void b, int64 n);
 extern int64 strlen(string s);
 
 // True if a decoded header's name equals the cstring `name`.
-int h2_name_eq(HpackHeader* h, string name) {
+int _h2_name_eq(HpackHeader* h, string name) {
     const int n = strlen(name);
     if (h.nlen != n) { return 0; }
     return memcmp((*void)h.name, (*void)name, n) == 0;
 }
 
 // Set a String to the `n` bytes at `p`.
-void h2_str_set_bytes(String* s, *uint8 p, int64 n) {
+void _h2_str_set_bytes(String* s, *uint8 p, int64 n) {
     s.clear();
     for (int64 i = 0; i < n; i++) { s.push((char)p[i]); }
 }
@@ -50,7 +50,7 @@ void h2_str_set_bytes(String* s, *uint8 p, int64 n) {
 // (except the leading ':' of a pseudo-header), and the value has no NUL, CR or
 // LF and does not start or end with a space or tab. A CR or LF in a value would
 // otherwise split into a forged header line in the HttpRequest header block.
-int h2_field_ok(HpackHeader* h) {
+int _h2_field_ok(HpackHeader* h) {
     if (h.nlen <= 0) { return 0; }
     for (int64 i = 0; i < h.nlen; i++) {
         const int c = (int)h.name[i];
@@ -71,7 +71,7 @@ int h2_field_ok(HpackHeader* h) {
 }
 
 // 1 if a decoded value equals the cstring `v`.
-int h2_value_eq(HpackHeader* h, string v) {
+int _h2_value_eq(HpackHeader* h, string v) {
     const int n = strlen(v);
     if (h.vlen != n) { return 0; }
     return memcmp((*void)h.value, (*void)v, n) == 0;
@@ -79,7 +79,7 @@ int h2_value_eq(HpackHeader* h, string v) {
 
 // 1 for a connection-specific field, which HTTP/2 does not carry (RFC 9113
 // §8.2.2). `name` is lowercase (the caller compares exact bytes).
-int h2_is_conn_field(*uint8 name, int64 n) {
+int _h2_is_conn_field(*uint8 name, int64 n) {
     const string[5] names = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade"};
     for (i in 0..5) {
         const int64 k = strlen(names[i]);
@@ -89,14 +89,14 @@ int h2_is_conn_field(*uint8 name, int64 n) {
 }
 
 // 1 if a decoded trailer section is well formed: every field passes
-// h2_field_ok (no uppercase name, no CR, LF or NUL in a value), and none is a
+// _h2_field_ok (no uppercase name, no CR, LF or NUL in a value), and none is a
 // pseudo-header (§8.1), a connection-specific field or a `te` (§8.2.2), so a
 // trailer is held to the rules of a header section.
-int h2_trailers_ok(HpackHeader* hs, int64 n) {
+int _h2_trailers_ok(HpackHeader* hs, int64 n) {
     for (int64 i = 0; i < n; i++) {
         HpackHeader* h = &hs[i];
-        if (h2_field_ok(h) == 0 || h.name[0] == ':') { return 0; }
-        if (h2_is_conn_field(h.name, h.nlen) != 0 || h2_name_eq(h, "te") != 0) { return 0; }
+        if (_h2_field_ok(h) == 0 || h.name[0] == ':') { return 0; }
+        if (_h2_is_conn_field(h.name, h.nlen) != 0 || _h2_name_eq(h, "te") != 0) { return 0; }
     }
     return 1;
 }
@@ -105,7 +105,7 @@ int h2_trailers_ok(HpackHeader* hs, int64 n) {
 // pseudo-headers map to the request fields; ordinary headers are appended to the
 // header block as "name: value\n" (pseudo-headers — names starting with ':' —
 // are not). The version is reported as HTTP/2.0. Returns 0; -1 when a field is
-// malformed (h2_field_ok), answered 400; or -2 when the request is malformed
+// malformed (_h2_field_ok), answered 400; or -2 when the request is malformed
 // under RFC 9113 §8.2.2 / §8.3, a stream error: a pseudo-header other than
 // :method, :scheme, :authority and :path (so also a response's :status), one
 // that repeats or follows a regular field, a connection-specific field, `te`
@@ -115,7 +115,7 @@ int h2_trailers_ok(HpackHeader* hs, int64 n) {
 // of HTTP/1.1 apply to host and :authority (uri-host [":" port], else -1, a
 // 400), and without a host field the :authority is given to the handler as
 // its Host header. The request is then left partly filled.
-int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
+int _h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
     req.version.clear();
     req.version.append("HTTP/2.0");      // clear + append: the String is already allocated
     int regular = 0;
@@ -123,18 +123,18 @@ int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
     int nhost = 0;  HpackHeader* auth = null;  HpackHeader* host = null;
     for (int64 i = 0; i < n; i++) {
         HpackHeader* h = &hs[i];
-        if (h2_field_ok(h) == 0) { return -1; }
+        if (_h2_field_ok(h) == 0) { return -1; }
         if (h.name[0] == ':') {
             if (regular != 0) { return -2; }
-            if (h2_name_eq(h, ":method") != 0) {
+            if (_h2_name_eq(h, ":method") != 0) {
                 if (nmethod++ != 0) { return -2; }
-                h2_str_set_bytes(&req.method, h.value, h.vlen);
-            } else if (h2_name_eq(h, ":path") != 0) {
+                _h2_str_set_bytes(&req.method, h.value, h.vlen);
+            } else if (_h2_name_eq(h, ":path") != 0) {
                 if (npath++ != 0) { return -2; }
-                h2_str_set_bytes(&req.path, h.value, h.vlen);
-            } else if (h2_name_eq(h, ":scheme") != 0) {
+                _h2_str_set_bytes(&req.path, h.value, h.vlen);
+            } else if (_h2_name_eq(h, ":scheme") != 0) {
                 if (nscheme++ != 0) { return -2; }
-            } else if (h2_name_eq(h, ":authority") != 0) {
+            } else if (_h2_name_eq(h, ":authority") != 0) {
                 if (nauth++ != 0) { return -2; }
                 auth = h;
             } else {
@@ -142,9 +142,9 @@ int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
             }
         } else {
             regular = 1;
-            if (h2_is_conn_field(h.name, h.nlen) != 0) { return -2; }
-            if (h2_name_eq(h, "te") != 0 && h2_value_eq(h, "trailers") == 0) { return -2; }
-            if (h2_name_eq(h, "host") != 0) { nhost++;  host = h; }
+            if (_h2_is_conn_field(h.name, h.nlen) != 0) { return -2; }
+            if (_h2_name_eq(h, "te") != 0 && _h2_value_eq(h, "trailers") == 0) { return -2; }
+            if (_h2_name_eq(h, "host") != 0) { nhost++;  host = h; }
             for (int64 j = 0; j < h.nlen; j++) { req.headers.push((char)h.name[j]); }
             req.headers.append(": ");
             for (int64 j = 0; j < h.vlen; j++) { req.headers.push((char)h.value[j]); }
@@ -158,7 +158,7 @@ int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
         return -2;
     }
     if (nhost > 1) { return -2; }
-    if (host != null && auth != null && h2_same_host(host, auth) == 0) { return -2; }
+    if (host != null && auth != null && _h2_same_host(host, auth) == 0) { return -2; }
     if (host == null && auth != null) {
         req.headers.append("host: ");
         for (int64 j = 0; j < auth.vlen; j++) { req.headers.push((char)auth.value[j]); }
@@ -170,7 +170,7 @@ int h2_fill_request(HttpRequest* req, HpackHeader* hs, int64 n) {
 
 // 1 if two decoded fields have the same value, ignoring ASCII case (a host
 // name is case-insensitive).
-int h2_same_host(HpackHeader* a, HpackHeader* b) {
+int _h2_same_host(HpackHeader* a, HpackHeader* b) {
     if (a.vlen != b.vlen) { return 0; }
     for (int64 i = 0; i < a.vlen; i++) {
         int x = (int)a.value[i];
@@ -185,10 +185,10 @@ int h2_same_host(HpackHeader* a, HpackHeader* b) {
 // HPACK-encode the handler's response headers (the "Key: Value\r\n" block) into
 // `block` at *off, lowercasing each key (HTTP/2 requires lowercase names). A
 // connection-specific field (§8.2.2) is dropped, and so is a content-length
-// (h2_build_headers sends the real one) and a line whose name is not a token
+// (_h2_build_headers sends the real one) and a line whose name is not a token
 // or whose value holds an LF or NUL (RFC 9113 §8.2.1; HttpResponse_header
 // refuses those, so only a block written by hand has them).
-void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
+void _h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
     *char data = res.headers.cstr();
     const int len = res.headers.len();
     int i = 0;
@@ -218,7 +218,7 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
             for (j in vs..ve) {
                 if (data[j] == '\n' || data[j] == 0) { bad = 1; }
             }
-            const int skip = bad != 0 || h2_is_conn_field(key, klen) != 0 ||
+            const int skip = bad != 0 || _h2_is_conn_field(key, klen) != 0 ||
                              (klen == 14 && memcmp((*void)key, (*void)"content-length", 14) == 0);
             if (skip == 0) { *off = hpack_encode_header(block, *off, key, klen, (*uint8)(data + vs), ve - vs); }
             free((*void)key);
@@ -229,7 +229,7 @@ void h2_encode_resp_headers(*uint8 block, int* off, HttpResponse* res) {
 // Upper bound on the HPACK block for a response: `:status`, `content-length`,
 // then each handler header, whose literal costs at most its raw bytes plus a
 // representation byte and two 5-byte length prefixes.
-int h2_header_block_bound(HttpResponse* res) {
+int _h2_header_block_bound(HttpResponse* res) {
     const int len = res.headers.len();
     *char data = res.headers.cstr();
     int lines = 1;
@@ -239,10 +239,10 @@ int h2_header_block_bound(HttpResponse* res) {
     return len + 16 * lines + 64;
 }
 
-// Upper bound on the bytes h2_build_headers writes: the block split into
+// Upper bound on the bytes _h2_build_headers writes: the block split into
 // MAX_FRAME_SIZE fragments, each with a 9-byte frame header.
-int h2_headers_bufsize(HttpResponse* res) {
-    const int bound = h2_header_block_bound(res);
+int _h2_headers_bufsize(HttpResponse* res) {
+    const int bound = _h2_header_block_bound(res);
     return bound + H2_FRAME_HEADER_LEN * (bound / 16384 + 1);
 }
 
@@ -252,11 +252,11 @@ int h2_headers_bufsize(HttpResponse* res) {
 // fragment carries END_HEADERS, and END_STREAM is never set (a body follows).
 // A 1xx, 204 or 304 response has no content (RFC 9110 §8.6): its body is
 // dropped and it gets no content-length.
-// `out` must hold h2_headers_bufsize(res) bytes. Returns the byte count.
-int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
+// `out` must hold _h2_headers_bufsize(res) bytes. Returns the byte count.
+int _h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
     const int nocontent = _http_status_no_content(res.status);
     if (nocontent != 0) { res.body.clear(); }
-    *uint8 block = alloc<uint8>(h2_header_block_bound(res));
+    *uint8 block = alloc<uint8>(_h2_header_block_bound(res));
     int off = 0;
 
     let st: String;  st.init(8);  st.from_int(res.status);
@@ -271,7 +271,7 @@ int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
         cl.free();
     }
 
-    h2_encode_resp_headers(block, &off, res);
+    _h2_encode_resp_headers(block, &off, res);
     const int first = off > 16384 ? 16384 : off;
     int n = h2_write_headers(out, stream_id, block, first, 0, first == off ? 1 : 0);
     int done = first;
@@ -290,8 +290,8 @@ int h2_build_headers(*uint8 out, int stream_id, HttpResponse* res) {
 // (last carries END_STREAM). Returns the total byte count. Transport-agnostic;
 // the blocking TLS server uses this. The async server uses h2_respond_async,
 // which adds flow control.
-int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
-    int total = h2_build_headers(out, stream_id, res);
+int _h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
+    int total = _h2_build_headers(out, stream_id, res);
 
     // Body as DATA frames, each no larger than the default SETTINGS_MAX_FRAME_SIZE
     // (16384) — a single frame may not exceed it. Only the final frame carries
@@ -310,16 +310,16 @@ int h2_build_response(*uint8 out, int stream_id, HttpResponse* res) {
 
 // Upper bound on the encoded size of a response: the header frames + body + a
 // 9-byte frame header per DATA chunk + slack. Callers size their buffer with this.
-int h2_response_bufsize(HttpResponse* res) {
+int _h2_response_bufsize(HttpResponse* res) {
     const int blen = res.body.len();
     const int chunks = blen / 16384 + 2;
-    return h2_headers_bufsize(res) + blen + 9 * chunks + 64;
+    return _h2_headers_bufsize(res) + blen + 9 * chunks + 64;
 }
 
 // Encode and send a response on `stream_id` over the connection's socket.
 void _h2_send_response(H2Conn* conn, int stream_id, HttpResponse* res) {
-    *uint8 out = alloc<uint8>(h2_response_bufsize(res));
-    const int n = h2_build_response(out, stream_id, res);
+    *uint8 out = alloc<uint8>(_h2_response_bufsize(res));
+    const int n = _h2_build_response(out, stream_id, res);
     net_send(conn.fd, (*void)out, n);
     free((*void)out);
 }
@@ -585,8 +585,8 @@ void H2Server_respond(H2Server* s, int i, escaping fn(HttpRequest*, HttpResponse
     sl.req.free();
     sl.state = H2S_RESPONDING;
     sl.sent = 0;
-    *uint8 b = H2Server_reserve(s, h2_headers_bufsize(&sl.res));
-    s.outlen += h2_build_headers(b, sl.id, &sl.res);
+    *uint8 b = H2Server_reserve(s, _h2_headers_bufsize(&sl.res));
+    s.outlen += _h2_build_headers(b, sl.id, &sl.res);
     // A HEAD response keeps the content-length of the body but sends none
     // (RFC 9110 §9.3.2): the stream ends with one empty END_STREAM DATA frame.
     if (head) { sl.res.body.clear(); }
@@ -619,7 +619,7 @@ int64 H2Server_buffered(H2Server* s) {
 
 // The size of a decoded header list as SETTINGS_MAX_HEADER_LIST_SIZE counts
 // it (RFC 9113 §6.5.2): each field's name and value plus 32 bytes.
-int64 h2_header_list_size(HpackHeader* hs, int64 n) {
+int64 _h2_header_list_size(HpackHeader* hs, int64 n) {
     int64 total = 0;
     for (int64 i = 0; i < n; i++) { total += (int64)hs[i].nlen + (int64)hs[i].vlen + 32; }
     return total;
@@ -665,7 +665,7 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
             H2Server_slot_release(&s.slots[at]);
             return;
         }
-        if (nh < 0 || h2_trailers_ok(s.harr, nh) == 0) {
+        if (nh < 0 || _h2_trailers_ok(s.harr, nh) == 0) {
             H2Server_malformed(s, &s.slots[at]);
             return;
         }
@@ -700,11 +700,11 @@ void H2Server_headers_done(H2Server* s, int sid, int end_stream) {
     // past H2_MAX_HEADER_LIST, or one the connection's buffer has no room
     // for. The fields are not kept (a few bytes of HPACK can decode to a
     // large list: a dynamic-table entry referenced many times).
-    const int64 hl = nh < 0 ? 0 : h2_header_list_size(s.harr, nh);
+    const int64 hl = nh < 0 ? 0 : _h2_header_list_size(s.harr, nh);
     if (nh == -2 || hl > H2_MAX_HEADER_LIST || H2Server_buffered(s) + hl > s.max_buffered) {
         sl.bad = 431;
     } else {
-        int filled = h2_fill_request(&sl.req, s.harr, nh);
+        int filled = _h2_fill_request(&sl.req, s.harr, nh);
         if (filled == 0) {
             const int64 cl = _http_content_length(&sl.req.headers);
             if (cl == -1) { filled = -2; }             // an invalid content-length
@@ -803,7 +803,7 @@ void H2Server_on_headers(H2Server* s, H2Frame* h, *uint8 p) {
     if ((h.flags & H2_FLAG_PRIORITY) != 0) { off += 5; }
     if (off + pad > h.length) { H2Server_goaway(s, H2_PROTOCOL_ERROR); return; }   // §6.2
     s.hb_selfdep = 0;
-    if ((h.flags & H2_FLAG_PRIORITY) != 0 && (int)(h2_get_u32(p, off - 5) & 2147483647) == sid) { s.hb_selfdep = 1; }
+    if ((h.flags & H2_FLAG_PRIORITY) != 0 && (int)(_h2_get_u32(p, off - 5) & 2147483647) == sid) { s.hb_selfdep = 1; }
     s.hblen = 0;
     if (H2Server_hb_append(s, p + off, h.length - off - pad) != 0) { H2Server_goaway(s, H2_ENHANCE_YOUR_CALM); return; }
     s.hb_end_stream = (h.flags & H2_FLAG_END_STREAM) != 0 ? 1 : 0;
@@ -875,7 +875,7 @@ void H2Server_on_frame(H2Server* s, H2Frame* h, *uint8 p) {
     else if (h.type == H2_PRIORITY) {
         if (h.stream_id == 0) { H2Server_goaway(s, H2_PROTOCOL_ERROR); }
         else if (h.length != 5) { H2Server_rst(s, h.stream_id, H2_FRAME_SIZE_ERROR); }
-        else if ((int)(h2_get_u32(p, 0) & 2147483647) == h.stream_id) {
+        else if ((int)(_h2_get_u32(p, 0) & 2147483647) == h.stream_id) {
             H2Server_rst(s, h.stream_id, H2_PROTOCOL_ERROR);     // depends on itself (§5.3.1)
             const int at = H2Server_find(s, h.stream_id);
             if (at >= 0) { H2Server_slot_release(&s.slots[at]); }

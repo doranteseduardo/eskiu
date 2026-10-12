@@ -801,7 +801,7 @@ int _fetch_connect_next(_FetchCall* c) {
         const int s = socket(ai.ai_family, ai.ai_socktype, ai.ai_protocol);
         if (s < 0) { continue; }
         net_set_nonblocking(s);
-        net_nosigpipe(s);
+        _net_nosigpipe(s);
         if (connect(s, ai.ai_addr, (int)ai.ai_addrlen) == 0) { c.fd = s; return 0; }
         const int e = _net_errno();
         if (e == _FETCH_EINPROGRESS || e == _NET_EAGAIN) { c.fd = s; return _FETCH_WANT_WRITE; }

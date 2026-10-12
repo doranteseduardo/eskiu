@@ -2,7 +2,7 @@
 // §8.2.2: connection, keep-alive, proxy-connection, transfer-encoding,
 // upgrade) and the handler's content-length (the engine sends the real one, it
 // used to go out twice), and a 204 or 1xx response has no content-length and
-// no body (RFC 9110 §8.6). Both the H2Server engine and h2_build_response.
+// no body (RFC 9110 §8.6). Both the H2Server engine and _h2_build_response.
 import <http2_server>;
 extern int printf(string fmt, ...);
 
@@ -59,8 +59,8 @@ void engine(H2Server* s, HpackDecoder* d, *uint8 p, int sid) {
 void built(HpackDecoder* d) {
     let res: HttpResponse; res.init(200);
     handler(null, &res);
-    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-    const int n = h2_build_response(out, 1, &res);
+    *uint8 out = alloc<uint8>(_h2_response_bufsize(&res));
+    const int n = _h2_build_response(out, 1, &res);
     dump(out, n, d);
     free((*void)out);
     res.free();
@@ -85,10 +85,10 @@ int main() {
 
     let d2: HpackDecoder; d2.init(4096);
     mode = 0;
-    printf("h2_build_response, connection fields\n");
+    printf("_h2_build_response, connection fields\n");
     built(&d2);
     mode = 1;
-    printf("h2_build_response, 204\n");
+    printf("_h2_build_response, 204\n");
     built(&d2);
     d2.free();
     free((*void)p);

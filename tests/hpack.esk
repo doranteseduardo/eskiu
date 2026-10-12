@@ -34,7 +34,7 @@ int main() {
         i = i + 1;
     }
     // The literal field was added to the dynamic table: index 62 resolves to it.
-    let r: HpackHeader;  hpack_resolve(&dec, 62, &r);
+    let r: HpackHeader;  _hpack_resolve(&dec, 62, &r);
     printf("dyn62=%.*s:%.*s\n", r.nlen, r.name, r.vlen, r.value);        // :authority:www.example.com
     HpackDecoder_free(&dec);
 

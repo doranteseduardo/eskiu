@@ -26,7 +26,7 @@ void statuses(H2Server* s, HpackDecoder* d) {
         if (f.type == H2_HEADERS) {
             const int n = HpackDecoder_decode(d, s.out + o + 9, f.length, &hs[0], 8);
             for (i in 0..n) {
-                if (h2_name_eq(&hs[i], ":status") != 0) {
+                if (_h2_name_eq(&hs[i], ":status") != 0) {
                     printf("  stream %d status ", f.stream_id);
                     for (int64 k = 0; k < hs[i].vlen; k++) { printf("%c", (int)hs[i].value[k]); }
                     printf("\n");

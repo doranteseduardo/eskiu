@@ -23,13 +23,13 @@ void dump(H2Server* s, HpackDecoder* d) {
         if (f.type == H2_HEADERS) {
             const int n = HpackDecoder_decode(d, s.out + o + 9, f.length, &hs[0], 8);
             for (i in 0..n) {
-                if (h2_name_eq(&hs[i], ":status") != 0) {
+                if (_h2_name_eq(&hs[i], ":status") != 0) {
                     printf("  stream %d status %.*s\n", f.stream_id, hs[i].vlen, hs[i].value);
                 }
             }
         }
-        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
-        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, _h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", _h2_get_u32(s.out + o + 9, 4)); }
         o += 9 + f.length;
     }
     s.outlen = 0;
@@ -57,7 +57,7 @@ int main() {
     let f: H2Frame;  h2_read_header(s.out, &f);
     for (int o = 0; o + 6 <= f.length; o += 6) {
         const int id = ((int)s.out[9 + o] << 8) | (int)s.out[10 + o];
-        if (id == H2_SETTINGS_MAX_HEADER_LIST_SIZE) { printf("advertised max header list %lld\n", h2_get_u32(s.out, 11 + o)); }
+        if (id == H2_SETTINGS_MAX_HEADER_LIST_SIZE) { printf("advertised max header list %lld\n", _h2_get_u32(s.out, 11 + o)); }
     }
     feed(s, H2_SETTINGS, 0, 0, p, 0);
     s.outlen = 0;

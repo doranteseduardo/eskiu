@@ -137,7 +137,7 @@ void H2Settings_defaults(H2Settings* s) {
 }
 
 // Write a big-endian 32-bit value at buf[off..off+4).
-void h2_put_u32(*uint8 buf, int off, int64 v) {
+void _h2_put_u32(*uint8 buf, int off, int64 v) {
     buf[off]     = (uint8)((v >> 24) & 255);
     buf[off + 1] = (uint8)((v >> 16) & 255);
     buf[off + 2] = (uint8)((v >> 8)  & 255);
@@ -145,16 +145,16 @@ void h2_put_u32(*uint8 buf, int off, int64 v) {
 }
 
 // Read a big-endian 32-bit value (as a non-negative int64) from buf[off..off+4).
-int64 h2_get_u32(*uint8 buf, int off) {
+int64 _h2_get_u32(*uint8 buf, int off) {
     return ((int64)buf[off] << 24) | ((int64)buf[off + 1] << 16) |
            ((int64)buf[off + 2] << 8) | (int64)buf[off + 3];
 }
 
 // Append one SETTINGS entry (id:16, value:32) at `buf+off`; returns off + 6.
-int h2_put_setting(*uint8 buf, int off, int id, int64 value) {
+int _h2_put_setting(*uint8 buf, int off, int id, int64 value) {
     buf[off]     = (uint8)((id >> 8) & 255);
     buf[off + 1] = (uint8)(id & 255);
-    h2_put_u32(buf, off + 2, value);            // value at off+2 .. off+6
+    _h2_put_u32(buf, off + 2, value);            // value at off+2 .. off+6
     return off + 6;
 }
 
@@ -162,15 +162,15 @@ int h2_put_setting(*uint8 buf, int off, int id, int64 value) {
 // -1 ("unlimited") is omitted. Returns the total frame size.
 int h2_write_settings(*uint8 buf, H2Settings* s) {
     int p = H2_FRAME_HEADER_LEN;                 // payload starts after the header
-    p = h2_put_setting(buf, p, H2_SETTINGS_HEADER_TABLE_SIZE,   s.header_table_size);
-    p = h2_put_setting(buf, p, H2_SETTINGS_ENABLE_PUSH,        (int64)s.enable_push);
+    p = _h2_put_setting(buf, p, H2_SETTINGS_HEADER_TABLE_SIZE,   s.header_table_size);
+    p = _h2_put_setting(buf, p, H2_SETTINGS_ENABLE_PUSH,        (int64)s.enable_push);
     if (s.max_concurrent_streams >= 0) {
-        p = h2_put_setting(buf, p, H2_SETTINGS_MAX_CONCURRENT_STREAMS, s.max_concurrent_streams);
+        p = _h2_put_setting(buf, p, H2_SETTINGS_MAX_CONCURRENT_STREAMS, s.max_concurrent_streams);
     }
-    p = h2_put_setting(buf, p, H2_SETTINGS_INITIAL_WINDOW_SIZE, s.initial_window_size);
-    p = h2_put_setting(buf, p, H2_SETTINGS_MAX_FRAME_SIZE,      s.max_frame_size);
+    p = _h2_put_setting(buf, p, H2_SETTINGS_INITIAL_WINDOW_SIZE, s.initial_window_size);
+    p = _h2_put_setting(buf, p, H2_SETTINGS_MAX_FRAME_SIZE,      s.max_frame_size);
     if (s.max_header_list_size >= 0) {
-        p = h2_put_setting(buf, p, H2_SETTINGS_MAX_HEADER_LIST_SIZE, s.max_header_list_size);
+        p = _h2_put_setting(buf, p, H2_SETTINGS_MAX_HEADER_LIST_SIZE, s.max_header_list_size);
     }
     return h2_frame_finish(buf, H2_SETTINGS, 0, 0, p - H2_FRAME_HEADER_LEN);
 }
@@ -193,7 +193,7 @@ int h2_settings_error(*uint8 payload, int len) {
     if (len % 6 != 0) { return H2_FRAME_SIZE_ERROR; }
     for (int i = 0; i < len; i += 6) {
         const int   id = ((int)payload[i] << 8) | (int)payload[i + 1];
-        const int64 v  = h2_get_u32(payload, i + 2);
+        const int64 v  = _h2_get_u32(payload, i + 2);
         if (id == H2_SETTINGS_ENABLE_PUSH && v > 1) { return H2_PROTOCOL_ERROR; }
         if (id == H2_SETTINGS_INITIAL_WINDOW_SIZE && v > H2_MAX_WINDOW) { return H2_FLOW_CONTROL_ERROR; }
         if (id == H2_SETTINGS_MAX_FRAME_SIZE && (v < 16384 || v > 16777215)) { return H2_PROTOCOL_ERROR; }
@@ -209,7 +209,7 @@ int H2Settings_apply(H2Settings* s, *uint8 payload, int len) {
     if (h2_settings_error(payload, len) != 0) { return -1; }
     for (int i = 0; i < len; i += 6) {
         const int   id = ((int)payload[i] << 8) | (int)payload[i + 1];
-        const int64 v  = h2_get_u32(payload, i + 2);
+        const int64 v  = _h2_get_u32(payload, i + 2);
         if (id == H2_SETTINGS_HEADER_TABLE_SIZE)      { s.header_table_size = v; }
         else if (id == H2_SETTINGS_ENABLE_PUSH)        { s.enable_push = (int)v; }
         else if (id == H2_SETTINGS_MAX_CONCURRENT_STREAMS) { s.max_concurrent_streams = v; }
@@ -234,8 +234,8 @@ int h2_write_ping(*uint8 buf, *uint8 opaque, int ack) {
 int h2_write_goaway(*uint8 buf, int last_stream_id, int error_code,
                     *uint8 debug, int debug_len) {
     const int p = H2_FRAME_HEADER_LEN;
-    h2_put_u32(buf, p, last_stream_id & 2147483647);   // R bit kept 0
-    h2_put_u32(buf, p + 4, error_code);
+    _h2_put_u32(buf, p, last_stream_id & 2147483647);   // R bit kept 0
+    _h2_put_u32(buf, p + 4, error_code);
     for (i in 0..debug_len) { buf[p + 8 + i] = debug[i]; }
     return h2_frame_finish(buf, H2_GOAWAY, 0, 0, 8 + debug_len);
 }
@@ -244,8 +244,8 @@ int h2_write_goaway(*uint8 buf, int last_stream_id, int error_code,
 // data, if any, is left in the buffer). Returns 0 on success, -1 if too short.
 int h2_read_goaway(*uint8 payload, int len, int* last_stream_id, int* error_code) {
     if (len < 8) { return -1; }
-    *last_stream_id = (int)(h2_get_u32(payload, 0) & 2147483647);
-    *error_code     = (int)h2_get_u32(payload, 4);
+    *last_stream_id = (int)(_h2_get_u32(payload, 0) & 2147483647);
+    *error_code     = (int)_h2_get_u32(payload, 4);
     return 0;
 }
 
@@ -362,16 +362,16 @@ void H2Conn_grant_window(H2Conn* c, H2Stream* s, int increment) {
 
 // WINDOW_UPDATE (§6.9): a 31-bit increment. stream_id 0 = connection-level.
 int h2_write_window_update(*uint8 buf, int stream_id, int increment) {
-    h2_put_u32(buf, H2_FRAME_HEADER_LEN, increment & 2147483647);
+    _h2_put_u32(buf, H2_FRAME_HEADER_LEN, increment & 2147483647);
     return h2_frame_finish(buf, H2_WINDOW_UPDATE, 0, stream_id, 4);
 }
 int h2_read_window_update(*uint8 payload) {
-    return (int)(h2_get_u32(payload, 0) & 2147483647);
+    return (int)(_h2_get_u32(payload, 0) & 2147483647);
 }
 
 // RST_STREAM (§6.4): abruptly close a stream with an error code.
 int h2_write_rst_stream(*uint8 buf, int stream_id, int error_code) {
-    h2_put_u32(buf, H2_FRAME_HEADER_LEN, error_code);
+    _h2_put_u32(buf, H2_FRAME_HEADER_LEN, error_code);
     return h2_frame_finish(buf, H2_RST_STREAM, 0, stream_id, 4);
 }
 
@@ -379,7 +379,7 @@ int h2_write_rst_stream(*uint8 buf, int stream_id, int error_code) {
 // (`hdr.length` bytes): a PADDED frame begins with a 1-byte pad length (and ends
 // with that many pad bytes), and a PRIORITY frame has a 5-byte stream-dependency
 // block before the fragment (§6.2). Sets *boff/*blen to the fragment bounds.
-void h2_headers_fragment(H2Frame* hdr, *uint8 p, int* boff, int* blen) {
+void _h2_headers_fragment(H2Frame* hdr, *uint8 p, int* boff, int* blen) {
     int off = 0;  int pad = 0;
     if ((hdr.flags & H2_FLAG_PADDED) != 0)   { pad = (int)p[0]; off = 1; }
     if ((hdr.flags & H2_FLAG_PRIORITY) != 0) { off += 5; }

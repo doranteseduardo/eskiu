@@ -1,6 +1,6 @@
 // A response body larger than SETTINGS_MAX_FRAME_SIZE (16384) must be split
 // across multiple DATA frames — a single frame may not exceed it. This drives
-// h2_build_response directly (no socket) and walks the produced frames, checking
+// _h2_build_response directly (no socket) and walks the produced frames, checking
 // every DATA frame is <= 16384, only the last has END_STREAM, and the bytes
 // reassemble to the original body.
 import <mem>;
@@ -19,8 +19,8 @@ int main() {
     while (i < N) { String_push(&big, (char)((i % 26) + 65)); i = i + 1; }
     HttpResponse_set_body(&res, String_cstr(&big));
 
-    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-    int total = h2_build_response(out, 1, &res);
+    *uint8 out = alloc<uint8>(_h2_response_bufsize(&res));
+    int total = _h2_build_response(out, 1, &res);
 
     int pos = 0;  int data_total = 0;  int max_chunk = 0;  int nchunks = 0;
     int last_end = 0;  int ok_bytes = 1;  int seen = 0;

@@ -37,7 +37,7 @@ int main() {
     // --- RST_STREAM codec.
     int rn = h2_write_rst_stream(buf, 5, H2_CANCEL);
     let rh: H2Frame;  h2_read_header(buf, &rh);
-    printf("rst %d %d %d %d\n", rn, rh.type, rh.stream_id, (int)h2_get_u32(buf + 9, 0)); // 13 3 5 8
+    printf("rst %d %d %d %d\n", rn, rh.type, rh.stream_id, (int)_h2_get_u32(buf + 9, 0)); // 13 3 5 8
 
     // --- HEADERS / DATA frame headers + flags.
     int hn = h2_write_headers(buf, 1, (*uint8)"abc", 3, 1, 1);  // END_STREAM | END_HEADERS

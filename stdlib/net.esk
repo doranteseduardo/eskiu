@@ -80,21 +80,21 @@ packed struct sockaddr_in {
 // own; the servers call it from their single setup path before spawning workers.
 #ifdef _WIN32
 bool _net_wsa_ready = false;
-void net_wsa_init() {
+void _net_wsa_init() {
     if (!_net_wsa_ready) {
         uint8[512] wsadata;
         WSAStartup(514, (*void)&wsadata);   // 514 = 0x0202, Winsock 2.2
         _net_wsa_ready = true;
     }
 }
-int net_close_fd(int fd) { return closesocket(fd); }
+int _net_close_fd(int fd) { return closesocket(fd); }
 #else
-void net_wsa_init() { }
-int net_close_fd(int fd) { return close(fd); }
+void _net_wsa_init() { }
+int _net_close_fd(int fd) { return close(fd); }
 #endif
 
 // Fill a sockaddr_in with a network-order address and a host-order port.
-void net_fill_addr(sockaddr_in* a, uint32 net_ip, uint16 port) {
+void _net_fill_addr(sockaddr_in* a, uint32 net_ip, uint16 port) {
 #ifdef __APPLE__
     a.sin_len = 16;
 #endif
@@ -105,23 +105,23 @@ void net_fill_addr(sockaddr_in* a, uint32 net_ip, uint16 port) {
 
 // Open a listening TCP socket on 0.0.0.0:port. Returns the fd, or -1 on error.
 int net_tcp_listen(uint16 port) {
-    net_wsa_init();
+    _net_wsa_init();
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*void)&one, 4);
-    net_nosigpipe(fd);
+    _net_nosigpipe(fd);
     let a: sockaddr_in;
-    net_fill_addr(&a, 0, port);              // INADDR_ANY
-    if (bind(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
-    if (listen(fd, 16) != 0)          { net_close_fd(fd); return -1; }
+    _net_fill_addr(&a, 0, port);              // INADDR_ANY
+    if (bind(fd, (*void)&a, 16) != 0) { _net_close_fd(fd); return -1; }
+    if (listen(fd, 16) != 0)          { _net_close_fd(fd); return -1; }
     return fd;
 }
 
 // Accept the next pending connection. Returns the connection fd, or -1.
 int net_accept(int listen_fd) {
     const int c = accept(listen_fd, null, null);
-    if (c >= 0) { net_nosigpipe(c); }
+    if (c >= 0) { _net_nosigpipe(c); }
     return c;
 }
 
@@ -133,7 +133,7 @@ int net_accept_addr(int listen_fd, *uint32 peer_ip) {
     let a: sockaddr_in;
     let alen: int = 16;
     const int c = accept(listen_fd, (*void)&a, &alen);
-    if (c >= 0) { net_nosigpipe(c); }
+    if (c >= 0) { _net_nosigpipe(c); }
     if (c >= 0 && peer_ip != null) { peer_ip[0] = a.sin_addr; }
     return c;
 }
@@ -142,15 +142,15 @@ int net_accept_addr(int listen_fd, *uint32 peer_ip) {
 // address ("127.0.0.1"), used as is, or a host name or IPv6 address, resolved
 // with getaddrinfo (<dns>) and tried address by address until one connects.
 int net_tcp_connect(string host, uint16 port) {
-    net_wsa_init();
+    _net_wsa_init();
     const uint32 ip = inet_addr(host);
     if (ip != (uint32)4294967295 || strcmp(host, "255.255.255.255") == 0) {
         const int fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) { return -1; }
         let a: sockaddr_in;
-        net_fill_addr(&a, ip, port);
-        if (connect(fd, (*void)&a, 16) != 0) { net_close_fd(fd); return -1; }
-        net_nosigpipe(fd);
+        _net_fill_addr(&a, ip, port);
+        if (connect(fd, (*void)&a, 16) != 0) { _net_close_fd(fd); return -1; }
+        _net_nosigpipe(fd);
         return fd;
     }
     char[8] ps;
@@ -166,8 +166,8 @@ int net_tcp_connect(string host, uint16 port) {
     for (*_dns_addrinfo ai = res; ai != null && fd < 0; ai = ai.ai_next) {
         const int s = socket(ai.ai_family, ai.ai_socktype, ai.ai_protocol);
         if (s < 0) { continue; }
-        if (connect(s, ai.ai_addr, (int)ai.ai_addrlen) != 0) { net_close_fd(s); continue; }
-        net_nosigpipe(s);
+        if (connect(s, ai.ai_addr, (int)ai.ai_addrlen) != 0) { _net_close_fd(s); continue; }
+        _net_nosigpipe(s);
         fd = s;
     }
     freeaddrinfo(res);
@@ -195,7 +195,7 @@ int net_tcp_connect(string host, uint16 port) {
 
 // Make plain writes on socket `fd` return EPIPE instead of raising SIGPIPE,
 // where the socket can carry that (macOS). A no-op elsewhere.
-void net_nosigpipe(int fd) {
+void _net_nosigpipe(int fd) {
 #ifdef __APPLE__
     int one = 1;
     setsockopt(fd, SOL_SOCKET, _NET_SO_NOSIGPIPE, (*void)&one, 4);
@@ -212,7 +212,7 @@ int64 net_send(int fd, *void buf, int64 n) { return send(fd, buf, n, _NET_MSG_NO
 int64 net_recv(int fd, *void buf, int64 n) { return recv(fd, buf, n, 0); }
 #endif
 int64 net_send_str(int fd, string s)       { return net_send(fd, (*void)s, strlen(s)); }
-void  net_close(int fd)                    { net_close_fd(fd); }
+void  net_close(int fd)                    { _net_close_fd(fd); }
 
 // The last socket error and "would block", per platform. EAGAIN (== EWOULDBLOCK)
 // is also what a blocking recv/send returns once SO_RCVTIMEO / SO_SNDTIMEO runs

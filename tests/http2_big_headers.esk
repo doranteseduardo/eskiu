@@ -16,8 +16,8 @@ int main() {
     HttpResponse_header(&res, "X-Small", "ok");
     String_append(&res.body, "hi");
 
-    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-    int n = h2_build_response(out, 1, &res);
+    *uint8 out = alloc<uint8>(_h2_response_bufsize(&res));
+    int n = _h2_build_response(out, 1, &res);
 
     *uint8 block = alloc<uint8>(n);
     int blen = 0;
