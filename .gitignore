@@ -57,3 +57,4 @@ assets/*.tar.gz
 .gradle/
 .kotlin/
 .intellijPlatform/
+Icon
