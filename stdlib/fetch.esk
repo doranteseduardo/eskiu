@@ -802,7 +802,8 @@ int _fetch_redirect(_FetchCall* c) {
     }
     r.redirects++;
     _fetch_response_clear(r);
-    return _fetch_target(c, &next) < 0 ? FETCH_ERR_URL : 1;
+    const int rc = _fetch_target(c, &next);
+    return rc < 0 ? rc : 1;
 }
 
 // Run the call until it completes, fails or must wait (see above).

@@ -47,6 +47,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<fetch>`: a response whose last transfer coding is not `chunked` (such as
   `Transfer-Encoding: gzip`) is read until the connection closes, as RFC 9112 says, instead
   of failing as malformed.
+- `<fetch>`: a redirect that cannot be followed (an `https://` target without TLS, an unsupported
+  scheme) returns its own error code, such as `FETCH_ERR_NO_TLS`, not always `FETCH_ERR_URL`.
 
 ## [0.10.0] - 2026-10-11
 

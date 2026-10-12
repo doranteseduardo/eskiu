@@ -1,14 +1,33 @@
 // ESKIU_FETCH_NO_TLS defined before the import leaves HTTPS out of <fetch>:
 // an https:// URL fails with FETCH_ERR_NO_TLS before any connection, and
-// fetch_tls_available() is 0.
+// fetch_tls_available() is 0. A redirect from http:// to https:// fails with
+// the same code.
 #define ESKIU_FETCH_NO_TLS
 import <fetch>;
+import <net>;
 extern int printf(string fmt, ...);
+extern int64 strlen(string s);
+
+void redirect_once(int lfd) {
+    const int c = net_accept(lfd);
+    char[1024] buf;
+    net_recv(c, (*void)&buf[0], 1023);
+    const string r = "HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1:1/\r\nContent-Length: 0\r\n\r\n";
+    net_send(c, (*void)r, strlen(r));
+    net_close(c);
+}
 
 int main() {
     let r: Response;
     const int rc = fetch("https://127.0.0.1:1/", &r);
     printf("rc=%d tls=%d (%s)\n", rc, fetch_tls_available(), fetch_last_error());
+    Response_free(&r);
+
+    const int lfd = net_tcp_listen((uint16)18439);
+    if (lfd < 0) { printf("listen failed\n"); return 1; }
+    thread_create(void() { redirect_once(lfd); });
+    const int rc2 = fetch("http://127.0.0.1:18439/", &r);
+    printf("redirect: rc=%d (%s)\n", rc2, fetch_last_error());
     Response_free(&r);
     return 0;
 }
