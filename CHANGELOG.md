@@ -13,6 +13,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ### Changed
 - CI runs `tests/leaks.sh` (AddressSanitizer with LeakSanitizer) as its own job, and a
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
+- `<args>` functions that take the parser are `ArgParser_*`, so they work as dot-calls:
+  `args_flag`, `args_option`, `args_option_int`, `args_argument`, `args_get`, `args_get_int`,
+  `args_get_flag`, `args_get_at`, `args_get_all`, `args_count`, `args_positional`,
+  `args_positional_count` and `args_rest` -> `ArgParser_flag` ... `ArgParser_rest` (same
+  suffix). The old names remain as deprecated wrappers.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer

@@ -3406,13 +3406,13 @@ pre.code-block {
        let p: ArgParser;
        ArgParser_init(&amp;p, &quot;countdown&quot;, &quot;Count down to zero.&quot;);
        defer ArgParser_free(&amp;p);
-       args_flag(&amp;p, &quot;-v&quot;, &quot;--verbose&quot;, &quot;log each step&quot;);
-       args_option_int(&amp;p, &quot;-f&quot;, &quot;--from&quot;, &quot;N&quot;, 3, &quot;where to start&quot;);
-       args_option(&amp;p, null, &quot;--done&quot;, &quot;TEXT&quot;, &quot;liftoff&quot;, &quot;what to print at zero&quot;);
+       ArgParser_flag(&amp;p, &quot;-v&quot;, &quot;--verbose&quot;, &quot;log each step&quot;);
+       ArgParser_option_int(&amp;p, &quot;-f&quot;, &quot;--from&quot;, &quot;N&quot;, 3, &quot;where to start&quot;);
+       ArgParser_option(&amp;p, null, &quot;--done&quot;, &quot;TEXT&quot;, &quot;liftoff&quot;, &quot;what to print at zero&quot;);
        ArgParser_parse_or_exit(&amp;p, argc, argv);     // --help, or exit 2 on a bad argument
 
-       if (args_get_flag(&amp;p, &quot;verbose&quot;) == 1) { log_set_level(LOG_DEBUG); }
-       int n = args_get_int(&amp;p, &quot;from&quot;);
+       if (ArgParser_get_flag(&amp;p, &quot;verbose&quot;) == 1) { log_set_level(LOG_DEBUG); }
+       int n = ArgParser_get_int(&amp;p, &quot;from&quot;);
        if (n &lt; 0) {
            log_error(&quot;--from must not be negative, got %d&quot;, n);
            return 2;
@@ -3421,7 +3421,7 @@ pre.code-block {
            log_debug(&quot;step %d of %d&quot;, n - i + 1, n);
            printf(&quot;%d\n&quot;, i);
        }
-       term_println(args_get(&amp;p, &quot;done&quot;), TERM_BOLD | TERM_GREEN);
+       term_println(ArgParser_get(&amp;p, &quot;done&quot;), TERM_BOLD | TERM_GREEN);
        return 0;
  }</pre>
 <pre class="code-block"> ./countdown.esk -v --from 2
@@ -3436,7 +3436,7 @@ pre.code-block {
 <p>The second stops before <code>main</code> goes on, with exit code 2:</p>
 <pre class="code-block"> usage: countdown [-h] [-v] [-f N] [--done TEXT]
  countdown: error: invalid value &#x27;x&#x27; for --from: expected an integer</pre>
-<p>The third prints a help text built from the declarations and exits with 0. Options can be given as <code>-f 2</code>, <code>-f2</code>, <code>--from 2</code> or <code>--from=2</code>, short flags combine (<code>-vf 2</code>), and everything after <code>--</code> is positional. <code>args_argument</code> declares positional arguments, required or optional, and the last one may take many values.</p>
+<p>The third prints a help text built from the declarations and exits with 0. Options can be given as <code>-f 2</code>, <code>-f2</code>, <code>--from 2</code> or <code>--from=2</code>, short flags combine (<code>-vf 2</code>), and everything after <code>--</code> is positional. <code>ArgParser_argument</code> declares positional arguments, required or optional, and the last one may take many values.</p>
 <p>A style is a set of attributes and colors combined with <code>|</code>, such as <code>TERM_BOLD | TERM_GREEN</code>. <code>term_print</code>, <code>term_println</code> and <code>term_style</code> add the escape sequences only when standard output is a terminal, so the same script writes plain text into a pipe or a file. <code>NO_COLOR</code> turns colors off and <code>FORCE_COLOR</code> turns them on. On Windows the console's support for escape sequences is enabled the first time a color is used.</p>
 <p>The log functions take a format like <code>printf</code>. Messages below the current level are skipped without being formatted. The level comes from <code>log_set_level</code>, or else from the <code>LOG_LEVEL</code> environment variable, so a user can run <code>LOG_LEVEL=debug ./countdown.esk</code> without a <code>-v</code> option. <code>log_set_file</code> sends the messages to a file instead.</p>
 <h2 class="section" id="sec-25-7">25.7 Dates and time</h2>

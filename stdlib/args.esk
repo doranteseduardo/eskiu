@@ -6,14 +6,14 @@
 //       let p: ArgParser;
 //       ArgParser_init(&p, "greet", "Print a greeting for each name.");
 //       defer ArgParser_free(&p);
-//       args_flag(&p, "-v", "--verbose", "say more");
-//       args_option(&p, "-o", "--output", "FILE", "-", "write to FILE");
-//       args_option_int(&p, "-n", "--times", "N", 1, "repeat N times");
-//       args_argument(&p, "names", "who to greet", ARGS_REQUIRED | ARGS_MANY);
+//       ArgParser_flag(&p, "-v", "--verbose", "say more");
+//       ArgParser_option(&p, "-o", "--output", "FILE", "-", "write to FILE");
+//       ArgParser_option_int(&p, "-n", "--times", "N", 1, "repeat N times");
+//       ArgParser_argument(&p, "names", "who to greet", ARGS_REQUIRED | ARGS_MANY);
 //       ArgParser_parse_or_exit(&p, argc, argv);   // prints help or an error, exits 0 or 2
 //
-//       int n = args_get_int(&p, "times");
-//       for (i in 0..args_count(&p, "names")) { ... args_get_at(&p, "names", i) ... }
+//       int n = ArgParser_get_int(&p, "times");
+//       for (i in 0..ArgParser_count(&p, "names")) { ... ArgParser_get_at(&p, "names", i) ... }
 //   }
 //
 // Command lines it accepts: `-v`, `--verbose`, `-o out.txt`, `-oout.txt`,
@@ -22,13 +22,13 @@
 // as its value), `--` (everything after it is positional), and `-` alone as a
 // positional. An option's value is the next argument even when it starts with
 // '-'. A negative number such as `-5` is a positional when no short option is
-// a digit. A repeated option keeps every value (args_get returns the last,
-// args_get_all all of them); a repeated flag counts (args_count, for -vvv).
+// a digit. A repeated option keeps every value (ArgParser_get returns the last,
+// ArgParser_get_all all of them); a repeated flag counts (ArgParser_count, for -vvv).
 //
 // Positional arguments are bound in declaration order to the ones declared with
-// args_argument; an ARGS_MANY one (it must come last) takes all that remain. A
+// ArgParser_argument; an ARGS_MANY one (it must come last) takes all that remain. A
 // program that declares none accepts any positionals (read them with
-// args_positional). `-h` and `--help` print the help unless the program uses
+// ArgParser_positional). `-h` and `--help` print the help unless the program uses
 // those names itself.
 //
 // ArgParser_parse returns ARGS_OK, ARGS_HELP after printing the help to stdout,
@@ -125,20 +125,20 @@ void ArgParser_free(ArgParser* p) {
 }
 
 // A flag: present or not (counted when repeated). Either name may be null.
-void args_flag(ArgParser* p, string short_name, string long_name, string help) {
+void ArgParser_flag(ArgParser* p, string short_name, string long_name, string help) {
     _args_add(p, _ARGS_FLAG, short_name, long_name, help);
 }
 
 // An option taking a string value shown as `metavar` in the help; `def` (or
-// null) is what args_get returns when it is not given.
-void args_option(ArgParser* p, string short_name, string long_name, string metavar, string def, string help) {
+// null) is what ArgParser_get returns when it is not given.
+void ArgParser_option(ArgParser* p, string short_name, string long_name, string metavar, string def, string help) {
     *ArgSpec s = _args_add(p, _ARGS_OPT, short_name, long_name, help);
     s.metavar = metavar;
     s.def = def;
 }
 
 // An option taking an integer; a value that is not one is a parse error.
-void args_option_int(ArgParser* p, string short_name, string long_name, string metavar, int def, string help) {
+void ArgParser_option_int(ArgParser* p, string short_name, string long_name, string metavar, int def, string help) {
     *ArgSpec s = _args_add(p, _ARGS_INT, short_name, long_name, help);
     s.metavar = metavar;
     s.def_buf.init(12);
@@ -148,7 +148,7 @@ void args_option_int(ArgParser* p, string short_name, string long_name, string m
 
 // A positional argument: ARGS_OPTIONAL, ARGS_REQUIRED, and ARGS_MANY (zero or
 // more; one or more with ARGS_REQUIRED) for the last one.
-void args_argument(ArgParser* p, string name, string help, int mode) {
+void ArgParser_argument(ArgParser* p, string name, string help, int mode) {
     *ArgSpec s = _args_add(p, _ARGS_POS, null, null, help);
     s.name = name;
     s.metavar = name;
@@ -541,21 +541,21 @@ string ArgParser_error(ArgParser* p) {
 }
 
 // 1 if the flag (or option, or argument) was given, else 0.
-int args_get_flag(ArgParser* p, string name) {
+int ArgParser_get_flag(ArgParser* p, string name) {
     *ArgSpec s = _args_find(p, name);
     return s != null && s.count > 0 ? 1 : 0;
 }
 
 // How many times a flag or option was given, or how many values an argument
 // received.
-int args_count(ArgParser* p, string name) {
+int ArgParser_count(ArgParser* p, string name) {
     *ArgSpec s = _args_find(p, name);
     return s == null ? 0 : s.count;
 }
 
 // An option's value (the last one when repeated) or its default; an
 // argument's (first) value; null when absent with no default.
-string args_get(ArgParser* p, string name) {
+string ArgParser_get(ArgParser* p, string name) {
     *ArgSpec s = _args_find(p, name);
     if (s == null) { return null; }
     const int n = List_len<string>(&s.values);
@@ -565,22 +565,22 @@ string args_get(ArgParser* p, string name) {
 }
 
 // The i-th value of an option or argument (in the order given), or null.
-string args_get_at(ArgParser* p, string name, int i) {
+string ArgParser_get_at(ArgParser* p, string name, int i) {
     *ArgSpec s = _args_find(p, name);
     if (s == null || i < 0 || i >= List_len<string>(&s.values)) { return null; }
     return List_get<string>(&s.values, i);
 }
 
-// args_get as an integer; 0 when absent with no default or not a number.
-int args_get_int(ArgParser* p, string name) {
-    const string v = args_get(p, name);
+// ArgParser_get as an integer; 0 when absent with no default or not a number.
+int ArgParser_get_int(ArgParser* p, string name) {
+    const string v = ArgParser_get(p, name);
     int n = 0;
     if (v == null || !_args_parse_int(v, &n)) { return 0; }
     return n;
 }
 
 // Append every value of an option or argument to `out`; returns how many.
-int args_get_all(ArgParser* p, string name, List<string>* out) {
+int ArgParser_get_all(ArgParser* p, string name, List<string>* out) {
     *ArgSpec s = _args_find(p, name);
     if (s == null) { return 0; }
     const int n = List_len<string>(&s.values);
@@ -589,19 +589,47 @@ int args_get_all(ArgParser* p, string name, List<string>* out) {
 }
 
 // The i-th positional value in command-line order (null past the end).
-string args_positional(ArgParser* p, int i) {
+string ArgParser_positional(ArgParser* p, int i) {
     if (i < 0 || i >= List_len<string>(&p.positionals)) { return null; }
     return List_get<string>(&p.positionals, i);
 }
 
 // How many positional values there were.
-int args_positional_count(ArgParser* p) {
+int ArgParser_positional_count(ArgParser* p) {
     return List_len<string>(&p.positionals);
 }
 
 // Append the arguments that came after `--` to `out`; returns how many.
-int args_rest(ArgParser* p, List<string>* out) {
+int ArgParser_rest(ArgParser* p, List<string>* out) {
     const int n = List_len<string>(&p.rest);
     for (i in 0..n) { List_push<string>(out, List_get<string>(&p.rest, i)); }
     return n;
 }
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use ArgParser_flag.
+void args_flag(ArgParser* p, string short_name, string long_name, string help) { ArgParser_flag(p, short_name, long_name, help); }
+// Deprecated (0.10.1): use ArgParser_option.
+void args_option(ArgParser* p, string short_name, string long_name, string metavar, string def, string help) { ArgParser_option(p, short_name, long_name, metavar, def, help); }
+// Deprecated (0.10.1): use ArgParser_option_int.
+void args_option_int(ArgParser* p, string short_name, string long_name, string metavar, int def, string help) { ArgParser_option_int(p, short_name, long_name, metavar, def, help); }
+// Deprecated (0.10.1): use ArgParser_argument.
+void args_argument(ArgParser* p, string name, string help, int mode) { ArgParser_argument(p, name, help, mode); }
+// Deprecated (0.10.1): use ArgParser_get_flag.
+int args_get_flag(ArgParser* p, string name) { return ArgParser_get_flag(p, name); }
+// Deprecated (0.10.1): use ArgParser_count.
+int args_count(ArgParser* p, string name) { return ArgParser_count(p, name); }
+// Deprecated (0.10.1): use ArgParser_get.
+string args_get(ArgParser* p, string name) { return ArgParser_get(p, name); }
+// Deprecated (0.10.1): use ArgParser_get_at.
+string args_get_at(ArgParser* p, string name, int i) { return ArgParser_get_at(p, name, i); }
+// Deprecated (0.10.1): use ArgParser_get_int.
+int args_get_int(ArgParser* p, string name) { return ArgParser_get_int(p, name); }
+// Deprecated (0.10.1): use ArgParser_get_all.
+int args_get_all(ArgParser* p, string name, List<string>* out) { return ArgParser_get_all(p, name, out); }
+// Deprecated (0.10.1): use ArgParser_positional.
+string args_positional(ArgParser* p, int i) { return ArgParser_positional(p, i); }
+// Deprecated (0.10.1): use ArgParser_positional_count.
+int args_positional_count(ArgParser* p) { return ArgParser_positional_count(p); }
+// Deprecated (0.10.1): use ArgParser_rest.
+int args_rest(ArgParser* p, List<string>* out) { return ArgParser_rest(p, out); }

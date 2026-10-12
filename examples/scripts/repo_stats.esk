@@ -175,14 +175,14 @@ int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "repo_stats", "Show a GitHub repository's stars, forks, issues and languages.");
     defer ArgParser_free(&p);
-    args_flag(&p, "-j", "--json", "print JSON instead of text");
-    args_option_int(&p, "-t", "--top", "N", 5, "languages to list");
-    args_option_int(&p, null, "--timeout", "SECONDS", 10, "give up after this long");
-    args_option(&p, null, "--api-url", "URL", "https://api.github.com", "the API server");
-    args_argument(&p, "repo", "the repository, as OWNER/NAME", ARGS_REQUIRED);
+    ArgParser_flag(&p, "-j", "--json", "print JSON instead of text");
+    ArgParser_option_int(&p, "-t", "--top", "N", 5, "languages to list");
+    ArgParser_option_int(&p, null, "--timeout", "SECONDS", 10, "give up after this long");
+    ArgParser_option(&p, null, "--api-url", "URL", "https://api.github.com", "the API server");
+    ArgParser_argument(&p, "repo", "the repository, as OWNER/NAME", ARGS_REQUIRED);
     ArgParser_parse_or_exit(&p, argc, argv);
 
-    string repo_name = args_get(&p, "repo");
+    string repo_name = ArgParser_get(&p, "repo");
     let name: String;  name.from(repo_name);
     defer name.free();
     int64 slash = name.find("/", 0);
@@ -190,7 +190,7 @@ int main(int argc, string* argv) {
         log_error("expected OWNER/NAME, got '%s'", repo_name);
         return 2;
     }
-    int timeout = args_get_int(&p, "timeout");
+    int timeout = ArgParser_get_int(&p, "timeout");
     if (timeout <= 0) {
         log_error("--timeout must be positive");
         return 2;
@@ -210,7 +210,7 @@ int main(int argc, string* argv) {
 
     let url: String;  url.init(128);
     defer url.free();
-    str_format(&url, "%s/repos/%s", args_get(&p, "api-url"), repo_name);
+    str_format(&url, "%s/repos/%s", ArgParser_get(&p, "api-url"), repo_name);
     *JsonValue repo = null;
     int rc = get_json(url.cstr(), &o, &repo);
     if (rc != 0) { return rc; }
@@ -237,10 +237,10 @@ int main(int argc, string* argv) {
     });
     log_debug("%d languages, %lld bytes", langs.size, total);
 
-    if (args_get_flag(&p, "json") == 1) {
+    if (ArgParser_get_flag(&p, "json") == 1) {
         print_json(repo, &langs, total);
     } else {
-        print_summary(repo, &langs, total, args_get_int(&p, "top"));
+        print_summary(repo, &langs, total, ArgParser_get_int(&p, "top"));
     }
     return 0;
 }

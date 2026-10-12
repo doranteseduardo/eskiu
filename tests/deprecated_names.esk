@@ -1,5 +1,5 @@
-// The pre-0.9.2 stdlib names (renamed to the Type_method convention) still
-// compile and behave as thin wrappers over the new names.
+// The stdlib names renamed in 0.9.2 and 0.10.1 (to the Type_method convention and
+// consistent module prefixes) still compile and behave as thin wrappers over the new names.
 import <random>;
 import <regex>;
 import <string>;
@@ -11,6 +11,7 @@ import <hpack>;
 import <http2>;
 import <time>;
 import <ctype>;
+import <args>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -96,5 +97,19 @@ int main() {
     String_free(&iso);
 
     printf("space: %d %d %d\n", String_is_space(' '), String_is_space('x'), is_space(32));
+    let ap: ArgParser;  ArgParser_init(&ap, "t", null);
+    args_flag(&ap, "-v", null, "v");
+    args_option(&ap, "-o", null, "F", "d", "o");
+    args_option_int(&ap, "-n", null, "N", 3, "n");
+    args_argument(&ap, "xs", "xs", ARGS_MANY);
+    string[6] av = {"t", "-v", "-o", "f", "a", "b"};
+    ArgParser_parse(&ap, 6, &av[0]);
+    let al: List<string>;  List_init<string>(&al, 2);
+    int an = args_get_all(&ap, "xs", &al);
+    printf("args: %d %d %s %s %d %d %s %d %d\n", args_get_flag(&ap, "v"), args_count(&ap, "v"), args_get(&ap, "o"),
+        args_get_at(&ap, "xs", 1), args_get_int(&ap, "n"), an, args_positional(&ap, 0), args_positional_count(&ap),
+        args_rest(&ap, &al));
+    List_free<string>(&al);
+    ArgParser_free(&ap);
     return 0;
 }

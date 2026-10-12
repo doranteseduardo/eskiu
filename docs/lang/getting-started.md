@@ -1024,7 +1024,7 @@ Available modules:
 | `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `duration_format`, `Stopwatch` |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
 | `<process>`  | `process_run` (capture output, stdin text, cwd, env, timeout), `sh`, `sh_with`, `process_spawn` + `Process_write_stdin`/`_read`/`_wait`/`_kill`, `process_exit`, `process_pid` |
-| `<args>`     | command-line parsing: `ArgParser`, `args_flag`, `args_option`, `args_option_int`, `args_argument`, generated `--help`, `ArgParser_parse_or_exit`, `args_get`/`args_get_int`/`args_get_flag`/`args_count` |
+| `<args>`     | command-line parsing: `ArgParser`, `ArgParser_flag`, `ArgParser_option`, `ArgParser_option_int`, `ArgParser_argument`, generated `--help`, `ArgParser_parse_or_exit`, `ArgParser_get`/`ArgParser_get_int`/`ArgParser_get_flag`/`ArgParser_count` |
 | `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
 | `<log>`      | `log_info`/`log_warn`/`log_error`/`log_debug`/`log_trace` (printf-style), `LOG_LEVEL` or `log_set_level`, timestamps, `log_set_file` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
@@ -1170,10 +1170,10 @@ struct Count { String path; int lines; }
 int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "count_lines", "Count the lines of the .esk files under DIR.");
-    args_argument(&p, "dir", "where to look", ARGS_REQUIRED);
+    ArgParser_argument(&p, "dir", "where to look", ARGS_REQUIRED);
     ArgParser_parse_or_exit(&p, argc, argv);
 
-    let pattern: String;  pattern.from(args_get(&p, "dir"));
+    let pattern: String;  pattern.from(ArgParser_get(&p, "dir"));
     pattern.append("/**/*.esk");
     let files: List<String>;  List_init<String>(&files, 16);
     fs_glob(pattern.cstr(), &files);

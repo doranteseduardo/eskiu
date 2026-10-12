@@ -2354,7 +2354,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/csv.esk`      | RFC 4180 CSV: `csv_parse`/`csv_parse_with`/`csv_parse_buf` into a `CsvTable` (`CsvTable_len`/`_row`/`_cell`/`_col`/`_get`/`_error`/`_write`/`_free`), `csv_write_row`/`csv_write_row_with` |
 | `stdlib/dotenv.esk`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` into a `Map<string>`, `dotenv_free`, `dotenv_error`/`dotenv_error_line` |
 | `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `sha256`/`sha256_hex`/`sha256_str` (same for `sha1`, `md5`), `hmac_sha256`/`hmac_sha256_str`, `hex_encode`/`hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
-| `stdlib/args.esk`     | Command-line parsing: `ArgParser` (`_init`/`_parse`/`_parse_or_exit`/`_help`/`_usage`/`_error`/`_free`), declared with `args_flag`, `args_option`, `args_option_int`, `args_argument`, read with `args_get`, `args_get_int`, `args_get_flag`, `args_count`, `args_get_at`, `args_get_all`, `args_positional`, `args_rest` |
+| `stdlib/args.esk`     | Command-line parsing: `ArgParser` (`_init`/`_parse`/`_parse_or_exit`/`_help`/`_usage`/`_error`/`_free`), declared with `ArgParser_flag`, `ArgParser_option`, `ArgParser_option_int`, `ArgParser_argument`, read with `ArgParser_get`, `ArgParser_get_int`, `ArgParser_get_flag`, `ArgParser_count`, `ArgParser_get_at`, `ArgParser_get_all`, `ArgParser_positional`, `ArgParser_rest` |
 | `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
 | `stdlib/log.esk`      | Leveled logging: `log_trace`/`log_debug`/`log_info`/`log_warn`/`log_error`/`log_at` (printf-style), `log_set_level` (or `LOG_LEVEL`), `log_set_file`/`log_set_stderr`, `log_set_time`, `log_set_color`, `log_freeze_time` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
@@ -3169,32 +3169,32 @@ int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "copy", "Copy files.");
     defer ArgParser_free(&p);
-    args_flag(&p, "-v", "--verbose", "say more");
-    args_option(&p, "-o", "--output", "DIR", ".", "where to copy");
-    args_option_int(&p, "-j", "--jobs", "N", 1, "parallel copies");
-    args_argument(&p, "files", "files to copy", ARGS_REQUIRED | ARGS_MANY);
+    ArgParser_flag(&p, "-v", "--verbose", "say more");
+    ArgParser_option(&p, "-o", "--output", "DIR", ".", "where to copy");
+    ArgParser_option_int(&p, "-j", "--jobs", "N", 1, "parallel copies");
+    ArgParser_argument(&p, "files", "files to copy", ARGS_REQUIRED | ARGS_MANY);
     ArgParser_parse_or_exit(&p, argc, argv);
-    for (i in 0..args_count(&p, "files")) {
-        printf("%s -> %s\n", args_get_at(&p, "files", i), args_get(&p, "output"));
+    for (i in 0..ArgParser_count(&p, "files")) {
+        printf("%s -> %s\n", ArgParser_get_at(&p, "files", i), ArgParser_get(&p, "output"));
     }
     return 0;
 }
 ```
 
-`args_flag(p, short, long, help)`, `args_option(p, short, long, metavar, default, help)`
-and `args_option_int(...)` (an `int` default; a value that is not an integer is a parse
-error) declare options; either name may be `null`. `args_argument(p, name, help, mode)`
+`ArgParser_flag(p, short, long, help)`, `ArgParser_option(p, short, long, metavar, default, help)`
+and `ArgParser_option_int(...)` (an `int` default; a value that is not an integer is a parse
+error) declare options; either name may be `null`. `ArgParser_argument(p, name, help, mode)`
 declares a positional argument: `ARGS_OPTIONAL`, `ARGS_REQUIRED`, and `ARGS_MANY` for the
 last one (zero or more, one or more with `ARGS_REQUIRED`). A parser that declares no
 arguments accepts any positionals; one that declares some rejects extras.
 
 Accepted forms: `-v`, `--verbose`, `-o x`, `-ox`, `--output x`, `--output=x`, short
 clusters (`-vo x`: an option in a cluster takes the rest of it or the next argument),
-`--` (everything after it is positional, also kept for `args_rest`), and `-` as a
+`--` (everything after it is positional, also kept for `ArgParser_rest`), and `-` as a
 positional. An option's value is the next argument even when it starts with `-`; `-5` is a
 positional unless a short option is a digit. A repeated option keeps all its values
-(`args_get` returns the last, `args_get_all`/`args_get_at` every one) and a repeated flag
-counts (`args_count`). `-h`/`--help` are automatic unless the program declares those
+(`ArgParser_get` returns the last, `ArgParser_get_all`/`ArgParser_get_at` every one) and a repeated flag
+counts (`ArgParser_count`). `-h`/`--help` are automatic unless the program declares those
 names.
 
 `ArgParser_parse(p, argc, argv)` returns `ARGS_OK`, `ARGS_HELP` after printing the
@@ -3202,9 +3202,9 @@ generated help to stdout, or `ARGS_ERROR` after printing the usage line and `pro
 ...` to stderr (the message is also `ArgParser_error(p)`). `ArgParser_parse_or_exit`
 exits with 0 after the help and with 2 after an error. `ArgParser_help(p, &out)` and
 `ArgParser_usage(p, &out)` produce the texts. Accessors take a long name without dashes
-(`"output"`), a short name (`"o"` or `"-o"`) or an argument name: `args_get` (the value or
-the default, `null` if neither), `args_get_int`, `args_get_flag`, `args_count`,
-`args_get_at`, `args_get_all`, and `args_positional(p, i)` / `args_positional_count(p)`
+(`"output"`), a short name (`"o"` or `"-o"`) or an argument name: `ArgParser_get` (the value or
+the default, `null` if neither), `ArgParser_get_int`, `ArgParser_get_flag`, `ArgParser_count`,
+`ArgParser_get_at`, `ArgParser_get_all`, and `ArgParser_positional(p, i)` / `ArgParser_positional_count(p)`
 for every positional in order. Returned strings point into `argv` or the defaults.
 
 ## 15. Inline Assembly
