@@ -243,15 +243,16 @@ else echo "FAIL  freestanding-no-builtins  (an object references memset/memcpy)"
 # --mattr reaches the backend in both drivers: without FP, a double multiply is a call.
 total=$((total + 1))
 maok=1
+nm_bin="$(dirname "${CLANG:-clang}")/llvm-nm"
+[ -x "$nm_bin" ] || nm_bin=nm
 for drv in "$BIN" "$ESKMAIN"; do
     rm -f "$WORK/ma.o"
     if ! ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/mattr_softfloat.esk --freestanding --target aarch64-unknown-none-elf \
         --mattr=-fp-armv8,-neon -O2 -c -o "$WORK/ma.o" >"$WORK/ma.log" 2>&1; then
         maok=0; echo "      $drv failed:"; sed 's/^/        /' "$WORK/ma.log" | head -5
-    elif ! { [ -s "$WORK/ma.o" ] && grep -aq '__muldf3' "$WORK/ma.o"; }; then
+    elif ! "$nm_bin" "$WORK/ma.o" 2>/dev/null | grep -q '__muldf3'; then
+        # The symbol table, not a grep through the bytes: grep -a missed it on the macOS runner.
         maok=0; echo "      $drv: no __muldf3 in the object"
-        nm_bin="$(dirname "${CLANG:-clang}")/llvm-nm"
-        [ -x "$nm_bin" ] || nm_bin=nm
         { file "$WORK/ma.o"; "$nm_bin" "$WORK/ma.o"; sed 's/^/log: /' "$WORK/ma.log"; } 2>&1 | head -12 | sed 's/^/        /'
     fi
 done
