@@ -431,14 +431,23 @@ pre.code-block {
 <a href="#sec-24-4" class="toc-sec">24.4 spawn, select2, and join2</a>
 <a href="#sec-24-5" class="toc-sec">24.5 Channels</a>
 <a href="#chapter-25" class="toc-ch">Chapter 25</a>
-<a href="#sec-25-1" class="toc-sec">25.1 Algebraic enums</a>
-<a href="#sec-25-2" class="toc-sec">25.2 match</a>
-<a href="#sec-25-3" class="toc-sec">25.3 Generic enums: Option and Either</a>
-<a href="#sec-25-4" class="toc-sec">25.4 Generic enum definitions</a>
+<a href="#sec-25-1" class="toc-sec">25.1 Running a script</a>
+<a href="#sec-25-2" class="toc-sec">25.2 Files and directories</a>
+<a href="#sec-25-3" class="toc-sec">25.3 Running commands</a>
+<a href="#sec-25-4" class="toc-sec">25.4 Fetching URLs</a>
+<a href="#sec-25-5" class="toc-sec">25.5 JSON, CSV, .env files and hashes</a>
+<a href="#sec-25-6" class="toc-sec">25.6 Command-line tools: arguments, colors and logs</a>
+<a href="#sec-25-7" class="toc-sec">25.7 Dates and time</a>
+<a href="#sec-25-8" class="toc-sec">25.8 Two complete scripts</a>
 <a href="#chapter-26" class="toc-ch">Chapter 26</a>
-<a href="#sec-26-1" class="toc-sec">26.1 Trust, but verify</a>
-<a href="#sec-26-2" class="toc-sec">26.2 The fixpoint</a>
-<a href="#sec-26-3" class="toc-sec">26.3 Earning the word "complete"</a>
+<a href="#sec-26-1" class="toc-sec">26.1 Algebraic enums</a>
+<a href="#sec-26-2" class="toc-sec">26.2 match</a>
+<a href="#sec-26-3" class="toc-sec">26.3 Generic enums: Option and Either</a>
+<a href="#sec-26-4" class="toc-sec">26.4 Generic enum definitions</a>
+<a href="#chapter-27" class="toc-ch">Chapter 27</a>
+<a href="#sec-27-1" class="toc-sec">27.1 Trust, but verify</a>
+<a href="#sec-27-2" class="toc-sec">27.2 The fixpoint</a>
+<a href="#sec-27-3" class="toc-sec">27.3 Earning the word "complete"</a>
 <a href="#ref-r1" class="toc-ch">Ref R1</a>
 <a href="#ref-r2" class="toc-ch">Ref R2</a>
 <a href="#ref-r3" class="toc-ch">Ref R3</a>
@@ -504,8 +513,9 @@ pre.code-block {
   <div class="toc-entry"><a href="#chapter-22"><strong>Chapter 22: Common Bugs</strong> <span class="toc-entry-desc">(The mistakes everyone makes and how to avoid them)</span></a></div>
   <div class="toc-entry"><a href="#chapter-23"><strong>Chapter 23: Networking</strong> <span class="toc-entry-desc">(TCP sockets, echo servers, and HTTP in Eskiu)</span></a></div>
   <div class="toc-entry"><a href="#chapter-24"><strong>Chapter 24: Async and Await</strong> <span class="toc-entry-desc">(Concurrent I/O without threads)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25: Sum Types and Match</strong> <span class="toc-entry-desc">(Algebraic enums, Option, Either)</span></a></div>
-  <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26: Self-Hosting</strong> <span class="toc-entry-desc">(The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-25"><strong>Chapter 25: Scripting with Eskiu</strong> <span class="toc-entry-desc">(Files, processes, fetch, JSON and CSV, command-line tools)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-26"><strong>Chapter 26: Sum Types and Match</strong> <span class="toc-entry-desc">(Algebraic enums, Option, Either)</span></a></div>
+  <div class="toc-entry"><a href="#chapter-27"><strong>Chapter 27: Self-Hosting</strong> <span class="toc-entry-desc">(The compiler written in Eskiu, the bootstrap fixpoint, feature-completeness)</span></a></div>
   <p class="toc-part" style="margin-top:28px">Part II: Language Reference</p>
   <div class="toc-entry"><a href="#ref-r1"><strong>Ref R1: Lexical Elements</strong> <span class="toc-entry-desc">(Comments, identifiers, keywords, literals)</span></a></div>
   <div class="toc-entry"><a href="#ref-r2"><strong>Ref R2: Types</strong> <span class="toc-entry-desc">(Primitives, pointers, arrays, structs, templates)</span></a></div>
@@ -531,7 +541,7 @@ pre.code-block {
 <p>By the end you will have read the complete language, managed memory explicitly, called C libraries directly, spawned threads, and read through a real cryptographic pipeline that runs 2.5× faster than the hand-written C it replaced.</p>
 <p>Eskiu is named after a cat.</p>
 <p class="etymology">Tiny → Minusculiny (minúscula + tiny) → Kulini → Eskiulini → Eskiu.</p>
-<p>As of v0.3.0, Eskiu is self-hosting: the whole compiler (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (<code>selfhost/</code>), reaches a three-stage bootstrap fixpoint, and its code generator is feature-complete against the reference C++ compiler. Chapter 26 tells that story.</p>
+<p>As of v0.3.0, Eskiu is self-hosting: the whole compiler (lexer, preprocessor, parser, type checker, and code generator) is written in Eskiu itself (<code>selfhost/</code>), reaches a three-stage bootstrap fixpoint, and its code generator is feature-complete against the reference C++ compiler. Chapter 27 tells that story.</p>
 <div class="chapter-start" id="chapter-1"><span class="chapter-label">Chapter 1</span>
 <h1 class="chapter-title">Hello, Eskiu</h1><hr class="chapter-rule"></div>
 <p>Every journey in programming starts with a single program that does almost nothing. It prints a line of text and exits. This is Hello World, a tradition as old as the C language itself. Its purpose is not the output. Its purpose is to prove that your tools work: the compiler is installed, you can type code, and the result runs on your machine. Everything else builds on that.</p>
@@ -3134,9 +3144,375 @@ pre.code-block {
        return 0;
  }</pre>
 <div class="chapter-start" id="chapter-25"><span class="chapter-label">Chapter 25</span>
+<h1 class="chapter-title">Scripting with Eskiu</h1><hr class="chapter-rule"></div>
+<p>Small programs that glue things together are usually written in a scripting language: read some files, call an API, run a command, print a report. Eskiu can do that job. A <code>.esk</code> file runs like a script, and the standard library has the pieces such programs need: files and directories, child processes, an HTTP client, JSON, CSV, hashes, argument parsing, colored output, logging and time formatting. None of it needs an <code>extern</code> declaration.</p>
+<p>This chapter shows each of those pieces with a short program you can run. The last section points to two longer scripts in the repository that use most of them together. The full reference for every function is in the language specification, under the standard library.</p>
+<h2 class="section" id="sec-25-1">25.1 Running a script</h2>
+<p>Save this as <code>greet.esk</code>:</p>
+<pre class="code-block"> #!/usr/bin/env eskiuc run
+ import &lt;io&gt;;
+
+ int main(int argc, string* argv) {
+       if (argc &lt; 2) {
+           println_err(&quot;usage: greet NAME...&quot;);
+           return 2;
+       }
+       for (i in 1..argc) {
+           printf(&quot;hello, %s\n&quot;, argv[i]);
+       }
+       return 0;
+ }</pre>
+<p><code>eskiuc run</code> compiles the file to a temporary executable, runs it, deletes the executable and exits with the program's exit code. Everything after the file name goes to the program, including arguments that start with a dash; options for the compiler, such as <code>-O2</code>, go before the file name:</p>
+<pre class="code-block"> eskiuc run greet.esk Ada &quot;Grace Hopper&quot;
+ eskiuc run -O2 greet.esk -v
+ echo $?            # the exit code of greet</pre>
+<p>It prints:</p>
+<pre class="code-block"> hello, Ada
+ hello, Grace Hopper
+ hello, -v
+ 0</pre>
+<p>The first line, <code>#!/usr/bin/env eskiuc run</code>, is a shebang. The compiler ignores it, and the shell uses it to run the file directly once it is executable. <code>eskiuc</code> must be on your <code>PATH</code>:</p>
+<pre class="code-block"> chmod +x greet.esk
+ ./greet.esk Ada</pre>
+<p>Each run compiles the program again, which takes a moment for a script that imports several modules. A script you run often can be compiled once with <code>eskiuc greet.esk -o greet</code>, like any other program. Arguments arrive in <code>main</code> as <code>argc</code> and <code>argv</code> (section 3.6); section 25.6 shows a parser that handles options for you.</p>
+<h2 class="section" id="sec-25-2">25.2 Files and directories</h2>
+<p><code>&lt;fs&gt;</code> reads and writes whole text files, inspects them, and creates, lists, walks and removes directories. This program builds a small tree in a temporary directory, reads it back and removes it:</p>
+<pre class="code-block"> import &lt;fs&gt;;
+ import &lt;path&gt;;
+ import &lt;io&gt;;
+
+ int main() {
+       let dir: String;  dir.init(64);
+       if (fs_temp_dir(&quot;book&quot;, &amp;dir) != 0) { return 1; }
+       let notes: String;  notes.init(64);
+       path_join(&amp;notes, dir.cstr(), &quot;notes/2026&quot;);
+       fs_mkdir_p(notes.cstr());                       // creates notes/ and notes/2026/
+       let file: String;  file.init(64);
+       path_join(&amp;file, notes.cstr(), &quot;todo.txt&quot;);
+       fs_write_text(file.cstr(), &quot;buy milk\n&quot;);
+       fs_append_text(file.cstr(), &quot;call the vet\n&quot;);
+
+       let lines: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;lines, 4);
+       fs_read_lines(file.cstr(), &amp;lines);
+       printf(&quot;%d lines, the second is &#x27;%s&#x27;\n&quot;, lines.size, lines.data[1].cstr());
+       fs_list_free(&amp;lines);
+
+       let st: FileStat;
+       if (fs_stat(file.cstr(), &amp;st) == 0) {
+           printf(&quot;%lld bytes, a file: %d\n&quot;, st.size, st.is_file ? 1 : 0);
+       }
+
+       let pattern: String;  pattern.init(64);
+       path_join(&amp;pattern, dir.cstr(), &quot;**/*.txt&quot;);
+       let found: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;found, 4);
+       printf(&quot;%d text file(s)\n&quot;, fs_glob(pattern.cstr(), &amp;found));
+       fs_list_free(&amp;found);
+
+       int64 prefix = dir.len + 1;
+       fs_walk(dir.cstr(), void(string path, bool is_dir) {
+           printf(&quot;  %s%s\n&quot;, path + prefix, is_dir ? &quot;/&quot; : &quot;&quot;);
+       });
+
+       if (fs_remove(dir.cstr()) != 0) {             // not empty: fails
+           let err: String;  err.init(32);
+           fs_last_error(&amp;err);
+           printf(&quot;remove: %s\n&quot;, err.cstr());
+           err.free();
+       }
+       fs_remove_all(dir.cstr());
+       printf(&quot;still there: %d\n&quot;, fs_exists(dir.cstr()));
+       dir.free();  notes.free();  file.free();  pattern.free();
+       return 0;
+ }</pre>
+<p>It prints:</p>
+<pre class="code-block"> 2 lines, the second is &#x27;call the vet&#x27;
+ 22 bytes, a file: 1
+ 1 text file(s)
+   notes/
+   notes/2026/
+   notes/2026/todo.txt
+ remove: Directory not empty
+ still there: 0</pre>
+<p>The functions that act on the file system return 0 on success and -1 on failure, and <code>fs_last_error</code> describes the failure in words. A query such as <code>fs_exists</code> or <code>fs_is_dir</code> returns 1 or 0. A function that fills a <code>String</code> clears it first, and one that fills a <code>List&lt;String&gt;</code> appends to it; free such a list with <code>fs_list_free</code>.</p>
+<p><code>fs_walk</code> calls a function for every entry under a directory, depth first and in sorted order, and does not follow symbolic links. <code>fs_glob</code> takes a shell pattern where each <code>/</code> component may hold <code>*</code>, <code>?</code> and <code>[...]</code>, and <code>**</code> matches any number of directories. Both sort their results, so a script that prints them gives the same output on every system. <code>fs_stat</code> fills a <code>FileStat</code> with the size, the modification time in seconds since 1970, the permission bits and whether the path is a file, a directory or a link. <code>fs_rename</code>, <code>fs_copy</code>, <code>fs_cwd</code>, <code>fs_chdir</code> and <code>fs_temp_file</code> complete the module, and <code>&lt;path&gt;</code> joins and splits paths.</p>
+<h2 class="section" id="sec-25-3">25.3 Running commands</h2>
+<p><code>&lt;process&gt;</code> runs other programs and collects what they print. <code>sh</code> passes a command line to the shell (<code>/bin/sh -c</code>, or <code>cmd.exe /c</code> on Windows). <code>process_run</code> takes the program and its arguments as a list and starts it without a shell, so an argument with spaces or quotes reaches it unchanged:</p>
+<pre class="code-block"> import &lt;process&gt;;
+ import &lt;io&gt;;
+
+ int main() {
+       let r: ProcessResult;
+       sh(&quot;echo one; echo two &gt;&amp;2; exit 3&quot;, &amp;r);
+       printf(&quot;exit %d, stdout [%s], stderr [%s]\n&quot;, r.exit_code, r.stdout.cstr(), r.stderr.cstr());
+       ProcessResult_free(&amp;r);
+
+       let argv: List&lt;string&gt;;  List_init&lt;string&gt;(&amp;argv, 4);
+       argv.push(&quot;sort&quot;);  argv.push(&quot;-r&quot;);
+       let opts: ProcessOptions;
+       memset((*void)&amp;opts, 0, sizeof(ProcessOptions));
+       opts.stdin_text = &quot;apple\ncherry\nbanana\n&quot;;
+       opts.timeout_ms = 5000;
+       if (process_run(&amp;argv, &amp;opts, &amp;r) != 0) {
+           let err: String;  err.init(32);
+           process_last_error(&amp;err);
+           printf(&quot;could not start sort: %s\n&quot;, err.cstr());
+           err.free();
+       } else {
+           print(r.stdout.cstr());
+       }
+       ProcessResult_free(&amp;r);
+       List_free&lt;string&gt;(&amp;argv);
+       return 0;
+ }</pre>
+<p>It prints:</p>
+<pre class="code-block"> exit 3, stdout [one
+ ], stderr [two
+ ]
+ cherry
+ banana
+ apple</pre>
+<p>The result holds the exit code and everything the program wrote to its standard output and standard error. <code>process_run</code> returns 0 when the program ran, whatever its exit code, and -1 when it could not be started, for example because it is not installed. A script can use that to call a tool only when it is present. The zero <code>ProcessOptions</code> is the default; its fields set the text written to the child's standard input, a working directory, extra environment variables and a timeout, after which the child and the processes it started are killed. Free each result with <code>ProcessResult_free</code>.</p>
+<p><code>&lt;env&gt;</code> reads and changes environment variables (<code>env_get</code>, <code>env_get_or</code>, <code>env_set</code>, <code>env_unset</code>, <code>env_list</code>). A child started afterwards sees the changes.</p>
+<h2 class="section" id="sec-25-4">25.4 Fetching URLs</h2>
+<p><code>&lt;fetch&gt;</code> is an HTTP/1.1 client. <code>fetch(url, &amp;r)</code> sends a GET with the default options; <code>fetch_with</code> takes a <code>FetchOptions</code> for the method, headers, body and timeout. Both return 0 when a response arrived, whatever its status, or a negative <code>FETCH_ERR_*</code> code when there was none, and <code>fetch_last_error</code> says why:</p>
+<pre class="code-block"> import &lt;fetch&gt;;
+ import &lt;io&gt;;
+
+ int main() {
+       let o: FetchOptions;  FetchOptions_init(&amp;o);
+       defer FetchOptions_free(&amp;o);
+       FetchOptions_header(&amp;o, &quot;Accept&quot;, &quot;application/vnd.github+json&quot;);
+       o.timeout_ms = 10000;
+
+       let r: Response;
+       defer Response_free(&amp;r);
+       if (fetch_with(&quot;https://api.github.com/repos/llvm/llvm-project&quot;, &amp;o, &amp;r) != 0) {
+           printf(&quot;fetch failed: %s\n&quot;, fetch_last_error());
+           return 1;
+       }
+       if (Response_ok(&amp;r) == 0) {
+           printf(&quot;HTTP %d %s\n&quot;, r.status, r.reason.cstr());
+           return 1;
+       }
+       *JsonValue repo = Response_json(&amp;r);
+       if (repo == null) { return 1; }
+       defer JsonValue_free(repo);
+       printf(&quot;%s has %lld stars\n&quot;, JsonValue_as_cstr(json_get(repo, &quot;full_name&quot;)),
+              JsonValue_as_int(json_get(repo, &quot;stargazers_count&quot;)));
+       return 0;
+ }</pre>
+<p class="output"><em>Output:</em> llvm/llvm-project has 41012 stars</p>
+<p>The <code>Response</code> holds the status, the headers, the body and the final URL. <code>Response_header</code> finds a header by name in any case, <code>Response_text</code> returns the body as a string and <code>Response_json</code> parses it (null if it is not JSON). Redirects are followed, up to ten. A body can be text, bytes or a JSON document (<code>FetchOptions_body_text</code>, <code>FetchOptions_body_json</code>), and <code>FetchOptions_header</code> refuses a header that would split the request. Free the response with <code>Response_free</code> in every case, also after an error.</p>
+<p>HTTPS uses OpenSSL 3 (or 1.1). <code>&lt;fetch&gt;</code> does not link it: it loads the library the first time a script asks for an <code>https://</code> URL. A program that imports <code>&lt;fetch&gt;</code> therefore builds and runs on a machine without OpenSSL, and only its HTTPS requests fail there, with <code>FETCH_ERR_NO_TLS</code>. Most Linux systems and Homebrew on macOS already have it (on Debian and Ubuntu the package is <code>libssl3</code>); <code>fetch_tls_available()</code> tells whether it was found, and <code>ESKIU_LIBSSL</code> names the library file when it is somewhere unusual. The certificate is checked against the system's trusted certificates and the host name. On Windows that store is usually empty, so set <code>o.ca_file</code> to a PEM bundle.</p>
+<p><code>fetch_async</code> sends the same request on an event loop (chapter 24) and returns a <code>Future&lt;int&gt;</code> with the same result code. Two requests started one after the other are in flight at the same time:</p>
+<pre class="code-block"> import &lt;fetch&gt;;
+ import &lt;future&gt;;
+ import &lt;eventloop&gt;;
+ import &lt;io&gt;;
+
+ async int both(EventLoop* lp, FetchOptions* o) {
+       let a: Response;
+       let b: Response;
+       Future&lt;int&gt;* fa = fetch_async(lp, &quot;https://api.github.com/repos/llvm/llvm-project&quot;, o, &amp;a);
+       Future&lt;int&gt;* fb = fetch_async(lp, &quot;https://api.github.com/repos/rust-lang/rust&quot;, o, &amp;b);
+       await join2(fa, fb);                  // the two requests are in flight together
+       int rc = fa.value != 0 ? fa.value : fb.value;
+       if (rc == 0) { printf(&quot;%d and %d, %lld + %lld bytes\n&quot;, a.status, b.status, a.body.len, b.body.len); }
+       free_future&lt;int&gt;(fa);
+       free_future&lt;int&gt;(fb);
+       Response_free(&amp;a);
+       Response_free(&amp;b);
+       return rc;
+ }
+
+ int main() {
+       let o: FetchOptions;  FetchOptions_init(&amp;o);
+       EventLoop* lp = el_new(64);
+       Future&lt;int&gt;* f = both(lp, &amp;o);
+       if (future_poll&lt;int&gt;(f, void() { EventLoop_stop(lp); }) == 0) { EventLoop_run(lp); }
+       int rc = f.value;
+       if (rc != 0) { printf(&quot;failed: %s\n&quot;, fetch_last_error()); }
+       free_future&lt;int&gt;(f);
+       EventLoop_free(lp);
+       FetchOptions_free(&amp;o);
+       return rc == 0 ? 0 : 1;
+ }</pre>
+<p class="output"><em>Output:</em> 200 and 200, 6142 + 6199 bytes</p>
+<p>Connecting, the TLS handshake and the transfer wait on the loop instead of blocking it, so other tasks keep running; only the host name lookup blocks. The URL and the <code>Response</code> must stay valid until the future completes.</p>
+<h2 class="section" id="sec-25-5">25.5 JSON, CSV, .env files and hashes</h2>
+<p>Four modules cover the data formats scripts meet most often. <code>&lt;json&gt;</code> parses, edits and prints JSON documents; <code>&lt;csv&gt;</code> reads and writes CSV as RFC 4180 defines it; <code>&lt;dotenv&gt;</code> reads <code>.env</code> files; <code>&lt;hash&gt;</code> computes SHA-256, SHA-1, MD5 and HMAC-SHA256 without OpenSSL:</p>
+<pre class="code-block"> import &lt;json&gt;;
+ import &lt;csv&gt;;
+ import &lt;dotenv&gt;;
+ import &lt;hash&gt;;
+ import &lt;io&gt;;
+
+ int main() {
+       // JSON: parse, read with a path, edit, print.
+       *JsonValue doc = json_parse(&quot;{\&quot;user\&quot;:{\&quot;name\&quot;:\&quot;Ada\&quot;,\&quot;langs\&quot;:[\&quot;C\&quot;,\&quot;Eskiu\&quot;]}}&quot;);
+       printf(&quot;%s\n&quot;, JsonValue_as_cstr(json_get(doc, &quot;user.langs[1]&quot;)));    // Eskiu
+       JsonValue_set(json_get(doc, &quot;user&quot;), &quot;admin&quot;, JsonValue_bool(1));
+       let out: String;  out.init(64);
+       JsonValue_stringify(doc, &amp;out);
+       println(out.cstr());          // {&quot;user&quot;:{&quot;name&quot;:&quot;Ada&quot;,&quot;langs&quot;:[&quot;C&quot;,&quot;Eskiu&quot;],&quot;admin&quot;:true}}
+       JsonValue_free(doc);
+
+       // CSV: a header row, then data rows by column name.
+       let t: CsvTable;
+       csv_parse(&quot;name,city\nAda,London\n\&quot;Hopper, Grace\&quot;,New York\n&quot;, &amp;t);
+       for (r in 1..CsvTable_len(&amp;t)) {
+           printf(&quot;%s lives in %s\n&quot;, CsvTable_get(&amp;t, r, &quot;name&quot;), CsvTable_get(&amp;t, r, &quot;city&quot;));
+       }
+       out.clear();
+       CsvTable_write(&amp;t, &#x27;,&#x27;, &amp;out);   // the quotes come back where they are needed
+       print(out.cstr());
+       CsvTable_free(&amp;t);
+
+       // .env text into a map (dotenv_load reads a file into the environment instead).
+       let vars: Map&lt;string&gt;;  Map_init&lt;string&gt;(&amp;vars, 8);
+       dotenv_parse(&quot;# settings\nexport PORT=8080\nGREETING=\&quot;hello\\nworld\&quot;\n&quot;, &amp;vars);
+       printf(&quot;PORT=%s\n&quot;, Map_get_or&lt;string&gt;(&amp;vars, &quot;PORT&quot;, &quot;?&quot;));
+       dotenv_free(&amp;vars);
+
+       // Hashes.
+       sha256_str(&quot;abc&quot;, &amp;out);
+       printf(&quot;sha256(abc) = %s\n&quot;, out.cstr());
+       hmac_sha256_str(&quot;secret&quot;, &quot;message&quot;, &amp;out);
+       printf(&quot;hmac = %.16s...\n&quot;, out.cstr());
+       out.free();
+       return 0;
+ }</pre>
+<p>It prints:</p>
+<pre class="code-block"> Eskiu
+ {&quot;user&quot;:{&quot;name&quot;:&quot;Ada&quot;,&quot;langs&quot;:[&quot;C&quot;,&quot;Eskiu&quot;],&quot;admin&quot;:true}}
+ Ada lives in London
+ Hopper, Grace lives in New York
+ name,city
+ Ada,London
+ &quot;Hopper, Grace&quot;,New York
+ PORT=8080
+ sha256(abc) = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+ hmac = 8b5f48702995c159...</pre>
+<p><code>json_get</code> follows a path of member names and <code>[N]</code> indices and returns a pointer into the document, or null when a step is missing. The builders (<code>JsonValue_object</code>, <code>_array</code>, <code>_string</code>, <code>_number</code>, <code>_int</code>, <code>_bool</code>, <code>_null</code>) make new values, and <code>JsonValue_set</code> and <code>JsonValue_push</code> add them to a container, which then owns them: freeing the root frees the whole document. <code>JsonValue_stringify</code> writes compact text and <code>JsonValue_pretty</code> indents it.</p>
+<p>A <code>CsvTable</code> keeps every row, the header included, so data starts at row 1, and <code>CsvTable_get</code> finds a cell by its column name. Quoted fields may hold commas, quotes and line breaks, and <code>csv_write_row</code> quotes only the fields that need it. <code>dotenv_load(".env")</code> sets the file's variables that are not already set in the environment; <code>dotenv_parse</code>, used above, reads the same syntax into a map instead. Each hash also has a streaming form (<code>Sha256_init</code>, <code>_update</code>, <code>_final</code>) for data that arrives in pieces, and <code>hash_equal</code> compares two digests in constant time.</p>
+<h2 class="section" id="sec-25-6">25.6 Command-line tools: arguments, colors and logs</h2>
+<p>A script that other people run needs options with defaults, a <code>--help</code> text and clear errors. <code>&lt;args&gt;</code> parses the command line from a declaration of the options, <code>&lt;term&gt;</code> colors text, and <code>&lt;log&gt;</code> writes leveled messages to standard error:</p>
+<pre class="code-block"> #!/usr/bin/env eskiuc run
+ import &lt;args&gt;;
+ import &lt;term&gt;;
+ import &lt;log&gt;;
+
+ int main(int argc, string* argv) {
+       let p: ArgParser;
+       ArgParser_init(&amp;p, &quot;countdown&quot;, &quot;Count down to zero.&quot;);
+       defer ArgParser_free(&amp;p);
+       args_flag(&amp;p, &quot;-v&quot;, &quot;--verbose&quot;, &quot;log each step&quot;);
+       args_option_int(&amp;p, &quot;-f&quot;, &quot;--from&quot;, &quot;N&quot;, 3, &quot;where to start&quot;);
+       args_option(&amp;p, null, &quot;--done&quot;, &quot;TEXT&quot;, &quot;liftoff&quot;, &quot;what to print at zero&quot;);
+       ArgParser_parse_or_exit(&amp;p, argc, argv);     // --help, or exit 2 on a bad argument
+
+       if (args_get_flag(&amp;p, &quot;verbose&quot;) == 1) { log_set_level(LOG_DEBUG); }
+       int n = args_get_int(&amp;p, &quot;from&quot;);
+       if (n &lt; 0) {
+           log_error(&quot;--from must not be negative, got %d&quot;, n);
+           return 2;
+       }
+       for (int i = n; i &gt; 0; i--) {
+           log_debug(&quot;step %d of %d&quot;, n - i + 1, n);
+           printf(&quot;%d\n&quot;, i);
+       }
+       term_println(args_get(&amp;p, &quot;done&quot;), TERM_BOLD | TERM_GREEN);
+       return 0;
+ }</pre>
+<pre class="code-block"> ./countdown.esk -v --from 2
+ ./countdown.esk --from x
+ ./countdown.esk --help</pre>
+<p>The first command prints the numbers on standard output and the debug lines, with a timestamp, on standard error:</p>
+<pre class="code-block"> 2026-10-12T01:01:46.947Z DEBUG step 1 of 2
+ 2
+ 2026-10-12T01:01:46.947Z DEBUG step 2 of 2
+ 1
+ liftoff</pre>
+<p>The second stops before <code>main</code> goes on, with exit code 2:</p>
+<pre class="code-block"> usage: countdown [-h] [-v] [-f N] [--done TEXT]
+ countdown: error: invalid value &#x27;x&#x27; for --from: expected an integer</pre>
+<p>The third prints a help text built from the declarations and exits with 0. Options can be given as <code>-f 2</code>, <code>-f2</code>, <code>--from 2</code> or <code>--from=2</code>, short flags combine (<code>-vf 2</code>), and everything after <code>--</code> is positional. <code>args_argument</code> declares positional arguments, required or optional, and the last one may take many values.</p>
+<p>A style is a set of attributes and colors combined with <code>|</code>, such as <code>TERM_BOLD | TERM_GREEN</code>. <code>term_print</code>, <code>term_println</code> and <code>term_style</code> add the escape sequences only when standard output is a terminal, so the same script writes plain text into a pipe or a file. <code>NO_COLOR</code> turns colors off and <code>FORCE_COLOR</code> turns them on. On Windows the console's support for escape sequences is enabled the first time a color is used.</p>
+<p>The log functions take a format like <code>printf</code>. Messages below the current level are skipped without being formatted. The level comes from <code>log_set_level</code>, or else from the <code>LOG_LEVEL</code> environment variable, so a user can run <code>LOG_LEVEL=debug ./countdown.esk</code> without a <code>-v</code> option. <code>log_set_file</code> sends the messages to a file instead.</p>
+<h2 class="section" id="sec-25-7">25.7 Dates and time</h2>
+<p><code>&lt;time&gt;</code> formats and parses times given in seconds since 1970, in UTC or in the local time zone, and measures durations:</p>
+<pre class="code-block"> import &lt;time&gt;;
+ import &lt;io&gt;;
+
+ int main() {
+       let s: String;  s.init(32);
+       int64 now = time_now_s();
+       time_format(now, &quot;%Y-%m-%d %H:%M:%S %Z&quot;, TIME_UTC, &amp;s);
+       printf(&quot;UTC:   %s\n&quot;, s.cstr());
+       time_format(now, &quot;%a %d %b %Y, %H:%M (%z)&quot;, TIME_LOCAL, &amp;s);
+       printf(&quot;local: %s\n&quot;, s.cstr());
+
+       int64 t = 0;
+       if (time_parse(&quot;2026-10-11T10:30:05+02:00&quot;, &quot;%FT%T%z&quot;, &amp;t) == 0) {
+           printf(&quot;parsed: %lld\n&quot;, t);                       // 1791707405
+       }
+       if (time_parse(&quot;2023-02-29&quot;, &quot;%F&quot;, &amp;t) != 0) { println(&quot;2023-02-29 is not a date&quot;); }
+
+       duration_format(93784005, &amp;s);
+       printf(&quot;uptime: %s\n&quot;, s.cstr());                       // 1d 2h 3m 4s 5ms
+
+       let sw: Stopwatch;  sw.start();
+       sleep_ms(25);
+       printf(&quot;slept about %lld ms\n&quot;, sw.elapsed_ms());
+       s.free();
+       return 0;
+ }</pre>
+<p>It prints, in a time zone six hours behind UTC:</p>
+<pre class="code-block"> UTC:   2026-10-12 01:01:48 UTC
+ local: Sun 11 Oct 2026, 19:01 (-0600)
+ parsed: 1791707405
+ 2023-02-29 is not a date
+ uptime: 1d 2h 3m 4s 5ms
+ slept about 29 ms</pre>
+<p><code>time_format</code> knows a fixed set of specifiers (<code>%Y %m %d %H %M %S %j</code>, the English names <code>%a %A %b %B</code>, <code>%Z %z %s %F %T %%</code>) and implements them itself, so the names are English on every system. <code>time_parse</code> must match the whole text and rejects dates that do not exist; a time without an offset is UTC, and <code>time_parse_local</code> reads it in the local zone instead. The local zone is the system's, or the one in <code>TZ</code>. A <code>Stopwatch</code> uses the monotonic clock, which does not jump when the system clock is changed. <code>fs_stat</code> gives a file's modification time in the same seconds, ready for <code>time_format</code>.</p>
+<h2 class="section" id="sec-25-8">25.8 Two complete scripts</h2>
+<p>The directory <code>examples/scripts/</code> holds two scripts that combine the modules of this chapter, written the way you would write your own tools.</p>
+<p><code>repo_stats.esk</code> asks the GitHub API about a repository and prints its stars, forks, open issues, license and the languages it is written in, with a bar for each language's share:</p>
+<pre class="code-block"> ./examples/scripts/repo_stats.esk --top 3 llvm/llvm-project
+ ./examples/scripts/repo_stats.esk --json rust-lang/rust &gt; rust.json</pre>
+<pre class="code-block"> llvm/llvm-project
+   The LLVM Project is a collection of modular and reusable compiler and toolchain technologies.
+ 
+   stars         41,012
+   forks         19,067
+   open issues   40,261
+   license       NOASSERTION
+ 
+   languages
+     LLVM           40.9%  ########
+     C++            30.2%  ######
+     C              12.1%  ##
+     (53 more)</pre>
+<p>It declares its options with <code>&lt;args&gt;</code> (<code>--json</code>, <code>--top</code>, <code>--timeout</code> and <code>--api-url</code>), sends two requests with <code>fetch_with</code>, reads the answers with <code>json_get</code>, sorts the languages with <code>List_sort_by</code> and aligns the columns with <code>String_pad_right</code>. With <code>--json</code> it builds a new document with the <code>JsonValue</code> builders instead of printing text. Errors go through <code>log_error</code>, and the exit code tells a calling script what happened: 1 when a request failed, 2 for a usage error.</p>
+<p><code>organize.esk</code> tidies a directory such as <code>~/Downloads</code>. It moves each file at the top level into a folder named after its extension (<code>--by ext</code>) or its modification month (<code>--by date</code>). A file whose content is the same as another's, compared by SHA-256, goes to <code>duplicates/</code>, and a file whose destination already exists is left where it is. <code>--dry-run</code> only prints the plan, and <code>--report moves.csv</code> writes one CSV row per file:</p>
+<pre class="code-block"> ./examples/scripts/organize.esk --dry-run ~/Downloads
+ ./examples/scripts/organize.esk --report moves.csv ~/Downloads</pre>
+<pre class="code-block"> moved       cat-copy.jpg -&gt; duplicates/  (duplicate)
+ moved       data.csv -&gt; csv/
+ moved       notes.txt -&gt; txt/
+ moved       report.pdf -&gt; pdf/
+ 
+ folder        files       size
+ csv               1       19 B
+ duplicates        1        8 B
+ pdf               1       14 B
+ txt               1        6 B</pre>
+<p>It finds the files with <code>fs_glob</code> and <code>fs_walk</code>, reads their dates with <code>fs_stat</code> and <code>time_format</code>, hashes them with <code>sha256_hex</code>, moves them with <code>fs_mkdir_p</code> and <code>fs_rename</code>, and asks <code>du</code> for the disk usage when that program is installed.</p>
+<p>Both scripts run in the test suite without a network: <code>tests/scripts/check.sh</code> starts a small HTTP server that imitates the GitHub API and passes its address with <code>--api-url</code>, builds a directory tree with known file times for <code>organize.esk</code>, and compares what the scripts print with recorded output. The same approach works for your own scripts: keep the output free of the current time and of unsorted lists, and point the script at a local server or a temporary directory.</p>
+<div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
 <h1 class="chapter-title">Sum Types and Match</h1><hr class="chapter-rule"></div>
 <p>A sum type is a type that can be one of several variants, each carrying its own data. They are the type system&#x27;s answer to the question: how do you represent a value that might be one of several different things? Eskiu has sum types as algebraic enums (integer enums extended with payload variants) and a match statement that dispatches on them exhaustively.</p>
-<h2 class="section" id="sec-25-1">25.1 Algebraic enums</h2>
+<h2 class="section" id="sec-26-1">26.1 Algebraic enums</h2>
 <p>An enum variant can carry a payload: one or more values of any type. The tag identifies which variant; the payload carries its data:</p>
 <pre class="code-block"> enum Expr {
        Lit(int),          // carries one int
@@ -3145,7 +3521,7 @@ pre.code-block {
        Zero,              // no payload, like a classic enum variant
  }</pre>
 <p>Classic integer enums still work unchanged. The two styles coexist freely in the same codebase.</p>
-<h2 class="section" id="sec-25-2">25.2 match</h2>
+<h2 class="section" id="sec-26-2">26.2 match</h2>
 <p>match dispatches on the variant and binds the payload fields to names:</p>
 <pre class="code-block"> int eval(Expr e) {
        match e {
@@ -3171,7 +3547,7 @@ pre.code-block {
        }
        return k;
  }</pre>
-<h2 class="section" id="sec-25-3">25.3 Generic enums: Option and Either</h2>
+<h2 class="section" id="sec-26-3">26.3 Generic enums: Option and Either</h2>
 <p>Enums can have type parameters. The standard library provides two:</p>
 <pre class="code-block"> import &lt;either&gt;;</pre>
 <pre class="code-block"> // Option&lt;T&gt;: a value that may or may not exist
@@ -3208,7 +3584,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> some 5 some 5 none</p>
 <p>The payload is still checked against those type arguments: <code>Option&lt;int64&gt; b = Some(&quot;x&quot;);</code> is an error (&quot;variant 'Some' argument 1 type mismatch&quot;). With no expected type, as in a call to a generic function or an expression statement, write the arguments out as before (<code>Some&lt;int&gt;(42)</code>).</p>
 <p>Option&lt;T&gt; is the alternative to <code>null</code> pointer checks. Either&lt;T,E&gt; is an alternative to <code>Result</code>&lt;T,E&gt; when you want to handle both cases symmetrically in a match rather than checking .ok.</p>
-<h2 class="section" id="sec-25-4">25.4 Generic enum definitions</h2>
+<h2 class="section" id="sec-26-4">26.4 Generic enum definitions</h2>
 <p>You can define your own generic enums. The compiler monomorphizes them, one concrete type per set of type arguments:</p>
 <pre class="code-block"> enum Tree&lt;T&gt; {
        Leaf(T),
@@ -3222,17 +3598,17 @@ pre.code-block {
        Empty       -&gt; printf(&quot;empty\n&quot;);
  }</pre>
 <p>The chapters above are the tutorial. What follows is the reference: a complete specification of the syntax, types, operators, standard library, and CLI.</p>
-<div class="chapter-start" id="chapter-26"><span class="chapter-label">Chapter 26</span>
+<div class="chapter-start" id="chapter-27"><span class="chapter-label">Chapter 27</span>
 <h1 class="chapter-title">Self-Hosting</h1><hr class="chapter-rule"></div>
 <p>There is a moment in a language's life when it grows up: the day its compiler is written in itself. Until then the language depends on another: Eskiu's reference compiler, <code>eskiuc</code>, is written in C++. A self-hosted compiler is one the language can build on its own, and reaching it proves something concrete: the language is expressive enough, and the compiler correct enough, to take on a program as demanding as a compiler. As of v0.3.0, Eskiu is there.</p>
 <p>The whole pipeline is reimplemented in Eskiu, under <code>selfhost/</code>: a lexer, a preprocessor, a parser, a type checker, and a code generator, each a faithful translation of its C++ counterpart. They chain together exactly as the reference compiler does:</p>
 <pre class="code-block"> lexer → preprocessor → parser → type checker → code generator → LLVM IR</pre>
 <p>The code generator is the interesting one. It does not link against the LLVM libraries. Instead it writes LLVM IR out as plain text, which <code>clang</code> then assembles and links. That choice keeps the self-hosted compiler dependency-free, and it is how most bootstrapping compilers do it.</p>
-<h2 class="section" id="sec-26-1">26.1 Trust, but verify</h2>
+<h2 class="section" id="sec-27-1">27.1 Trust, but verify</h2>
 <p>A compiler that is subtly wrong is worse than no compiler at all, so every pass is checked against the reference. The method changes with what can be observed. For the lexer, parser, and preprocessor there is an exact answer to compare against: their output is diffed <em>byte-for-byte</em> against <code>eskiuc</code>'s debug dumps. For the type checker, the ground truth is a verdict: does it accept the same programs and reject the same mistakes, with the same error messages? For the code generator, the generated IR can't be compared character by character (LLVM renumbers values and folds constants), so the test is <em>behavioural</em>: compile the program both ways, run both binaries, and check that they print the same thing and exit the same way. Every one of these comparisons runs in continuous integration; a divergence fails the build.</p>
-<h2 class="section" id="sec-26-2">26.2 The fixpoint</h2>
+<h2 class="section" id="sec-27-2">27.2 The fixpoint</h2>
 <p>Per-pass parity is necessary but not sufficient. The real test of self-hosting is whether the compiler can reproduce <em>itself</em>. So the self-hosted compiler is built three times: the C++ <code>eskiuc</code> builds it once (call the result cc0); cc0 builds it again (cc1); cc1 builds it a third time (cc2). If the project is sound, cc1 and cc2 must emit identical IR for the compiler's own source: a compiler built by itself reproducing its own output. That equality is the <em>bootstrap fixpoint</em>, and Eskiu reaches it.</p>
-<h2 class="section" id="sec-26-3">26.3 Earning the word "complete"</h2>
+<h2 class="section" id="sec-27-3">27.3 Earning the word "complete"</h2>
 <p>There is a trap here worth naming, because it caught the author more than once. The bootstrap fixpoint only exercises the slice of the language the compiler's <em>own</em> source happens to use. It says nothing about features the compiler doesn't use: floating point, say, or unions, or the <code>?</code> operator. It is tempting to declare the code generator complete once the fixpoint holds, but that would be wrong. The only way to know a feature works is to compile a program that uses it and run it. So feature-completeness is measured by pushing the entire reference test corpus through the behavioural oracle and demanding a clean sweep, with every program, compiled by the Eskiu-written code generator, behaving exactly as the C++ build does. v0.3.0 passes that sweep: floats, <code>switch</code>, sum types and <code>match</code>, closures, exceptions, atomics, generics with inference, async/await, unions, bitfields, interfaces, packed structs, variadics, and the <code>?</code> operator all generate correct code.</p>
 <p>The lesson generalises beyond compilers: a system that checks itself can only ever confirm the paths it walks. To claim coverage, you have to walk every path on purpose, and watch what happens.</p>
 <p>Since v0.3.0 the self-hosting has been taken to completion. The Eskiu-written compiler is behaviorally equivalent to the C++ one across the whole corpus, gated on every commit, and dual-built as <code>eskiuc-esk</code>. It stays a co-equal build rather than the shipped artifact for one practical reason: the self-hosted driver links its output by shelling out to clang, so shipping it as the default would add a clang dependency at run time. The C++ binary remains the shipped compiler, and the parity gates keep the two equivalent.</p>
