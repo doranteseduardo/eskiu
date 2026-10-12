@@ -62,8 +62,9 @@ void String_append(String* self, string s) {
     self.len = newlen;
 }
 
+// Append `other`'s bytes, all of them: a NUL inside it is kept.
 void String_concat(String* self, String* other) {
-    self.append(other.data);
+    _string_append_bytes(self, other.data, other.len);
 }
 
 // Append a single character, growing the buffer if needed and keeping the
@@ -267,7 +268,7 @@ void String_split(String* self, char sep, List<String>* out) {
     int pos = 0;
     while (self.next_token(sep, &pos, &tok) == 1) {
         let copy: String;  copy.init(8);
-        copy.append(tok.cstr());
+        _string_append_bytes(&copy, tok.data, tok.len);
         List_push<String>(out, copy);
     }
 }

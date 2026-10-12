@@ -1,0 +1,26 @@
+// A String holds its length, so a NUL byte inside it survives String_concat
+// (also onto itself) and String_split; both used to stop at the first NUL.
+import <string>;
+import <list>;
+import <io>;
+
+int main() {
+    let a: String;  a.init(8);
+    a.append("ab");  a.push((char)0);  a.append("cd");
+    let b: String;  b.init(8);
+    b.append("x");
+    b.concat(&a);
+    printf("concat len=%lld\n", b.len);
+    b.concat(&b);
+    printf("self concat len=%lld byte6=%d\n", b.len, (int)b.data[6]);
+
+    let parts: List<String>;  List_init<String>(&parts, 4);
+    a.push(',');  a.append("e");
+    a.split(',', &parts);
+    printf("parts=%d first len=%lld second len=%lld\n", List_len<String>(&parts),
+           List_get<String>(&parts, 0).len, List_get<String>(&parts, 1).len);
+    String_split_free(&parts);
+    a.free();
+    b.free();
+    return 0;
+}
