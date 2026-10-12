@@ -60,7 +60,7 @@ from another (e.g. `curl localhost:PORT` or `nc localhost PORT`).
 ### Scripts
 
 The files in [scripts/](scripts) are complete tools that start with
-`#!/usr/bin/env eskiuc run`, so with `eskiuc` on your `PATH` they run directly
+`#!/usr/bin/env -S eskiuc run`, so with `eskiuc` on your `PATH` they run directly
 (`./examples/scripts/repo_stats.esk llvm/llvm-project`). `tests/scripts/check.sh`
 runs both in the test suite, without network access.
 

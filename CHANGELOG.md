@@ -73,7 +73,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<time>`: `time_format`, `time_parse`, `time_parse_local` (strftime-style specifiers),
   `time_to_local`, `time_local_offset`, `duration_format`, `Stopwatch`.
 - Example `dir_list.esk` (`<args>`, `<term>`, `<log>`, `<time>`).
-- Example scripts in `examples/scripts/`, run through their `#!/usr/bin/env eskiuc run`
+- Example scripts in `examples/scripts/`, run through their `#!/usr/bin/env -S eskiuc run`
   line: `repo_stats.esk` (GitHub API through `<fetch>`, a colored summary or `--json`) and
   `organize.esk` (files into folders by extension or month, SHA-256 duplicates, `--dry-run`,
   a CSV report).
@@ -101,6 +101,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   catch-all blocks, guaranteeing that nesting limits (`NestingError`) and unexpected exceptions propagate immediately.
 
 ### Fixed
+- The shebang the docs and examples use is `#!/usr/bin/env -S eskiuc run`. Without `-S`, Linux
+  passes `eskiuc run` to `env` as one argument and the script fails to start ("No such file
+  or directory"); only macOS split it.
 - C ABI: on AArch64 Linux and on Windows x64, an `extern`'s narrow integer parameters and
   results (`int8`, `int16`, `uint8`, `uint16`, `char`, and `bool` on AArch64) no longer carry
   `signext`/`zeroext`, matching clang. Eskiu trusted the upper bits of a narrow result that a

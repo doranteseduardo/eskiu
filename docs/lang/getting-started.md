@@ -116,7 +116,7 @@ Add a shebang line and a `.esk` file becomes directly executable, the way a Pyth
 script is:
 
 ```eskiu
-#!/usr/bin/env eskiuc run
+#!/usr/bin/env -S eskiuc run
 extern int printf(string fmt, ...);
 int main() { printf("hello\n"); return 0; }
 ```
@@ -1152,7 +1152,7 @@ package (usually present already).
 
 ### Scripting
 
-With `eskiuc run` and a `#!/usr/bin/env eskiuc run` line (see
+With `eskiuc run` and a `#!/usr/bin/env -S eskiuc run` line (see
 [Run it like a script](#run-it-like-a-script)), the modules above cover what small
 tools usually need: `<fs>` for files and directories, `<process>` to run commands,
 `<fetch>` for HTTP, `<json>`, `<csv>`, `<dotenv>` and `<hash>` for data, `<args>`,
@@ -1160,7 +1160,7 @@ tools usually need: `<fs>` for files and directories, `<process>` to run command
 counts the lines of each `.esk` file under a directory, largest first:
 
 ```eskiu
-#!/usr/bin/env eskiuc run
+#!/usr/bin/env -S eskiuc run
 import <args>;
 import <fs>;
 import <sort>;

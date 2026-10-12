@@ -1,7 +1,7 @@
 # Eskiu 0.10.0
 
 A release about scripting. Eskiu could already run a file like a script (`eskiuc run
-file.esk`, or a `#!/usr/bin/env eskiuc run` shebang); now the standard library covers what
+file.esk`, or a `#!/usr/bin/env -S eskiuc run` shebang); now the standard library covers what
 a script usually does: fetch a URL, walk a directory, run a command, parse arguments, read
 JSON or CSV, print colored output. None of it needs an `extern` or a package.
 

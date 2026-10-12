@@ -1,4 +1,4 @@
-#!/usr/bin/env eskiuc run
+#!/usr/bin/env -S eskiuc run
 // organize.esk: sort the loose files of a directory into folders.
 //
 //   ./organize.esk --dry-run ~/Downloads          # only show what would move

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Runs the example scripts in examples/scripts/ the way a user does, through their
-# `#!/usr/bin/env eskiuc run` line, and compares what they print with
+# `#!/usr/bin/env -S eskiuc run` line, and compares what they print with
 # tests/scripts/NAME.expected. No network: repo_stats talks to a local fake of the
 # GitHub API (fake_github.esk, started here), organize works on a temporary tree
 # whose file times are set with `touch -t` and read in TZ=UTC.

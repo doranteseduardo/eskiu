@@ -1,4 +1,4 @@
-#!/usr/bin/env eskiuc run
+#!/usr/bin/env -S eskiuc run
 // repo_stats.esk: a GitHub repository at a glance.
 //
 //   ./repo_stats.esk llvm/llvm-project

@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A `.esk` file can also be run on the spot with `eskiuc run` (or a `#!/usr/bin/env eskiuc run` shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.
+Eskiu is a statically typed, compiled systems language. It lowers to native code through LLVM, manages memory explicitly (no garbage collector), and interoperates directly with C. A `.esk` file can also be run on the spot with `eskiuc run` (or a `#!/usr/bin/env -S eskiuc run` shebang), so the same source is both a compiled artifact and a runnable script. This document is the language reference: syntax, type system, semantics, and ABI.
 
 Core properties:
 
@@ -3299,7 +3299,7 @@ Nothing is added when no executable is linked. With `--freestanding` (or a `.o` 
 no linking happens, so bare-metal targets are linked yourself (see the `ld.lld`
 invocation in `kernel/Makefile`).
 
-**Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, `run` exits with `128 +` the signal number, as a shell does. Compiler flags (including ones that take a value, such as `--target TRIPLE`) go *before* the script and program arguments *after* it; a `--` right after the script is dropped, so `eskiuc run --asan file.esk -- input.txt` passes only `input.txt`. Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env eskiuc run` and, once `chmod +x`'d, be executed directly.
+**Running directly.** `eskiuc run file.esk [args...]` compiles to a temporary executable, runs it (forwarding `args...`), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, `run` exits with `128 +` the signal number, as a shell does. Compiler flags (including ones that take a value, such as `--target TRIPLE`) go *before* the script and program arguments *after* it; a `--` right after the script is dropped, so `eskiuc run --asan file.esk -- input.txt` passes only `input.txt`. Because a leading `#!` line is ignored, a script can also start with `#!/usr/bin/env -S eskiuc run` and, once `chmod +x`'d, be executed directly.
 
 **Formatting.** `eskiuc fmt file.esk …` reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing `\`, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal, including every line of a string that spans lines) exactly as written and keeps every other blank line, so line numbers (`__LINE__`, diagnostics) do not move. It never alters a program's behavior and is idempotent. `--check` makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.
 
@@ -3489,6 +3489,9 @@ This is how `<net>` selects the correct `sockaddr_in` layout:
 
 ### Shebang lines
 
-If the first line of a file begins with `#!` (e.g. `#!/usr/bin/env eskiuc run`),
+If the first line of a file begins with `#!` (e.g. `#!/usr/bin/env -S eskiuc run`),
 the preprocessor ignores it and blanks it out, preserving line numbers. This lets a `.esk` file be marked executable
-(`chmod +x`) and run directly as a script; see `eskiuc run` in §16.
+(`chmod +x`) and run directly as a script; see `eskiuc run` in §16. The `-S` makes `env` split
+`eskiuc run` into two arguments: Linux passes everything after the interpreter path as one
+argument, so `#!/usr/bin/env eskiuc run` looks for a program named `eskiuc run` there (macOS
+splits it either way). `env -S` is in GNU coreutils 8.30 and later and in macOS.

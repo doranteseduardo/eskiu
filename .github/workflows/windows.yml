@@ -27,6 +27,7 @@ jobs:
             mingw-w64-x86_64-llvm
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
+            diffutils
 
       - name: Configure
         run: |

@@ -224,7 +224,7 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li><code>&lt;time&gt;</code>: <code>time_format</code>, <code>time_parse</code>, <code>time_parse_local</code> (strftime-style specifiers),
   <code>time_to_local</code>, <code>time_local_offset</code>, <code>duration_format</code>, <code>Stopwatch</code>.</li>
 <li>Example <code>dir_list.esk</code> (<code>&lt;args&gt;</code>, <code>&lt;term&gt;</code>, <code>&lt;log&gt;</code>, <code>&lt;time&gt;</code>).</li>
-<li>Example scripts in <code>examples/scripts/</code>, run through their <code>#!/usr/bin/env eskiuc run</code>
+<li>Example scripts in <code>examples/scripts/</code>, run through their <code>#!/usr/bin/env -S eskiuc run</code>
   line: <code>repo_stats.esk</code> (GitHub API through <code>&lt;fetch&gt;</code>, a colored summary or <code>--json</code>) and
   <code>organize.esk</code> (files into folders by extension or month, SHA-256 duplicates, <code>--dry-run</code>,
   a CSV report).</li>
@@ -253,6 +253,9 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>The shebang the docs and examples use is <code>#!/usr/bin/env -S eskiuc run</code>. Without <code>-S</code>, Linux
+  passes <code>eskiuc run</code> to <code>env</code> as one argument and the script fails to start ("No such file
+  or directory"); only macOS split it.</li>
 <li>C ABI: on AArch64 Linux and on Windows x64, an <code>extern</code>'s narrow integer parameters and
   results (<code>int8</code>, <code>int16</code>, <code>uint8</code>, <code>uint16</code>, <code>char</code>, and <code>bool</code> on AArch64) no longer carry
   <code>signext</code>/<code>zeroext</code>, matching clang. Eskiu trusted the upper bits of a narrow result that a

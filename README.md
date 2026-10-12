@@ -23,7 +23,7 @@
 
 Eskiu is a systems language with C's control over memory and calling conventions, and a
 quicker feel for everyday work. It compiles to native code through LLVM and calls C
-libraries directly, and `eskiuc run file.esk` (or a `#!/usr/bin/env eskiuc run` shebang)
+libraries directly, and `eskiuc run file.esk` (or a `#!/usr/bin/env -S eskiuc run` shebang)
 runs a source file the way you would run a Python or Ruby script.
 
 - **C-style and C-compatible.** C syntax and integer rules, structs, unions, bitfields and

@@ -336,7 +336,7 @@ static int compilerMain(int argc, char** argv) {
 
     // `eskiuc run script.esk [args...]` — compile to a temporary executable, run
     // it forwarding [args...], then delete it. Enables shebang scripts
-    // (`#!/usr/bin/env eskiuc run`). Rewritten here before option parsing: any
+    // (`#!/usr/bin/env -S eskiuc run`). Rewritten here before option parsing: any
     // leading flags and the first non-flag token (the script) go to the option
     // parser; everything after the script becomes the program's argv.
     if (argc >= 2 && std::string(argv[1]) == "run") {

@@ -257,7 +257,7 @@ temporary executable, runs it, and cleans up, forwarding any arguments after the
 </code></pre>
 <p>Add a shebang line and a <code>.esk</code> file becomes directly executable, the way a Python or Ruby
 script is:</p>
-<pre><code class="language-eskiu">#!/usr/bin/env eskiuc run
+<pre><code class="language-eskiu">#!/usr/bin/env -S eskiuc run
 extern int printf(string fmt, ...);
 int main() { printf(&quot;hello\n&quot;); return 0; }
 </code></pre>
@@ -1284,13 +1284,13 @@ time it is needed, so a program that only fetches <code>http://</code> URLs runs
 macOS install it with <code>brew install openssl@3</code>, on Debian or Ubuntu it is the <code>libssl3</code>
 package (usually present already).</p>
 <h3 id="scripting">Scripting</h3>
-<p>With <code>eskiuc run</code> and a <code>#!/usr/bin/env eskiuc run</code> line (see
+<p>With <code>eskiuc run</code> and a <code>#!/usr/bin/env -S eskiuc run</code> line (see
 <a href="#run-it-like-a-script">Run it like a script</a>), the modules above cover what small
 tools usually need: <code>&lt;fs&gt;</code> for files and directories, <code>&lt;process&gt;</code> to run commands,
 <code>&lt;fetch&gt;</code> for HTTP, <code>&lt;json&gt;</code>, <code>&lt;csv&gt;</code>, <code>&lt;dotenv&gt;</code> and <code>&lt;hash&gt;</code> for data, <code>&lt;args&gt;</code>,
 <code>&lt;term&gt;</code> and <code>&lt;log&gt;</code> for the command line, and <code>&lt;time&gt;</code> for dates. This script
 counts the lines of each <code>.esk</code> file under a directory, largest first:</p>
-<pre><code class="language-eskiu">#!/usr/bin/env eskiuc run
+<pre><code class="language-eskiu">#!/usr/bin/env -S eskiuc run
 import &lt;args&gt;;
 import &lt;fs&gt;;
 import &lt;sort&gt;;

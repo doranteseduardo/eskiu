@@ -535,7 +535,7 @@ pre.code-block {
 <section id="preface" class="chapter-start"><span class="chapter-label">Preface</span><h1 class="chapter-title">Why this book exists</h1><hr class="chapter-rule"></section>
 <p> This book teaches Eskiu from zero. You do not need to know any other programming language. You need a computer, a terminal, and the willingness to type things and see what happens.</p>
 <p>Programming is not a subject you read about and then understand. It is something you do. Every example in this book is short enough to type by hand. Type them. Run them. Change a number and see what breaks. That is how the knowledge becomes yours.</p>
-<p>Eskiu is a systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, giving you native performance, explicit memory, and direct access to any C library, so it does the work you would normally reach for C to do. But it spares you C's ceremony for small things: <code>eskiuc run file.esk</code> compiles and runs in a single step, and a <code>#!/usr/bin/env eskiuc run</code> shebang turns a <code>.esk</code> file into an executable script, the way Python or Ruby would. The whole toolchain is a single compiler driven by a single build command, and the language stays small enough to keep in your head.</p>
+<p>Eskiu is a systems language with the power of C and the immediacy of a scripting language. It compiles to native code through LLVM, giving you native performance, explicit memory, and direct access to any C library, so it does the work you would normally reach for C to do. But it spares you C's ceremony for small things: <code>eskiuc run file.esk</code> compiles and runs in a single step, and a <code>#!/usr/bin/env -S eskiuc run</code> shebang turns a <code>.esk</code> file into an executable script, the way Python or Ruby would. The whole toolchain is a single compiler driven by a single build command, and the language stays small enough to keep in your head.</p>
 <p>The language has no garbage collector. Memory is yours to manage. You ask for it when you need it and give it back when you are done. This sounds more intimidating than it is. By the end of Chapter 6 you will do it without thinking.</p>
 <p>Every chapter follows the same pattern. A concept is explained in plain language. Then shown in code. Each chapter ends with a summary and exercises. Do the exercises, even the easy ones, especially the easy ones.</p>
 <p>By the end you will have read the complete language, managed memory explicitly, called C libraries directly, spawned threads, and read through a real cryptographic pipeline that runs 2.5× faster than the hand-written C it replaced.</p>
@@ -3149,7 +3149,7 @@ pre.code-block {
 <p>This chapter shows each of those pieces with a short program you can run. The last section points to two longer scripts in the repository that use most of them together. The full reference for every function is in the language specification, under the standard library.</p>
 <h2 class="section" id="sec-25-1">25.1 Running a script</h2>
 <p>Save this as <code>greet.esk</code>:</p>
-<pre class="code-block"> #!/usr/bin/env eskiuc run
+<pre class="code-block"> #!/usr/bin/env -S eskiuc run
  import &lt;io&gt;;
 
  int main(int argc, string* argv) {
@@ -3171,7 +3171,7 @@ pre.code-block {
  hello, Grace Hopper
  hello, -v
  0</pre>
-<p>The first line, <code>#!/usr/bin/env eskiuc run</code>, is a shebang. The compiler ignores it, and the shell uses it to run the file directly once it is executable. <code>eskiuc</code> must be on your <code>PATH</code>:</p>
+<p>The first line, <code>#!/usr/bin/env -S eskiuc run</code>, is a shebang. The compiler ignores it, and the shell uses it to run the file directly once it is executable. <code>eskiuc</code> must be on your <code>PATH</code>:</p>
 <pre class="code-block"> chmod +x greet.esk
  ./greet.esk Ada</pre>
 <p>Each run compiles the program again, which takes a moment for a script that imports several modules. A script you run often can be compiled once with <code>eskiuc greet.esk -o greet</code>, like any other program. Arguments arrive in <code>main</code> as <code>argc</code> and <code>argv</code> (section 3.6); section 25.6 shows a parser that handles options for you.</p>
@@ -3397,7 +3397,7 @@ pre.code-block {
 <p>A <code>CsvTable</code> keeps every row, the header included, so data starts at row 1, and <code>CsvTable_get</code> finds a cell by its column name. Quoted fields may hold commas, quotes and line breaks, and <code>csv_write_row</code> quotes only the fields that need it. <code>dotenv_load(".env")</code> sets the file's variables that are not already set in the environment; <code>dotenv_parse</code>, used above, reads the same syntax into a map instead. Each hash also has a streaming form (<code>Sha256_init</code>, <code>_update</code>, <code>_final</code>) for data that arrives in pieces, and <code>hash_equal</code> compares two digests in constant time.</p>
 <h2 class="section" id="sec-25-6">25.6 Command-line tools: arguments, colors and logs</h2>
 <p>A script that other people run needs options with defaults, a <code>--help</code> text and clear errors. <code>&lt;args&gt;</code> parses the command line from a declaration of the options, <code>&lt;term&gt;</code> colors text, and <code>&lt;log&gt;</code> writes leveled messages to standard error:</p>
-<pre class="code-block"> #!/usr/bin/env eskiuc run
+<pre class="code-block"> #!/usr/bin/env -S eskiuc run
  import &lt;args&gt;;
  import &lt;term&gt;;
  import &lt;log&gt;;
