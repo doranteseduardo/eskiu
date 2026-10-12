@@ -199,7 +199,6 @@ extern uint32 GetTempPathW(uint32 n, *uint16 buf);
 extern uint32 GetTempFileNameW(*uint16 dir, *uint16 prefix, uint32 unique, *uint16 out);
 extern uint32 GetFullPathNameW(*uint16 name, uint32 n, *uint16 buf, *void file_part);
 extern *void  CreateFileW(*uint16 path, uint32 access, uint32 share, *void sa, uint32 disp, uint32 flags, *void tmpl);
-extern *void  ReOpenFile(*void h, uint32 access, uint32 share, uint32 flags);
 extern int    CloseHandle(*void h);
 extern int    GetFileInformationByHandleEx(*void h, int cls, *void buf, uint32 n);
 extern int    SetFileInformationByHandle(*void h, int cls, *void buf, uint32 n);
@@ -905,6 +904,7 @@ void _fs_walk_tree(String* base, fn(string, bool)->void visit) {
 #define _FS_NT_SHARE_ALL   7
 #define _FS_NT_OPT_ENTRY   2113568    // FILE_OPEN_REPARSE_POINT | FILE_OPEN_FOR_BACKUP_INTENT | FILE_SYNCHRONOUS_IO_NONALERT
 #define _FS_NT_OPT_DIR     2113569    // the same | FILE_DIRECTORY_FILE
+#define _FS_NT_OPT_FILE    2113632    // the same as _FS_NT_OPT_ENTRY | FILE_NON_DIRECTORY_FILE
 #define _FS_FLAG_BACKUP    33554432   // FILE_FLAG_BACKUP_SEMANTICS
 #define _FS_FLAG_REPARSE   2097152    // FILE_FLAG_OPEN_REPARSE_POINT
 
@@ -926,8 +926,7 @@ struct _FsObjAttrs {      // OBJECT_ATTRIBUTES
 struct _FsWLevel {
     List<String> names;   // the entries, sorted
     int   next;           // the next one to visit
-    *void list_h;         // this directory, opened to list it
-    *void del_h;          // fs_remove_all: opened for DELETE (null for the root)
+    *void h;              // this directory, opened to list it (fs_remove_all: and delete it)
     int64 path_len;       // fs_walk: length of this directory's path
 }
 
@@ -979,13 +978,13 @@ int _fs_handle_delete(*void h) {
     return rc;
 }
 
-// Push a level for the directory opened as `list_h`: its sorted entries.
-int _fs_wlevel_push(List<_FsWLevel>* levels, *void list_h, *void del_h, int64 path_len) {
+// Push a level for the directory opened as `list_h`: its sorted entries. The
+// level owns the handle, also when this fails.
+int _fs_wlevel_push(List<_FsWLevel>* levels, *void list_h, int64 path_len) {
     let lv: _FsWLevel;
     List_init<String>(&lv.names, 16);
     lv.next = 0;
-    lv.list_h = list_h;
-    lv.del_h = del_h;
+    lv.h = list_h;
     lv.path_len = path_len;
     List_push<_FsWLevel>(levels, lv);
     *_FsWLevel top = &levels.data[List_len<_FsWLevel>(levels) - 1];
@@ -1021,8 +1020,7 @@ void _fs_wlevel_free(List<_FsWLevel>* levels) {
     for (i in 0..List_len<_FsWLevel>(levels)) {
         *_FsWLevel lv = &levels.data[i];
         fs_list_free(&lv.names);
-        if (lv.list_h != null) { CloseHandle(lv.list_h); }
-        if (lv.del_h != null) { CloseHandle(lv.del_h); }
+        if (lv.h != null) { CloseHandle(lv.h); }
     }
     List_free<_FsWLevel>(levels);
 }
@@ -1043,22 +1041,26 @@ int _fs_remove_tree(string path) {
     }
     let levels: List<_FsWLevel>;  List_init<_FsWLevel>(&levels, 8);
     defer _fs_wlevel_free(&levels);
-    if (_fs_wlevel_push(&levels, root, null, 0) != 0) { return -1; }
+    if (_fs_wlevel_push(&levels, root, 0) != 0) { return -1; }
     while (true) {
         *_FsWLevel lv = &levels.data[List_len<_FsWLevel>(&levels) - 1];
         if (lv.next >= List_len<String>(&lv.names)) {
             if (List_len<_FsWLevel>(&levels) == 1) { break; }
             let done: _FsWLevel = List_pop<_FsWLevel>(&levels);
             fs_list_free(&done.names);
-            CloseHandle(done.list_h);
-            if (_fs_handle_delete(done.del_h) != 0) { return -1; }
+            if (_fs_handle_delete(done.h) != 0) { return -1; }
             continue;
         }
-        *void cur = lv.list_h;
+        *void cur = lv.h;
         string name = lv.names.data[lv.next].cstr();
         lv.next++;
+        // Open the entry itself as a directory, for listing and deleting it; a
+        // non-directory fails with NOT_A_DIRECTORY and is opened for deleting only.
         let st: uint32 = (uint32)0;
-        *void h = _fs_nt_open(cur, name, (uint32)_FS_NT_ACC_DELETE, (uint32)_FS_NT_OPT_ENTRY, &st);
+        *void h = _fs_nt_open(cur, name, (uint32)(_FS_NT_ACC_DELETE | _FS_NT_ACC_LIST), (uint32)_FS_NT_OPT_DIR, &st);
+        if (h == null && st == (uint32)3221225731) {   // STATUS_NOT_A_DIRECTORY
+            h = _fs_nt_open(cur, name, (uint32)_FS_NT_ACC_DELETE, (uint32)_FS_NT_OPT_FILE, &st);
+        }
         if (h == null) {
             // OBJECT_NAME_NOT_FOUND, DELETE_PENDING: gone already
             if (st == (uint32)3221225524 || st == (uint32)3221225558) { continue; }
@@ -1067,13 +1069,10 @@ int _fs_remove_tree(string path) {
         const int k = _fs_handle_kind(h);
         if (k < 0) { const int e = _fs_fail_os(); CloseHandle(h); return e; }
         if (k == 1) {
-            // A real directory: list it through a second handle to the same object.
-            *void lh = ReOpenFile(h, (uint32)(_FS_NT_ACC_LIST | _FS_NT_ACC_ATTRS), (uint32)_FS_NT_SHARE_ALL,
-                                  (uint32)(_FS_FLAG_BACKUP | _FS_FLAG_REPARSE));
-            if ((int64)lh == -1) { const int e = _fs_fail_os(); CloseHandle(h); return e; }
-            if (_fs_wlevel_push(&levels, lh, h, 0) != 0) { return -1; }   // the level owns both handles
+            if (_fs_wlevel_push(&levels, h, 0) != 0) { return -1; }
             continue;
         }
+        // A file, or a junction or link: the handle names the entry, not a target.
         if (_fs_handle_delete(h) != 0) { return -1; }
     }
     return 0;
@@ -1091,17 +1090,17 @@ void _fs_walk_tree(String* base, fn(string, bool)->void visit) {
     defer _fs_wlevel_free(&levels);
     let path: String;  path.from(base.cstr());
     defer path.free();
-    if (_fs_wlevel_push(&levels, root, null, path.len) != 0) { return; }
+    if (_fs_wlevel_push(&levels, root, path.len) != 0) { return; }
     while (true) {
         *_FsWLevel lv = &levels.data[List_len<_FsWLevel>(&levels) - 1];
         if (lv.next >= List_len<String>(&lv.names)) {
             if (List_len<_FsWLevel>(&levels) == 1) { break; }
             let done: _FsWLevel = List_pop<_FsWLevel>(&levels);
             fs_list_free(&done.names);
-            CloseHandle(done.list_h);
+            CloseHandle(done.h);
             continue;
         }
-        *void cur = lv.list_h;
+        *void cur = lv.h;
         string name = lv.names.data[lv.next].cstr();
         lv.next++;
         path.len = lv.path_len;
@@ -1119,10 +1118,10 @@ void _fs_walk_tree(String* base, fn(string, bool)->void visit) {
         *void dh = _fs_nt_open(cur, name, (uint32)(_FS_NT_ACC_LIST | _FS_NT_ACC_ATTRS), (uint32)_FS_NT_OPT_DIR, &st);
         if (dh == null) { continue; }
         if (_fs_handle_kind(dh) != 1) { CloseHandle(dh); continue; }
-        if (_fs_wlevel_push(&levels, dh, null, path.len) != 0) {
+        if (_fs_wlevel_push(&levels, dh, path.len) != 0) {
             let bad: _FsWLevel = List_pop<_FsWLevel>(&levels);
             fs_list_free(&bad.names);
-            CloseHandle(bad.list_h);
+            CloseHandle(bad.h);
         }
     }
 }
