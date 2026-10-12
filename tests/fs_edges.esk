@@ -36,6 +36,21 @@ int main() {
     printf("a.txt [%s]\n", s.cstr());
     show("copy a b", fs_copy("a.txt", "b.txt"));
 
+    // A read-only parent (root may write anyway, so it is skipped there).
+    fs_mkdir("ro");
+#ifdef __APPLE__
+    chmod("ro", (uint16)365);
+#else
+    chmod("ro", (uint32)365);
+#endif
+    const int rc = fs_mkdir_p("ro/x/y");
+    printf("mkdir_p ro/x/y eacces=%d\n", geteuid() == 0 || (rc == -1 && fs_errno() == 13) ? 1 : 0);
+#ifdef __APPLE__
+    chmod("ro", (uint16)493);
+#else
+    chmod("ro", (uint32)493);
+#endif
+
     fs_chdir("/");
     show("cleanup", fs_remove_all(root.cstr()));
     root.free();

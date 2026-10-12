@@ -578,7 +578,11 @@ int fs_mkdir_p(string path) {
     for (int64 i = 0; i <= n; i++) {
         if (i == n || (_fs_is_sep(path[i]) && i > 0)) {
             if (part.len > 0 && fs_is_dir(part.cstr()) == 0) {
-                if (fs_mkdir(part.cstr()) != 0 && fs_is_dir(part.cstr()) == 0) { return -1; }
+                if (fs_mkdir(part.cstr()) != 0) {
+                    const int e = _fs_err;
+                    const bool ew = _fs_err_win;
+                    if (fs_is_dir(part.cstr()) == 0) { _fs_err = e; _fs_err_win = ew; return -1; }   // the mkdir error, not the check's
+                }
             }
         }
         if (i < n) { part.push(path[i]); }

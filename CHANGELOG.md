@@ -55,6 +55,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   link; it used to follow it and delete the target directory's contents.
 - `<fs>`: `fs_copy` onto the source file itself, or onto a link to it, fails with EINVAL
   instead of truncating the source and reporting success.
+- `<fs>`: `fs_mkdir_p` reports the error of the failed `mkdir` (such as EACCES), not ENOENT.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
 
