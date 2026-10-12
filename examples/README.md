@@ -45,6 +45,7 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [word_count.esk](word_count.esk) | collections: `List` map/filter/reduce/sort_by, `Map` keys/remove/get_or, `Set<int>` | `<list>` `<map>` `<sort>` |
 | [json.esk](json.esk) | build a JSON document and parse it back | `<json>` |
 | [data_summary.esk](data_summary.esk) | load a `.env` file, total a CSV by column, SHA-256 the file and print a pretty JSON summary | `<dotenv>` `<csv>` `<hash>` `<json>` |
+| [dir_list.esk](dir_list.esk) | an `ls`-like command-line tool: declared options and generated `--help`, colored output that turns off when piped or with `NO_COLOR`, log messages on stderr, formatted modification times | `<args>` `<term>` `<log>` `<time>` `<fs>` |
 | [files.esk](files.esk) | walk a directory tree, glob for files, count lines, and build and remove a scratch directory | `<fs>` |
 | [processes.esk](processes.esk) | run commands with and without a shell, capture stdout and stderr, feed stdin, set cwd, env and a timeout | `<process>` |
 | [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
