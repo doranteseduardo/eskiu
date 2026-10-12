@@ -56,6 +56,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<fs>`: `fs_copy` onto the source file itself, or onto a link to it, fails with EINVAL
   instead of truncating the source and reporting success.
 - `<fs>`: `fs_mkdir_p` reports the error of the failed `mkdir` (such as EACCES), not ENOENT.
+- `<fs>`: `fs_glob` removes backslash escapes from a path component without wildcards, as
+  `fs_match` does for one with them.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
 

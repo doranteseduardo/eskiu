@@ -947,7 +947,17 @@ void _fs_glob_at(String* base, List<String>* comps, int i, List<String>* out) {
         return;
     }
     if (!_fs_has_magic(&comp)) {
-        _fs_join(&child, base.cstr(), comp.cstr());
+        // A component without wildcards is a name, with fs_match's backslash
+        // escapes removed (so `d\1` names "d1", as a pattern would match it).
+        let lit: String;  lit.init(comp.len + 1);
+        defer lit.free();
+        for (int64 k = 0; k < comp.len; k++) {
+#ifndef _WIN32
+            if (comp.data[k] == '\\' && k + 1 < comp.len) { k++; }
+#endif
+            lit.push(comp.data[k]);
+        }
+        _fs_join(&child, base.cstr(), lit.cstr());
         if (last) {
             let st: FileStat;
             if (_fs_stat_impl(child.cstr(), &st, false) == 0) { _fs_glob_push(out, &child); }

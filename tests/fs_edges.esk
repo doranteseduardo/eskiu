@@ -51,6 +51,12 @@ int main() {
     chmod("ro", (uint32)493);
 #endif
 
+    fs_mkdir("d1");
+    fs_write_text("d1/f.txt", "1");
+    let g: List<String>;  List_init<String>(&g, 4);
+    printf("glob d\\1/f.txt -> %d\n", fs_glob("d\\1/f.txt", &g));
+    fs_list_free(&g);
+
     fs_chdir("/");
     show("cleanup", fs_remove_all(root.cstr()));
     root.free();
