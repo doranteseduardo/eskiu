@@ -15,6 +15,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
 
 ### Fixed
+- `<fetch>` over HTTPS: a peer that drops the connection without `close_notify` is
+  `FETCH_ERR_IO`. Before, it ended a body delimited by the close, so a forged TCP close could
+  truncate it silently.
 - `<fetch>`: a CR or LF in `o.user_agent`, or a CR in `o.headers` set directly, is rejected with
   `FETCH_ERR_REQUEST` instead of being sent as an extra header line.
 - `<fetch>` on Windows: HTTPS with verification on and no `ca_file` now trusts the

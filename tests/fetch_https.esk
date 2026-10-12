@@ -3,7 +3,9 @@
 // test fixture with no other use). Checks: verification off accepts it, the
 // default verification rejects it, trusting it through o.ca_file accepts it
 // for "localhost" and rejects it for "127.0.0.1" (name mismatch), and
-// fetch_async works over TLS. OpenSSL is loaded at run time (<fetch_tls>), so
+// fetch_async works over TLS. A body that ends with the connection is
+// complete after close_notify, and a peer that drops the connection without
+// it is an error, not a short body. OpenSSL is loaded at run time (<fetch_tls>), so
 // where libssl is missing the test prints "skipped" and passes; the server
 // side reaches OpenSSL the same way. With ESKIU_REQUIRE_TLS set (as CI does) a
 // missing libssl fails the test instead.
@@ -17,6 +19,7 @@ import <string>;
 import <time>;
 import <env>;
 extern int printf(string fmt, ...);
+extern *uint8 strstr(string h, string n);
 
 const int PORT = 18436;
 
@@ -40,10 +43,14 @@ void serve(int lfd, *void ctx) {
         _ftls_call_ii(_ftls_sym("SSL_set_fd"), ssl, c);
         if (_ftls_call_i(_ftls_sym("SSL_accept"), ssl) == 1) {
             uint8[4096] buf;
-            _ftls_call_ipi(_ftls_sym("SSL_read"), ssl, (*void)&buf[0], 4096);
-            string resp = "HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nhello tls";
+            const int n = _ftls_call_ipi(_ftls_sym("SSL_read"), ssl, (*void)&buf[0], 4095);
+            buf[n > 0 ? n : 0] = 0;
+            const bool to_close = strstr((string)&buf[0], "/to_close") != null;
+            const bool cut = strstr((string)&buf[0], "/cut") != null;
+            string resp = to_close || cut ? "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nuntil close"
+                                         : "HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nhello tls";
             _ftls_call_ipi(_ftls_sym("SSL_write"), ssl, (*void)resp, (int)strlen(resp));
-            _ftls_call_i(_ftls_sym("SSL_shutdown"), ssl);
+            if (!cut) { _ftls_call_i(_ftls_sym("SSL_shutdown"), ssl); }
         }
         _ftls_call_v(_ftls_sym("SSL_free"), ssl);
         net_close(c);
@@ -112,6 +119,14 @@ int main() {
 
     rc = get("https://localhost:18436/", 1, "/no/such/ca.pem", &r);
     check("a missing ca_file is a TLS error", rc == FETCH_ERR_TLS);
+    Response_free(&r);
+
+    rc = get("https://127.0.0.1:18436/to_close", 0, "", &r);
+    check("close-delimited body ends at close_notify", rc == 0 && r.body.len == 11);
+    Response_free(&r);
+
+    rc = get("https://127.0.0.1:18436/cut", 0, "", &r);
+    check("a close without close_notify is an error", rc == FETCH_ERR_IO);
     Response_free(&r);
 
     g_lp = el_new(64);

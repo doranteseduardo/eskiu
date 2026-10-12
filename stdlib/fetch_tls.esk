@@ -356,10 +356,10 @@ int _ftls_handshake(*void ssl) {
     return o > 0 ? o : -1;
 }
 
-// Read up to `cap` bytes: the count, 0 at the end of the stream, a WANT
-// constant (negated: -2 read, -3 write) to wait and call again, or -1. A peer
-// that closes without close_notify ends the stream too; <fetch> catches a body
-// cut short by its framing.
+// Read up to `cap` bytes: the count, 0 at the end of the stream (close_notify),
+// a WANT constant (negated: -2 read, -3 write) to wait and call again, or -1. A
+// peer that closes without close_notify is -1, so a body that ends with the
+// connection cannot be cut short by a forged TCP close.
 int64 _ftls_read(*void ssl, *uint8 buf, int64 cap) {
     if (cap > 1073741824) { cap = 1073741824; }
     _ftls_clear_errors();
@@ -368,7 +368,7 @@ int64 _ftls_read(*void ssl, *uint8 buf, int64 cap) {
     const int o = _ftls_outcome(ssl, r);
     if (o == _FTLS_WANT_READ) { return -2; }
     if (o == _FTLS_WANT_WRITE) { return -3; }
-    return 0;
+    return o == -6 ? 0 : -1;
 }
 
 // Write up to `n` bytes: the count written, -2 / -3 to wait, or -1.
