@@ -88,6 +88,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `O_NOFOLLOW`) on macOS and Linux. A directory swapped for a symbolic link during the walk
   is no longer entered, so `fs_remove_all` cannot delete outside the tree, and trees deeper
   than `PATH_MAX` are walked and removed whole (both stopped with an error before).
+- On Windows, `fs_remove_all` and `fs_walk` go down a tree through directory handles: each
+  entry is opened relative to its directory's handle (`NtOpenFile`) without following a
+  junction or link, checked through that handle, and listed or deleted through it. A
+  directory swapped for a junction or directory link during the walk is no longer entered
+  (`fs_remove_all` removes the link itself, never its target), and trees deeper than
+  `MAX_PATH` are walked and removed whole.
+- On Windows, the `<fs>` path functions accept paths longer than `MAX_PATH` (260): a path
+  whose absolute form is 248 characters or more is resolved with `GetFullPathNameW` and
+  given the `\\?\` prefix (`\\?\UNC\` for a share). Shorter paths are passed as before.
 - `fs_copy` writes the copy owner-only (0600) and gives it the source's permission bits when
   it is complete. Before, the copy was created with the default mode, so a private file was
   readable by other users while it was copied, or for good when the copy failed.
