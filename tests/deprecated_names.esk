@@ -12,6 +12,7 @@ import <http2>;
 import <time>;
 import <ctype>;
 import <args>;
+import <either>;
 extern int printf(string fmt, ...);
 extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
@@ -111,5 +112,9 @@ int main() {
         args_rest(&ap, &al));
     List_free<string>(&al);
     ArgParser_free(&ap);
+    Option<int> oo = Some<int>(2);
+    Either<int, string> ee = Right<int, string>("r");
+    printf("either: %d %d %d %d\n", opt_is_some<int>(&oo), opt_is_none<int>(&oo), opt_unwrap_or<int>(&oo, 0),
+        either_is_left<int, string>(&ee));
     return 0;
 }

@@ -5,7 +5,7 @@
 // here or with `match` directly:
 //
 //   Option<int> o = Some<int>(5);
-//   if (opt_is_some<int>(&o)) { int v = opt_unwrap_or<int>(&o, 0); }
+//   if (Option_is_some<int>(&o)) { int v = Option_unwrap_or<int>(&o, 0); }
 //   match o { Some(v) -> ...; None -> ...; }
 
 enum Option<T> {
@@ -19,14 +19,14 @@ enum Either<A, B> {
 }
 
 // ── Option helpers ──────────────────────────────────────────────────────────
-bool opt_is_some<T>(Option<T>* o) {
+bool Option_is_some<T>(Option<T>* o) {
     match *o {
         Some(v) -> return true;
         None    -> return false;
     }
 }
 
-bool opt_is_none<T>(Option<T>* o) {
+bool Option_is_none<T>(Option<T>* o) {
     match *o {
         Some(v) -> return false;
         None    -> return true;
@@ -34,7 +34,7 @@ bool opt_is_none<T>(Option<T>* o) {
 }
 
 // Return the contained value, or `dflt` if None.
-T opt_unwrap_or<T>(Option<T>* o, T dflt) {
+T Option_unwrap_or<T>(Option<T>* o, T dflt) {
     match *o {
         Some(v) -> return v;
         None    -> return dflt;
@@ -42,9 +42,19 @@ T opt_unwrap_or<T>(Option<T>* o, T dflt) {
 }
 
 // ── Either helpers ──────────────────────────────────────────────────────────
-bool either_is_left<A, B>(Either<A, B>* e) {
+bool Either_is_left<A, B>(Either<A, B>* e) {
     match *e {
         Left(a)  -> return true;
         Right(b) -> return false;
     }
 }
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use Option_is_some.
+bool opt_is_some<T>(Option<T>* o) { return Option_is_some<T>(o); }
+// Deprecated (0.10.1): use Option_is_none.
+bool opt_is_none<T>(Option<T>* o) { return Option_is_none<T>(o); }
+// Deprecated (0.10.1): use Option_unwrap_or.
+T opt_unwrap_or<T>(Option<T>* o, T dflt) { return Option_unwrap_or<T>(o, dflt); }
+// Deprecated (0.10.1): use Either_is_left.
+bool either_is_left<A, B>(Either<A, B>* e) { return Either_is_left<A, B>(e); }

@@ -18,6 +18,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `args_get_flag`, `args_get_at`, `args_get_all`, `args_count`, `args_positional`,
   `args_positional_count` and `args_rest` -> `ArgParser_flag` ... `ArgParser_rest` (same
   suffix). The old names remain as deprecated wrappers.
+- `<either>`: `opt_is_some`, `opt_is_none`, `opt_unwrap_or` -> `Option_is_some`,
+  `Option_is_none`, `Option_unwrap_or` and `either_is_left` -> `Either_is_left`, so
+  `o.is_some()` works as a dot-call. The old names remain as deprecated wrappers.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer
