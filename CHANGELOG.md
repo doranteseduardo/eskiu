@@ -73,6 +73,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<time>`: `time_format`, `time_parse`, `time_parse_local` (strftime-style specifiers),
   `time_to_local`, `time_local_offset`, `duration_format`, `Stopwatch`.
 - Example `dir_list.esk` (`<args>`, `<term>`, `<log>`, `<time>`).
+- Example scripts in `examples/scripts/`, run through their `#!/usr/bin/env eskiuc run`
+  line: `repo_stats.esk` (GitHub API through `<fetch>`, a colored summary or `--json`) and
+  `organize.esk` (files into folders by extension or month, SHA-256 duplicates, `--dry-run`,
+  a CSV report).
+- `tests/scripts/check.sh` runs both scripts without network, against a local fake API and
+  a temporary tree; `tests/run.sh` and CI run it with both compilers.
+- CI installs libssl and sets `ESKIU_REQUIRE_TLS`, so `fetch_https` fails instead of
+  skipping when OpenSSL is missing. The Windows workflow builds the scripting tests and
+  runs the portable ones.
+- The Book of Eskiu: chapter 25, "Scripting with Eskiu"; the chapters after it are
+  renumbered. A "Scripting" section in the getting started guide.
 
 ### Changed
 

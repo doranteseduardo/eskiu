@@ -224,6 +224,17 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li><code>&lt;time&gt;</code>: <code>time_format</code>, <code>time_parse</code>, <code>time_parse_local</code> (strftime-style specifiers),
   <code>time_to_local</code>, <code>time_local_offset</code>, <code>duration_format</code>, <code>Stopwatch</code>.</li>
 <li>Example <code>dir_list.esk</code> (<code>&lt;args&gt;</code>, <code>&lt;term&gt;</code>, <code>&lt;log&gt;</code>, <code>&lt;time&gt;</code>).</li>
+<li>Example scripts in <code>examples/scripts/</code>, run through their <code>#!/usr/bin/env eskiuc run</code>
+  line: <code>repo_stats.esk</code> (GitHub API through <code>&lt;fetch&gt;</code>, a colored summary or <code>--json</code>) and
+  <code>organize.esk</code> (files into folders by extension or month, SHA-256 duplicates, <code>--dry-run</code>,
+  a CSV report).</li>
+<li><code>tests/scripts/check.sh</code> runs both scripts without network, against a local fake API and
+  a temporary tree; <code>tests/run.sh</code> and CI run it with both compilers.</li>
+<li>CI installs libssl and sets <code>ESKIU_REQUIRE_TLS</code>, so <code>fetch_https</code> fails instead of
+  skipping when OpenSSL is missing. The Windows workflow builds the scripting tests and
+  runs the portable ones.</li>
+<li>The Book of Eskiu: chapter 25, "Scripting with Eskiu"; the chapters after it are
+  renumbered. A "Scripting" section in the getting started guide.</li>
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>
