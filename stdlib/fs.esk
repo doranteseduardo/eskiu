@@ -212,16 +212,24 @@ extern int    close(int fd);
 extern *void  opendir(string path);
 extern *void  readdir(*void dir);
 extern int    closedir(*void dir);
+extern int    open(string path, int flags, ...);
+extern *void  fdopen(int fd, string mode);
 #ifdef __APPLE__
 extern int    mkdir(string path, uint16 mode);
 extern int    chmod(string path, uint16 mode);
+extern int    fchmod(int fd, uint16 mode);
 extern *int   __error();
 int _fs_errno_now() { return *__error(); }
+int _fs_fchmod(int fd, int mode) { return fchmod(fd, (uint16)mode); }
+#define _FS_O_COPY 16778753   // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC
 #else
 extern int    mkdir(string path, uint32 mode);
 extern int    chmod(string path, uint32 mode);
+extern int    fchmod(int fd, uint32 mode);
 extern *int   __errno_location();
 int _fs_errno_now() { return *__errno_location(); }
+int _fs_fchmod(int fd, int mode) { return fchmod(fd, (uint32)mode); }
+#define _FS_O_COPY 524865     // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC
 #endif
 
 #if defined(__APPLE__) && defined(__x86_64__)
@@ -706,8 +714,13 @@ int fs_copy(string from, string to) {
     *void src = fopen(from, "rb");
     if (src == null) { return _fs_fail_crt(); }
     defer fclose(src);
-    *void dst = fopen(to, "wb");
-    if (dst == null) { return _fs_fail_crt(); }
+    // Owner-only until the bytes are in, also when `to` already exists: a copy of a
+    // private file is never readable by others, not even halfway.
+    const int dfd = open(to, _FS_O_COPY, 384);   // 0600
+    if (dfd < 0) { return _fs_fail_crt(); }
+    _fs_fchmod(dfd, 384);
+    *void dst = fdopen(dfd, "wb");
+    if (dst == null) { const int e = _fs_fail_crt(); close(dfd); return e; }
     *uint8 buf = alloc<uint8>(65536);
     defer free((*void)buf);
     int rc = 0;
@@ -717,14 +730,13 @@ int fs_copy(string from, string to) {
         if (fwrite((*void)buf, 1, got, dst) != got) { rc = _fs_fail_crt(); break; }
     }
     if (rc == 0 && ferror(src) != 0) { rc = _fs_fail_crt(); }
-    if (fclose(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
+    if (fflush(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
 #ifdef _FS_HAVE_STAT
-#ifdef __APPLE__
-    if (rc == 0) { chmod(to, (uint16)st.mode); }
+    if (rc == 0) { _fs_fchmod(dfd, st.mode & 4095); }   // the source's permission bits
 #else
-    if (rc == 0) { chmod(to, (uint32)st.mode); }
+    if (rc == 0) { _fs_fchmod(dfd, 420); }               // 0644: no stat to read them from
 #endif
-#endif
+    if (fclose(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
     return rc;
 #endif
 }

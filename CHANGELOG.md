@@ -79,6 +79,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
+- `fs_copy` writes the copy owner-only (0600) and gives it the source's permission bits when
+  it is complete. Before, the copy was created with the default mode, so a private file was
+  readable by other users while it was copied, or for good when the copy failed.
 - `<process>` no longer sets the process-wide SIGPIPE disposition while it writes a child's
   stdin: two threads running processes at once could restore the default under each other
   (a SIGPIPE then killed the program) or leave it ignored. A closed stdin is EPIPE through

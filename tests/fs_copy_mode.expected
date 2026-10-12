@@ -1,0 +1,4 @@
+new copy: rc=0 mode=600
+over 0666: rc=0 mode=600
+executable: rc=0 mode=755
+contents: private

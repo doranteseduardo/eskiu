@@ -1,0 +1,39 @@
+// fs_copy gives the copy the source's permission bits, also over an existing file
+// with wider ones, and the copy is owner-only while it is written (it used to be
+// created with the default 0644 and get the source's bits only at the end, so a
+// private file was readable by others while it was copied).
+import <fs>;
+import <process>;
+import <string>;
+import <io>;
+
+int mode_of(string path) {
+    let st: FileStat;
+    if (fs_stat(path, &st) != 0) { return -1; }
+    return st.mode & 511;
+}
+
+int main() {
+    let dir: String;  dir.init(64);
+    if (fs_temp_dir("fs_copy_mode", &dir) != 0) { printf("no temp dir\n"); return 1; }
+    fs_chdir(dir.cstr());
+    let r: ProcessResult;
+    fs_write_text("secret.txt", "private\n");
+    fs_write_text("old.txt", "old contents\n");
+    fs_write_text("tool.sh", "echo hi\n");
+    sh("chmod 600 secret.txt; chmod 666 old.txt; chmod 755 tool.sh", &r);
+    ProcessResult_free(&r);
+
+    printf("new copy: rc=%d mode=%o\n", fs_copy("secret.txt", "copy.txt"), mode_of("copy.txt"));
+    printf("over 0666: rc=%d mode=%o\n", fs_copy("secret.txt", "old.txt"), mode_of("old.txt"));
+    printf("executable: rc=%d mode=%o\n", fs_copy("tool.sh", "tool2.sh"), mode_of("tool2.sh"));
+    let text: String;  text.init(16);
+    fs_read_text("old.txt", &text);
+    printf("contents: %s", text.cstr());
+    text.free();
+
+    fs_chdir("/");
+    fs_remove_all(dir.cstr());
+    dir.free();
+    return 0;
+}
