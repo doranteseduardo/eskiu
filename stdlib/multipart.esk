@@ -18,13 +18,13 @@ extern *void memmem(*void hay, int64 hlen, *void needle, int64 nlen);
 extern int64   strlen(string s);
 
 // Offset of `needle` within hay[from..hlen), or -1.
-int64 mp_find(*uint8 hay, int64 hlen, int64 from, *uint8 needle, int64 nlen) {
+int64 _mp_find(*uint8 hay, int64 hlen, int64 from, *uint8 needle, int64 nlen) {
     if (from < 0 || from >= hlen) { return -1; }
     *void p = memmem((*void)(hay + from), hlen - from, (*void)needle, nlen);
     return p == null ? -1 : (int64)((*uint8)p - hay);
 }
 
-char mp_lc(char c) {
+char _mp_lc(char c) {
     return (c >= 'A' && c <= 'Z') ? (char)((int)c + 32) : c;
 }
 
@@ -48,7 +48,7 @@ int multipart_boundary(String* ctype, String* out) {
         const string key = "boundary";
         bool is_boundary = ne - ns == 8;
         for (int64 j = 0; is_boundary && j < 8; j++) {
-            if (mp_lc(ctype.data[ns + j]) != key[j]) { is_boundary = false; }
+            if (_mp_lc(ctype.data[ns + j]) != key[j]) { is_boundary = false; }
         }
         if (i >= n || ctype.data[i] != '=') { continue; }    // a parameter without a value
         i++;
@@ -79,7 +79,7 @@ int multipart_boundary(String* ctype, String* out) {
 // optional spaces/tabs and CRLF (RFC 2046 §5.1.1). `at` is the first '-' and
 // `dlen` the length of `--boundary`. Returns the offset just past the line
 // (past its CRLF), -2 for the close delimiter, or -1 if this is not one.
-int64 mp_delim_end(*uint8 body, int64 blen, int64 at, int64 dlen) {
+int64 _mp_delim_end(*uint8 body, int64 blen, int64 at, int64 dlen) {
     int64 k = at + dlen;
     if (k + 1 < blen && body[k] == '-' && body[k + 1] == '-') { return -2; }
     while (k < blen && (body[k] == ' ' || body[k] == '\t')) { k++; }
@@ -89,11 +89,11 @@ int64 mp_delim_end(*uint8 body, int64 blen, int64 at, int64 dlen) {
 
 // The offset of the next delimiter's CRLF (the "\r\n--boundary" that ends the
 // part body) at or after `from`, or -1. `dl` is "\r\n--boundary" (`dllen` bytes).
-int64 mp_next_delim(*uint8 body, int64 blen, int64 from, *uint8 dl, int64 dllen) {
-    int64 at = mp_find(body, blen, from, dl, dllen);
+int64 _mp_next_delim(*uint8 body, int64 blen, int64 from, *uint8 dl, int64 dllen) {
+    int64 at = _mp_find(body, blen, from, dl, dllen);
     while (at >= 0) {
-        if (mp_delim_end(body, blen, at + 2, dllen - 2) != -1) { return at; }
-        at = mp_find(body, blen, at + 1, dl, dllen);
+        if (_mp_delim_end(body, blen, at + 2, dllen - 2) != -1) { return at; }
+        at = _mp_find(body, blen, at + 1, dl, dllen);
     }
     return -1;
 }
@@ -104,7 +104,7 @@ int64 mp_next_delim(*uint8 body, int64 blen, int64 from, *uint8 dl, int64 dllen)
 // case-insensitively and as a whole (so `filename=` is not `name=`), with
 // optional whitespace around ';' and '='; a value is a token or a
 // quoted-string with `\`-escapes (RFC 7578 §4.2, RFC 9110 §5.6.6).
-int mp_params_name_is(*uint8 body, int64 i, int64 e, string name) {
+int _mp_params_name_is(*uint8 body, int64 i, int64 e, string name) {
     const int64 nlen = strlen(name);
     while (i < e) {
         if (body[i] != ';') { return 0; }
@@ -114,8 +114,8 @@ int mp_params_name_is(*uint8 body, int64 i, int64 e, string name) {
         while (i < e && body[i] != '=' && body[i] != ';' && body[i] != ' ' && body[i] != '\t') { i++; }
         const int64 ke = i;
         while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
-        bool is_name = ke - ks == 4 && mp_lc((char)body[ks]) == 'n' && mp_lc((char)body[ks + 1]) == 'a' &&
-                       mp_lc((char)body[ks + 2]) == 'm' && mp_lc((char)body[ks + 3]) == 'e';
+        bool is_name = ke - ks == 4 && _mp_lc((char)body[ks]) == 'n' && _mp_lc((char)body[ks + 1]) == 'a' &&
+                       _mp_lc((char)body[ks + 2]) == 'm' && _mp_lc((char)body[ks + 3]) == 'e';
         if (i >= e || body[i] != '=') { continue; }       // a parameter without a value
         i++;
         while (i < e && (body[i] == ' ' || body[i] == '\t')) { i++; }
@@ -148,7 +148,7 @@ int mp_params_name_is(*uint8 body, int64 i, int64 e, string name) {
 // Content-Disposition header (name matched case-insensitively) whose `name`
 // parameter is exactly `name`. Other headers are ignored, so a `name=` in a
 // Content-Type parameter does not name the part.
-int mp_headers_name_is(*uint8 body, int64 hs, int64 he, string name) {
+int _mp_headers_name_is(*uint8 body, int64 hs, int64 he, string name) {
     const string cd = "content-disposition";
     int64 ls = hs;
     while (ls < he) {
@@ -156,12 +156,12 @@ int mp_headers_name_is(*uint8 body, int64 hs, int64 he, string name) {
         while (le < he && !(body[le] == '\r' && le + 1 < he && body[le + 1] == '\n')) { le++; }
         bool is_cd = le - ls > 19;
         for (int64 j = 0; is_cd && j < 19; j++) {
-            if (mp_lc((char)body[ls + j]) != cd[j]) { is_cd = false; }
+            if (_mp_lc((char)body[ls + j]) != cd[j]) { is_cd = false; }
         }
         if (is_cd && body[ls + 19] == ':') {
             int64 i = ls + 20;
             while (i < le && body[i] != ';') { i++; }      // skip the disposition type
-            if (mp_params_name_is(body, i, le, name) == 1) { return 1; }
+            if (_mp_params_name_is(body, i, le, name) == 1) { return 1; }
         }
         ls = le + 2;
     }
@@ -169,7 +169,7 @@ int mp_headers_name_is(*uint8 body, int64 hs, int64 he, string name) {
 }
 
 // Locate the form-data part whose Content-Disposition carries `name="<name>"`
-// (see mp_headers_name_is). On success returns 1 and sets
+// (see _mp_headers_name_is). On success returns 1 and sets
 // *out_ptr / *out_len to a slice INTO `body` (no copy). 0 if absent. A delimiter
 // counts only at the start of the body or of a line ("\r\n--boundary"), and
 // only when the rest of its line is `--` or whitespace, so `--boundary` inside
@@ -189,26 +189,26 @@ int multipart_part(*uint8 body, int64 blen, String* boundary, string name,
     // The first delimiter: at the very start, or after a preamble line.
     int64 at = -1;
     if (blen >= bl + 2 && memcmp((*void)body, (*void)(dl + 2), bl + 2) == 0 &&
-        mp_delim_end(body, blen, 0, bl + 2) != -1) {
+        _mp_delim_end(body, blen, 0, bl + 2) != -1) {
         at = 0;
     } else {
-        const int64 d = mp_next_delim(body, blen, 0, dl, dllen);
+        const int64 d = _mp_next_delim(body, blen, 0, dl, dllen);
         if (d >= 0) { at = d + 2; }
     }
     while (at >= 0) {
-        const int64 part_start = mp_delim_end(body, blen, at, bl + 2);
+        const int64 part_start = _mp_delim_end(body, blen, at, bl + 2);
         if (part_start < 0) { break; }                // the close delimiter (or junk)
-        const int64 next = mp_next_delim(body, blen, part_start, dl, dllen);
+        const int64 next = _mp_next_delim(body, blen, part_start, dl, dllen);
         if (next < 0) { break; }
         // The headers end at the blank line; a part with no headers starts with it.
         int64 he = -1;
         if (part_start + 1 < blen && body[part_start] == '\r' && body[part_start + 1] == '\n') {
             he = part_start - 2;
         } else {
-            he = mp_find(body, next, part_start, (*uint8)crlf2, 4);
+            he = _mp_find(body, next, part_start, (*uint8)crlf2, 4);
         }
         if (he >= part_start - 2) {
-            const bool named = he > part_start && mp_headers_name_is(body, part_start, he, name) == 1;
+            const bool named = he > part_start && _mp_headers_name_is(body, part_start, he, name) == 1;
             const int64 cstart = he + 4;
             if (named && next >= cstart) {
                 out_ptr[0] = body + cstart;
