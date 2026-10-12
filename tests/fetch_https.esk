@@ -5,7 +5,8 @@
 // for "localhost" and rejects it for "127.0.0.1" (name mismatch), and
 // fetch_async works over TLS. OpenSSL is loaded at run time (<fetch_tls>), so
 // where libssl is missing the test prints "skipped" and passes; the server
-// side reaches OpenSSL the same way.
+// side reaches OpenSSL the same way. With ESKIU_REQUIRE_TLS set (as CI does) a
+// missing libssl fails the test instead.
 import <fetch>;
 import <fetch_tls>;
 import <future>;
@@ -14,6 +15,7 @@ import <net>;
 import <fs>;
 import <string>;
 import <time>;
+import <env>;
 extern int printf(string fmt, ...);
 
 const int PORT = 18436;
@@ -71,7 +73,7 @@ async int get_async(EventLoop* lp, Response* r) {
 int main() {
     if (fetch_tls_available() == 0) {
         printf("skipped: OpenSSL (libssl) not found\n");
-        return 0;
+        return env_has("ESKIU_REQUIRE_TLS") == 1 ? 1 : 0;
     }
     let dir: String;  dir.init(64);
     if (fs_temp_dir("fetch_https", &dir) != 0) { printf("no temp dir\n"); return 1; }
