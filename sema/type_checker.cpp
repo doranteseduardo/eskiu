@@ -365,6 +365,16 @@ void TypeChecker::checkTopLevelNames(Program* program) {
             declare(a->name, "type alias", a);
         }
     }
+    // An extern names a C function, so it cannot share its name with a generic one either
+    // (a call would reach the generic, or a mistyped mix of the two).
+    for (const auto& decl : program->declarations)
+        if (auto* x = dynamic_cast<ExternDecl*>(decl.get())) {
+            auto it = seen.find(x->name);
+            if (it != seen.end() && it->second.kind == "function" && it->second.decl &&
+                !static_cast<FunctionDecl*>(it->second.decl)->typeParams.empty())
+                errorAtDecl(x, "conflicting declaration of extern '" + x->name +
+                               "' (a generic function has the same name)");
+        }
 }
 
 // A struct (or union) that contains itself by value, directly or through other by-value

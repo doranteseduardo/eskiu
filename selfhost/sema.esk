@@ -7385,6 +7385,24 @@ void sema_check_top_names(Sema* s, *Program prog) {
         else if (d.kind == DK_TYPEALIAS) { sema_declare_top(s, &tab, d.name, "type alias", d); }
         i = i + 1;
     }
+    // An extern names a C function, so it cannot share its name with a generic one either
+    // (a call would reach the generic, or a mistyped mix of the two).
+    i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_EXTERN) {
+            int k = sema_name_index(&tab, d.name);
+            if (k >= 0) {
+                NameEnt ne = List_get<NameEnt>(&tab, k);
+                if (sema_streq(ne.kind, "function") == 1 && List_len<TypeParam>(&ne.d.type_params) > 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: conflicting declaration of extern '%s' (a generic function has the same name)\n",
+                           s.filename, d.line, d.col, d.name);
+                }
+            }
+        }
+        i = i + 1;
+    }
 }
 
 // Source spelling of a function for diagnostics: an operator shows as `operator +(V, V)`

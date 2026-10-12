@@ -76,6 +76,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
+- An `extern` with the name of a generic function is a declaration error in both compilers;
+  the C++ compiler crashed in codegen when the extern was called.
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer
   blocks the event loop; a fetch dropped during the lookup leaves the thread to finish and
   free it.

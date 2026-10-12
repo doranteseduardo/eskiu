@@ -1,0 +1,5 @@
+// EXPECT-ERROR: conflicting declaration of extern 'bsearch' (a generic function has the same name)
+// An extern cannot share its name with a generic function (this used to crash codegen).
+int bsearch<T>(*T a, int n, T key, fn(*T, *T)->int cmp) { return n; }
+extern *void bsearch(*void key, *void base, int64 n, int64 size, *void cmp);
+int main() { return 0; }
