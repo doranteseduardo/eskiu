@@ -19,7 +19,6 @@ import <string>;
 import <time>;
 import <env>;
 extern int printf(string fmt, ...);
-extern *uint8 strstr(string h, string n);
 
 const int PORT = 18436;
 

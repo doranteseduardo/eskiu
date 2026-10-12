@@ -1,4 +1,4 @@
-// mem stdlib — heap allocation and the libc memory functions.
+// mem stdlib — heap allocation and the libc memory and C string functions.
 
 // Heap allocation. `alloc<T>(n)` returns a `*T` for n zero-initialized elements;
 // `free(p)` releases it. Memory comes back ZEROED (a null pointer is null, an int is
@@ -23,4 +23,8 @@ extern *void memset(*void dst, int c, int64 n);
 extern *void memmove(*void dst, *void src, int64 n);
 extern int   memcmp(*void a, *void b, int64 n);
 extern int64   strlen(string s);
+extern int     strcmp(string a, string b);
+extern int     strncmp(string a, string b, int64 n);
+extern *char   strchr(string s, int c);
+extern *char   strstr(string haystack, string needle);
 extern *void memchr(*void s, int c, int64 n);

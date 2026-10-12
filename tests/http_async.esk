@@ -9,7 +9,6 @@ import <net>;
 extern int    printf(string fmt, ...);
 extern int    usleep(uint32 usec);
 extern int64  recv(int fd, *void buf, int64 n, int flags);
-extern *char  strstr(*char haystack, *char needle);
 
 EventLoop* g_lp;
 int g_ok = 0;
@@ -27,7 +26,7 @@ void client() {
     int64 n = recv(c, (*void)&resp[0], (int64)1023, 0);
     if (n > 0) {
         resp[(int)n] = (uint8)0;
-        if (strstr((*char)&resp[0], (*char)"hello-async") != (*char)0) { g_ok = 1; }
+        if (strstr((string)&resp[0], "hello-async") != (*char)0) { g_ok = 1; }
     }
     net_close(c);
 }

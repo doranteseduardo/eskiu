@@ -10,6 +10,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Added
+- `<mem>` declares the C string functions `strcmp`, `strncmp`, `strchr` and `strstr` next to
+  `strlen` (`strchr` and `strstr` return `*char`), so a program no longer declares them
+  itself. A program that imports `<mem>` (directly or through another module) and declares
+  one of them with other types gets a "conflicting declaration" error: drop its own `extern`.
+
 ### Changed
 - CI runs `tests/leaks.sh` (AddressSanitizer with LeakSanitizer) as its own job, and a
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
