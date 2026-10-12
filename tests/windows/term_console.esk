@@ -1,0 +1,81 @@
+// Windows only (run by .github/workflows/windows.yml): <term> on a real
+// console. CI runs every program with its output redirected, so this one
+// detaches from whatever console it has, makes a new one, points stdout at it,
+// then checks that term_color_enabled(1) turns on virtual terminal processing,
+// that an escape sequence written with term_print colors the text instead of
+// showing up in it (read back from the console buffer), and that term_width is
+// the console's width. The report goes to stderr (still the redirected pipe).
+// Exit 0 = pass.
+import <term>;
+import <env>;
+import <io>;
+
+extern int   FreeConsole();
+extern int   AllocConsole();
+extern uint32 GetLastError();
+extern *void CreateFileW(*uint16 name, uint32 access, uint32 share, *void sa, uint32 disp, uint32 flags, *void tmpl);
+extern int   SetStdHandle(uint32 which, *void h);
+extern int   _open_osfhandle(int64 h, int flags);
+extern int   _dup2(int from, int to);
+extern int   ReadConsoleOutputCharacterA(*void h, *uint8 buf, uint32 n, uint32 coord, *uint32 got);
+extern int   ReadConsoleOutputAttribute(*void h, *uint16 buf, uint32 n, uint32 coord, *uint32 got);
+extern int   GetConsoleScreenBufferInfo(*void h, *void info);
+extern int   GetConsoleMode(*void h, *uint32 mode);
+
+int fails = 0;
+
+void check(string what, bool ok) {
+    fprintf((string)io_stderr(), "%s %s\n", ok ? "ok  " : "FAIL", what);
+    if (!ok) { fails++; }
+}
+
+int main() {
+    env_unset("COLUMNS");
+    env_unset("FORCE_COLOR");
+    env_unset("NO_COLOR");
+    env_unset("TERM");
+    FreeConsole();
+    if (AllocConsole() == 0) {
+        fprintf((string)io_stderr(), "FAIL AllocConsole: error %u\n", GetLastError());
+        return 1;
+    }
+    uint16[8] name = { (uint16)'C', (uint16)'O', (uint16)'N', (uint16)'O', (uint16)'U', (uint16)'T', (uint16)'$', (uint16)0 };
+    // GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, OPEN_EXISTING.
+    *void h = CreateFileW(&name[0], (uint32)3221225472, (uint32)3, null, (uint32)3, (uint32)0, null);
+    if (h == null || (int64)h == -1) {
+        fprintf((string)io_stderr(), "FAIL CONOUT$: error %u\n", GetLastError());
+        return 1;
+    }
+    SetStdHandle((uint32)4294967285, h);   // STD_OUTPUT_HANDLE
+    fflush(io_stdout());
+    _dup2(_open_osfhandle((int64)h, 0), 1);
+
+    check("stdout is a terminal", term_is_tty(1) == 1);
+    uint32 mode = (uint32)0;
+    GetConsoleMode(h, &mode);
+    fprintf((string)io_stderr(), "     console mode before: %u\n", mode);
+    check("colors on for the console", term_color_enabled(1) == 1);
+    mode = (uint32)0;
+    GetConsoleMode(h, &mode);
+    check("virtual terminal processing is on", (mode & (uint32)4) != (uint32)0);
+
+    term_print("RED", TERM_RED);
+    fflush(io_stdout());
+    uint8[16] chars;
+    uint16[4] attrs;
+    uint32 got = (uint32)0;
+    ReadConsoleOutputCharacterA(h, &chars[0], (uint32)3, (uint32)0, &got);
+    chars[3] = (uint8)0;
+    fprintf((string)io_stderr(), "     console row 0: [%s]\n", (string)&chars[0]);
+    check("the escape sequence is not printed", got == (uint32)3 && chars[0] == (uint8)'R' && chars[1] == (uint8)'E' && chars[2] == (uint8)'D');
+    ReadConsoleOutputAttribute(h, &attrs[0], (uint32)1, (uint32)0, &got);
+    fprintf((string)io_stderr(), "     attribute of R: %u\n", (uint32)attrs[0]);
+    check("the text is red", ((uint32)attrs[0] & (uint32)7) == (uint32)4);
+
+    int16[11] info;
+    GetConsoleScreenBufferInfo(h, (*void)&info[0]);
+    const int w = (int)info[7] - (int)info[5] + 1;
+    fprintf((string)io_stderr(), "     term_width %d, console window %d\n", term_width(), w);
+    check("term_width is the console width", w > 0 && term_width() == w);
+    return fails == 0 ? 0 : 1;
+}
