@@ -19,6 +19,8 @@
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/VersionTuple.h"
+#include "llvm/TargetParser/Triple.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "ast/ast_printer.h"
@@ -581,6 +583,15 @@ static int compilerMain(int argc, char** argv) {
                 std::set<std::string> seen(libs.begin(), libs.end());
                 for (const auto& l : implied)
                     if (seen.insert(l).second) extra.push_back("-l" + l);
+            }
+            // On macOS the object records a minimum OS version (the native triple carries the
+            // host's); link for the same one, or ld warns that the object is newer than the
+            // version the C driver picked from its SDK.
+            {
+                llvm::Triple t(codegen.getModule()->getTargetTriple());
+                llvm::VersionTuple v;
+                if (t.isMacOSX() && t.getMacOSXVersion(v) && v.getMajor() > 0)
+                    extra.push_back("-mmacosx-version-min=" + v.getAsString());
             }
             bool ok = linkExecutable(tmpObjPath, outFile, libs, paths, extra, /*sanitized=*/Asan);
             llvm::sys::fs::remove(tmpObjPath);

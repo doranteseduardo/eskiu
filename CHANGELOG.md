@@ -15,6 +15,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
 
 ### Fixed
+- On macOS the link uses the same minimum OS version as the object (the native triple carries
+  the host's version; the C driver otherwise picks its SDK's), so `ld` no longer warns that an
+  object is newer than the target it links for, as happened when the host and SDK versions
+  differ.
 - A lambda assigned to a local after its declaration (`f = <lambda>`), or to a `fn` local
   declared without a value, is bound to that local like an initializer: while the local is
   only called its environment lives on the stack. Before, each such assignment leaked a heap
