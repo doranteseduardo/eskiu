@@ -10,7 +10,7 @@
 
 import <alloc>;
 import <sysheap>;
-extern int printf(string fmt, ...);
+import <io>;
 
 uint8[4096] g_scratch;        // a static buffer in .bss — no malloc, no mmap
 

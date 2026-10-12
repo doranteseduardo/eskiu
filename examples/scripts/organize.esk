@@ -24,8 +24,6 @@ import <sort>;
 import <string>;
 import <process>;
 
-extern int strcmp(string a, string b);
-
 struct Entry {
     String name;      // file name inside the directory
     String folder;    // where it goes

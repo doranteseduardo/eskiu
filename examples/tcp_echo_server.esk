@@ -9,7 +9,7 @@ import <mem>;
 
 import <net>;
 
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int fd = net_tcp_listen(7000);

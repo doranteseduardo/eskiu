@@ -71,6 +71,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<sort>`: `bsearch<T>` -> `sort_search<T>`, so a program that imports `<sort>` can declare and
   call the C library's `bsearch`. No wrapper keeps the old name, since it would keep the clash.
   Test `sort_libc_bsearch`.
+- The examples, the language docs, the README and the book import `<io>`, `<mem>` and `<math>`
+  instead of declaring `printf`, `strcmp` or `sqrt` with `extern` themselves; the chapters about
+  `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
 - `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer

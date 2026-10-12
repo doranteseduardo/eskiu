@@ -1,4 +1,4 @@
-extern int printf(string fmt, ...);
+import <io>;
 
 int add(int a, int b) {
     return a + b;

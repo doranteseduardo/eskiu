@@ -17,7 +17,7 @@ import <mem>;
 import <net>;
 import <tls>;
 import <http>;
-extern int printf(string fmt, ...);
+import <io>;
 
 void handler(HttpRequest* req, HttpResponse* res) {
     HttpResponse_header(res, "Content-Type", "text/plain");

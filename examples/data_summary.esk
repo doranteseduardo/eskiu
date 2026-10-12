@@ -12,7 +12,7 @@ import <dotenv>;
 import <hash>;
 import <json>;
 
-extern int printf(string fmt, ...);
+import <io>;
 
 int main(int argc, string* argv) {
     let dir: String;  dir.init(64);

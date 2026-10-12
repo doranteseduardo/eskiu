@@ -21,8 +21,6 @@ import <sort>;
 import <string>;
 import <env>;
 
-extern int strcmp(string a, string b);
-
 struct Language {
     string name;
     int64  bytes;

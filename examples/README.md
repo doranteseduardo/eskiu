@@ -30,7 +30,7 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 
 | Example | Demonstrates | stdlib |
 |---------|--------------|--------|
-| [hello.esk](hello.esk) | `extern` C declarations, plain functions, `int main()`, arithmetic | (none) |
+| [hello.esk](hello.esk) | `import <io>` for `printf`, plain functions, `int main()`, arithmetic | `<io>` |
 | [argv.esk](argv.esk) | command-line arguments: `int main(int argc, string* argv)`, `argv[i]` | (none) |
 | [structs.esk](structs.esk) | structs with methods, `self`, field access | (none) |
 | [enums.esk](enums.esk) | algebraic data types (payload-bearing `enum`) destructured with exhaustive `match` | (none) |
@@ -80,7 +80,7 @@ eskiuc examples/hello.esk -o hello && ./hello
 ```
 
 Key concepts:
-- `extern int printf(string fmt, ...)`: declare a C function for use in Eskiu
+- `import <io>;`: the standard library module that declares `printf` and the rest of C stdio
 - defining and calling a plain function (`add`)
 - `int main()` as the program entry point
 

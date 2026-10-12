@@ -9,7 +9,7 @@
 
 import <http>;
 
-extern int printf(string fmt, ...);
+import <io>;
 
 // One handler, called once per request. Route on the parsed path.
 void handle(HttpRequest* req, HttpResponse* res) {

@@ -5,7 +5,7 @@
 
 import <list>;
 
-extern int printf(string fmt, ...);
+import <io>;
 
 // A two-parameter template struct.
 struct Pair<A, B> { A first; B second; }

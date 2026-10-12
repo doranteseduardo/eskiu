@@ -3,7 +3,7 @@
 // A lambda `R (params) { ... }` is a value of fn-pointer type fn(params)->R. It
 // can capture variables from the enclosing scope; passed to a higher-order
 // function, it carries its captured environment with it.
-extern int printf(string fmt, ...);
+import <io>;
 
 // Higher-order: apply `f` to each of 1..n and sum the results.
 int sum_map(int n, fn(int)->int f) {

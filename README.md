@@ -47,7 +47,7 @@ metal: the screenshot below is an Eskiu kernel booting in QEMU with no libc.
 
 ```eskiu
 import <mem>;
-extern int printf(string fmt, ...);
+import <io>;
 
 enum Shape {
     Circle(float),

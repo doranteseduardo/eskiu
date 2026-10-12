@@ -10,7 +10,7 @@
 import <future>;
 import <net_async>;
 import <eventloop>;
-extern int   printf(string fmt, ...);
+import <io>;
 extern int   pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
 

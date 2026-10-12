@@ -6,7 +6,7 @@
 // numbers and formats an aligned table with String_format and padding.
 
 import <string>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let raw: String;

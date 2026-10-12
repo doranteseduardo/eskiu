@@ -3,7 +3,7 @@
 // String is a growable, heap-backed buffer (own it: String_free). Its methods
 // build, query, trim, and test prefixes/suffixes.
 import <string>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let s: String;  String_init(&s, 16);

@@ -9,7 +9,7 @@
 import <fetch>;
 import <json>;
 import <string>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main(int argc, string* argv) {
     let url: String;  String_from(&url, "https://api.github.com/repos/");

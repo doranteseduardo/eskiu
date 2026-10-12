@@ -556,7 +556,7 @@ pre.code-block {
  clang --version</pre>
 <h2 class="section" id="sec-1-2">1.2 Your first program</h2>
 <p>Create a file called hello.esk:</p>
-<pre class="code-block"> extern int printf(string fmt, ...);</pre>
+<pre class="code-block"> import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
        printf(&quot;Hello, Eskiu!\n&quot;);
        return 0;
@@ -570,9 +570,9 @@ pre.code-block {
 <p>To stop at the object file (for example to link multiple files yourself), give the output a .o suffix or pass -c:</p>
 <pre class="code-block"> eskiuc hello.esk -c -o hello.o       # object file only, no linking</pre>
 <h2 class="section" id="sec-1-4">1.4 Line by line</h2>
-<p>The first line declares a function from the C standard library:</p>
-<pre class="code-block"> extern int printf(string fmt, ...);</pre>
-<p><code>extern</code> means: this function exists somewhere else. I am just telling you its name and signature. The ... means it accepts any number of additional arguments after the format <code>string</code>.</p>
+<p>The first line imports a module of the standard library:</p>
+<pre class="code-block"> import &lt;io&gt;;</pre>
+<p>&lt;io&gt; declares <code>printf</code> and the rest of C's standard I/O. Inside it, <code>printf</code> is declared as <code>extern int printf(string fmt, ...);</code>: <code>extern</code> means the function exists somewhere else (the C library) and the line only gives its name and signature. The ... means it accepts any number of additional arguments after the format <code>string</code>.</p>
 <p>The main function is where every Eskiu program begins. The OS calls it when you run the program. Returning 0 signals success.</p>
 <p>Inside main, <code>printf</code> prints the format <code>string</code>. \n is a newline. It moves the cursor to the next line after printing.</p>
 <h2 class="section" id="sec-1-5">1.5 Making a change</h2>
@@ -633,7 +633,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> 4 0 6000000000</p>
 <p>Converting to <code>bool</code> tests against zero. <code>(bool)2</code>, <code>(bool)0.5</code> and a non-null pointer are all <code>true</code>; only <code>0</code>, <code>0.0</code> and <code>null</code> are <code>false</code>.</p>
 <h2 class="section" id="sec-2-4">2.4 A complete example</h2>
-<pre class="code-block"> extern int printf(string fmt, ...);</pre>
+<pre class="code-block"> import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
        int       age      = 28;
        double height = 1.75;
@@ -650,7 +650,7 @@ pre.code-block {
 <p class="output"><em>Output:</em> Name: Eduardo Age: 28 Height: 1.75 Grade: A Active: 1</p>
 <h2 class="section" id="sec-2-5">2.5 Global variables</h2>
 <p>A variable declared outside any function is a global. It exists for the entire run of the program and is visible to every function in the file. Reach for globals sparingly, for configuration or shared state that genuinely must outlive a single call:</p>
-<pre class="code-block"> extern int printf(string fmt, ...);</pre>
+<pre class="code-block"> import &lt;io&gt;;</pre>
 <pre class="code-block"> int counter = 0;                   // global</pre>
 <pre class="code-block"> void bump() { counter = counter + 1; }</pre>
 <pre class="code-block"> int main() {
@@ -794,7 +794,7 @@ pre.code-block {
 <p>The freedom of order covers functions only. A global variable has to be defined before the code that reads it, as section 2.5 explains.</p>
 <h2 class="section" id="sec-3-6">3.6 Command-line arguments</h2>
 <p>To read what the user typed on the command line, give main two parameters: <code>argc</code>, the number of arguments, and <code>argv</code>, an array of strings. <code>argv</code>[0] is always the program&#x27;s own name, so the first real argument is <code>argv</code>[1]:</p>
-<pre class="code-block"> extern int printf(string fmt, ...);</pre>
+<pre class="code-block"> import &lt;io&gt;;</pre>
 <pre class="code-block"> int main(int argc, string* argv) {
        printf(&quot;argc = %d\n&quot;, argc);
        for (int i = 0; i &lt; argc; i += 1) {
@@ -1200,7 +1200,7 @@ pre.code-block {
 <h1 class="chapter-title">Interfaces</h1><hr class="chapter-rule"></div>
 <p>An interface describes what a type can do, not what it is. It names a set of methods that any conforming type must provide. Code written against an interface works with any type that satisfies it: today&#x27;s types and types not yet written. You can add a type years later and old code will accept it, unchanged.</p>
 <h2 class="section" id="sec-7-1">7.1 Declaring an interface</h2>
-<pre class="code-block"> extern int printf(string fmt, ...);
+<pre class="code-block"> import &lt;io&gt;;
 
  interface Shape {
        float area();
@@ -1552,7 +1552,7 @@ pre.code-block {
 <h1 class="chapter-title">Concurrency</h1><hr class="chapter-rule"></div>
 <p>A thread is an independent sequence of execution. Your main function runs in one. Additional threads run in parallel, on separate CPU cores if available. Eskiu exposes threads as language primitives: thread_create and thread_join are keywords, not library calls.</p>
 <h2 class="section" id="sec-11-1">11.1 thread_create and thread_join</h2>
-<pre class="code-block"> extern int printf(string fmt, ...);
+<pre class="code-block"> import &lt;io&gt;;
 
  int main() {
        *void t = thread_create(void() {
@@ -1770,11 +1770,11 @@ pre.code-block {
 <p>Every program in this book so far has lived in a single file. Real programs grow. When a file exceeds a few hundred lines, it becomes hard to navigate. The <code>import</code> statement lets you split code across as many files as you like.</p>
 <h2 class="section" id="sec-13-1">13.1 Local file imports</h2>
 <pre class="code-block"> // utils.esk
- extern double sqrt(double x);
+ import &lt;math&gt;;
  double hypotenuse(double a, double b) { return sqrt(a*a + b*b); }</pre>
 <pre class="code-block"> // main.esk
  import &quot;utils.esk&quot;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
        printf(&quot;%.4f\n&quot;, hypotenuse(3.0, 4.0));    // 5.0000
        return 0;
@@ -1804,6 +1804,7 @@ pre.code-block {
 <div class="chapter-start" id="chapter-14"><span class="chapter-label">Chapter 14</span>
 <h1 class="chapter-title">C Interop</h1><hr class="chapter-rule"></div>
 <p>The entire C library ecosystem (OpenSSL, zlib, SQLite, libpng, the POSIX API) is available to Eskiu programs. Declare the function with <code>extern</code>, the compiler generates a standard C-ABI call, and the linker resolves it.</p>
+<p>The common C functions are already declared by the standard library: <code>import &lt;io&gt;</code> gives <code>printf</code>, <code>puts</code> and the rest of C stdio, <code>&lt;mem&gt;</code> the memory and string functions (<code>memcpy</code>, <code>strlen</code>, <code>strcmp</code>, <code>strstr</code>, ...), <code>&lt;math&gt;</code> the libm ones and <code>&lt;process&gt;</code> <code>process_exit</code>. The declarations below show how <code>extern</code> works; in a program, declare only what the standard library does not.</p>
 <h2 class="section" id="sec-14-1">14.1 Declaring extern functions</h2>
 <pre class="code-block"> extern int     printf(string fmt, ...);
  extern int64   strlen(string s);
@@ -2704,7 +2705,7 @@ pre.code-block {
 <h1 class="chapter-title">Testing</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no built-in test framework. The language gives you functions, return values, and <code>printf</code>. That is all you need. The pattern described here is the one used by Eskiu&#x27;s own test suite, which in 0.9.2 holds about a thousand programs (run tests with expected output, and error tests that must be rejected).</p>
 <h2 class="section" id="sec-21-1">21.1 Test functions</h2>
-<pre class="code-block"> extern int printf(string fmt, ...);</pre>
+<pre class="code-block"> import &lt;io&gt;;</pre>
 <pre class="code-block"> int check(string name, int got, int want) {
        if (got == want) { printf(&quot;    PASS   %s\n&quot;, name); return 0; }
        printf(&quot;    FAIL   %s: got %d want %d\n&quot;, name, got, want);
@@ -2873,7 +2874,7 @@ pre.code-block {
 <h2 class="section" id="sec-23-1">23.1 TCP echo server</h2>
 <pre class="code-block"> import &lt;net&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
        int fd = net_tcp_listen(7000);
        if (fd &lt; 0) { printf(&quot;bind failed\n&quot;); return 1; }
@@ -2896,7 +2897,7 @@ pre.code-block {
 <h2 class="section" id="sec-23-2">23.2 Minimal HTTP server</h2>
 <pre class="code-block"> import &lt;net&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
        int fd = net_tcp_listen(8080);
        printf(&quot;http://127.0.0.1:8080\n&quot;);
@@ -2938,7 +2939,7 @@ pre.code-block {
 <h2 class="section" id="sec-23-4">23.4 TCP client</h2>
 <pre class="code-block"> import &lt;net&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
        int fd = net_tcp_connect(&quot;127.0.0.1&quot;, 7000);
        if (fd &lt; 0) { printf(&quot;connect failed\n&quot;); return 1; }
@@ -3012,7 +3013,7 @@ pre.code-block {
 <p>An async function returns a <code>Future</code>&lt;T&gt; instead of T directly. The future represents a value that does not exist yet. await suspends the current task until the future is ready, then unwraps the value:</p>
 <pre class="code-block"> import &lt;future&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> Future&lt;int&gt;* produce() {
        Future&lt;int&gt;* f = future_new&lt;int&gt;();
        Future_complete&lt;int&gt;(f, 41);
@@ -3056,7 +3057,7 @@ pre.code-block {
  import &lt;net&gt;;
  import &lt;future&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> async int read_line(EventLoop* lp, int fd) {
        *uint8 buf = alloc&lt;uint8&gt;(256);
        int n = await net_read_async(lp, fd, buf, 255);
@@ -3083,7 +3084,7 @@ pre.code-block {
  import &lt;net&gt;;
  import &lt;future&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> void hello(HttpRequest* req, HttpResponse* res) {
        HttpResponse_header(res, &quot;Content-Type&quot;, &quot;text/plain&quot;);
        HttpResponse_set_body(res, &quot;Hello from Eskiu async\n&quot;);
@@ -3126,7 +3127,7 @@ pre.code-block {
 <pre class="code-block"> import &lt;channel&gt;;
  import &lt;future&gt;;
  import &lt;mem&gt;;
- extern int printf(string fmt, ...);</pre>
+ import &lt;io&gt;;</pre>
 <pre class="code-block"> async int consume(Chan&lt;int&gt;* ch) {
        int a = await Chan_recv&lt;int&gt;(ch);
        int b = await Chan_recv&lt;int&gt;(ch);

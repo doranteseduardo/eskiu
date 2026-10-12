@@ -1047,7 +1047,7 @@ thread_join(*void handle) -> void
 `thread_create` accepts any `fn()->void` value, including a closure, and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes. Any other worker type, or a `thread_join` operand that is not a `*void` handle, is a compile error.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     *void t = thread_create(void() { printf("hello from thread\n"); });
@@ -1941,7 +1941,7 @@ error: f.esk:3:28: invalid operands for operator: struct:Box and struct:Box (in 
 
 ```eskiu
 import <result>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let r: Result<int, string> = Ok<int, string>(42);
@@ -2216,6 +2216,8 @@ int main() {
 
 An `extern` declaration makes a C function available to Eskiu code. The declaration must match the C function's ABI exactly.
 
+The standard library already declares the common C functions: `<io>` has `printf`, `puts` and the rest of C stdio, `<mem>` the memory and string functions (`memcpy`, `memset`, `strlen`, `strcmp`, `strncmp`, `strchr`, `strstr`), `<math>` the libm ones (`sqrt`, `pow`, ...), and `<process>` has `process_exit`. A program imports those modules and declares an `extern` itself only for other functions; an `extern` that repeats one of them with different types is a conflicting declaration.
+
 ```eskiu
 extern int printf(string fmt, ...);
 extern int64 strlen(string s);
@@ -2378,7 +2380,7 @@ Modules built around a struct name their operations `Type_method`, so they can a
 
 ```eskiu
 import <result>;
-extern int printf(string fmt, ...);
+import <io>;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) return Err<int, string>("division by zero");
@@ -2400,7 +2402,7 @@ int main() {
 
 ```eskiu
 import <list>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let items: List<int>;
@@ -2419,7 +2421,7 @@ int main() {
 
 ```eskiu
 import <string>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let s: String;
@@ -2553,8 +2555,7 @@ stdlib module. Sockets need no compiler support beyond the C FFI.
 ```eskiu
 import <net>;
 import <mem>;
-
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int fd = net_tcp_listen(8080);            // bind + listen on 0.0.0.0:8080
@@ -2734,7 +2735,7 @@ variable.
 
 ```eskiu
 import <dns>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let addrs: List<string>;  List_init<string>(&addrs, 4);
@@ -2755,7 +2756,7 @@ numeric host resolves to itself. The strings are heap copies: free the list with
 
 ```eskiu
 import <fetch>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let o: FetchOptions;  FetchOptions_init(&o);
@@ -2869,7 +2870,7 @@ connection closes.
 
 ```eskiu
 import <json>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     *JsonValue doc = JsonValue_object();
@@ -2914,7 +2915,7 @@ null when a step is missing, has the wrong kind, or the path is malformed.
 
 ```eskiu
 import <csv>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let t: CsvTable;
@@ -2959,7 +2960,7 @@ delim, &out)` writes a whole table (cleared first).
 
 ```eskiu
 import <dotenv>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     if (dotenv_load(".env") < 0) {
@@ -2991,7 +2992,7 @@ the value copies, so free it with `dotenv_free`.
 
 ```eskiu
 import <hash>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let hex: String;  hex.init(65);
@@ -3414,7 +3415,7 @@ A line ending in a backslash (`\`) is **continued** onto the next line, so a mac
     ((x) * (x)         \
      + 2 * (x) + 1)
 
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int n = MAX;          // 100
