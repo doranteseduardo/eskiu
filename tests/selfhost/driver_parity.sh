@@ -245,9 +245,12 @@ total=$((total + 1))
 maok=1
 for drv in "$BIN" "$ESKMAIN"; do
     rm -f "$WORK/ma.o"
-    ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/mattr_softfloat.esk --freestanding --target aarch64-unknown-none-elf \
-        --mattr=-fp-armv8,-neon -O2 -c -o "$WORK/ma.o" >/dev/null 2>&1 || maok=0
-    { [ -s "$WORK/ma.o" ] && grep -aq '__muldf3' "$WORK/ma.o"; } || maok=0
+    if ! ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/mattr_softfloat.esk --freestanding --target aarch64-unknown-none-elf \
+        --mattr=-fp-armv8,-neon -O2 -c -o "$WORK/ma.o" >"$WORK/ma.log" 2>&1; then
+        maok=0; echo "      $drv failed:"; sed 's/^/        /' "$WORK/ma.log" | head -5
+    elif ! { [ -s "$WORK/ma.o" ] && grep -aq '__muldf3' "$WORK/ma.o"; }; then
+        maok=0; echo "      $drv: no __muldf3 in the object"
+    fi
 done
 if [ "$maok" -eq 1 ]; then echo "ok    mattr-softfloat"
 else echo "FAIL  mattr-softfloat  (--mattr did not reach the backend)"; fail=1; fi
