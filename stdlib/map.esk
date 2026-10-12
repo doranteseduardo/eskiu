@@ -70,7 +70,7 @@ void Map_free<V>(Map<V>* m) {
 }
 
 // Double the table and rehash. Keys are moved (not re-duplicated).
-void Map_grow<V>(Map<V>* m) {
+void _Map_grow<V>(Map<V>* m) {
     const int oldcap = m.cap;
     **char oldk = m.keys;
     *V     oldv = m.vals;
@@ -95,7 +95,7 @@ void Map_grow<V>(Map<V>* m) {
 // the caller must initialise it) or 0 if it already existed. The pointer is
 // valid until the next insert that grows the map.
 *V Map_at<V>(Map<V>* m, string key, *int created) {
-    if ((m.count + 1) * 4 >= m.cap * 3) { Map_grow<V>(m); }   // load factor 0.75
+    if ((m.count + 1) * 4 >= m.cap * 3) { _Map_grow<V>(m); }   // load factor 0.75
     int i = _map_hash(key) % m.cap;
     while (m.keys[i] != null) {
         if (_map_streq(m.keys[i], key) == 1) { created[0] = 0; return &m.vals[i]; }
@@ -247,7 +247,7 @@ void HashMap_free<K, V>(HashMap<K, V>* m) {
     m.keys = null;  m.vals = null;  m.used = null;  m.cap = 0;  m.count = 0;
 }
 
-void HashMap_grow<K, V>(HashMap<K, V>* m) {
+void _HashMap_grow<K, V>(HashMap<K, V>* m) {
     const int oldcap = m.cap;
     *K     ok = m.keys;
     *V     ov = m.vals;
@@ -272,7 +272,7 @@ void HashMap_grow<K, V>(HashMap<K, V>* m) {
 // Get-or-insert. Returns a pointer to the value slot; *created = 1 if the key
 // was just inserted (value slot uninitialised — caller initialises it).
 *V HashMap_at<K, V>(HashMap<K, V>* m, K key, *int created) {
-    if ((m.count + 1) * 4 >= m.cap * 3) { HashMap_grow<K, V>(m); }
+    if ((m.count + 1) * 4 >= m.cap * 3) { _HashMap_grow<K, V>(m); }
     let hashfn: fn(*K)->uint64    = m.hash;
     let eqfn:   fn(*K, *K)->int   = m.eq;
     const uint64 h = hashfn(&key);

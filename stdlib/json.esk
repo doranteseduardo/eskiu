@@ -30,7 +30,7 @@ void Json_free(Json* self)  { self.buf.free(); }
 *char Json_cstr(Json* self) { return self.buf.cstr(); }
 
 // Insert a separating comma unless the last byte is an opener or a key colon.
-void Json_sep(Json* self) {
+void _Json_sep(Json* self) {
     const int64 n = self.buf.len;
     if (n == 0) { return; }
     const char last = self.buf.data[n - 1];
@@ -67,23 +67,23 @@ void Json_raw_str(Json* self, string s) {
     _json_escape(&self.buf, (*char)s, strlen(s));
 }
 
-void Json_obj_begin(Json* self) { Json_sep(self); self.buf.push('{'); }
+void Json_obj_begin(Json* self) { _Json_sep(self); self.buf.push('{'); }
 void Json_obj_end(Json* self)   { self.buf.push('}'); }
-void Json_arr_begin(Json* self) { Json_sep(self); self.buf.push('['); }
+void Json_arr_begin(Json* self) { _Json_sep(self); self.buf.push('['); }
 void Json_arr_end(Json* self)   { self.buf.push(']'); }
 
 // Object key: emits "key": — the following value attaches without a comma.
 void Json_key(Json* self, string k) {
-    Json_sep(self);
+    _Json_sep(self);
     Json_raw_str(self, k);
     self.buf.push(':');
 }
 
-void Json_str(Json* self, string v) { Json_sep(self); Json_raw_str(self, v); }
+void Json_str(Json* self, string v) { _Json_sep(self); Json_raw_str(self, v); }
 
 // Append the full int64 (no truncation to 32 bits; INT64_MIN included).
 void Json_int(Json* self, int64 v) {
-    Json_sep(self);
+    _Json_sep(self);
     String* out = &self.buf;
     uint64 mag = (uint64)v;
     if (v < 0) { out.push('-'); mag = (uint64)0 - (uint64)v; }
@@ -98,11 +98,11 @@ void Json_int(Json* self, int64 v) {
 }
 
 void Json_bool(Json* self, int b) {
-    Json_sep(self);
+    _Json_sep(self);
     self.buf.append(b != 0 ? "true" : "false");
 }
 
-void Json_null(Json* self) { Json_sep(self); self.buf.append("null"); }
+void Json_null(Json* self) { _Json_sep(self); self.buf.append("null"); }
 
 // ── Parsed value tree ────────────────────────────────────────────────────────
 

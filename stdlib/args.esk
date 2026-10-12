@@ -56,7 +56,7 @@ const int _ARGS_OPT  = 1;
 const int _ARGS_INT  = 2;
 const int _ARGS_POS  = 3;
 
-struct ArgSpec {
+struct _ArgSpec {
     int kind;
     string short_name;      // "-v", or null
     string long_name;       // "--verbose", or null
@@ -74,7 +74,7 @@ struct ArgParser {
     string prog;
     String prog_buf;
     string description;
-    List<*ArgSpec> specs;
+    List<*_ArgSpec> specs;
     List<string> positionals;
     List<string> rest;
     String error;
@@ -86,28 +86,28 @@ void ArgParser_init(ArgParser* p, string prog, string description) {
     p.prog = prog;
     p.prog_buf.init(16);
     p.description = description;
-    List_init<*ArgSpec>(&p.specs, 8);
+    List_init<*_ArgSpec>(&p.specs, 8);
     List_init<string>(&p.positionals, 8);
     List_init<string>(&p.rest, 4);
     p.error.init(64);
 }
 
 void ArgParser_free(ArgParser* p) {
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         List_free<string>(&s.values);
         s.def_buf.free();
         free((*void)s);
     }
-    List_free<*ArgSpec>(&p.specs);
+    List_free<*_ArgSpec>(&p.specs);
     List_free<string>(&p.positionals);
     List_free<string>(&p.rest);
     p.prog_buf.free();
     p.error.free();
 }
 
-*ArgSpec _args_add(ArgParser* p, int kind, string short_name, string long_name, string help) {
-    *ArgSpec s = alloc<ArgSpec>(1);
+*_ArgSpec _args_add(ArgParser* p, int kind, string short_name, string long_name, string help) {
+    *_ArgSpec s = alloc<_ArgSpec>(1);
     s.kind = kind;
     s.short_name = short_name;
     s.long_name = long_name;
@@ -120,7 +120,7 @@ void ArgParser_free(ArgParser* p) {
         s.name = (string)((*char)short_name + (short_name[0] == '-' ? 1 : 0));
     }
     List_init<string>(&s.values, 2);
-    List_push<*ArgSpec>(&p.specs, s);
+    List_push<*_ArgSpec>(&p.specs, s);
     return s;
 }
 
@@ -132,14 +132,14 @@ void ArgParser_flag(ArgParser* p, string short_name, string long_name, string he
 // An option taking a string value shown as `metavar` in the help; `def` (or
 // null) is what ArgParser_get returns when it is not given.
 void ArgParser_option(ArgParser* p, string short_name, string long_name, string metavar, string def, string help) {
-    *ArgSpec s = _args_add(p, _ARGS_OPT, short_name, long_name, help);
+    *_ArgSpec s = _args_add(p, _ARGS_OPT, short_name, long_name, help);
     s.metavar = metavar;
     s.def = def;
 }
 
 // An option taking an integer; a value that is not one is a parse error.
 void ArgParser_option_int(ArgParser* p, string short_name, string long_name, string metavar, int def, string help) {
-    *ArgSpec s = _args_add(p, _ARGS_INT, short_name, long_name, help);
+    *_ArgSpec s = _args_add(p, _ARGS_INT, short_name, long_name, help);
     s.metavar = metavar;
     s.def_buf.init(12);
     String_appendf(&s.def_buf, "%d", def);
@@ -149,7 +149,7 @@ void ArgParser_option_int(ArgParser* p, string short_name, string long_name, str
 // A positional argument: ARGS_OPTIONAL, ARGS_REQUIRED, and ARGS_MANY (zero or
 // more; one or more with ARGS_REQUIRED) for the last one.
 void ArgParser_argument(ArgParser* p, string name, string help, int mode) {
-    *ArgSpec s = _args_add(p, _ARGS_POS, null, null, help);
+    *_ArgSpec s = _args_add(p, _ARGS_POS, null, null, help);
     s.name = name;
     s.metavar = name;
     s.mode = mode;
@@ -164,26 +164,26 @@ bool _args_streq(string a, string b) {
 
 // The spec a user-facing name refers to: "output", "--output", "o", "-o" or
 // an argument's name.
-*ArgSpec _args_find(ArgParser* p, string name) {
+*_ArgSpec _args_find(ArgParser* p, string name) {
     if (name == null) { return null; }
     int k = 0;
     while (name[k] == '-') { k++; }
     const string bare = (string)((*char)name + k);
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (_args_streq(s.name, bare)) { return s; }
     }
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.short_name != null && _args_streq((string)((*char)s.short_name + 1), bare)) { return s; }
     }
     return null;
 }
 
 // The option whose long name is the first `n` bytes of `arg`.
-*ArgSpec _args_find_long(ArgParser* p, string arg, int n) {
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+*_ArgSpec _args_find_long(ArgParser* p, string arg, int n) {
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind == _ARGS_POS || s.long_name == null) { continue; }
         int j = 0;
         while (j < n && s.long_name[j] != 0 && s.long_name[j] == arg[j]) { j++; }
@@ -192,9 +192,9 @@ bool _args_streq(string a, string b) {
     return null;
 }
 
-*ArgSpec _args_find_short(ArgParser* p, char c) {
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+*_ArgSpec _args_find_short(ArgParser* p, char c) {
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind == _ARGS_POS || s.short_name == null) { continue; }
         if (s.short_name[0] == '-' && s.short_name[1] == c && s.short_name[2] == 0) { return s; }
     }
@@ -219,7 +219,7 @@ bool _args_parse_int(string v, *int out) {
 }
 
 // The way an option is named in messages: its long name, else its short one.
-string _args_label(*ArgSpec s) {
+string _args_label(*_ArgSpec s) {
     return s.long_name != null ? s.long_name : s.short_name;
 }
 
@@ -229,7 +229,7 @@ int _args_fail(ArgParser* p, string fmt, string a, string b) {
     return ARGS_ERROR;
 }
 
-int _args_store(ArgParser* p, *ArgSpec s, string v) {
+int _args_store(ArgParser* p, *_ArgSpec s, string v) {
     if (s.kind == _ARGS_INT) {
         int n = 0;
         if (!_args_parse_int(v, &n)) {
@@ -253,8 +253,8 @@ int _args_bind(ArgParser* p) {
     const int n = List_len<string>(&p.positionals);
     int k = 0;
     bool declared = false;
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind != _ARGS_POS) { continue; }
         declared = true;
         if ((s.mode & ARGS_MANY) != 0) {
@@ -276,8 +276,8 @@ int _args_bind(ArgParser* p) {
 }
 
 int _args_run(ArgParser* p, int argc, *string argv) {
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         s.count = 0;
         List_clear<string>(&s.values);
     }
@@ -303,7 +303,7 @@ int _args_run(ArgParser* p, int argc, *string argv) {
             while (a[eq] != 0 && a[eq] != '=') { eq++; }
             const bool has_eq = a[eq] == '=';
             if (help_long && !has_eq && _args_streq(a, "--help")) { return ARGS_HELP; }
-            *ArgSpec s = _args_find_long(p, a, eq);
+            *_ArgSpec s = _args_find_long(p, a, eq);
             if (s == null) {
                 p.error.clear();
                 p.error.append("unknown option '");
@@ -330,7 +330,7 @@ int _args_run(ArgParser* p, int argc, *string argv) {
                 const char c = a[j];
                 j++;
                 if (c == 'h' && help_short) { return ARGS_HELP; }
-                *ArgSpec s = _args_find_short(p, c);
+                *_ArgSpec s = _args_find_short(p, c);
                 if (s == null) {
                     p.error.clear();
                     p.error.append("unknown option '-");
@@ -373,7 +373,7 @@ void _args_upper(String* out, string s) {
     }
 }
 
-void _args_metavar(String* out, *ArgSpec s) {
+void _args_metavar(String* out, *_ArgSpec s) {
     if (s.metavar != null) { out.append(s.metavar); } else { _args_upper(out, s.name); }
 }
 
@@ -385,8 +385,8 @@ void ArgParser_usage(ArgParser* p, String* out) {
     out.append(_args_prog(p));
     if (_args_find_short(p, 'h') == null) { out.append(" [-h]"); }
     else if (_args_find_long(p, "--help", 6) == null) { out.append(" [--help]"); }
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind == _ARGS_POS) { continue; }
         out.append(" [");
         out.append(s.short_name != null ? s.short_name : s.long_name);
@@ -396,8 +396,8 @@ void ArgParser_usage(ArgParser* p, String* out) {
         }
         out.push(']');
     }
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind != _ARGS_POS) { continue; }
         out.push(' ');
         const bool req = (s.mode & ARGS_REQUIRED) != 0;
@@ -409,7 +409,7 @@ void ArgParser_usage(ArgParser* p, String* out) {
 }
 
 // The left column of an entry in the help.
-void _args_entry(String* out, *ArgSpec s, bool any_short) {
+void _args_entry(String* out, *_ArgSpec s, bool any_short) {
     out.clear();
     if (s.kind == _ARGS_POS) { out.append(s.name); return; }
     if (s.short_name != null) {
@@ -459,16 +459,16 @@ void ArgParser_help(ArgParser* p, String* out) {
     const bool help_long = _args_find_long(p, "--help", 6) == null;
     bool any_short = help_short;
     bool any_pos = false;
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind == _ARGS_POS) { any_pos = true; }
         else if (s.short_name != null) { any_short = true; }
     }
     // Width of the left column: the widest entry, at most 28.
     let e: String;  e.init(32);
     int col = 0;
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        _args_entry(&e, List_get<*ArgSpec>(&p.specs, i), any_short);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        _args_entry(&e, List_get<*_ArgSpec>(&p.specs, i), any_short);
         if ((int)e.len > col) { col = (int)e.len; }
     }
     if (col < 10) { col = 10; }
@@ -476,8 +476,8 @@ void ArgParser_help(ArgParser* p, String* out) {
     col = col + 4;
     if (any_pos) {
         out.append("\narguments:\n");
-        for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-            *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+        for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+            *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
             if (s.kind != _ARGS_POS) { continue; }
             _args_line(out, s.name, s.help, null, col);
         }
@@ -489,8 +489,8 @@ void ArgParser_help(ArgParser* p, String* out) {
         else { e.append(any_short ? "    --help" : "--help"); }
         _args_line(out, e.cstr(), "show this help and exit", null, col);
     }
-    for (i in 0..List_len<*ArgSpec>(&p.specs)) {
-        *ArgSpec s = List_get<*ArgSpec>(&p.specs, i);
+    for (i in 0..List_len<*_ArgSpec>(&p.specs)) {
+        *_ArgSpec s = List_get<*_ArgSpec>(&p.specs, i);
         if (s.kind == _ARGS_POS) { continue; }
         _args_entry(&e, s, any_short);
         _args_line(out, e.cstr(), s.help, s.kind == _ARGS_FLAG ? null : s.def, col);
@@ -542,21 +542,21 @@ string ArgParser_error(ArgParser* p) {
 
 // 1 if the flag (or option, or argument) was given, else 0.
 int ArgParser_get_flag(ArgParser* p, string name) {
-    *ArgSpec s = _args_find(p, name);
+    *_ArgSpec s = _args_find(p, name);
     return s != null && s.count > 0 ? 1 : 0;
 }
 
 // How many times a flag or option was given, or how many values an argument
 // received.
 int ArgParser_count(ArgParser* p, string name) {
-    *ArgSpec s = _args_find(p, name);
+    *_ArgSpec s = _args_find(p, name);
     return s == null ? 0 : s.count;
 }
 
 // An option's value (the last one when repeated) or its default; an
 // argument's (first) value; null when absent with no default.
 string ArgParser_get(ArgParser* p, string name) {
-    *ArgSpec s = _args_find(p, name);
+    *_ArgSpec s = _args_find(p, name);
     if (s == null) { return null; }
     const int n = List_len<string>(&s.values);
     if (n == 0) { return s.def; }
@@ -566,7 +566,7 @@ string ArgParser_get(ArgParser* p, string name) {
 
 // The i-th value of an option or argument (in the order given), or null.
 string ArgParser_get_at(ArgParser* p, string name, int i) {
-    *ArgSpec s = _args_find(p, name);
+    *_ArgSpec s = _args_find(p, name);
     if (s == null || i < 0 || i >= List_len<string>(&s.values)) { return null; }
     return List_get<string>(&s.values, i);
 }
@@ -581,7 +581,7 @@ int ArgParser_get_int(ArgParser* p, string name) {
 
 // Append every value of an option or argument to `out`; returns how many.
 int ArgParser_get_all(ArgParser* p, string name, List<string>* out) {
-    *ArgSpec s = _args_find(p, name);
+    *_ArgSpec s = _args_find(p, name);
     if (s == null) { return 0; }
     const int n = List_len<string>(&s.values);
     for (i in 0..n) { List_push<string>(out, List_get<string>(&s.values, i)); }

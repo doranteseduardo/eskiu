@@ -58,6 +58,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `h2_name_eq`, `h2_send_response`, ...), and the `<hpack>` table and decoder internals
   (`hpack_read_str`, `hpack_evict`, `hpack_resolve`, `hpack_set_max`, `hpack_static_name`,
   `hpack_decode_int_at`, ...). Each becomes `_` plus its old name.
+- So do `Map_grow`, `HashMap_grow`, `Json_sep` and the internal structs `PoolNode`, `FFNode`
+  (`<alloc>`), `ArgSpec` (`<args>`), `RQNode` (`<executor>`), `HpackStr` and `HpackEntry`
+  (`<hpack>`), which could clash with a program's own struct of the same name.
 - Names made consistent inside their modules: `<term>` `term_rgb` -> `term_fg_rgb` (next to
   `term_bg_rgb`); `<hash>` one-shot functions take the module prefix,
   `sha256`/`sha256_hex`/`sha256_str` -> `hash_sha256`/`hash_sha256_hex`/`hash_sha256_str` (the

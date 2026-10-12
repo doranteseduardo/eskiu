@@ -78,7 +78,7 @@ int hpack_encode_str(*uint8 buf, int off, *uint8 s, int slen) {
 // packs each symbol's MSB-aligned code. The table itself is generated from the
 // RFC text (stdlib/hpack_huffman.esk) — never hand-transcribed.
 
-struct HpackStr { *uint8 ptr; int len; }
+struct _HpackStr { *uint8 ptr; int len; }
 
 // A Huffman decoding trie: child0/child1 are node indices (-1 = none), sym is
 // the decoded symbol at a leaf (-1 = internal node). Node 0 is the root.
@@ -262,7 +262,7 @@ struct HpackHeader {
 }
 
 // A dynamic-table entry (a heap-owned copy of one inserted field).
-struct HpackEntry {
+struct _HpackEntry {
     *uint8 name;  int nlen;
     *uint8 value; int vlen;
     int    size;   // RFC entry size = nlen + vlen + 32
@@ -272,7 +272,7 @@ struct HpackEntry {
 // decode trie, and a per-block scratch arena that Huffman-decoded strings live
 // in (header pointers point into it or directly into the input block).
 struct HpackDecoder {
-    *HpackEntry dyn;
+    *_HpackEntry dyn;
     int   dyn_count;
     int   dyn_cap;
     int64 max_size;     // SETTINGS_HEADER_TABLE_SIZE
@@ -289,7 +289,7 @@ struct HpackDecoder {
 
 void HpackDecoder_init(HpackDecoder* d, int64 max_size) {
     const int cap = (int)(max_size / 32) + 1;    // min entry size is 32 bytes
-    d.dyn = alloc<HpackEntry>(cap);
+    d.dyn = alloc<_HpackEntry>(cap);
     d.dyn_count = 0;
     d.dyn_cap = cap;
     d.max_size = max_size;
@@ -321,7 +321,7 @@ void HpackDecoder_free(HpackDecoder* d) {
 // Read a (possibly Huffman-coded) string literal at buf[off], which must end at
 // or before `end`. On success fills `out` (pointing into buf for raw strings, or
 // the scratch arena for Huffman) and returns the next offset; returns -1 on error.
-int _hpack_read_str(HpackDecoder* d, *uint8 buf, int off, int end, HpackStr* out) {
+int _hpack_read_str(HpackDecoder* d, *uint8 buf, int off, int end, _HpackStr* out) {
     if (off >= end) { return -1; }
     const bool huff = ((int)buf[off] & 128) != 0;
     int nx = 0;
@@ -394,7 +394,7 @@ void _hpack_dyn_insert(HpackDecoder* d, *uint8 name, int nlen, *uint8 value, int
 void _hpack_set_max(HpackDecoder* d, int64 newmax) {
     const int need = (int)(newmax / 32) + 1;
     if (need > d.dyn_cap) {
-        *HpackEntry grown = alloc<HpackEntry>(need);
+        *_HpackEntry grown = alloc<_HpackEntry>(need);
         for (i in 0..d.dyn_count) { grown[i] = d.dyn[i]; }
         free(d.dyn);
         d.dyn = grown;
@@ -435,12 +435,12 @@ int _hpack_decode_literal(HpackDecoder* d, *uint8 buf, int off, int end, int pre
         if (_hpack_resolve(d, (int)nameIdx, &nh) != 0) { return -1; }
         h.name = nh.name;  h.nlen = nh.nlen;
     } else {
-        let ns: HpackStr;
+        let ns: _HpackStr;
         off = _hpack_read_str(d, buf, off, end, &ns);
         if (off < 0) { return -1; }
         h.name = ns.ptr;  h.nlen = ns.len;
     }
-    let vs: HpackStr;
+    let vs: _HpackStr;
     off = _hpack_read_str(d, buf, off, end, &vs);
     if (off < 0) { return -1; }
     h.value = vs.ptr;  h.vlen = vs.len;

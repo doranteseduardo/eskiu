@@ -25,17 +25,17 @@ extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple p
 
 // A queued waker. Wakers are escaping closures (they outlive the call that
 // scheduled them), owned by the node until run, then released.
-struct RQNode {
+struct _RQNode {
     fn()->void waker;
-    *RQNode    next;
+    *_RQNode    next;
 }
 
 struct Executor {
     EventLoop* lp;
     int        wake_r;     // self-pipe read end (registered on lp)
     int        wake_w;     // self-pipe write end (written by schedulers)
-    *RQNode    head;
-    *RQNode    tail;
+    *_RQNode    head;
+    *_RQNode    tail;
     Mutex      lock;       // guards head/tail/signaled against cross-thread schedule
     int        signaled;   // 1 while a wake byte is in the pipe and not yet drained
 }
@@ -47,14 +47,14 @@ void _ex_drain(Executor* ex, int fd) {
     read(fd, (*void)&sink[0], 64);            // the (single, coalesced) wake byte
 
     ex.lock.lock();
-    *RQNode n = ex.head;
+    *_RQNode n = ex.head;
     ex.head = null;
     ex.tail = null;
     ex.signaled = 0;              // a schedule from here on writes a fresh byte
     ex.lock.unlock();
 
     while (n != null) {
-        *RQNode next = n.next;
+        *_RQNode next = n.next;
         n.waker();                 // resume the coroutine — on THIS (loop) thread
         free_closure(n.waker);     // the waker runs once; release its env
         free((*void)n);
@@ -90,7 +90,7 @@ Executor* executor_new(EventLoop* lp) {
 // Enqueue `w` to run on the executor's thread, and wake the loop. Thread-safe:
 // callable from any thread (e.g. a worker that just completed a future).
 void Executor_schedule(Executor* ex, escaping fn()->void w) {
-    *RQNode n = alloc<RQNode>(1);
+    *_RQNode n = alloc<_RQNode>(1);
     n.waker = w;
     n.next  = null;
 
@@ -115,9 +115,9 @@ void Executor_free(Executor* ex) {
     ex.lp.del_free(ex.wake_r);       // free the drain-callback env too
     close(ex.wake_r);                // the self-pipe
     close(ex.wake_w);
-    *RQNode n = ex.head;             // wakers scheduled but never run
+    *_RQNode n = ex.head;             // wakers scheduled but never run
     while (n != null) {
-        *RQNode next = n.next;
+        *_RQNode next = n.next;
         free_closure(n.waker);
         free((*void)n);
         n = next;
