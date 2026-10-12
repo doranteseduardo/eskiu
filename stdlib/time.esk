@@ -368,7 +368,9 @@ int _time_num(_time_parse_st* st, int maxw, bool sign, *int64 out) {
     int64 v = 0;
     int n = 0;
     while (n < maxw && _time_digit(st.text[st.pos])) {
-        v = v * 10 + (int64)((int)st.text[st.pos] - 48);
+        const int64 d = (int64)((int)st.text[st.pos] - 48);
+        if (v > (9223372036854775807 - d) / 10) { return -1; }   // past int64 (a %s value)
+        v = v * 10 + d;
         st.pos++;
         n++;
     }
