@@ -61,6 +61,18 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `Response_header`, `Response_text`, `Response_bytes`, `Response_json`, `Response_ok`;
   error codes plus `fetch_last_error`. HTTPS loads OpenSSL at run time (`<fetch_tls>`), so
   programs link without libssl. Example `fetch.esk`; stdlib fuzz target `fetch`.
+- `<args>`: a declarative command-line parser (`ArgParser`, `args_flag`, `args_option`,
+  `args_option_int`, `args_argument`) with short clusters, `--opt=value`, `--`, repeated
+  options, generated `--help` and usage errors (`ArgParser_parse_or_exit` exits 0 or 2).
+- `<term>`: ANSI styles, 16/256/RGB colors, `term_is_tty`, `term_width`; colors follow
+  `NO_COLOR`, `FORCE_COLOR` and whether the stream is a terminal; Windows VT mode.
+- `<log>`: `log_trace` to `log_error` (printf-style), `LOG_LEVEL`, UTC or local timestamps,
+  colored level tags, output to stderr or a file.
+- `<io>`: `print`, `println`, `print_err`, `println_err`, `read_line`, `input`,
+  `read_all_stdin` (binary safe).
+- `<time>`: `time_format`, `time_parse`, `time_parse_local` (strftime-style specifiers),
+  `time_to_local`, `time_local_offset`, `duration_format`, `Stopwatch`.
+- Example `dir_list.esk` (`<args>`, `<term>`, `<log>`, `<time>`).
 
 ### Changed
 

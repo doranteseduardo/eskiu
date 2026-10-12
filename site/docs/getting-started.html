@@ -1025,7 +1025,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;io&gt;</code></td>
-<td><code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code></td>
+<td><code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>; <code>print</code>, <code>println</code>, <code>print_err</code>, <code>println_err</code>, <code>read_line</code>, <code>input</code>, <code>read_all_stdin</code></td>
 </tr>
 <tr>
 <td><code>&lt;mem&gt;</code></td>
@@ -1129,7 +1129,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;time&gt;</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>)</td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>); local time, <code>time_format</code>/<code>time_parse</code> (strftime-style), <code>duration_format</code>, <code>Stopwatch</code></td>
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>
@@ -1138,6 +1138,18 @@ import &lt;math&gt;;
 <tr>
 <td><code>&lt;process&gt;</code></td>
 <td><code>process_run</code> (capture output, stdin text, cwd, env, timeout), <code>sh</code>, <code>sh_with</code>, <code>process_spawn</code> + <code>Process_write_stdin</code>/<code>_read</code>/<code>_wait</code>/<code>_kill</code>, <code>process_exit</code>, <code>process_pid</code></td>
+</tr>
+<tr>
+<td><code>&lt;args&gt;</code></td>
+<td>command-line parsing: <code>ArgParser</code>, <code>args_flag</code>, <code>args_option</code>, <code>args_option_int</code>, <code>args_argument</code>, generated <code>--help</code>, <code>ArgParser_parse_or_exit</code>, <code>args_get</code>/<code>args_get_int</code>/<code>args_get_flag</code>/<code>args_count</code></td>
+</tr>
+<tr>
+<td><code>&lt;term&gt;</code></td>
+<td>ANSI styles and colors (<code>TERM_BOLD \| TERM_RED</code>, <code>term_fg256</code>, <code>term_rgb</code>), <code>term_style</code>, <code>term_println</code>, <code>term_is_tty</code>, <code>term_width</code>; honors <code>NO_COLOR</code>/<code>FORCE_COLOR</code></td>
+</tr>
+<tr>
+<td><code>&lt;log&gt;</code></td>
+<td><code>log_info</code>/<code>log_warn</code>/<code>log_error</code>/<code>log_debug</code>/<code>log_trace</code> (printf-style), <code>LOG_LEVEL</code> or <code>log_set_level</code>, timestamps, <code>log_set_file</code></td>
 </tr>
 <tr>
 <td><code>&lt;path&gt;</code></td>

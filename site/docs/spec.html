@@ -2278,7 +2278,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/io.esk</code></td>
-<td><code>extern</code> declarations for <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>, <code>getchar</code>, <code>putchar</code></td>
+<td><code>extern</code> declarations for <code>printf</code>, <code>fprintf</code>, <code>sprintf</code>, <code>scanf</code>, <code>puts</code>, <code>getchar</code>, <code>putchar</code>; console helpers <code>print</code>, <code>println</code>, <code>print_err</code>, <code>println_err</code>, <code>read_line</code>, <code>input</code>, <code>read_all_stdin</code>, and the C streams <code>io_stdin</code>/<code>io_stdout</code>/<code>io_stderr</code></td>
 </tr>
 <tr>
 <td><code>stdlib/mem.esk</code></td>
@@ -2298,7 +2298,7 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/time.esk</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; a UTC civil calendar: <code>DateTime</code> (year/month/day/hour/min/sec plus <code>wday</code>/<code>yday</code>), <code>time_to_utc(t, &amp;dt)</code> (epoch seconds to fields), <code>DateTime_to_epoch</code>, and <code>DateTime_format_iso</code> (ISO 8601, e.g. <code>2026-07-13T18:30:00Z</code>)</td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; a UTC civil calendar: <code>DateTime</code> (year/month/day/hour/min/sec plus <code>wday</code>/<code>yday</code>), <code>time_to_utc(t, &amp;dt)</code> (epoch seconds to fields), <code>DateTime_to_epoch</code>, and <code>DateTime_format_iso</code> (ISO 8601, e.g. <code>2026-07-13T18:30:00Z</code>); local time (<code>time_to_local</code>, <code>time_local_offset</code>), <code>time_format</code>/<code>time_parse</code>/<code>time_parse_local</code> with strftime-style specifiers, <code>duration_format</code>, <code>Stopwatch</code></td>
 </tr>
 <tr>
 <td><code>stdlib/random.esk</code></td>
@@ -2391,6 +2391,18 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 <tr>
 <td><code>stdlib/hash.esk</code></td>
 <td>Pure-Eskiu digests: <code>Sha256</code>, <code>Sha1</code>, <code>Md5</code>, <code>HmacSha256</code> (streaming <code>_init</code>/<code>_update</code>/<code>_update_str</code>/<code>_final</code>/<code>_final_hex</code>) and one-shot <code>sha256</code>/<code>sha256_hex</code>/<code>sha256_str</code> (same for <code>sha1</code>, <code>md5</code>), <code>hmac_sha256</code>/<code>hmac_sha256_str</code>, <code>hex_encode</code>/<code>hex_decode</code>, constant-time <code>hash_equal</code>/<code>hash_equal_str</code></td>
+</tr>
+<tr>
+<td><code>stdlib/args.esk</code></td>
+<td>Command-line parsing: <code>ArgParser</code> (<code>_init</code>/<code>_parse</code>/<code>_parse_or_exit</code>/<code>_help</code>/<code>_usage</code>/<code>_error</code>/<code>_free</code>), declared with <code>args_flag</code>, <code>args_option</code>, <code>args_option_int</code>, <code>args_argument</code>, read with <code>args_get</code>, <code>args_get_int</code>, <code>args_get_flag</code>, <code>args_count</code>, <code>args_get_at</code>, <code>args_get_all</code>, <code>args_positional</code>, <code>args_rest</code></td>
+</tr>
+<tr>
+<td><code>stdlib/term.esk</code></td>
+<td>Terminal output: styles as <code>int64</code> bit sets (<code>TERM_BOLD</code>, <code>TERM_RED</code>, <code>TERM_BG_BLUE</code>, <code>term_fg256</code>, <code>term_rgb</code>, ...), <code>term_style</code>/<code>term_style_fd</code>/<code>term_print</code>/<code>term_println</code>/<code>term_sgr</code>/<code>term_reset</code>/<code>term_strip</code>, <code>term_is_tty</code>, <code>term_width</code>, <code>term_color_enabled</code>, <code>term_set_color_mode</code></td>
+</tr>
+<tr>
+<td><code>stdlib/log.esk</code></td>
+<td>Leveled logging: <code>log_trace</code>/<code>log_debug</code>/<code>log_info</code>/<code>log_warn</code>/<code>log_error</code>/<code>log_at</code> (printf-style), <code>log_set_level</code> (or <code>LOG_LEVEL</code>), <code>log_set_file</code>/<code>log_set_stderr</code>, <code>log_set_time</code>, <code>log_set_color</code>, <code>log_freeze_time</code></td>
 </tr>
 <tr>
 <td><code>stdlib/sysheap.esk</code></td>
@@ -3204,6 +3216,164 @@ returns the byte count, or -1 for an odd length, a non-hex character or more tha
 bytes. <code>hash_equal(a, b, n)</code> and <code>hash_equal_str(a, b)</code> compare in time that depends
 only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
 checksums.</p>
+<h3 id="console-input-and-output-io">Console input and output (<code>&lt;io&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;io&gt;;
+
+int main() {
+    println(&quot;hello&quot;);                           // stdout
+    println_err(&quot;warning: low disk&quot;);           // stderr, after flushing stdout
+    let name: String;  name.init(32);
+    if (input(&quot;name? &quot;, &amp;name) == 0) { printf(&quot;hi %s\n&quot;, name.cstr()); }
+    while (read_line(&amp;name) == 0) { println(name.cstr()); }
+    name.free();
+    return 0;
+}
+</code></pre>
+<p><code>print(s)</code> and <code>println(s)</code> write a <code>string</code> to stdout through C stdio, so they keep
+their order with <code>printf</code>. <code>print_err(s)</code> and <code>println_err(s)</code> flush stdout, then write to
+stderr. <code>read_line(&amp;out)</code> reads one line of stdin into a <code>String</code> (cleared first) without
+its <code>"\n"</code> or <code>"\r\n"</code>; it returns 0, or -1 at end of input when nothing was read (a last
+line without a newline still returns 0). <code>input(prompt, &amp;out)</code> prints the prompt, flushes,
+and reads a line the same way. <code>read_all_stdin(&amp;out)</code> reads the rest of stdin, binary safe
+(<code>out.len</code> counts NUL bytes too; stdin is switched to binary mode on Windows), and returns
+the byte count. All three read through the C <code>stdin</code> buffer that <code>scanf</code> and <code>getchar</code>
+share. <code>io_stdin()</code>, <code>io_stdout()</code> and <code>io_stderr()</code> return the C <code>FILE*</code> streams for use
+with the <code>&lt;fs&gt;</code> functions. (The names <code>eprint</code>/<code>eprintln</code> are left free: the self-hosted
+compiler defines its own <code>eprint</code>.)</p>
+<h3 id="time-formatting-local-time-and-durations-time">Time formatting, local time and durations (<code>&lt;time&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;time&gt;;
+import &lt;io&gt;;
+
+int main() {
+    let s: String;  s.init(32);
+    time_format(time_now_s(), &quot;%a %F %T %Z (%z)&quot;, TIME_LOCAL, &amp;s);
+    int64 t = 0;
+    time_parse(&quot;2026-10-11T10:30:05+02:00&quot;, &quot;%FT%T%z&quot;, &amp;t);   // 1791707405
+    duration_format(3723000, &amp;s);                              // &quot;1h 2m 3s&quot;
+    let sw: Stopwatch;  sw.start();
+    sleep_ms(10);
+    printf(&quot;%lld ms\n&quot;, sw.elapsed_ms());
+    s.free();
+    return 0;
+}
+</code></pre>
+<p><code>time_format(t, fmt, zone, &amp;out)</code> formats epoch seconds in <code>TIME_UTC</code> or <code>TIME_LOCAL</code> and
+returns 0, or -1 when <code>fmt</code> has an unknown specifier (copied as written). The specifiers,
+for both formatting and parsing, are <code>%Y %m %d %H %M %S %j</code> (zero-padded numbers),
+<code>%a %A</code> and <code>%b %B</code> (English weekday and month names, short and full), <code>%Z</code> (zone name:
+<code>UTC</code>, or the C library's local name), <code>%z</code> (<code>+hhmm</code>), <code>%s</code> (epoch seconds), <code>%F</code>
+(<code>%Y-%m-%d</code>), <code>%T</code> (<code>%H:%M:%S</code>) and <code>%%</code>. Local time follows the system zone (<code>TZ</code> on
+POSIX, read again on every call) through <code>localtime_r</code> / <code>_localtime64_s</code>;
+<code>time_to_local(t, &amp;dt)</code> fills a <code>DateTime</code> and returns the offset from UTC in seconds, and
+<code>time_local_offset(t)</code> returns just the offset.</p>
+<p><code>time_parse(text, fmt, &amp;t)</code> must match all of <code>text</code>; a space in <code>fmt</code> matches any run of
+whitespace. Names match in any case, full or abbreviated; <code>%z</code> takes <code>Z</code>, <code>+hh</code>, <code>+hhmm</code>
+or <code>+hh:mm</code> and <code>%Z</code> takes <code>UTC</code>, <code>GMT</code> or <code>Z</code>. Fields not given default to 1970-01-01
+00:00:00, a date that does not exist (2023-02-29, month 13, hour 24) is an error (-1),
+and the time is UTC unless an offset is parsed or <code>%s</code> sets the instant.
+<code>time_parse_local</code> reads a time without an offset in the local zone.</p>
+<p><code>duration_format(ms, &amp;out)</code> writes <code>1d 2h 3m 4s 5ms</code>, leaving out zero parts (<code>0ms</code> for
+zero, a leading <code>-</code> when negative). A <code>Stopwatch</code> measures on the monotonic clock:
+<code>start</code> (or restart), <code>elapsed_ms</code>, and <code>lap</code> (milliseconds since the previous lap or the
+start).</p>
+<h3 id="terminal-colors-term">Terminal colors (<code>&lt;term&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;term&gt;;
+
+int main() {
+    term_println(&quot;ok&quot;, TERM_BOLD | TERM_GREEN);
+    let s: String;  s.init(64);
+    term_style(&amp;s, &quot;error:&quot;, TERM_BOLD | TERM_RED);
+    s.append(&quot; not found&quot;);
+    println(s.cstr());
+    term_print(&quot;sunset\n&quot;, term_rgb(255, 128, 0) | term_bg256(17));
+    printf(&quot;%d columns\n&quot;, term_width());
+    s.free();
+    return 0;
+}
+</code></pre>
+<p>A style is an <code>int64</code> combined with <code>|</code>: attributes <code>TERM_BOLD</code>, <code>TERM_DIM</code>,
+<code>TERM_ITALIC</code>, <code>TERM_UNDERLINE</code>, <code>TERM_BLINK</code>, <code>TERM_REVERSE</code>, <code>TERM_HIDDEN</code>,
+<code>TERM_STRIKE</code>; one foreground color (<code>TERM_BLACK</code> ... <code>TERM_WHITE</code>, <code>TERM_BRIGHT_*</code>,
+<code>TERM_GRAY</code>, <code>term_fg256(n)</code>, <code>term_rgb(r, g, b)</code>); one background color (<code>TERM_BG_*</code>,
+<code>term_bg256(n)</code>, <code>term_bg_rgb(r, g, b)</code>). <code>TERM_PLAIN</code> is no style. <code>term_sgr(&amp;out,
+style)</code> appends the escape sequence and <code>term_reset(&amp;out)</code> the reset, always.
+<code>term_style(&amp;out, text, style)</code> appends the text wrapped in them only when colors are
+enabled for stdout (<code>term_style_fd(fd, ...)</code> for another stream), and
+<code>term_print</code>/<code>term_println</code> print that way. <code>term_strip(&amp;s)</code> removes escape sequences.</p>
+<p><code>term_color_enabled(fd)</code> decides: <code>FORCE_COLOR</code> set to anything but <code>""</code> or <code>"0"</code> turns
+colors on; otherwise <code>NO_COLOR</code> set and not empty turns them off, as does <code>TERM=dumb</code>;
+otherwise they are on when <code>term_is_tty(fd)</code>. <code>term_set_color_mode(TERM_ALWAYS)</code> /
+<code>TERM_NEVER</code> / <code>TERM_AUTO</code> overrides those rules for the program. On Windows the
+console's virtual terminal processing is enabled the first time colors are used on it.
+<code>term_width()</code> is <code>COLUMNS</code> when it is a positive number, else the width of the terminal
+behind stdout, stderr or stdin (<code>TIOCGWINSZ</code>, <code>GetConsoleScreenBufferInfo</code>), else 80.</p>
+<h3 id="logging-log">Logging (<code>&lt;log&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;log&gt;;
+
+int main() {
+    log_info(&quot;listening on port %d&quot;, 8080);
+    log_debug(&quot;hidden unless LOG_LEVEL=debug&quot;);
+    log_set_level(LOG_DEBUG);
+    log_set_time(LOG_TIME_LOCAL);
+    log_warn(&quot;retry %d of %d&quot;, 1, 3);
+    return 0;
+}
+</code></pre>
+<p>This prints lines such as <code>2026-10-11T08:30:05.123Z INFO  listening on port 8080</code> to
+stderr. The functions are <code>log_trace</code>, <code>log_debug</code>, <code>log_info</code>, <code>log_warn</code>, <code>log_error</code>
+and <code>log_at(level, fmt, ...)</code>, printf-style with C <code>vsnprintf</code> rules. The minimum level is
+the one given to <code>log_set_level</code> (<code>LOG_TRACE</code> ... <code>LOG_ERROR</code>, <code>LOG_OFF</code>; <code>-1</code> goes back to
+the environment), else <code>LOG_LEVEL</code> (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>/<code>warning</code>, <code>error</code>,
+<code>off</code>, any case, or <code>0</code>-<code>5</code>), else <code>LOG_INFO</code>; a message below it is not formatted.
+<code>log_enabled(level)</code> and <code>log_level()</code> query it and <code>log_level_from_name</code> parses a name.
+Timestamps are UTC with milliseconds by default; <code>log_set_time(LOG_TIME_LOCAL)</code> prints
+the local time with its offset (<code>2026-10-11T04:30:05.123-04:00</code>) and <code>LOG_TIME_NONE</code> none.
+<code>log_freeze_time(ms)</code> stamps every line with a fixed time (for tests) until
+<code>log_unfreeze_time()</code>. <code>log_set_file(path)</code> appends to a file (0, or -1 if it cannot be
+opened), flushed after every line; <code>log_set_stderr()</code> returns to stderr. On stderr the
+level tag is colored through <code>&lt;term&gt;</code> when colors are enabled for stderr;
+<code>log_set_color(TERM_ALWAYS / TERM_NEVER / TERM_AUTO)</code> changes that.</p>
+<h3 id="command-line-arguments-args">Command-line arguments (<code>&lt;args&gt;</code>)</h3>
+<pre><code class="language-eskiu">import &lt;args&gt;;
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&amp;p, &quot;copy&quot;, &quot;Copy files.&quot;);
+    defer ArgParser_free(&amp;p);
+    args_flag(&amp;p, &quot;-v&quot;, &quot;--verbose&quot;, &quot;say more&quot;);
+    args_option(&amp;p, &quot;-o&quot;, &quot;--output&quot;, &quot;DIR&quot;, &quot;.&quot;, &quot;where to copy&quot;);
+    args_option_int(&amp;p, &quot;-j&quot;, &quot;--jobs&quot;, &quot;N&quot;, 1, &quot;parallel copies&quot;);
+    args_argument(&amp;p, &quot;files&quot;, &quot;files to copy&quot;, ARGS_REQUIRED | ARGS_MANY);
+    ArgParser_parse_or_exit(&amp;p, argc, argv);
+    for (i in 0..args_count(&amp;p, &quot;files&quot;)) {
+        printf(&quot;%s -&gt; %s\n&quot;, args_get_at(&amp;p, &quot;files&quot;, i), args_get(&amp;p, &quot;output&quot;));
+    }
+    return 0;
+}
+</code></pre>
+<p><code>args_flag(p, short, long, help)</code>, <code>args_option(p, short, long, metavar, default, help)</code>
+and <code>args_option_int(...)</code> (an <code>int</code> default; a value that is not an integer is a parse
+error) declare options; either name may be <code>null</code>. <code>args_argument(p, name, help, mode)</code>
+declares a positional argument: <code>ARGS_OPTIONAL</code>, <code>ARGS_REQUIRED</code>, and <code>ARGS_MANY</code> for the
+last one (zero or more, one or more with <code>ARGS_REQUIRED</code>). A parser that declares no
+arguments accepts any positionals; one that declares some rejects extras.</p>
+<p>Accepted forms: <code>-v</code>, <code>--verbose</code>, <code>-o x</code>, <code>-ox</code>, <code>--output x</code>, <code>--output=x</code>, short
+clusters (<code>-vo x</code>: an option in a cluster takes the rest of it or the next argument),
+<code>--</code> (everything after it is positional, also kept for <code>args_rest</code>), and <code>-</code> as a
+positional. An option's value is the next argument even when it starts with <code>-</code>; <code>-5</code> is a
+positional unless a short option is a digit. A repeated option keeps all its values
+(<code>args_get</code> returns the last, <code>args_get_all</code>/<code>args_get_at</code> every one) and a repeated flag
+counts (<code>args_count</code>). <code>-h</code>/<code>--help</code> are automatic unless the program declares those
+names.</p>
+<p><code>ArgParser_parse(p, argc, argv)</code> returns <code>ARGS_OK</code>, <code>ARGS_HELP</code> after printing the
+generated help to stdout, or <code>ARGS_ERROR</code> after printing the usage line and <code>prog: error:
+...</code> to stderr (the message is also <code>ArgParser_error(p)</code>). <code>ArgParser_parse_or_exit</code>
+exits with 0 after the help and with 2 after an error. <code>ArgParser_help(p, &amp;out)</code> and
+<code>ArgParser_usage(p, &amp;out)</code> produce the texts. Accessors take a long name without dashes
+(<code>"output"</code>), a short name (<code>"o"</code> or <code>"-o"</code>) or an argument name: <code>args_get</code> (the value or
+the default, <code>null</code> if neither), <code>args_get_int</code>, <code>args_get_flag</code>, <code>args_count</code>,
+<code>args_get_at</code>, <code>args_get_all</code>, and <code>args_positional(p, i)</code> / <code>args_positional_count(p)</code>
+for every positional in order. Returned strings point into <code>argv</code> or the defaults.</p>
 <h2 id="15-inline-assembly">15. Inline Assembly</h2>
 <p>Eskiu supports inline assembly via the <code>asm(...)</code> statement, which lowers directly to an LLVM inline asm node.</p>
 <h3 id="151-simple-form">15.1 Simple Form</h3>

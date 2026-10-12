@@ -995,7 +995,7 @@ Available modules:
 | `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `str_join`, `str_format` |
 | `<ctype>`    | ASCII character classes: `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
-| `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`       |
+| `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`; `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin` |
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit`: explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
 | `<either>`   | sum types: `Option<T>`, `Either<A,B>` + helpers (built on generic algebraic enums) |
@@ -1021,9 +1021,12 @@ Available modules:
 | `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
 | `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, form-query lookup `url_query_get`; `url_parse` into a `Url`, `url_resolve`, `url_query_add` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`) |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `duration_format`, `Stopwatch` |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
 | `<process>`  | `process_run` (capture output, stdin text, cwd, env, timeout), `sh`, `sh_with`, `process_spawn` + `Process_write_stdin`/`_read`/`_wait`/`_kill`, `process_exit`, `process_pid` |
+| `<args>`     | command-line parsing: `ArgParser`, `args_flag`, `args_option`, `args_option_int`, `args_argument`, generated `--help`, `ArgParser_parse_or_exit`, `args_get`/`args_get_int`/`args_get_flag`/`args_count` |
+| `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
+| `<log>`      | `log_info`/`log_warn`/`log_error`/`log_debug`/`log_trace` (printf-style), `LOG_LEVEL` or `log_set_level`, timestamps, `log_set_file` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
 | `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |

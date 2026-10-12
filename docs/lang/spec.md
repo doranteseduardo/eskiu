@@ -2325,12 +2325,12 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`); scripting helpers `String_find`, `String_contains`, `String_replace`, `String_replace_all`, `String_split_str`, `String_lines`, `String_join`, `str_join`, `List_join`, `String_lower`, `String_upper`, `String_repeat`, `String_pad_left`, `String_pad_right`, `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, `String_appendf`, `str_format` (see [String scripting helpers](#string-scripting-helpers)). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
 | `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only, no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `fmod`, `abs` |
-| `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar` |
+| `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar`; console helpers `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin`, and the C streams `io_stdin`/`io_stdout`/`io_stderr` |
 | `stdlib/mem.esk`      | Heap allocation `alloc<T>(n)` / `free(p)` (libc, or `esk_alloc`/`esk_free` under `--freestanding`); plus `extern` `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`. Text files (`fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`), metadata (`FileStat`, `fs_stat`, `fs_lstat`, `fs_exists`, `fs_is_dir`, `fs_is_file`), directories (`fs_mkdir`, `fs_mkdir_p`, `fs_remove`, `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir`, `fs_walk`, `fs_glob`, `fs_match`), `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, `fs_temp_base`, and errors (`fs_last_error`, `fs_errno`, `fs_errno_missing`); see [Files and directories](#files-and-directories-fs) |
 | `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_accept_addr` (accept + peer IPv4), `net_tcp_connect` (a dotted IPv4 address, or a host name or IPv6 address resolved through `<dns>`), `net_send`, `net_recv`, `net_send_str`, `net_close`, socket timeouts (`net_set_recv_timeout`, `net_set_send_timeout`, `net_set_timeouts`, `net_would_block`; the `struct timeval` is two C `long`s, so 8 bytes on 32-bit ARM), deadlines (`net_deadline`, `NET_TIMED_OUT`) and a blocking readiness wait (`net_wait_ready`, over `poll` / `WSAPoll`) (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
 | `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit`, each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
-| `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`) |
+| `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`); local time (`time_to_local`, `time_local_offset`), `time_format`/`time_parse`/`time_parse_local` with strftime-style specifiers, `duration_format`, `Stopwatch` |
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
 | `stdlib/regex.esk`    | A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): `regex_compile(pattern) -> Regex` (check `.ok` / `.err`), `Regex_search(&re, text, &m)` for the leftmost match with capture groups, `Match_group`, `Match_free`, `Regex_free`, and the one-shot `regex_match(pattern, text)`. RE2 syntax and semantics (as Go's regexp) over UTF-8: `.`, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, `.`, classes `[a-z]`/`[^...]` with POSIX names inside (`[[:alpha:]]`, `[[:^space:]]`), the ASCII shorthands `\d \w \s` (and negations; `\s` is `[\t\n\f\r ]`), Unicode classes `\pL`, `\p{Lu}`, `\p{Greek}`, `\P{..}`, `\p{^..}` (general categories, scripts, `Any`; the Unicode 15 tables are `stdlib/regex_unicode.esk`), `* + ? {m} {m,} {m,n}` (lazy with `?`; any other `{` is a literal), `|`, groups, non-capturing `(?:...)`, named `(?P<name>...)` / `(?<name>...)`, the flags `(?i)` (simple case folding) `(?m)` `(?s)` `(?U)` for the rest of a group or scoped `(?flags:...)`, `^` / `$`, `\A` / `\z`, the ASCII word boundaries `\b` / `\B`, `\xHH` / `\x{10FFFF}` and octal escapes, literal text `\Q...\E` (any other escaped letter or digit is an error) |
 | `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive); `List_sort_by(&list, cmp)` sorts a `List<T>` in place |
@@ -2354,6 +2354,9 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/csv.esk`      | RFC 4180 CSV: `csv_parse`/`csv_parse_with`/`csv_parse_buf` into a `CsvTable` (`CsvTable_len`/`_row`/`_cell`/`_col`/`_get`/`_error`/`_write`/`_free`), `csv_write_row`/`csv_write_row_with` |
 | `stdlib/dotenv.esk`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` into a `Map<string>`, `dotenv_free`, `dotenv_error`/`dotenv_error_line` |
 | `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `sha256`/`sha256_hex`/`sha256_str` (same for `sha1`, `md5`), `hmac_sha256`/`hmac_sha256_str`, `hex_encode`/`hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
+| `stdlib/args.esk`     | Command-line parsing: `ArgParser` (`_init`/`_parse`/`_parse_or_exit`/`_help`/`_usage`/`_error`/`_free`), declared with `args_flag`, `args_option`, `args_option_int`, `args_argument`, read with `args_get`, `args_get_int`, `args_get_flag`, `args_count`, `args_get_at`, `args_get_all`, `args_positional`, `args_rest` |
+| `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
+| `stdlib/log.esk`      | Leveled logging: `log_trace`/`log_debug`/`log_info`/`log_warn`/`log_error`/`log_at` (printf-style), `log_set_level` (or `LOG_LEVEL`), `log_set_file`/`log_set_stderr`, `log_set_time`, `log_set_color`, `log_freeze_time` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
 | `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`/`free_future_polled` (the latter also frees the waker a hand-driven `future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run`, `Executor_stop`, `Executor_free` |
@@ -3017,6 +3020,189 @@ returns the byte count, or -1 for an odd length, a non-hex character or more tha
 bytes. `hash_equal(a, b, n)` and `hash_equal_str(a, b)` compare in time that depends
 only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
 checksums.
+
+### Console input and output (`<io>`)
+
+```eskiu
+import <io>;
+
+int main() {
+    println("hello");                           // stdout
+    println_err("warning: low disk");           // stderr, after flushing stdout
+    let name: String;  name.init(32);
+    if (input("name? ", &name) == 0) { printf("hi %s\n", name.cstr()); }
+    while (read_line(&name) == 0) { println(name.cstr()); }
+    name.free();
+    return 0;
+}
+```
+
+`print(s)` and `println(s)` write a `string` to stdout through C stdio, so they keep
+their order with `printf`. `print_err(s)` and `println_err(s)` flush stdout, then write to
+stderr. `read_line(&out)` reads one line of stdin into a `String` (cleared first) without
+its `"\n"` or `"\r\n"`; it returns 0, or -1 at end of input when nothing was read (a last
+line without a newline still returns 0). `input(prompt, &out)` prints the prompt, flushes,
+and reads a line the same way. `read_all_stdin(&out)` reads the rest of stdin, binary safe
+(`out.len` counts NUL bytes too; stdin is switched to binary mode on Windows), and returns
+the byte count. All three read through the C `stdin` buffer that `scanf` and `getchar`
+share. `io_stdin()`, `io_stdout()` and `io_stderr()` return the C `FILE*` streams for use
+with the `<fs>` functions. (The names `eprint`/`eprintln` are left free: the self-hosted
+compiler defines its own `eprint`.)
+
+### Time formatting, local time and durations (`<time>`)
+
+```eskiu
+import <time>;
+import <io>;
+
+int main() {
+    let s: String;  s.init(32);
+    time_format(time_now_s(), "%a %F %T %Z (%z)", TIME_LOCAL, &s);
+    int64 t = 0;
+    time_parse("2026-10-11T10:30:05+02:00", "%FT%T%z", &t);   // 1791707405
+    duration_format(3723000, &s);                              // "1h 2m 3s"
+    let sw: Stopwatch;  sw.start();
+    sleep_ms(10);
+    printf("%lld ms\n", sw.elapsed_ms());
+    s.free();
+    return 0;
+}
+```
+
+`time_format(t, fmt, zone, &out)` formats epoch seconds in `TIME_UTC` or `TIME_LOCAL` and
+returns 0, or -1 when `fmt` has an unknown specifier (copied as written). The specifiers,
+for both formatting and parsing, are `%Y %m %d %H %M %S %j` (zero-padded numbers),
+`%a %A` and `%b %B` (English weekday and month names, short and full), `%Z` (zone name:
+`UTC`, or the C library's local name), `%z` (`+hhmm`), `%s` (epoch seconds), `%F`
+(`%Y-%m-%d`), `%T` (`%H:%M:%S`) and `%%`. Local time follows the system zone (`TZ` on
+POSIX, read again on every call) through `localtime_r` / `_localtime64_s`;
+`time_to_local(t, &dt)` fills a `DateTime` and returns the offset from UTC in seconds, and
+`time_local_offset(t)` returns just the offset.
+
+`time_parse(text, fmt, &t)` must match all of `text`; a space in `fmt` matches any run of
+whitespace. Names match in any case, full or abbreviated; `%z` takes `Z`, `+hh`, `+hhmm`
+or `+hh:mm` and `%Z` takes `UTC`, `GMT` or `Z`. Fields not given default to 1970-01-01
+00:00:00, a date that does not exist (2023-02-29, month 13, hour 24) is an error (-1),
+and the time is UTC unless an offset is parsed or `%s` sets the instant.
+`time_parse_local` reads a time without an offset in the local zone.
+
+`duration_format(ms, &out)` writes `1d 2h 3m 4s 5ms`, leaving out zero parts (`0ms` for
+zero, a leading `-` when negative). A `Stopwatch` measures on the monotonic clock:
+`start` (or restart), `elapsed_ms`, and `lap` (milliseconds since the previous lap or the
+start).
+
+### Terminal colors (`<term>`)
+
+```eskiu
+import <term>;
+
+int main() {
+    term_println("ok", TERM_BOLD | TERM_GREEN);
+    let s: String;  s.init(64);
+    term_style(&s, "error:", TERM_BOLD | TERM_RED);
+    s.append(" not found");
+    println(s.cstr());
+    term_print("sunset\n", term_rgb(255, 128, 0) | term_bg256(17));
+    printf("%d columns\n", term_width());
+    s.free();
+    return 0;
+}
+```
+
+A style is an `int64` combined with `|`: attributes `TERM_BOLD`, `TERM_DIM`,
+`TERM_ITALIC`, `TERM_UNDERLINE`, `TERM_BLINK`, `TERM_REVERSE`, `TERM_HIDDEN`,
+`TERM_STRIKE`; one foreground color (`TERM_BLACK` ... `TERM_WHITE`, `TERM_BRIGHT_*`,
+`TERM_GRAY`, `term_fg256(n)`, `term_rgb(r, g, b)`); one background color (`TERM_BG_*`,
+`term_bg256(n)`, `term_bg_rgb(r, g, b)`). `TERM_PLAIN` is no style. `term_sgr(&out,
+style)` appends the escape sequence and `term_reset(&out)` the reset, always.
+`term_style(&out, text, style)` appends the text wrapped in them only when colors are
+enabled for stdout (`term_style_fd(fd, ...)` for another stream), and
+`term_print`/`term_println` print that way. `term_strip(&s)` removes escape sequences.
+
+`term_color_enabled(fd)` decides: `FORCE_COLOR` set to anything but `""` or `"0"` turns
+colors on; otherwise `NO_COLOR` set and not empty turns them off, as does `TERM=dumb`;
+otherwise they are on when `term_is_tty(fd)`. `term_set_color_mode(TERM_ALWAYS)` /
+`TERM_NEVER` / `TERM_AUTO` overrides those rules for the program. On Windows the
+console's virtual terminal processing is enabled the first time colors are used on it.
+`term_width()` is `COLUMNS` when it is a positive number, else the width of the terminal
+behind stdout, stderr or stdin (`TIOCGWINSZ`, `GetConsoleScreenBufferInfo`), else 80.
+
+### Logging (`<log>`)
+
+```eskiu
+import <log>;
+
+int main() {
+    log_info("listening on port %d", 8080);
+    log_debug("hidden unless LOG_LEVEL=debug");
+    log_set_level(LOG_DEBUG);
+    log_set_time(LOG_TIME_LOCAL);
+    log_warn("retry %d of %d", 1, 3);
+    return 0;
+}
+```
+
+This prints lines such as `2026-10-11T08:30:05.123Z INFO  listening on port 8080` to
+stderr. The functions are `log_trace`, `log_debug`, `log_info`, `log_warn`, `log_error`
+and `log_at(level, fmt, ...)`, printf-style with C `vsnprintf` rules. The minimum level is
+the one given to `log_set_level` (`LOG_TRACE` ... `LOG_ERROR`, `LOG_OFF`; `-1` goes back to
+the environment), else `LOG_LEVEL` (`trace`, `debug`, `info`, `warn`/`warning`, `error`,
+`off`, any case, or `0`-`5`), else `LOG_INFO`; a message below it is not formatted.
+`log_enabled(level)` and `log_level()` query it and `log_level_from_name` parses a name.
+Timestamps are UTC with milliseconds by default; `log_set_time(LOG_TIME_LOCAL)` prints
+the local time with its offset (`2026-10-11T04:30:05.123-04:00`) and `LOG_TIME_NONE` none.
+`log_freeze_time(ms)` stamps every line with a fixed time (for tests) until
+`log_unfreeze_time()`. `log_set_file(path)` appends to a file (0, or -1 if it cannot be
+opened), flushed after every line; `log_set_stderr()` returns to stderr. On stderr the
+level tag is colored through `<term>` when colors are enabled for stderr;
+`log_set_color(TERM_ALWAYS / TERM_NEVER / TERM_AUTO)` changes that.
+
+### Command-line arguments (`<args>`)
+
+```eskiu
+import <args>;
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&p, "copy", "Copy files.");
+    defer ArgParser_free(&p);
+    args_flag(&p, "-v", "--verbose", "say more");
+    args_option(&p, "-o", "--output", "DIR", ".", "where to copy");
+    args_option_int(&p, "-j", "--jobs", "N", 1, "parallel copies");
+    args_argument(&p, "files", "files to copy", ARGS_REQUIRED | ARGS_MANY);
+    ArgParser_parse_or_exit(&p, argc, argv);
+    for (i in 0..args_count(&p, "files")) {
+        printf("%s -> %s\n", args_get_at(&p, "files", i), args_get(&p, "output"));
+    }
+    return 0;
+}
+```
+
+`args_flag(p, short, long, help)`, `args_option(p, short, long, metavar, default, help)`
+and `args_option_int(...)` (an `int` default; a value that is not an integer is a parse
+error) declare options; either name may be `null`. `args_argument(p, name, help, mode)`
+declares a positional argument: `ARGS_OPTIONAL`, `ARGS_REQUIRED`, and `ARGS_MANY` for the
+last one (zero or more, one or more with `ARGS_REQUIRED`). A parser that declares no
+arguments accepts any positionals; one that declares some rejects extras.
+
+Accepted forms: `-v`, `--verbose`, `-o x`, `-ox`, `--output x`, `--output=x`, short
+clusters (`-vo x`: an option in a cluster takes the rest of it or the next argument),
+`--` (everything after it is positional, also kept for `args_rest`), and `-` as a
+positional. An option's value is the next argument even when it starts with `-`; `-5` is a
+positional unless a short option is a digit. A repeated option keeps all its values
+(`args_get` returns the last, `args_get_all`/`args_get_at` every one) and a repeated flag
+counts (`args_count`). `-h`/`--help` are automatic unless the program declares those
+names.
+
+`ArgParser_parse(p, argc, argv)` returns `ARGS_OK`, `ARGS_HELP` after printing the
+generated help to stdout, or `ARGS_ERROR` after printing the usage line and `prog: error:
+...` to stderr (the message is also `ArgParser_error(p)`). `ArgParser_parse_or_exit`
+exits with 0 after the help and with 2 after an error. `ArgParser_help(p, &out)` and
+`ArgParser_usage(p, &out)` produce the texts. Accessors take a long name without dashes
+(`"output"`), a short name (`"o"` or `"-o"`) or an argument name: `args_get` (the value or
+the default, `null` if neither), `args_get_int`, `args_get_flag`, `args_count`,
+`args_get_at`, `args_get_all`, and `args_positional(p, i)` / `args_positional_count(p)`
+for every positional in order. Returned strings point into `argv` or the defaults.
 
 ## 15. Inline Assembly
 

@@ -212,6 +212,18 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   <code>Response_header</code>, <code>Response_text</code>, <code>Response_bytes</code>, <code>Response_json</code>, <code>Response_ok</code>;
   error codes plus <code>fetch_last_error</code>. HTTPS loads OpenSSL at run time (<code>&lt;fetch_tls&gt;</code>), so
   programs link without libssl. Example <code>fetch.esk</code>; stdlib fuzz target <code>fetch</code>.</li>
+<li><code>&lt;args&gt;</code>: a declarative command-line parser (<code>ArgParser</code>, <code>args_flag</code>, <code>args_option</code>,
+  <code>args_option_int</code>, <code>args_argument</code>) with short clusters, <code>--opt=value</code>, <code>--</code>, repeated
+  options, generated <code>--help</code> and usage errors (<code>ArgParser_parse_or_exit</code> exits 0 or 2).</li>
+<li><code>&lt;term&gt;</code>: ANSI styles, 16/256/RGB colors, <code>term_is_tty</code>, <code>term_width</code>; colors follow
+  <code>NO_COLOR</code>, <code>FORCE_COLOR</code> and whether the stream is a terminal; Windows VT mode.</li>
+<li><code>&lt;log&gt;</code>: <code>log_trace</code> to <code>log_error</code> (printf-style), <code>LOG_LEVEL</code>, UTC or local timestamps,
+  colored level tags, output to stderr or a file.</li>
+<li><code>&lt;io&gt;</code>: <code>print</code>, <code>println</code>, <code>print_err</code>, <code>println_err</code>, <code>read_line</code>, <code>input</code>,
+  <code>read_all_stdin</code> (binary safe).</li>
+<li><code>&lt;time&gt;</code>: <code>time_format</code>, <code>time_parse</code>, <code>time_parse_local</code> (strftime-style specifiers),
+  <code>time_to_local</code>, <code>time_local_offset</code>, <code>duration_format</code>, <code>Stopwatch</code>.</li>
+<li>Example <code>dir_list.esk</code> (<code>&lt;args&gt;</code>, <code>&lt;term&gt;</code>, <code>&lt;log&gt;</code>, <code>&lt;time&gt;</code>).</li>
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>
