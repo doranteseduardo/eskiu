@@ -1,0 +1,19 @@
+// A command that exits in time but leaves a background process holding its output
+// pipe: process_run reports the command's own exit code and output, not a
+// timeout (it used to wait for the pipe, then kill and report 137).
+import <process>;
+import <io>;
+
+int main() {
+    let o: ProcessOptions;
+    memset((*void)&o, 0, sizeof(ProcessOptions));
+    o.timeout_ms = 500;
+    let r: ProcessResult;
+    sh_with("(sleep 2 &); echo done; exit 4", &o, &r);
+    printf("code=%d timed_out=%d out=[%s]\n", r.exit_code, r.timed_out ? 1 : 0, r.stdout.data);
+    ProcessResult_free(&r);
+    sh_with("sleep 2", &o, &r);
+    printf("real timeout: code=%d timed_out=%d\n", r.exit_code, r.timed_out ? 1 : 0);
+    ProcessResult_free(&r);
+    return 0;
+}

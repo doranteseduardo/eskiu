@@ -772,6 +772,15 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         }
         if (pr == 0) {
             if (killed) { break; }   // the grace period after the kill ran out
+            // The child exited in time and something it started still holds the
+            // pipes open: that is the child's result, not a timeout. Stop reading
+            // and leave the descendants alone.
+            int st = 0;
+            if (waitpid(p.pid, &st, 1) == p.pid) {   // WNOHANG
+                p.exited = true;
+                p.exit_code = _proc_decode(st);
+                break;
+            }
             _proc_kill(&p);
             killed = true;
             r.timed_out = true;
@@ -801,7 +810,7 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
     _proc_close(&p.stdout_fd);
     _proc_close(&p.stderr_fd);
     bool late = false;
-    _proc_reap(&p, killed ? 0 : deadline, &late);
+    if (!p.exited) { _proc_reap(&p, killed ? 0 : deadline, &late); }
     if (late) { r.timed_out = true; }
     r.exit_code = r.timed_out ? 137 : p.exit_code;
     return 0;

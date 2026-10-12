@@ -79,6 +79,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
+- `process_run` with a timeout reports the command's own exit code when it exited in time
+  and a background process it started still holds the output pipe; it waited for the pipe,
+  then killed the group and reported a timeout (137).
 - `dns_resolve` keeps the zone of a scoped IPv6 address (`fe80::1%en0`, the index on
   Windows); it dropped it, so a link-local result did not resolve to the same address.
 - `fs_remove_all` and `fs_walk` go down a tree through directory descriptors (`openat` with
