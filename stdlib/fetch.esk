@@ -683,7 +683,7 @@ int _fetch_connect_failed(_FetchCall* c) {
     String_free(&hp);
     if (c.conn_err != 0) {
 #ifdef _WIN32
-        if (c.conn_err == 10061) { String_append(&_fetch_err, ": connection refused"); }
+        if (c.conn_err == 10061) { String_append(&_fetch_err, ": Connection refused"); }
         else { String_appendf(&_fetch_err, ": socket error %d", c.conn_err); }
 #else
         String_append(&_fetch_err, ": ");
