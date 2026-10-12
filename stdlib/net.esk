@@ -28,8 +28,15 @@ extern int WSAStartup(int version, *void data);
 extern int close(int fd);
 #endif
 extern int   setsockopt(int fd, int level, int opt, *void val, int len);
+#ifdef _WIN32
+// Winsock's send/recv take and return an int: read as int64, SOCKET_ERROR
+// (-1) would be 4294967295.
+extern int send(int fd, *void buf, int n, int flags);
+extern int recv(int fd, *void buf, int n, int flags);
+#else
 extern int64 send(int fd, *void buf, int64 n, int flags);
 extern int64 recv(int fd, *void buf, int64 n, int flags);
+#endif
 extern uint16 htons(uint16 x);
 extern uint32 htonl(uint32 x);
 extern uint32 inet_addr(string dotted);
@@ -196,8 +203,14 @@ void net_nosigpipe(int fd) {
 }
 
 // send() that never raises SIGPIPE: a closed peer is a -1 return (EPIPE).
+#ifdef _WIN32
+int _net_io_len(int64 n) { return n > 1073741824 ? 1073741824 : (int)n; }
+int64 net_send(int fd, *void buf, int64 n) { return (int64)send(fd, buf, _net_io_len(n), _NET_MSG_NOSIGNAL); }
+int64 net_recv(int fd, *void buf, int64 n) { return (int64)recv(fd, buf, _net_io_len(n), 0); }
+#else
 int64 net_send(int fd, *void buf, int64 n) { return send(fd, buf, n, _NET_MSG_NOSIGNAL); }
 int64 net_recv(int fd, *void buf, int64 n) { return recv(fd, buf, n, 0); }
+#endif
 int64 net_send_str(int fd, string s)       { return net_send(fd, (*void)s, strlen(s)); }
 void  net_close(int fd)                    { net_close_fd(fd); }
 
