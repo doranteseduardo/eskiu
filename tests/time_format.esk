@@ -1,0 +1,113 @@
+// <time> formatting and parsing: every specifier in UTC, local time under
+// POSIX TZ rules set through the environment (no tz database needed), parse
+// round trips, offsets, rejects, durations and a Stopwatch.
+import <time>;
+import <env>;
+import <io>;
+
+void fmt(int64 t, string f, int local) {
+    let s: String;  s.init(8);
+    const int rc = time_format(t, f, local, &s);
+    printf("%lld %-28s -> [%s] rc=%d\n", t, f, s.cstr(), rc);
+    s.free();
+}
+
+void parse(string text, string f) {
+    int64 t = -1;
+    const int rc = time_parse(text, f, &t);
+    if (rc == 0) { printf("parse %-32s %-14s -> %lld\n", text, f, t); }
+    else { printf("parse %-32s %-14s -> error\n", text, f); }
+}
+
+void parse_local(string text, string f) {
+    int64 t = -1;
+    const int rc = time_parse_local(text, f, &t);
+    if (rc == 0) { printf("local %-32s %-14s -> %lld\n", text, f, t); }
+    else { printf("local %-32s %-14s -> error\n", text, f); }
+}
+
+void dur(int64 ms) {
+    let s: String;  s.init(8);
+    duration_format(ms, &s);
+    printf("duration %lld -> %s\n", ms, s.cstr());
+    s.free();
+}
+
+int main() {
+    // 2026-10-11 08:30:05 UTC, a Sunday.
+    const int64 t = 1791707405;
+    fmt(t, "%Y-%m-%d %H:%M:%S", TIME_UTC);
+    fmt(t, "%F %T %Z %z", TIME_UTC);
+    fmt(t, "%a %A %b %B %j", TIME_UTC);
+    fmt(t, "%s 100%%", TIME_UTC);
+    fmt(0, "%FT%TZ %a", TIME_UTC);
+    fmt(-1, "%F %T %j", TIME_UTC);
+    fmt(951782400, "%F %j %A", TIME_UTC);   // 2000-02-29
+    fmt(t, "bad %q end", TIME_UTC);
+    fmt(t, "trailing %", TIME_UTC);
+
+    // Local time under POSIX TZ rules.
+    env_set("TZ", "EST5EDT,M3.2.0,M11.1.0");
+    fmt(t, "%F %T %Z %z", TIME_LOCAL);               // daylight time, -0400
+    fmt(1767225600, "%F %T %Z %z", TIME_LOCAL);      // 2026-01-01 UTC, -0500
+    printf("offsets %d %d\n", time_local_offset(t), time_local_offset(1767225600));
+    let dt: DateTime;
+    const int off = time_to_local(t, &dt);
+    printf("to_local %d-%d-%d %d:%d:%d wday=%d yday=%d off=%d\n", dt.year, dt.month, dt.day,
+        dt.hour, dt.min, dt.sec, dt.wday, dt.yday, off);
+    parse_local("2026-10-11 04:30:05", "%F %T");
+    parse_local("2026-01-01 00:00:00", "%F %T");
+    parse_local("2026-10-11 04:30:05 +0000", "%F %T %z");
+    env_set("TZ", "JST-9");
+    fmt(t, "%F %T %Z %z", TIME_LOCAL);
+    env_set("TZ", "UTC0");
+    fmt(t, "%F %T %z", TIME_LOCAL);
+
+    // Parsing (UTC unless an offset is given).
+    parse("2026-10-11 08:30:05", "%Y-%m-%d %H:%M:%S");
+    parse("2026-10-11T08:30:05Z", "%FT%T%z");
+    parse("2026-10-11T10:30:05+02:00", "%FT%T%z");
+    parse("2026-10-11T03:00:05-0530", "%FT%T%z");
+    parse("Sun, 11 Oct 2026 08:30:05 GMT", "%a, %d %b %Y %T %Z");
+    parse("sunday 11 OCTOBER 2026", "%A %d %B %Y");
+    parse("20261011", "%Y%m%d");
+    parse("2026 284", "%Y %j");
+    parse("1791707405", "%s");
+    parse("-86400", "%s");
+    parse("2024-02-29", "%F");
+    parse("  2026-10-11", " %F");
+    parse("2023-02-29", "%F");
+    parse("2026-13-01", "%F");
+    parse("2026-10-11 24:00:00", "%F %T");
+    parse("2026-10-11x", "%F");
+    parse("2026-10-11", "%F %T");
+    parse("Funday", "%a");
+    parse("12:00 EST", "%H:%M %Z");
+    parse("2025 366", "%Y %j");
+
+    // Round trip through format and parse.
+    let s: String;  s.init(32);
+    int64 back = 0;
+    time_format(t, "%a, %d %b %Y %H:%M:%S %z", TIME_UTC, &s);
+    time_parse(s.cstr(), "%a, %d %b %Y %H:%M:%S %z", &back);
+    printf("round trip %s -> %d\n", s.cstr(), back == t ? 1 : 0);
+    s.free();
+
+    dur(0);
+    dur(250);
+    dur(1500);
+    dur(60000);
+    dur(3723000);
+    dur(93784005);
+    dur(-61000);
+
+    let sw: Stopwatch;
+    sw.start();
+    sleep_ms(30);
+    const int64 lap1 = sw.lap();
+    sleep_ms(20);
+    const int64 lap2 = sw.lap();
+    const int64 total = sw.elapsed_ms();
+    printf("stopwatch ok=%d\n", lap1 >= 15 && lap2 >= 10 && total >= lap1 + lap2 && total < 5000 ? 1 : 0);
+    return 0;
+}

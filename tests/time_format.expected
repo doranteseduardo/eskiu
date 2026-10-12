@@ -1,0 +1,47 @@
+1791707405 %Y-%m-%d %H:%M:%S            -> [2026-10-11 08:30:05] rc=0
+1791707405 %F %T %Z %z                  -> [2026-10-11 08:30:05 UTC +0000] rc=0
+1791707405 %a %A %b %B %j               -> [Sun Sunday Oct October 284] rc=0
+1791707405 %s 100%%                     -> [1791707405 100%] rc=0
+0 %FT%TZ %a                    -> [1970-01-01T00:00:00Z Thu] rc=0
+-1 %F %T %j                     -> [1969-12-31 23:59:59 365] rc=0
+951782400 %F %j %A                     -> [2000-02-29 060 Tuesday] rc=0
+1791707405 bad %q end                   -> [bad %q end] rc=-1
+1791707405 trailing %                   -> [trailing %] rc=-1
+1791707405 %F %T %Z %z                  -> [2026-10-11 04:30:05 EDT -0400] rc=0
+1767225600 %F %T %Z %z                  -> [2025-12-31 19:00:00 EST -0500] rc=0
+offsets -14400 -18000
+to_local 2026-10-11 4:30:5 wday=0 yday=283 off=-14400
+local 2026-10-11 04:30:05              %F %T          -> 1791707405
+local 2026-01-01 00:00:00              %F %T          -> 1767243600
+local 2026-10-11 04:30:05 +0000        %F %T %z       -> 1791693005
+1791707405 %F %T %Z %z                  -> [2026-10-11 17:30:05 JST +0900] rc=0
+1791707405 %F %T %z                     -> [2026-10-11 08:30:05 +0000] rc=0
+parse 2026-10-11 08:30:05              %Y-%m-%d %H:%M:%S -> 1791707405
+parse 2026-10-11T08:30:05Z             %FT%T%z        -> 1791707405
+parse 2026-10-11T10:30:05+02:00        %FT%T%z        -> 1791707405
+parse 2026-10-11T03:00:05-0530         %FT%T%z        -> 1791707405
+parse Sun, 11 Oct 2026 08:30:05 GMT    %a, %d %b %Y %T %Z -> 1791707405
+parse sunday 11 OCTOBER 2026           %A %d %B %Y    -> 1791676800
+parse 20261011                         %Y%m%d         -> 1791676800
+parse 2026 284                         %Y %j          -> 1791676800
+parse 1791707405                       %s             -> 1791707405
+parse -86400                           %s             -> -86400
+parse 2024-02-29                       %F             -> 1709164800
+parse   2026-10-11                      %F            -> 1791676800
+parse 2023-02-29                       %F             -> error
+parse 2026-13-01                       %F             -> error
+parse 2026-10-11 24:00:00              %F %T          -> error
+parse 2026-10-11x                      %F             -> error
+parse 2026-10-11                       %F %T          -> error
+parse Funday                           %a             -> error
+parse 12:00 EST                        %H:%M %Z       -> error
+parse 2025 366                         %Y %j          -> error
+round trip Sun, 11 Oct 2026 08:30:05 +0000 -> 1
+duration 0 -> 0ms
+duration 250 -> 250ms
+duration 1500 -> 1s 500ms
+duration 60000 -> 1m
+duration 3723000 -> 1h 2m 3s
+duration 93784005 -> 1d 2h 3m 4s 5ms
+duration -61000 -> -1m 1s
+stopwatch ok=1
