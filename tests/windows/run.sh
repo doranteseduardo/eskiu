@@ -19,7 +19,8 @@ mkdir -p "$work"
 
 tests=(string_script list_script map_script json_build csv dotenv hash url_parse
        args term log time_format console_io fs_dir process_self dns_connect
-       fetch_basic fetch_raw fetch_async fetch_no_tls fetch_https)
+       fetch_basic fetch_raw fetch_async fetch_no_tls fetch_https
+       executor executor_many executor_cross_thread)
 
 fail=0
 failed=()
