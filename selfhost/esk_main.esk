@@ -439,7 +439,7 @@ int esk_main(int argc, string* argv) {
     // is written), then executes it below.
     if (runmode == 1) { outfile = null; }
     if (cg_streq(mode, "--version") == 1) {
-        printf("Eskiu 0.10.0\n");
+        printf("Eskiu 0.10.1\n");
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
