@@ -1,6 +1,7 @@
 // process_run writes stdin_text to children that exit without reading it, from two
 // threads at once. A closed stdin is EPIPE for the writer: no SIGPIPE may kill the
-// program, and the process-wide SIGPIPE disposition stays the default. Before, each
+// program, and the process-wide SIGPIPE disposition stays what it was (the default
+// here; ignored when the parent passed that down, as CI runners do). Before, each
 // call set SIGPIPE to ignored and put the old value back, so one thread could restore
 // the default while the other was still writing (or leave it ignored for good).
 import <process>;
@@ -24,6 +25,8 @@ void worker(int slot) {
 }
 
 int main() {
+    *void before = signal(13, (*void)(int64)1);   // read the disposition: set SIG_IGN (1), put it back
+    signal(13, before);
     g_big.init(8);
     g_big.append("x");
     g_big.repeat(1 << 20);
@@ -32,8 +35,7 @@ int main() {
     thread_join(a);
     thread_join(b);
     printf("children ok: %d\n", g_ok[0] + g_ok[1]);
-    // SIG_IGN is 1; what it replaces must still be SIG_DFL (0).
-    printf("sigpipe default: %d\n", signal(13, (*void)(int64)1) == null ? 1 : 0);
+    printf("sigpipe unchanged: %d\n", signal(13, (*void)(int64)1) == before ? 1 : 0);
     g_big.free();
     return 0;
 }
