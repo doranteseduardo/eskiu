@@ -2,10 +2,10 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.10.0.** A release about scripting: `<fetch>` (HTTP and HTTPS), files
-and directories, running commands, DNS, richer strings and collections, JSON building and
-paths, CSV, `.env`, hashes, and command-line tools (`<args>`, `<term>`, `<log>`). The full
-history is in the [changelog](../../CHANGELOG.md).
+**Current version: v0.10.1.** A patch release for the scripting standard library of 0.10:
+fixes from an audit of the new modules, the whole library on Windows, and stdlib names that
+follow one convention (the old ones still work). The full history is in the
+[changelog](../../CHANGELOG.md).
 
 ---
 

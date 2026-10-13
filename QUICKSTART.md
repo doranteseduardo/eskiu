@@ -14,7 +14,7 @@ curl -fsSL https://eskiu-lang.org/install.sh | sh
 eskiuc --version
 ```
 
-Expected output: `Eskiu 0.10.0 (LLVM ...)`
+Expected output: `Eskiu 0.10.1 (LLVM ...)`
 
 To install by hand, download a tarball from
 [github.com/doranteseduardo/eskiu/releases](https://github.com/doranteseduardo/eskiu/releases)
@@ -43,7 +43,7 @@ cmake --build build
 ./build/eskiuc --version
 ```
 
-Expected output: `Eskiu 0.10.0 (LLVM ...)`
+Expected output: `Eskiu 0.10.1 (LLVM ...)`
 
 ## Hello, Eskiu
 

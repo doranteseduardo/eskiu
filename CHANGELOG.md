@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.10.1] - 2026-10-12
 
 ### Added
 - `<mem>` declares the C string functions `strcmp`, `strncmp`, `strchr` and `strstr` next to
@@ -128,7 +128,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `<net>` on Windows: `send` and `recv` are declared with Winsock's `int` types. A
   failed or would-block `net_recv` returned 4294967295 instead of -1, which crashed
   plain `http://` fetches.
-- `<string>` on Windows: `str_format`, `String_appendf`, `String_from_double`, the
+- `<string>` on Windows: `String_format` (`str_format`), `String_appendf`, `String_from_double`, the
   `<json>` number writer and `<log>` format through mingw-w64's C99 printf, so
   exponents and infinity print as on other platforms (`1e+06`, not `1e+006`; `inf`,
   not `1.#INF`).
@@ -163,14 +163,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   put in a background process group, so a read stopped it until the timeout killed it.
 - `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
   instead of keeping the `\r`.
-
----
 - Self-hosted compiler: a dot-call on an instance of a generic enum (`o.is_some()` on an
   `Option<int>`) reaches the generic free function `Option_is_some<T>`, as in the C++ compiler;
   it emitted an invalid call before. Test `either_stdlib`.
 - Self-hosted compiler: a program that declares `strcmp` (now any program that imports `<mem>`)
   and catches an exception no longer declares `strcmp` twice in its IR, which clang rejected.
   Test `catch_strcmp_extern`.
+
+---
 
 ## [0.10.0] - 2026-10-11
 
