@@ -269,6 +269,33 @@ int main() { printf(&quot;hello\n&quot;); return 0; }
 </code></pre>
 <p>For an optimized build, pass <code>-O2</code> (or <code>-O1</code>/<code>-O3</code>), which runs the LLVM middle-end before
 code generation. The default is <code>-O0</code>, which emits naive IR straight to the backend.</p>
+<h3 id="try-it-in-the-repl">Try it in the REPL</h3>
+<p><code>eskiuc repl</code> starts an interactive session. Each input is compiled with LLVM's JIT and
+run at once. A bare expression prints its value, and declarations (functions, structs,
+enums, imports) stay available to later inputs:</p>
+<pre><code>$ eskiuc repl
+&gt; 1 + 2
+3
+&gt; int sq(int n) { return n * n; }
+&gt; let x = sq(7);
+&gt; x + 1
+50
+&gt; struct Point { int x; int y; }
+&gt; Point{3, 4}
+Point{x: 3, y: 4}
+&gt; import &lt;list&gt;;
+&gt; let xs = List&lt;int&gt;{};
+&gt; xs.push(5);
+&gt; xs
+[5]
+</code></pre>
+<p><code>let x = expr;</code> at the prompt declares a session variable, and its type comes from the
+expression. Declaring a function or variable again replaces it for later inputs. An input
+that does not parse or type-check prints the error and changes nothing; an uncaught
+exception is reported and the session goes on. Input continues on the next line (prompt
+<code>...</code>) while brackets are open. <code>:type EXPR</code> prints a type without running anything,
+<code>:load FILE</code> adds a file's declarations, <code>:reset</code> starts over and <code>:quit</code> (or Ctrl-D) leaves.
+The prompt does not take <code>await</code>; run async code with <code>eskiuc run</code>.</p>
 <h3 id="peek-at-the-generated-ir">Peek at the generated IR</h3>
 <p>Before producing an object file you can ask the compiler to print the LLVM IR it
 would emit:</p>

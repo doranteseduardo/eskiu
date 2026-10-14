@@ -129,6 +129,38 @@ chmod +x hello.esk
 For an optimized build, pass `-O2` (or `-O1`/`-O3`), which runs the LLVM middle-end before
 code generation. The default is `-O0`, which emits naive IR straight to the backend.
 
+### Try it in the REPL
+
+`eskiuc repl` starts an interactive session. Each input is compiled with LLVM's JIT and
+run at once. A bare expression prints its value, and declarations (functions, structs,
+enums, imports) stay available to later inputs:
+
+```
+$ eskiuc repl
+> 1 + 2
+3
+> int sq(int n) { return n * n; }
+> let x = sq(7);
+> x + 1
+50
+> struct Point { int x; int y; }
+> Point{3, 4}
+Point{x: 3, y: 4}
+> import <list>;
+> let xs = List<int>{};
+> xs.push(5);
+> xs
+[5]
+```
+
+`let x = expr;` at the prompt declares a session variable, and its type comes from the
+expression. Declaring a function or variable again replaces it for later inputs. An input
+that does not parse or type-check prints the error and changes nothing; an uncaught
+exception is reported and the session goes on. Input continues on the next line (prompt
+`...`) while brackets are open. `:type EXPR` prints a type without running anything,
+`:load FILE` adds a file's declarations, `:reset` starts over and `:quit` (or Ctrl-D) leaves.
+The prompt does not take `await`; run async code with `eskiuc run`.
+
 ### Peek at the generated IR
 
 Before producing an object file you can ask the compiler to print the LLVM IR it
