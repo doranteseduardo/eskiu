@@ -81,7 +81,7 @@ jobs:
               xs[0] = 7;
               let m: Mutex;  Mutex_init(&m);  Mutex_lock(&m);  Mutex_unlock(&m);  Mutex_destroy(&m);
               int64 t0 = time_monotonic_ms();
-              sleep_ms(1);
+              time_sleep_ms(1);
               int elapsed_ok = 0;
               if (time_monotonic_ms() - t0 >= 0) { elapsed_ok = 1; }
               printf("ok %d %d\n", xs[0], elapsed_ok);
@@ -142,7 +142,7 @@ jobs:
               EventLoop* lp = el_new(64);
               net_set_nonblocking(s);
               Future<int>* f = net_read_async(lp, s, &g_buf[0], (int64)64);
-              future_poll<int>(f, void() { free_future<int>(f); EventLoop_stop(lp); });
+              Future_poll<int>(f, void() { Future_free<int>(f); EventLoop_stop(lp); });
               EventLoop_run(lp);
               printf("read %c%c%c\n", (char)g_buf[0], (char)g_buf[1], (char)g_buf[4]);
               EventLoop_free(lp);
