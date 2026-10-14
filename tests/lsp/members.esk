@@ -1,0 +1,42 @@
+// Members and functions: hover shows a function's signature (at a call, a dot-call
+// and its declaration) and a field's type; go-to-definition reaches the method, the
+// inline method and the field; completion lists a receiver's members and the names
+// in scope.
+// HOVER 35:7 int64 String_replace_all(String* self, string from, string to)
+// HOVER 37:19 int
+// HOVER 37:25 int Point_dist(const Point* self, int k)
+// HOVER 37:37 int Point_sum(*Point self)
+// HOVER 37:45 int add(int a, int b)
+// HOVER 31:5 int add(int a, int b)
+// HOVER 36:38 List<int>
+// DEF 37:19 24:9
+// DEF 37:25 29:5
+// DEF 37:37 26:9
+// DEF 37:45 31:5
+// COMPLETE 37:19 x y dist sum
+// COMPLETE 35:7 replace_all append cstr len
+// COMPLETE 38:7 push get len init
+// COMPLETE 37:45 add p s l Point_dist String_from
+import <string>;
+import <list>;
+
+struct Point {
+    int x;
+    int y;
+    int sum() { return self.x + self.y; }
+}
+
+int Point_dist(const Point* self, int k) { return self.x * k; }
+
+int add(int a, int b) { return a + b; }
+
+int main() {
+    let s: String; String_from(&s, "a-b");
+    s.replace_all("-", "+");
+    Point p = Point{x: 1, y: 2}; let l: List<int>; List_init<int>(&l, 4);
+    int total = p.x + p.dist(2) + p.sum() + add(1, 2);
+    l.push(total);
+    String_free(&s);
+    List_free<int>(&l);
+    return total == 0 ? 1 : 0;
+}

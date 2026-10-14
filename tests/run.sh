@@ -494,7 +494,35 @@ for esk in "$here"/lsp/*.esk; do
             bad "$name hover $q" "expected '$want', got '$got'"
         fi
     done < <(grep '^// HOVER ' "$esk" | sed 's#^// HOVER ##')
+
+    # `// COMPLETE L:C NAME...`: --complete-at L:C must offer every NAME.
+    while read -r q names; do
+        got="$("$ESKIUC" "$esk" --complete-at "$q" 2>/dev/null | cut -f2)"
+        missing=""
+        for n in $names; do grep -qx -- "$n" <<<"$got" || missing="$missing $n"; done
+        if [[ -z "$missing" ]]; then
+            ok "$name complete $q"
+        else
+            bad "$name complete $q" "missing:$missing"
+        fi
+    done < <(grep '^// COMPLETE ' "$esk" | sed 's#^// COMPLETE ##')
 done
+
+# --symbols lists the file's declarations (an editor outline), fields and inline
+# methods under their struct.
+got_syms="$("$ESKIUC" "$here/lsp/members.esk" --symbols 2>/dev/null | cut -f1-4 | tr '\t' ' ')"
+want_syms="struct Point 23:8 
+field x 24:9 Point
+field y 25:9 Point
+method sum 26:9 Point
+function Point_dist 29:5 
+function add 31:5 
+function main 33:5 "
+if [[ "$got_syms" == "$want_syms" ]]; then
+    ok "lsp/symbols"
+else
+    bad "lsp/symbols" "got '$got_syms'"
+fi
 
 # LSP error handling: parse error, semantic error, and missing symbol
 echo "LSP diagnostics:"
