@@ -38,6 +38,7 @@ struct EVar { string en; string variant; string val; int plain; }   // val = mem
 
 struct Sema {
     int fold_depth;          // recursion guard for sema_fold_int through const initializers
+    int too_large;           // sema_const_layout met an array larger than the largest object
     int ptrsz;               // the target's pointer size and int64/double alignment, so
     int i64al;               // sizeof folds to its layout (sema_set_target)
     int msbf;                // 1: bitfields follow the MS (Windows) layout rules
@@ -906,6 +907,11 @@ int64 sema_const_layout(Sema* s, string t0, int64* al, int depth) {
         int64 eal = (int64)1;
         int64 esz = sema_const_layout(s, rest, &eal, depth + 1);
         al[0] = eal;
+        // The target's largest object: 2^61-1 bytes with 64-bit pointers, 2^32-1 with
+        // 32-bit ones, as clang (mirrors the C++ layoutTooLarge).
+        int64 limit = (int64)4294967295;
+        if (s.ptrsz >= 8) { limit = (int64)2305843009213693951; }
+        if (esz > (int64)0 && dv > limit / esz) { s.too_large = 1; return (int64)0; }
         return esz * dv;
     }
     if ((int)t[0] == 42 || (int)t[n - 1] == 42 || sema_streq(t, "string") == 1) { al[0] = ps; return ps; }
@@ -1176,6 +1182,16 @@ void sema_check_decl_type(Sema* s, string t) {
         return;
     }
     sema_check_dims(s, t);
+    if (sema_is_arr_ty(t) == 1) {
+        int64 zal = (int64)1;
+        s.too_large = 0;
+        sema_const_layout(s, t, &zal, 0);
+        if (s.too_large == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: array is too large: '%s' exceeds the largest object size\n", s.filename, s.line, s.col, t);
+        }
+        s.too_large = 0;
+    }
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
@@ -3227,7 +3243,7 @@ void sema_check_arr_init(Sema* s, string arrT0, *ExprNode a) {
     string dim = sema_arr_count(arrT);
     if (sema_all_digits(dim) == 1) {
         int cnt = List_len<*ExprNode>(&a.kids);
-        if (cnt > sema_atoi(dim)) {
+        if ((int64)cnt > sema_parse_int(dim)) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: array literal has %d elements but '%s' holds %s\n", s.filename, s.line, s.col, cnt, arrT, dim);
         }

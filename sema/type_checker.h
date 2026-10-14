@@ -389,6 +389,9 @@ private:
     bool bitfieldLayout(const StructInfo& si, unsigned long long& size, unsigned long long& align, int depth);
     // `sizeof(t)` when constLayout knows it, else 0.
     long long constSizeof(const std::string& t);
+    // Set by constLayout when an array's size exceeds the target's largest object
+    // (2^61-1 bytes with 64-bit pointers, 2^32-1 with 32-bit ones, as clang).
+    bool layoutTooLarge = false;
     bool haveLayoutInfo = false;
     TargetLayoutInfo layoutInfo;
     // Fold an arithmetic constant expression that may involve floating values (C rules:
