@@ -24,6 +24,33 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - IntelliJ plugin: the language server through LSP4IJ (errors, completion, hover,
   signature help, go to definition, structure view, formatting), with the `eskiuc` and
   Node.js paths in Settings | Tools | Eskiu.
+- `deprecated("use NEW")` before a function declaration: each use of the function (a call,
+  a dot-call, a generic call or the function as a value) prints `warning: 'f' is
+  deprecated: use NEW`, except inside an imported module. `-Wno-deprecated` silences it.
+  `deprecated` is not a keyword, so a name `deprecated` keeps working. The self-hosted
+  compiler accepts it without warning.
+- Errors for an unknown variable, function, type, field or method suggest the closest name
+  in scope: `undefined variable 'totl' (did you mean 'total'?)`.
+- `docs/lang/stability.md`: what can change between releases and how a rename is
+  deprecated first. `MIGRATION.md`: every removed name with its replacement.
+- `examples/scripts/todo.esk`: a to-do list in a JSON file (`<args>`, `<fs>`, `<json>`,
+  `<term>`), checked by `tests/scripts/check.sh`.
+
+### Removed
+- The deprecated stdlib wrappers for the names renamed in 0.9.2 and 0.10.1 (`rng_*`,
+  `regex_search`, `heap_*`, `el_*`, `executor_*`, `chan_*`, `hpack_*`, `h2_*`, `args_*`,
+  `opt_*`, `future_poll`, `free_future`, `sha256`, `hex_encode`, `str_join`, `str_format`,
+  `sleep_ms`, `term_rgb`, `url_resolve`, `String_is_space` and the rest). `MIGRATION.md`
+  maps each to its new name.
+
+### Changed
+- The changelog page on the site shows each release's highlights and keeps the full entry
+  collapsed; `CHANGELOG.md` gives each release a `Highlights` section and keeps the date
+  only on the latest release.
+
+### Fixed
+- A dot-call to a method a struct does not have reported "has no member" and "undefined
+  method" for the same call; it reports the method only, as the self-hosted compiler does.
 
 ## [0.10.1] - 2026-10-14
 
@@ -209,8 +236,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.10.0] - 2026-10-11
-
+## [0.10.0]
 ### Highlights
 - A scripting standard library: `<fetch>` (HTTP and HTTPS, blocking and async), `<fs>` (files, directories, walk, glob, temp files), `<process>`, `<env>`, `<dns>`, `<url>`.
 - Data modules: JSON builders and stringify, `<csv>`, `<dotenv>`, `<hash>` (SHA-256, SHA-1, MD5, HMAC).
@@ -338,8 +364,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.9.3] - 2026-10-02
-
+## [0.9.3]
 ### Highlights
 - Every document reviewed against the compiler.
 - GCC-style x86 register constraints in inline assembly.
@@ -438,8 +463,7 @@ These issues were open in 0.9.2 and resolved in 0.9.3 (see [0.9.3] Fixed):
 - The self-hosted compiler generates code for deeply nested binary expressions
   (`a + (a + (...))`, thousands of levels) in time quadratic in their depth.
 
-## [0.9.2] - 2026-09-29
-
+## [0.9.2]
 ### Highlights
 - About 500 latent bugs fixed in both compilers, each with a regression test, found by a full audit, three fuzzers and eight blind review rounds.
 - The language follows C where it should: integer promotions and conversions, constant global initializers, `sizeof`, octal literals, struct literal checks.
@@ -1446,8 +1470,7 @@ input. What was still open at the time was resolved in 0.9.3 (see [0.9.3] Resolv
 - An inline asm operand naming a local or parameter of an `async` function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test `asm_async_locals`.
 - A method call on a non-struct value (`x.foo()` with `x` an `int`) reports one error, `undefined method 'foo' on type 'int'`, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).
 
-## [0.9.1] - 2026-09-09
-
+## [0.9.1]
 ### Highlights
 - 19 latent bugs fixed in both compilers: constant initializer folding, signed and unsigned rules, `switch` cleanup, bitfields through pointers, float exponents, `--safe` slice bounds, async `await` typing.
 
@@ -1477,8 +1500,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   condition or a larger expression) is a clean compile error instead of a crash or silent
   miscompile.
 
-## [0.9.0] - 2026-09-08
-
+## [0.9.0]
 ### Highlights
 - Labeled `break` and `continue` (`outer: for (...)` then `break outer`).
 - Global and `static` array initializers keep their values (they were zero-filled).
@@ -1502,8 +1524,7 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   initializer (`float[3] = {(float)0.485, …}`, which also emit the correct LLVM f32
   constant form). Fixed in both compilers. Locals were unaffected.
 
-## [0.8.0] - 2026-08-21
-
+## [0.8.0]
 ### Highlights
 - Windows x86-64: the full standard library and both networking stacks, sync and async, run natively.
 - Operator overloading for every operator.

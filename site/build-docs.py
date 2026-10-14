@@ -29,6 +29,7 @@ PAGES = [
     ("docs/lang/spec.md",            "spec.html",            "Language spec",        "lang"),
     ("docs/lang/grammar.md",         "grammar.html",         "Grammar",              "lang"),
     ("docs/lang/build.md",           "build.html",           "Building & tooling",   "lang"),
+    ("docs/lang/stability.md",       "stability.html",       "Stability",            "lang"),
     ("docs/API.md",                  "api.html",             "Compiler C++ API",     "dev"),
     ("docs/GLOSSARY.md",             "glossary.html",        "Glossary",             "lang"),
     ("docs/dev/index.md",            "internals.html",       "Compiler internals",   "dev"),
@@ -53,6 +54,7 @@ NAV_LANG = [
     ("spec.html", "Spec"),
     ("grammar.html", "Grammar"),
     ("build.html", "Tooling"),
+    ("stability.html", "Stability"),
     ("glossary.html", "Glossary"),
     ("internals.html", "Internals →"),
 ]

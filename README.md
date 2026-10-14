@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Eskiu" width="140">
+  <img src="assets/logo.png" alt="Eskiu, a kitten with a ball of yarn" width="140">
 </p>
 
 <h2 align="center">eskiu</h2>
@@ -26,6 +26,12 @@ quicker feel for everyday work. It compiles to native code through LLVM and call
 libraries directly, and `eskiuc run file.esk` (or a `#!/usr/bin/env -S eskiuc run` shebang)
 runs a source file the way you would run a Python or Ruby script.
 
+It is used in production at [ReactVision](https://reactvision.xyz): the
+[ViroReact](https://eskiu-lang.org/case-study-reactvision.html) renderer moved its AR/VR
+rendering modules from C++ to Eskiu and uses about 85% less memory, and a
+[Nintendo 3DS](https://eskiu-lang.org/case-study-3ds.html) runs an on-device AR demo whose
+logic is written in Eskiu.
+
 - **C-style and C-compatible.** C syntax and integer rules, structs, unions, bitfields and
   `extern` declarations laid out and called the way the target's C compiler does it.
 - **More than C.** Generics, structural interfaces, sum types with exhaustive `match`,
@@ -43,7 +49,32 @@ metal: the screenshot below is an Eskiu kernel booting in QEMU with no libc.
   <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="320">
 </p>
 
-## Example
+## A script
+
+```eskiu
+#!/usr/bin/env -S eskiuc run
+import <fetch>;
+import <json>;
+import <io>;
+
+int main() {
+    let r: Response;
+    int rc = fetch("https://api.github.com/repos/llvm/llvm-project", &r);
+    defer Response_free(&r);
+    if (rc != 0) { return 1; }
+    *JsonValue repo = Response_json(&r);
+    if (repo == null) { return 1; }
+    defer JsonValue_free(repo);
+    printf("%s has %lld stars\n", JsonValue_as_cstr(json_get(repo, "full_name")),
+           JsonValue_as_int(json_get(repo, "stargazers_count")));
+    return 0;
+}
+```
+
+[`examples/scripts/`](examples/scripts/) has longer ones: a to-do list in a JSON file, a
+GitHub repository report and a downloads folder organizer.
+
+## Systems code
 
 ```eskiu
 import <mem>;
@@ -88,13 +119,10 @@ area 1 = 6.00
 
 ## Status
 
-Eskiu is pre-1.0. The language is stable enough for real work, and it is used at
-[ReactVision](https://reactvision.xyz): the [ViroReact](https://eskiu-lang.org/case-study-reactvision.html)
-renderer moved AR/VR rendering modules from C++ to Eskiu for about 85% less memory, and a
-[Nintendo 3DS](https://eskiu-lang.org/case-study-3ds.html) runs an on-device AR demo with its
-logic in Eskiu. Until 1.0, a minor release can still reject code an earlier one accepted
-when that code relied on a bug; each release's notes list those changes. Next on the
-[roadmap](docs/dev/phases.md) is a package manager.
+Eskiu is pre-1.0. The language is stable enough for real work. What can change between
+releases, and how a renamed function is deprecated before it goes, is written down in
+[docs/lang/stability.md](docs/lang/stability.md); [MIGRATION.md](MIGRATION.md) maps every
+removed name to its replacement.
 
 ## Install
 
@@ -128,6 +156,8 @@ cmake -S . -B build && cmake --build build
 | [The Book of Eskiu](https://eskiu-lang.org/the-book-of-eskiu.html) | A longer guide, from basics to async and C interop |
 | [Language reference](docs/lang/spec.md) | Every construct and the standard library |
 | [Examples](examples/) | Small programs, from hello world to an HTTP/2 server |
+| [Stability](docs/lang/stability.md) | What can change between releases |
+| [Migration](MIGRATION.md) | Renamed and removed names, old to new |
 | [Compiler internals](docs/dev/index.md) | Architecture, ABI notes and design decisions |
 | [Changelog](CHANGELOG.md) | Every release and what changed |
 

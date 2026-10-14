@@ -17,6 +17,7 @@ follow one convention (the old ones still work). The full history is in the
 | [spec.md](spec.md) | Complete language reference | You need exact syntax or semantics |
 | [grammar.md](grammar.md) | Formal EBNF grammar | You need the precise concrete syntax |
 | [build.md](build.md) | Build the compiler from source on macOS, Linux and Windows | You need to set up a dev environment |
+| [stability.md](stability.md) | What can change between releases, and how renames are deprecated | You maintain code across Eskiu versions |
 | [../GLOSSARY.md](../GLOSSARY.md) | Terminology definitions | You encounter an unfamiliar term |
 
 ---
