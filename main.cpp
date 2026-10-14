@@ -118,6 +118,15 @@ static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::value_desc("LINE:COL"),
     llvm::cl::cat(EskiuCat));
 
+static llvm::cl::opt<std::string> CompleteAt("complete-at",
+    llvm::cl::desc("Print the completions at LINE:COL, one per line: kind, name, detail (tab-separated)"),
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
+
+static llvm::cl::opt<bool> Symbols("symbols",
+    llvm::cl::desc("Print the input's declarations, one per line: kind, name, LINE:COL, container, detail"),
+    llvm::cl::cat(EskiuCat));
+
 static llvm::cl::opt<bool> CompileOnly("c",
     llvm::cl::desc("Compile to an object file only; do not link"),
     llvm::cl::cat(EskiuCat));
@@ -348,7 +357,7 @@ static int compilerMain(int argc, char** argv) {
         static const std::set<std::string> valueOpts = {
             "-o", "-target", "--target", "-mcpu", "--mcpu", "-mattr", "--mattr",
             "-reloc", "--reloc", "-link-arg", "--link-arg", "-hover-at", "--hover-at",
-            "-definition-at", "--definition-at", "-l", "-L",
+            "-definition-at", "--definition-at", "-complete-at", "--complete-at", "-l", "-L",
         };
         std::vector<char*> clArgv = { argv[0] };
         bool gotScript = false;
@@ -477,6 +486,95 @@ static int compilerMain(int argc, char** argv) {
             std::cerr << "error: unknown internal error during definition\n";
             std::cout << "(internal error)\n";
             return 1;
+        }
+        return 0;
+    }
+
+    // Handle --complete-at LINE:COL: the identifier being typed at the cursor (or the
+    // member after `recv.`) is replaced by TypeChecker::kCompleteSentinel, which
+    // collects the candidates when the type checker reaches it.
+    if (!CompleteAt.empty()) {
+        int line = 0, col = 0;
+        if (sscanf(CompleteAt.c_str(), "%d:%d", &line, &col) != 2) {
+            std::cerr << "error: --complete-at expects LINE:COL format\n"; return 1;
+        }
+        std::string src = readFile(InputFilename);
+        size_t ls = 0;
+        for (int l = 1; l < line && ls != std::string::npos; ++l) {
+            ls = src.find('\n', ls);
+            if (ls != std::string::npos) ++ls;
+        }
+        if (ls == std::string::npos) ls = src.size();
+        size_t le = src.find('\n', ls);
+        if (le == std::string::npos) le = src.size();
+        size_t at = std::min(le, ls + (size_t)std::max(0, col - 1));
+        auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+        size_t p = at, q = at;
+        while (p > ls && isId(src[p - 1])) --p;
+        while (q < le && isId(src[q])) ++q;
+        bool restBlank = src.find_first_not_of(" \t\r", q) >= le;
+        std::string spliced = src.substr(0, p) + TypeChecker::kCompleteSentinel +
+                              (restBlank ? ";" : "") + src.substr(q);
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding,
+                                   nullptr, nullptr, &spliced);
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
+        try {
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+            tc.sourceFile = std::string(InputFilename);
+            tc.check(program.get());
+            for (const auto& c : tc.completions)
+                std::cout << c.kind << "\t" << c.name << "\t" << c.detail << "\n";
+        } catch (const std::exception& e) {
+            std::cerr << "error: internal error during completion: " << e.what() << "\n";
+            return 1;
+        }
+        return 0;
+    }
+
+    // Handle --symbols: the declarations of the input file (an editor's outline).
+    if (Symbols) {
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
+        std::string self = Parser::canonicalPath(std::string(InputFilename));
+        auto mine = [&](const Decl* d) {
+            return !d->fromImport && (d->sourceFile.empty() || Parser::canonicalPath(d->sourceFile) == self);
+        };
+        auto pos = [](int l, int c) { return std::to_string(l) + ":" + std::to_string(c); };
+        auto sig = [](const FunctionDecl* f, const std::string& name) {
+            std::string s = f->returnType + " " + name + "(";
+            for (size_t i = 0; i < f->params.size(); ++i)
+                s += (i ? ", " : "") + f->params[i].first +
+                     (f->params[i].second.empty() ? "" : " " + f->params[i].second);
+            return s + ")";
+        };
+        auto emit = [](const std::string& kind, const std::string& name, const std::string& at,
+                       const std::string& container, const std::string& detail) {
+            std::cout << kind << "\t" << name << "\t" << at << "\t" << container << "\t" << detail << "\n";
+        };
+        for (const auto& d : program->declarations) {
+            if (!mine(d.get())) continue;
+            if (auto* f = dynamic_cast<FunctionDecl*>(d.get())) {
+                emit("function", f->name, pos(f->line, f->col), "", sig(f, f->name));
+            } else if (auto* s = dynamic_cast<StructDecl*>(d.get())) {
+                emit("struct", s->name, pos(s->line, s->col), "", "struct " + s->name);
+                for (const auto& fl : s->fields)
+                    emit("field", fl.name, pos(fl.line, fl.col), s->name, fl.type);
+                for (const auto& m : s->methods)
+                    if (auto* f = dynamic_cast<FunctionDecl*>(m.get()))
+                        emit("method", f->name, pos(f->line, f->col), s->name, sig(f, f->name));
+            } else if (auto* u = dynamic_cast<UnionDecl*>(d.get())) {
+                emit("struct", u->name, pos(u->line, u->col), "", "union " + u->name);
+                for (const auto& fl : u->fields)
+                    emit("field", fl.name, pos(fl.line, fl.col), u->name, fl.type);
+            } else if (auto* e = dynamic_cast<EnumDecl*>(d.get())) {
+                emit("enum", e->name, pos(e->line, e->col), "", "enum " + e->name);
+            } else if (auto* i = dynamic_cast<InterfaceDecl*>(d.get())) {
+                emit("interface", i->name, pos(i->line, i->col), "", "interface " + i->name);
+            } else if (auto* a = dynamic_cast<TypeAliasDecl*>(d.get())) {
+                emit("type", a->name, pos(a->line, a->col), "", "type " + a->name + " = " + a->aliased);
+            } else if (auto* v = dynamic_cast<VarDecl*>(d.get())) {
+                emit(v->isConst ? "constant" : "variable", v->name, pos(v->line, v->col), "", v->type);
+            }
         }
         return 0;
     }

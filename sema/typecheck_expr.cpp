@@ -925,6 +925,7 @@ void TypeChecker::visit(CallExpr* node) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
             calledFns.insert(mangled);           // -Wall: `x.m()` references `Type_m`
+            recordMemberTooling(member, signatureText(mangled), mangled);
             // Dot syntax passes the receiver's address, so the function's first parameter
             // must be a pointer to the receiver's type (`*P self` or `const P* self`).
             if (paramTypes.empty() || !tyq::isPtr(paramTypes[0]) ||
@@ -987,6 +988,11 @@ void TypeChecker::visit(CallExpr* node) {
             if (ifaceIt != interfaceDecls.end()) {
                 for (const auto& sig : ifaceIt->second->methods) {
                     if (sig.name == member->member) {
+                        std::string d = sig.returnType + " " + sig.name + "(";
+                        for (size_t i = 0; i < sig.params.size(); ++i)
+                            d += (i ? ", " : "") + sig.params[i].first +
+                                 (sig.params[i].second.empty() ? "" : " " + sig.params[i].second);
+                        recordMemberTooling(member, d + ")", "", nullptr);
                         for (auto& arg : node->args) arg->accept(this);
                         std::vector<std::string> pts;
                         for (const auto& p : sig.params) pts.push_back(p.first);
@@ -1046,6 +1052,12 @@ void TypeChecker::visit(CallExpr* node) {
     std::string funcName;
     if (auto identExpr = dynamic_cast<IdentExpr*>(node->callee.get())) {
         funcName = identExpr->name;
+        if (funcName == kCompleteSentinel) {               // --complete-at on a callee
+            identExpr->accept(this);
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = "unknown";
+            return;
+        }
         calledFns.insert(funcName);  // -Wall: mark referenced
         // Record use-site for go-to-definition
         if (inPrimaryFile()) useLocations[{identExpr->line, identExpr->col}] = funcName;
@@ -1266,6 +1278,7 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return false;
     FunctionDecl* fd = ft->second;
     calledFns.insert(fnName);
+    recordMemberTooling(member, signatureText(fnName), fnName);
     for (auto& a : node->args) a->accept(this);
 
     const std::string& selfT = fd->params[0].first;
@@ -1487,6 +1500,11 @@ void TypeChecker::visit(MemberExpr* node) {
     // Through an alias (`type PSq = *Sq`, `type IS = int[]`) the member is the target's.
     baseType = dealiasOperand(baseType);
     if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);
+    if (node->member == kCompleteSentinel) {           // --complete-at after `recv.`
+        if (!completionDone) { completeMembers(baseType); completionDone = true; }
+        expressionTypes[node] = "unknown";
+        return;
+    }
 
     // Slice `.len` → int64 (the fat pointer's length field).
     if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
@@ -1519,6 +1537,12 @@ void TypeChecker::visit(MemberExpr* node) {
         const auto& structInfo = it->second;
         for (const auto& field : structInfo.fields) {
             if (field.name == node->member) {
+                std::string owner = structName;
+                if (auto ti = templateInstanceArgs.find(structName); ti != templateInstanceArgs.end())
+                    owner = ti->second.first;
+                auto fl = fieldLocations.find(owner + "." + field.name);
+                recordMemberTooling(node, field.type, "",
+                                    fl != fieldLocations.end() && fl->second.line > 0 ? &fl->second : nullptr);
                 // Found the member, return its type (a narrow bitfield reads as `int`, C)
                 expressionTypes[node] = field.type;
                 if (field.bitWidth > 0 &&
@@ -1628,6 +1652,11 @@ void TypeChecker::visit(LiteralExpr* node) {
 }
 
 void TypeChecker::visit(IdentExpr* node) {
+    if (node->name == kCompleteSentinel) {             // --complete-at
+        if (!completionDone) { completeScope(); completionDone = true; }
+        expressionTypes[node] = "unknown";
+        return;
+    }
     // -Wall: a function referenced as a value counts as used.
     if (functionSignatures.count(node->name)) calledFns.insert(node->name);
 
