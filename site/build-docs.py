@@ -204,6 +204,9 @@ a:hover { color: var(--ink); }
   .foot .brand { font-size: 22px; }
   .foot-links { display: flex; gap: 26px; margin-left: auto; }
 }
+details.cl-full { margin: 4px 0 28px; border: 1px solid var(--rule); border-radius: 12px; padding: 0 16px; }
+details.cl-full > summary { cursor: pointer; padding: 10px 0; font-family: var(--mono); font-size: 13px; color: var(--purple); }
+details.cl-full[open] { padding-bottom: 8px; }
 """.strip()
 
 SHELL = """<!doctype html>
@@ -328,6 +331,31 @@ def section_of(out):
     return "Docs"
 
 
+def collapse_changelog(text):
+    """Each release shows its `### Highlights` and keeps the full entry in a collapsed
+    <details>; a release without highlights is collapsed whole. CHANGELOG.md itself
+    stays complete."""
+    parts = re.split(r"(?m)^(?=## \[)", text)
+    out = [parts[0]]
+    for part in parts[1:]:
+        head, _, rest = part.partition("\n")
+        hl = ""
+        m = re.search(r"(?ms)^### Highlights\n(.*?)(?=^### |\Z)", rest)
+        if m:
+            hl = m.group(1).strip()
+            rest = rest[:m.start()] + rest[m.end():]
+        rest = rest.strip()
+        block = head + "\n\n"
+        if hl:
+            block += hl + "\n\n"
+        if rest:
+            label = "Full details" if hl else "Details"
+            block += ('<details class="cl-full" markdown="1">\n<summary>' + label +
+                      "</summary>\n\n" + rest + "\n\n</details>\n\n")
+        out.append(block)
+    return "".join(out)
+
+
 def render(*, title, desc, canon, p, d, a, current, active, summary, body, toc_tokens):
     toc, layoutcls = build_toc(toc_tokens)
     return SHELL.format(
@@ -404,7 +432,7 @@ def main():
     with open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8") as f:
         cl_text = f.read()
     md.reset()
-    cl_body = md.convert(cl_text)
+    cl_body = md.convert(collapse_changelog(cl_text))
     cl_body = cl_body.replace("<table>", '<div class="tablewrap"><table>').replace(
         "</table>", "</table></div>"
     )
