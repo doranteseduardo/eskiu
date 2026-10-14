@@ -3185,6 +3185,20 @@ pre.code-block {
 <pre class="code-block"> chmod +x greet.esk
  ./greet.esk Ada</pre>
 <p>Each run compiles the program again, which takes a moment for a script that imports several modules. A script you run often can be compiled once with <code>eskiuc greet.esk -o greet</code>, like any other program. Arguments arrive in <code>main</code> as <code>argc</code> and <code>argv</code> (section 3.6); section 25.6 shows a parser that handles options for you.</p>
+<h3 class="subsection">Trying code in the REPL</h3>
+<p>To try a function or a library call before it goes into a script, start <code>eskiuc repl</code>. Each input is compiled with LLVM's JIT and run straight away. An expression prints its value, and what you declare stays available to the inputs that follow:</p>
+<pre class="code-block"> $ eskiuc repl
+ &gt; import &lt;string&gt;;
+ &gt; int sq(int n) { return n * n; }
+ &gt; let total = sq(3) + sq(4);
+ &gt; total
+ 25
+ &gt; String s;
+ &gt; s.from(&quot;abc&quot;);
+ &gt; s.append(&quot;def&quot;);
+ &gt; s
+ &quot;abcdef&quot;</pre>
+<p><code>let total = ...;</code> without a type declares a session variable with the type of its value. Typing a function again replaces it for the inputs after it. An input with an error prints the message and is dropped, so the session stays as it was, and an exception that nothing catches is reported without ending the session. While a bracket is open the input continues on the next line. <code>:type EXPR</code> shows a type, <code>:load FILE</code> adds the declarations of a file, <code>:reset</code> starts over and <code>:quit</code> or Ctrl-D leaves. The REPL does not run <code>await</code>; async code goes in a script.</p>
 <h2 class="section" id="sec-25-2">25.2 Files and directories</h2>
 <p><code>&lt;fs&gt;</code> reads and writes whole text files, inspects them, and creates, lists, walks and removes directories. This program builds a small tree in a temporary directory, reads it back and removes it:</p>
 <pre class="code-block"> import &lt;fs&gt;;
@@ -3920,6 +3934,7 @@ pre.code-block {
 <pre class="code-block">        eskiuc file.esk --asan                   AddressSanitizer instrumentation</pre>
 <pre class="code-block">        eskiuc file.esk --ubsan                  Trapping bounds checks</pre>
 <pre class="code-block">        eskiuc run file.esk [args...]            Compile to a temp exe, run it, delete it</pre>
+<pre class="code-block">        eskiuc repl [file.esk ...]               Interactive session (JIT), files loaded first</pre>
 <pre class="code-block">        eskiuc fmt file.esk [--check]            Reformat in place, or --check formatting</pre>
 <pre class="code-block">        eskiuc file.esk --target TRIPLE          Cross-compile for target triple</pre>
 <pre class="code-block">        eskiuc ... --mcpu CPU --mattr F --reloc R   Tune the target (CPU, features, relocation)</pre>
@@ -3976,6 +3991,7 @@ pre.code-block {
  eskiuc file.esk -c -o file.o        # compile only
  eskiuc file.esk -o prog -lssl       # link library
  eskiuc run file.esk [args...]       # compile, run, delete
+ eskiuc repl                         # interactive session
  eskiuc fmt file.esk                 # reformat in place
  eskiuc fmt --check file.esk         # check formatting
  eskiuc file.esk -Wall               # unused, assign-in-cond, maybe-uninitialized
