@@ -42,8 +42,11 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <vector>
 
 #if !defined(_WIN32)
+#include <csetjmp>
+#include <csignal>
 #include <cxxabi.h>
 extern "C" int __gxx_personality_v0(...);
 #endif
@@ -105,10 +108,10 @@ struct Plan {
     Mode mode = Mode::Stmts;
     std::string text;
     std::string file = kReplFile;
-    // Untyped top-level `let x = E;`: the type to write in, by the LET token's index.
+    // Untyped top-level `let x = E;`: the type to write in, by the let's ordinal.
     std::map<size_t, std::vector<Token>> letTypes;
     bool placeholderLets = false;   // write `int` into the untyped lets (just to parse)
-    long probeLet = -1;             // cut the input at this let, leaving `E;` as its end
+    long probeLet = -1;             // cut the input at this let (ordinal), leaving `(E);`
     std::string valueType;          // capture the final expression into __repl_val_N
 };
 
@@ -119,6 +122,7 @@ struct Attempt {
     std::vector<DeclPtr> inputDecls;                          // Decls mode
     std::vector<ReplGlobal> newGlobals;                       // Stmts mode
     bool usesAwait = false;
+    std::vector<std::pair<int, int>> letPos;   // where each untyped let's name is
 };
 
 std::string versioned(const std::string& base, int v) {
@@ -287,6 +291,47 @@ std::string describeException(void* ex) {
     return out;
 }
 
+// --- running an input -----------------------------------------------------------------
+
+#if !defined(_WIN32)
+sigjmp_buf gCrashJmp;
+volatile sig_atomic_t gCrashSig = 0;
+
+void onCrash(int sig) {
+    gCrashSig = sig;
+    siglongjmp(gCrashJmp, 1);
+}
+#endif
+
+// Call the compiled input. A crash (a bad pointer, a trap) returns the signal number instead
+// of ending the session; 0 when it returned normally. Exceptions pass through to the caller.
+int callGuarded(void (*fn)()) {
+#if defined(_WIN32)
+    fn();
+    return 0;
+#else
+    static thread_local std::vector<char> altStack;
+    if (altStack.empty()) {
+        altStack.resize(1 << 16);
+        stack_t ss{};
+        ss.ss_sp = altStack.data();
+        ss.ss_size = altStack.size();
+        sigaltstack(&ss, nullptr);
+    }
+    const int sigs[] = {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGTRAP};
+    struct sigaction sa{}, old[5];
+    sa.sa_handler = onCrash;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_ONSTACK | SA_NODEFER;
+    for (int i = 0; i < 5; ++i) sigaction(sigs[i], &sa, &old[i]);
+    int caught = 0;
+    if (sigsetjmp(gCrashJmp, 1) == 0) fn();
+    else caught = gCrashSig;
+    for (int i = 0; i < 5; ++i) sigaction(sigs[i], &old[i], nullptr);
+    return caught;
+#endif
+}
+
 // --- input scanning -------------------------------------------------------------------
 
 // Bracket depth of `text` outside string/char literals and comments: the reader keeps
@@ -362,7 +407,7 @@ private:
     bool typeOfLast(const Attempt& a, const TypeChecker& tc, std::string& semaType,
                     bool& printable) const;
     bool handleInput(const std::string& text, const std::string& file, Mode* forced);
-    bool inferLets(Plan& plan, const std::vector<size_t>& lets);
+    bool inferLets(Plan& plan, const std::vector<std::pair<int, int>>& letPos);
     bool compileAndRun(Attempt& a, const std::string& valueSemaType,
                        const std::string& valueDisplay);
     void processModule(llvm::Module& m, std::map<std::string, int>& ver,
@@ -520,11 +565,16 @@ bool Repl::build(const Plan& plan, Attempt& a) {
         for (const auto& t : toks)
             if (t.type == TokenType::AWAIT) a.usesAwait = true;
         // The input's statements, with the untyped lets typed (or cut at the probed one).
-        std::vector<size_t> lets = untypedLets(toks);
-        std::set<size_t> letSet(lets.begin(), lets.end());
+        std::map<size_t, size_t> letOrd;   // LET token index -> ordinal
+        for (size_t li : untypedLets(toks)) {
+            size_t n = letOrd.size();
+            letOrd[li] = n;
+            a.letPos.push_back({toks[li + 1].line, toks[li + 1].column});
+        }
         std::vector<Token> body;
         for (size_t i = 0; i < toks.size(); ++i) {
-            if (plan.probeLet >= 0 && (long)i == plan.probeLet) {
+            auto ord = letOrd.find(i);
+            if (plan.probeLet >= 0 && ord != letOrd.end() && (long)ord->second == plan.probeLet) {
                 // `(E);`: parenthesized, so a lambda is not read as a declaration.
                 int depth = 0;
                 body.push_back(Token(TokenType::LPAREN, "(", toks[i].line, toks[i].column));
@@ -540,8 +590,9 @@ bool Repl::build(const Plan& plan, Attempt& a) {
                 break;
             }
             body.push_back(toks[i]);
-            if (i >= 1 && letSet.count(i - 1)) {
-                auto lt = plan.letTypes.find(i - 1);
+            auto named = i >= 1 ? letOrd.find(i - 1) : letOrd.end();
+            if (named != letOrd.end()) {
+                auto lt = plan.letTypes.find(named->second);
                 if (lt != plan.letTypes.end()) {
                     body.push_back(Token(TokenType::COLON, ":", toks[i].line, toks[i].column));
                     body.insert(body.end(), lt->second.begin(), lt->second.end());
@@ -874,7 +925,12 @@ bool Repl::compileAndRun(Attempt& a, const std::string& valueSemaType,
     fflush(stdout);
     bool threw = false;
     try {
-        fn();
+        if (int sig = callGuarded(fn)) {
+            threw = true;
+            fflush(stdout);
+            std::cerr << "error: the input crashed (" << strsignal(sig)
+                      << "); the session may be unstable" << std::endl;
+        }
     } catch (void*& ex) {
         // The thrown object is the Eskiu exception itself (typed void*, its first word).
         threw = true;
@@ -917,8 +973,8 @@ void Repl::commit(const Plan& plan, Attempt& a) {
 }
 
 // Type each untyped `let x = E;`, in order, from a check of the input cut at that let.
-bool Repl::inferLets(Plan& plan, const std::vector<size_t>& lets) {
-    for (size_t li : lets) {
+bool Repl::inferLets(Plan& plan, const std::vector<std::pair<int, int>>& letPos) {
+    for (size_t li = 0; li < letPos.size(); ++li) {
         Plan probe = plan;
         probe.probeLet = (long)li;
         Attempt a;
@@ -950,15 +1006,8 @@ bool Repl::inferLets(Plan& plan, const std::vector<size_t>& lets) {
         ParseCtx ctx;
         std::vector<Token> tt;
         if (!lexInto(ctx, spelled, kReplFile, tt) || tt.empty()) return false;
-        // Report anything in the spelled type at the let's position.
-        Token at;
-        {
-            std::vector<Token> in;
-            ParseCtx c2;
-            lexInto(c2, plan.text, plan.file, in);
-            if (li < in.size()) at = in[li];
-        }
-        for (auto& tok : tt) { tok.line = at.line; tok.column = at.column; }
+        // A diagnostic about the written-in type points at the variable's name.
+        for (auto& tok : tt) { tok.line = letPos[li].first; tok.column = letPos[li].second; }
         plan.letTypes[li] = tt;
     }
     return true;
@@ -970,6 +1019,7 @@ bool Repl::handleInput(const std::string& text, const std::string& file, Mode* f
     plan.text = text;
     plan.file = file;
 
+    std::vector<std::pair<int, int>> letPos;
     if (forced) {
         plan.mode = *forced;
     } else {
@@ -1002,6 +1052,7 @@ bool Repl::handleInput(const std::string& text, const std::string& file, Mode* f
             std::cerr << (firstErrorPos(dErr) > firstErrorPos(sErr) ? dErr : sErr);
             return false;
         }
+        letPos = s.letPos;
         if (plan.mode == Mode::Stmts && s.usesAwait) {
             std::cerr << "error: " << kReplFile << ": `await` is not available at the prompt "
                          "(no executor drives the future); run async code with `eskiuc run`"
@@ -1018,13 +1069,7 @@ bool Repl::handleInput(const std::string& text, const std::string& file, Mode* f
         return true;
     }
 
-    {
-        std::vector<Token> toks;
-        ParseCtx ctx;
-        lexInto(ctx, plan.text, plan.file, toks);
-        std::vector<size_t> lets = untypedLets(toks);
-        if (!lets.empty() && !inferLets(plan, lets)) return false;
-    }
+    if (!letPos.empty() && !inferLets(plan, letPos)) return false;
 
     // Check the input once to learn the type of its final expression.
     Attempt first;
