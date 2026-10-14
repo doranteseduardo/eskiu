@@ -319,6 +319,11 @@ int esk_main(int argc, string* argv) {
         }
         return run_fmt(&ffiles, check);
     }
+    // `eskiuc repl` runs code through the LLVM JIT, which only the C++ compiler links.
+    if (argc >= 2 && cg_streq(argv[1], "repl") == 1) {
+        eprint("error: the REPL needs the C++ eskiuc\n");
+        return 1;
+    }
 
     List<string> infiles;
     List_init<string>(&infiles, 2);
