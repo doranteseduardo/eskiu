@@ -1,8 +1,8 @@
 {
   "name": "eskiu-language",
   "displayName": "Eskiu",
-  "description": "Eskiu language support: highlighting, live errors, hover types, go to definition, formatting and Run",
-  "version": "0.1.0",
+  "description": "Eskiu language support: highlighting, live errors, completion, hover with types and signatures, signature help, go to definition, outline, formatting and Run",
+  "version": "0.2.0",
   "publisher": "doranteseduardo",
   "engines": {
     "vscode": "^1.75.0"
