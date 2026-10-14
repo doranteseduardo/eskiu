@@ -373,6 +373,58 @@ entry:
 <li>On Alpine, <code>llvm22-dev</code> is the correct package name; <code>llvm22</code> alone does not ship the <code>.a</code> archives.</li>
 </ol>
 <hr>
+<h2 id="package-commands">Package Commands</h2>
+<p><code>eskiuc</code> also manages packages: a directory with an <code>eskiu.toml</code> manifest, its
+dependencies pinned in <code>eskiu.lock</code>. Fetching git dependencies needs the <code>git</code> command on
+<code>PATH</code>. See "Packages" in the <a href="getting-started.html#packages">getting started guide</a> for the
+manifest format.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eskiuc new NAME</code></td>
+<td>Create <code>NAME/eskiu.toml</code>, <code>NAME/src/main.esk</code> (hello world) and <code>NAME/.gitignore</code>.</td>
+</tr>
+<tr>
+<td><code>eskiuc add NAME --git URL [--rev REV]</code></td>
+<td>Add a git dependency to <code>eskiu.toml</code>, fetch it and update the lock. <code>REV</code> is a tag, branch or commit (default: the remote's default branch).</td>
+</tr>
+<tr>
+<td><code>eskiuc add NAME --path DIR</code></td>
+<td>Add a local dependency, used in place.</td>
+</tr>
+<tr>
+<td><code>eskiuc build [-o OUT] [FLAGS]</code></td>
+<td>Fetch what the lock names and is missing, then compile the package's main file to <code>build/NAME</code> (or <code>OUT</code>). Other flags go to the compiler.</td>
+</tr>
+<tr>
+<td><code>eskiuc run [ARGS]</code></td>
+<td>Build, then run the program with <code>ARGS</code>. With a <code>.esk</code> file named, <code>eskiuc run file.esk</code> compiles that file as before.</td>
+</tr>
+<tr>
+<td><code>eskiuc test</code></td>
+<td>Compile and run each <code>tests/*.esk</code> of the package; a test passes when it exits with 0.</td>
+</tr>
+<tr>
+<td><code>eskiuc fetch</code></td>
+<td>Resolve every dependency again (fetching the git mirrors) and rewrite <code>eskiu.lock</code>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Git packages live in <code>~/.eskiu/pkgs/NAME/COMMIT</code>; set <code>ESKIU_HOME</code> to move that tree
+(<code>$ESKIU_HOME/pkgs</code>). The lock is plain text, one tab-separated line per package, sorted
+by name:</p>
+<pre><code>jsonx   git    https://github.com/x/jsonx   v1.2.0   &lt;full commit hash&gt;
+myapp   root   .
+util    path   /home/me/util
+</code></pre>
+<p>The <code>root</code> line is the package itself, so <code>import &lt;myapp/helper&gt;;</code> finds its own
+<code>src/helper.esk</code>. Both compilers read this file to resolve package imports.</p>
 <h2 id="running-tests">Running Tests</h2>
 <p>The automated suite is driven by <code>tests/run.sh</code>, which compiles, links, and runs every
 <code>tests/*.esk</code> case (matching stdout against <code>*.expected</code>, smoke-running the rest, and
@@ -460,7 +512,7 @@ Type checking failed!
 done
 </code></pre>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#requirements">Requirements</a><a href="#macos">macOS</a><a href="#linux-ubuntu-debian">Linux (Ubuntu / Debian)</a><a href="#linux-alpine">Linux (Alpine)</a><a href="#windows-msys2">Windows (MSYS2)</a><a href="#build-options">Build Options</a><a href="#verify-the-build">Verify the Build</a><a href="#troubleshooting">Troubleshooting</a><a href="#running-tests">Running Tests</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#requirements">Requirements</a><a href="#macos">macOS</a><a href="#linux-ubuntu-debian">Linux (Ubuntu / Debian)</a><a href="#linux-alpine">Linux (Alpine)</a><a href="#windows-msys2">Windows (MSYS2)</a><a href="#build-options">Build Options</a><a href="#verify-the-build">Verify the Build</a><a href="#troubleshooting">Troubleshooting</a><a href="#package-commands">Package Commands</a><a href="#running-tests">Running Tests</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

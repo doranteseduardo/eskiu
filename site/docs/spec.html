@@ -1150,6 +1150,20 @@ alloc&lt;uint8&gt;(64);     // error: the allocation is leaked (alloc is must_us
 </code></pre>
 <p>A call is "used" if its result is assigned, passed as an argument, returned, or otherwise
 consumed; only a bare call statement discards it.</p>
+<h3 id="612-deprecated">6.1.2 deprecated</h3>
+<p><code>deprecated("message")</code> before a function declaration marks the function as on its way
+out. It keeps working, and each use outside an imported module prints a warning with the
+message:</p>
+<pre><code class="language-eskiu">int Rect_area(const Rect* self) { return self.w * self.h; }
+deprecated(&quot;use Rect_area&quot;) int rect_area(const Rect* r) { return Rect_area(r); }
+
+int a = rect_area(&amp;r);   // warning: 'rect_area' is deprecated: use Rect_area
+</code></pre>
+<p>A call, a dot-call, a generic call and the function used as a value all count as uses.
+<code>-Wno-deprecated</code> turns the warnings off. <code>deprecated</code> is not a keyword: it is recognized
+only as <code>deprecated("...")</code> at the start of a top-level declaration, so a variable or
+function named <code>deprecated</code> is still valid, and it applies only to functions. The release
+policy that uses it is in <a href="stability.html">stability.md</a>.</p>
 <h3 id="62-void-functions">6.2 Void Functions</h3>
 <pre><code class="language-eskiu">void log_event(string msg) {
     printf(&quot;%s\n&quot;, msg);
@@ -2164,6 +2178,11 @@ import &quot;../shared/types.esk&quot;;
 </code></pre>
 <p><code>import &lt;name&gt;</code> resolves the module from the Eskiu installation's stdlib directory. The compiler locates the stdlib either via the <code>ESKIU_ROOT</code> environment variable (if set) or by auto-detecting it from the compiler binary's location. No path prefix is required.</p>
 <p><code>import "path"</code> resolves the path relative to the directory of the importing file.</p>
+<p><strong>Package imports.</strong> When the importing program belongs to a package (an <code>eskiu.toml</code> in the directory of the first input file or above), the packages listed in that package's <code>eskiu.lock</code> can be imported with the angle-bracket form:</p>
+<pre><code class="language-eskiu">import &lt;jsonx/parse&gt;;   // module parse of package jsonx
+import &lt;util&gt;;          // package util, no module named
+</code></pre>
+<p><code>import &lt;pkg/module&gt;</code> resolves to <code>src/module.esk</code> in the package's root directory when that file exists, else to <code>module.esk</code> there; a module may contain further <code>/</code> (<code>&lt;pkg/sub/mod&gt;</code>). <code>import &lt;pkg&gt;</code> resolves to <code>pkg.esk</code>, <code>src/pkg.esk</code> or <code>lib.esk</code> in the package root, the first that exists. A name without <code>/</code> that is a stdlib module stays the stdlib module, so a package named like one is reachable only with a module (<code>&lt;pkg/module&gt;</code>). The package itself is in its lock too, so its own modules can be imported as <code>&lt;name/module&gt;</code>. Inside a package, an angle-bracket import that names neither a stdlib module nor a package of the lock is an error, <code>unknown package 'x' (not in eskiu.toml)</code>, at the import. The lock is written by the package commands (<code>eskiuc build</code>, <code>add</code>, <code>fetch</code>; see the build guide); compiling a file does not fetch anything.</p>
 <p>All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.</p>
 <h3 id="122-deduplication">12.2 Deduplication</h3>
 <p>Each file is parsed and processed at most once per compilation, regardless of how many files import it. Files are identified by their canonical path, so two different relative spellings of the same file (a diamond import) count as one. Circular imports are detected and do not cause infinite loops.</p>

@@ -19,6 +19,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   reported without ending the session. Brackets left open continue the input on the next
   line. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` is not accepted
   at the prompt, and `eskiuc-esk` has no REPL.
+- A minimal package manager. A package is a directory with an `eskiu.toml` manifest
+  (`[package]` name, version, main; `[deps]` with `{ git = "URL", rev = "REV" }` or
+  `{ path = "DIR" }`). `eskiuc new`, `add`, `build`, `run`, `test` and `fetch` create a
+  package, add dependencies, and build, run and test it. Git dependencies are fetched with
+  the `git` command into `~/.eskiu/pkgs` (`ESKIU_HOME`), dependencies of dependencies are
+  resolved too, and `eskiu.lock` pins every commit. `import <pkg/module>;` and
+  `import <pkg>;` load a dependency's modules in both compilers; inside a package an import
+  that names no stdlib module and no dependency is `unknown package 'x' (not in eskiu.toml)`.
+  No registry and no version solving. `eskiuc run file.esk` keeps compiling that file.
 - Editor tooling in `eskiuc`: `--hover-at` shows a function's signature at its declaration,
   at a call and at a dot-call (`s.replace_all` shows `int64 String_replace_all(String*
   self, string from, string to)`) and a field's type, and spells generic instances as

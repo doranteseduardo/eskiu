@@ -2207,6 +2207,15 @@ import "../shared/types.esk";
 
 `import "path"` resolves the path relative to the directory of the importing file.
 
+**Package imports.** When the importing program belongs to a package (an `eskiu.toml` in the directory of the first input file or above), the packages listed in that package's `eskiu.lock` can be imported with the angle-bracket form:
+
+```eskiu
+import <jsonx/parse>;   // module parse of package jsonx
+import <util>;          // package util, no module named
+```
+
+`import <pkg/module>` resolves to `src/module.esk` in the package's root directory when that file exists, else to `module.esk` there; a module may contain further `/` (`<pkg/sub/mod>`). `import <pkg>` resolves to `pkg.esk`, `src/pkg.esk` or `lib.esk` in the package root, the first that exists. A name without `/` that is a stdlib module stays the stdlib module, so a package named like one is reachable only with a module (`<pkg/module>`). The package itself is in its lock too, so its own modules can be imported as `<name/module>`. Inside a package, an angle-bracket import that names neither a stdlib module nor a package of the lock is an error, `unknown package 'x' (not in eskiu.toml)`, at the import. The lock is written by the package commands (`eskiuc build`, `add`, `fetch`; see the build guide); compiling a file does not fetch anything.
+
 All declarations in the imported file (functions, structs, templates, externs) become available in the importing file.
 
 ### 12.2 Deduplication

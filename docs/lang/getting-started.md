@@ -1247,6 +1247,81 @@ through every module with a runnable example.
 
 ---
 
+## Packages
+
+A package is a directory with an `eskiu.toml` manifest. `eskiuc new` creates one:
+
+```bash
+eskiuc new myapp
+cd myapp
+eskiuc run
+```
+
+```
+myapp/
+  eskiu.toml
+  src/main.esk
+  .gitignore
+```
+
+The manifest names the package and lists its dependencies:
+
+```toml
+[package]
+name = "myapp"
+version = "0.1.0"
+main = "src/main.esk"      # optional, this is the default
+
+[deps]
+jsonx = { git = "https://github.com/x/jsonx", rev = "v1.2.0" }   # a tag, branch or commit
+util  = { path = "../util" }
+```
+
+`eskiuc add` edits the manifest for you and fetches the dependency:
+
+```bash
+eskiuc add jsonx --git https://github.com/x/jsonx --rev v1.2.0
+eskiuc add util --path ../util
+```
+
+A git dependency is cloned with the `git` command into `~/.eskiu/pkgs/NAME/COMMIT`
+(`$ESKIU_HOME/pkgs` when `ESKIU_HOME` is set). Without `--rev` it follows the remote's
+default branch. A path dependency is used where it is. A dependency is a directory of
+`.esk` files; when it has its own `eskiu.toml`, its dependencies are fetched too. Two
+packages that need the same dependency at different commits are an error that names both.
+
+The resolved commits go to `eskiu.lock`, which you commit next to `eskiu.toml`. Later
+builds use the locked commits and run no git command when the checkouts are already
+there. `eskiuc fetch` resolves every rev again and updates the lock.
+
+Import a module of a dependency by the package name and the module's file name:
+
+```eskiu
+import <jsonx/parse>;   // parse.esk, or src/parse.esk, in the jsonx package
+import <util>;          // util.esk, src/util.esk or lib.esk in the util package
+import <myapp/helper>;  // the package's own src/helper.esk
+```
+
+A stdlib module keeps its name: `import <io>;` is always the stdlib one. An import that
+names neither a stdlib module nor a package in the lock is an error:
+`unknown package 'x' (not in eskiu.toml)`.
+
+The package commands:
+
+```bash
+eskiuc build [-o out] [flags]   # compile src/main.esk to build/NAME
+eskiuc run [args]               # build, then run with args
+eskiuc test                     # compile and run every tests/*.esk, pass = exit code 0
+eskiuc fetch                    # re-resolve the dependencies, rewrite eskiu.lock
+```
+
+`eskiuc run file.esk` still compiles and runs that one file, inside a package or not, and
+compiling any file of a package (`eskiuc src/tool.esk -o tool`) resolves package imports
+from the lock. The self-hosted `eskiuc-esk` reads the lock the same way; the package
+commands themselves are in the C++ `eskiuc` only.
+
+---
+
 ## Lambdas
 
 Eskiu supports anonymous functions (lambdas) as first-class values. The syntax
