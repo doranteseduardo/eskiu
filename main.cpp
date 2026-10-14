@@ -28,6 +28,7 @@
 #include "sema/async_transform.h"
 #include "codegen/codegen.h"
 #include "main_support.h"
+#include "repl.h"
 
 // Command line options. All of them live in one category so `--help` lists only
 // Eskiu's options (not the ~200 LLVM internals linked in with the backend).
@@ -38,7 +39,8 @@ static const char* OVERVIEW =
     "  eskiuc file.esk [more.esk ...] -o prog   compile and link an executable\n"
     "  eskiuc file.esk -c -o file.o             compile to an object file\n"
     "  eskiuc run [flags] file.esk [--] [args]  compile to a temp executable and run it\n"
-    "  eskiuc fmt [--check] file.esk ...        reindent files in place\n";
+    "  eskiuc fmt [--check] file.esk ...        reindent files in place\n"
+    "  eskiuc repl [file.esk ...]               interactive session (JIT)\n";
 static llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional,
                                                  llvm::cl::desc("<input .esk file>"),
     llvm::cl::cat(EskiuCat));
@@ -348,6 +350,14 @@ static int compilerMain(int argc, char** argv) {
             else files.push_back(a);
         }
         return runFmt(files, check);
+    }
+
+    // `eskiuc repl [file.esk ...]`: the interactive session (repl.cpp). The files are
+    // loaded first, as with `:load`.
+    if (argc >= 2 && std::string(argv[1]) == "repl") {
+        std::vector<std::string> files;
+        for (int i = 2; i < argc; ++i) files.push_back(argv[i]);
+        return runRepl(files);
     }
 
     // `eskiuc run script.esk [args...]` — compile to a temporary executable, run
