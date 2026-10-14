@@ -660,7 +660,10 @@ int cmdAdd(const std::vector<std::string>& args) {
         // A relative path is written relative to the manifest, as it is read.
         std::error_code ec;
         fs::path p(path);
-        if (p.is_relative()) p = fs::relative(fs::absolute(p, ec), m.dir, ec);
+        if (p.is_relative()) {
+            fs::path rel = fs::relative(fs::weakly_canonical(fs::absolute(p, ec), ec), m.dir, ec);
+            if (!ec && !rel.empty()) p = rel;
+        }
         entry += "path = " + tomlString(p.generic_string());
     }
     entry += " }";
