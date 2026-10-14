@@ -29,6 +29,7 @@
 #include "codegen/codegen.h"
 #include "main_support.h"
 #include "repl.h"
+#include "pkg.h"
 
 // Command line options. All of them live in one category so `--help` lists only
 // Eskiu's options (not the ~200 LLVM internals linked in with the backend).
@@ -338,6 +339,9 @@ static int compilerMain(int argc, char** argv) {
         os << "Eskiu " << VERSION << " (LLVM " << LLVM_VERSION_MAJOR << "."
            << LLVM_VERSION_MINOR << "." << LLVM_VERSION_PATCH << ")\n";
     });
+
+    // Package commands (new, add, build, fetch, test, and run inside a package): pkg.cpp.
+    if (int rc = 0; pkgCommand(argc, argv, rc)) return rc;
 
     // `eskiuc fmt [--check] file.esk …` — reformat files in place. Handled before
     // option parsing; it does not use the compiler pipeline.

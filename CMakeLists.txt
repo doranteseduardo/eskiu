@@ -22,6 +22,7 @@ set(SOURCES
     main.cpp
     main_support.cpp
     repl.cpp
+    pkg.cpp
     lexer/lexer.cpp
     lexer/preprocessor.cpp
     parser/parser.cpp
