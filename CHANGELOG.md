@@ -11,6 +11,14 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 ## [Unreleased]
 
 ### Added
+- `eskiuc repl`: an interactive session over the LLVM ORC JIT. A bare expression prints
+  its value by type (numbers, strings, structs field by field, enums, arrays, `String`,
+  `List<T>`); functions, types and imports stay available to later inputs, and declaring
+  one again replaces it; `let x = expr;` declares a session variable with the type of
+  `expr`. An input with a parse or type error is discarded, and an uncaught exception is
+  reported without ending the session. Brackets left open continue the input on the next
+  line. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` is not accepted
+  at the prompt, and `eskiuc-esk` has no REPL.
 - Editor tooling in `eskiuc`: `--hover-at` shows a function's signature at its declaration,
   at a call and at a dot-call (`s.replace_all` shows `int64 String_replace_all(String*
   self, string from, string to)`) and a field's type, and spells generic instances as
