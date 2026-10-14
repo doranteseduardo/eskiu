@@ -456,31 +456,3 @@ void hash_hmac_sha256_str(string key, string msg, String* out) {
     HmacSha256_update(&m, (*uint8)msg, strlen(msg));
     HmacSha256_final_hex(&m, out);
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use hash_hex_encode.
-void hex_encode(*uint8 data, int64 n, String* out) { hash_hex_encode(data, n, out); }
-// Deprecated (0.10.1): use hash_hex_decode.
-int64 hex_decode(string s, *uint8 out, int64 cap) { return hash_hex_decode(s, out, cap); }
-// Deprecated (0.10.1): use hash_sha256.
-void sha256(*uint8 data, int64 n, *uint8 out) { hash_sha256(data, n, out); }
-// Deprecated (0.10.1): use hash_sha256_hex.
-void sha256_hex(*uint8 data, int64 n, String* out) { hash_sha256_hex(data, n, out); }
-// Deprecated (0.10.1): use hash_sha256_str.
-void sha256_str(string s, String* out) { hash_sha256_str(s, out); }
-// Deprecated (0.10.1): use hash_sha1.
-void sha1(*uint8 data, int64 n, *uint8 out) { hash_sha1(data, n, out); }
-// Deprecated (0.10.1): use hash_sha1_hex.
-void sha1_hex(*uint8 data, int64 n, String* out) { hash_sha1_hex(data, n, out); }
-// Deprecated (0.10.1): use hash_sha1_str.
-void sha1_str(string s, String* out) { hash_sha1_str(s, out); }
-// Deprecated (0.10.1): use hash_md5.
-void md5(*uint8 data, int64 n, *uint8 out) { hash_md5(data, n, out); }
-// Deprecated (0.10.1): use hash_md5_hex.
-void md5_hex(*uint8 data, int64 n, String* out) { hash_md5_hex(data, n, out); }
-// Deprecated (0.10.1): use hash_md5_str.
-void md5_str(string s, String* out) { hash_md5_str(s, out); }
-// Deprecated (0.10.1): use hash_hmac_sha256.
-void hmac_sha256(*uint8 key, int64 klen, *uint8 data, int64 n, *uint8 out) { hash_hmac_sha256(key, klen, data, n, out); }
-// Deprecated (0.10.1): use hash_hmac_sha256_str.
-void hmac_sha256_str(string key, string msg, String* out) { hash_hmac_sha256_str(key, msg, out); }

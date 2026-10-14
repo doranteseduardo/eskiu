@@ -590,13 +590,3 @@ int64 Stopwatch_lap(Stopwatch* self) {
     self.lap_ms = now;
     return d;
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use DateTime_to_epoch
-int64 time_from_utc(DateTime* dt) { return DateTime_to_epoch(dt); }
-// deprecated: use DateTime_format_iso
-void time_format_iso(DateTime* dt, String* out) { DateTime_format_iso(dt, out); }
-// Deprecated (0.10.1): use time_sleep_ms.
-void sleep_ms(int64 ms) { time_sleep_ms(ms); }
-// Deprecated (0.10.1): use time_format_duration.
-void duration_format(int64 ms, String* out) { time_format_duration(ms, out); }

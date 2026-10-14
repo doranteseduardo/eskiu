@@ -605,31 +605,3 @@ int ArgParser_rest(ArgParser* p, List<string>* out) {
     for (i in 0..n) { List_push<string>(out, List_get<string>(&p.rest, i)); }
     return n;
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use ArgParser_flag.
-void args_flag(ArgParser* p, string short_name, string long_name, string help) { ArgParser_flag(p, short_name, long_name, help); }
-// Deprecated (0.10.1): use ArgParser_option.
-void args_option(ArgParser* p, string short_name, string long_name, string metavar, string def, string help) { ArgParser_option(p, short_name, long_name, metavar, def, help); }
-// Deprecated (0.10.1): use ArgParser_option_int.
-void args_option_int(ArgParser* p, string short_name, string long_name, string metavar, int def, string help) { ArgParser_option_int(p, short_name, long_name, metavar, def, help); }
-// Deprecated (0.10.1): use ArgParser_argument.
-void args_argument(ArgParser* p, string name, string help, int mode) { ArgParser_argument(p, name, help, mode); }
-// Deprecated (0.10.1): use ArgParser_get_flag.
-int args_get_flag(ArgParser* p, string name) { return ArgParser_get_flag(p, name); }
-// Deprecated (0.10.1): use ArgParser_count.
-int args_count(ArgParser* p, string name) { return ArgParser_count(p, name); }
-// Deprecated (0.10.1): use ArgParser_get.
-string args_get(ArgParser* p, string name) { return ArgParser_get(p, name); }
-// Deprecated (0.10.1): use ArgParser_get_at.
-string args_get_at(ArgParser* p, string name, int i) { return ArgParser_get_at(p, name, i); }
-// Deprecated (0.10.1): use ArgParser_get_int.
-int args_get_int(ArgParser* p, string name) { return ArgParser_get_int(p, name); }
-// Deprecated (0.10.1): use ArgParser_get_all.
-int args_get_all(ArgParser* p, string name, List<string>* out) { return ArgParser_get_all(p, name, out); }
-// Deprecated (0.10.1): use ArgParser_positional.
-string args_positional(ArgParser* p, int i) { return ArgParser_positional(p, i); }
-// Deprecated (0.10.1): use ArgParser_positional_count.
-int args_positional_count(ArgParser* p) { return ArgParser_positional_count(p); }
-// Deprecated (0.10.1): use ArgParser_rest.
-int args_rest(ArgParser* p, List<string>* out) { return ArgParser_rest(p, out); }

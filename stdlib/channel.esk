@@ -91,11 +91,3 @@ void Chan_free<T>(Chan<T>* ch) {
     free((*void)ch.buf);
     free((*void)ch);
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use Chan_send
-bool chan_send<T>(Chan<T>* ch, T v) { return Chan_send<T>(ch, v); }
-// deprecated: use Chan_recv
-Future<T>* chan_recv<T>(Chan<T>* ch) { return Chan_recv<T>(ch); }
-// deprecated: use Chan_free
-void chan_free<T>(Chan<T>* ch) { Chan_free<T>(ch); }

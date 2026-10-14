@@ -139,9 +139,9 @@ int main() {
     Chan<int>* ch = chan_new<int>(8);
     for (i in 1..4) { Chan_send(ch, i * i); }   // 1, 4, 9
     Future<int>* f = sum_squares(ch);
-    future_poll<int>(f, void() {});
+    Future_poll<int>(f, void() {});
     printf("sum of squares = %d\\n", f.value);   // 14
-    free_future<int>(f);  Chan_free<int>(ch);
+    Future_free<int>(f);  Chan_free<int>(ch);
     return 0;
 }
 `,

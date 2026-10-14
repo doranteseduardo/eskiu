@@ -1250,7 +1250,3 @@ void http_reply_error(int fd, int status, string extra, string msg) {
     b.append("\"}");
     http_reply(fd, status, "application/json", extra, &b);
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use HttpReq_parse_head.
-int http_parse_head(HttpReq* r, *uint8 buf, int hend) { return HttpReq_parse_head(r, buf, hend); }

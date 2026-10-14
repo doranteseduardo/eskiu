@@ -1408,13 +1408,3 @@ int regex_match(string pattern, string text) {
     Regex_free(&re);
     return r;
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use Regex_search
-int regex_search(Regex* re, string text, Match* m) { return Regex_search(re, text, m); }
-// deprecated: use Regex_free
-void regex_free(Regex* re) { Regex_free(re); }
-// deprecated: use Match_group
-void match_group(Match* m, string text, int i, String* out) { Match_group(m, text, i, out); }
-// deprecated: use Match_free
-void match_free(Match* m) { Match_free(m); }

@@ -259,15 +259,3 @@ Future<int>* select2<A, B>(Future<A>* a, Future<B>* b) {
 Future<int>* join2<A, B>(Future<A>* a, Future<B>* b) {
     return _join2_hdr((FutureHdr*)a, (FutureHdr*)b);
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use Future_poll.
-int future_poll<T>(Future<T>* f, escaping fn()->void resume) { return Future_poll<T>(f, resume); }
-// Deprecated (0.10.1): use Future_complete.
-void future_complete<T>(Future<T>* f, T v) { Future_complete<T>(f, v); }
-// Deprecated (0.10.1): use Future_free.
-void free_future<T>(Future<T>* f) { Future_free<T>(f); }
-// Deprecated (0.10.1): use Future_free_polled.
-void free_future_polled<T>(Future<T>* f) { Future_free_polled<T>(f); }
-// Deprecated (0.10.1): use Future_drop.
-void future_drop(FutureHdr* f) { Future_drop(f); }

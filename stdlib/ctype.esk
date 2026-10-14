@@ -1,5 +1,5 @@
 // Pure ASCII character classification — freestanding-safe (no libc ctype).
-// Comparisons only. is_space replaces <string>'s deprecated String_is_space.
+// Comparisons only. is_space replaced <string>'s String_is_space (removed in 0.11).
 // Takes `int` to mirror the C++ <cctype> domain and avoid char/uint8 width
 // surprises at call sites.
 

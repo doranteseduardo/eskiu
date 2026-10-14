@@ -103,19 +103,3 @@ void Rng_fill(Rng* r, *uint8 buf, int64 n) {
         }
     }
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use Rng_seed
-void rng_seed(Rng* r, uint64 seed) { Rng_seed(r, seed); }
-// deprecated: use Rng_next
-uint64 rng_next(Rng* r) { return Rng_next(r); }
-// deprecated: use Rng_below
-uint64 rng_below(Rng* r, uint64 n) { return Rng_below(r, n); }
-// deprecated: use Rng_range
-int64 rng_range(Rng* r, int64 lo, int64 hi) { return Rng_range(r, lo, hi); }
-// deprecated: use Rng_bool
-int rng_bool(Rng* r) { return Rng_bool(r); }
-// deprecated: use Rng_double
-double rng_double(Rng* r) { return Rng_double(r); }
-// deprecated: use Rng_fill
-void rng_fill(Rng* r, *uint8 buf, int64 n) { Rng_fill(r, buf, n); }

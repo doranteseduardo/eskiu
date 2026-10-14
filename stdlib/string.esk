@@ -217,9 +217,6 @@ int _string_ws(char c) {
     return (c == 32 || c == 9 || c == 10 || c == 13) ? 1 : 0;
 }
 
-// deprecated: use is_space from <ctype> (a character test, not a String method).
-int String_is_space(char c) { return _string_ws(c); }
-
 // Remove leading and trailing ASCII whitespace (space, tab, newline, carriage
 // return), in place.
 void String_trim(String* self) {
@@ -575,26 +572,4 @@ void String_format(String* self, string fmt, ...) {
 void String_from_double(String* self, double d) {
     String_format(self, "%.15g", d);
     if (strtod((string)self.data, null) != d) { String_format(self, "%.17g", d); }
-}
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use List_join (`parts.join(sep, &out)`).
-void str_join(List<string>* parts, string sep, String* out) { List_join<string>(parts, sep, out); }
-// Deprecated (0.10.1): use String_format. A variadic call cannot be forwarded, so
-// this keeps its own body.
-void str_format(String* out, string fmt, ...) {
-    out.clear();
-    String_reserve(out, 128);
-    va_list ap;
-    va_start(ap);
-    const int n = _string_vwrite(out, fmt, ap);
-    va_end(ap);
-    if (n < 0) { out.data[0] = 0; return; }
-    if ((int64)n >= out.cap) {
-        String_reserve(out, (int64)n + 1);
-        va_start(ap);
-        _string_vwrite(out, fmt, ap);
-        va_end(ap);
-    }
-    out.len = (int64)n;
 }
