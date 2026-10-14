@@ -306,6 +306,15 @@ int esk_main(int argc, string* argv) {
     // CLI: esk_main [-o <out>] <file.esk>. With -o, produce a native binary (write
     // the IR to a temp .ll and invoke clang); without it, emit the .ll to stdout —
     // the form the bootstrap harness pipes to clang.
+    // The package commands live in the C++ eskiuc (pkg.cpp); this driver only reads
+    // eskiu.lock to resolve package imports (pkg_load_roots).
+    if (argc >= 2 && (cg_streq(argv[1], "new") == 1 || cg_streq(argv[1], "add") == 1
+                      || cg_streq(argv[1], "build") == 1 || cg_streq(argv[1], "fetch") == 1
+                      || cg_streq(argv[1], "test") == 1)) {
+        eprint("error: '"); eprint(argv[1]);
+        eprint("' is a package command of the C++ eskiuc only\n");
+        return 1;
+    }
     // `eskiuc fmt [--check] file.esk …` — reindent files in place, no compile pipeline.
     if (argc >= 2 && cg_streq(argv[1], "fmt") == 1) {
         int check = 0;
@@ -524,6 +533,7 @@ int esk_main(int argc, string* argv) {
     }
 
     parser_session_init();
+    if (List_len<string>(&infiles) > 0) { pkg_load_roots(List_get<string>(&infiles, 0)); }
     *Program prog = alloc<Program>(1);
     List_init<*DeclNode>(&prog.decls, 4);
     // Parse every input file into the one shared program (multi-file merge; the shared

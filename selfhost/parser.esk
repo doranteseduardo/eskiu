@@ -46,6 +46,13 @@ List<int> g_pack_stack;        // saved pack values for `pack(push, N)` / `pack(
 List<string> g_link_libs;      // `#pragma link("name")` libraries, first-seen order, no dups
 List<string> g_tparams;        // type params of the generic fn/struct being parsed (`(*T)x`)
 string g_stdlib_root;          // root holding stdlib/ (the driver sets it; null → cwd)
+// Package imports (mirrors packageRoots in parser.cpp): the packages of eskiu.lock, name
+// -> root directory, set by pkg_load_roots. g_pkg_active when the program belongs to a
+// package (an eskiu.toml in its directory or above).
+List<string> g_pkg_names;
+List<string> g_pkg_roots;
+int g_pkg_active;
+string g_import_err;           // resolve_import's "unknown package" error (null if none)
 
 // The dedup key for a source file: its absolute path with `.`/`..`/symlinks resolved
 // (mirrors Parser::canonicalPath); the path itself if it cannot be resolved.
@@ -97,18 +104,129 @@ int is_registered(string key) {
     return 0;
 }
 
+// The root of package `name` from eskiu.lock, or null.
+string pkg_root_of(string name) {
+    int i = 0;
+    while (i < List_len<string>(&g_pkg_names)) {
+        if (str_eq(List_get<string>(&g_pkg_names, i), name) == 1) { return List_get<string>(&g_pkg_roots, i); }
+        i = i + 1;
+    }
+    return null;
+}
+
+// The file a package import names inside package root `root` (mirrors packageModulePath):
+// `<name/module>` is src/module.esk when that exists, else module.esk; `<name>` alone is
+// name.esk, src/name.esk or lib.esk.
+string pkg_module_path(string root, string name, string module) {
+    if (module[0] != 0) {
+        string in_src = str_concat(root, str_concat("/src/", str_concat(module, ".esk")));
+        if (fs_is_file(in_src) == 1) { return in_src; }
+        return str_concat(root, str_concat("/", str_concat(module, ".esk")));
+    }
+    string top = str_concat(root, str_concat("/", str_concat(name, ".esk")));
+    if (fs_is_file(top) == 1) { return top; }
+    string in_src2 = str_concat(root, str_concat("/src/", str_concat(name, ".esk")));
+    if (fs_is_file(in_src2) == 1) { return in_src2; }
+    return str_concat(root, "/lib.esk");
+}
+
 // Where an import resolves (mirrors Parser::resolveImport): `<name>` (no '/') is
 // stdlib/name.esk under the stdlib root (like the C++ stdlibPath: $ESKIU_ROOT or the
 // install layout; the cwd when neither is known), a relative "path" is under `basedir`.
+// `<pkg/module>` and `<pkg>` (when no stdlib module has that name) are package imports;
+// inside a package, a `<name...>` naming neither sets g_import_err.
 string resolve_import(string spec, int is_std, string basedir) {
+    g_import_err = null;
     string path = spec;
     if (is_std == 1) {
-        if (str_has_char(path, 47) == 0) { path = str_concat("stdlib/", str_concat(path, ".esk")); }
-        if (g_stdlib_root != null) { if (g_stdlib_root[0] != 0) { return str_concat(g_stdlib_root, str_concat("/", path)); } }
+        int n = cstr_len(spec);
+        int slash = 0 - 1;
+        int i = 0;
+        while (i < n && slash < 0) { if ((int)spec[i] == 47) { slash = i; } i = i + 1; }
+        if (slash < 0) { path = str_concat("stdlib/", str_concat(path, ".esk")); }
+        if (g_stdlib_root != null) { if (g_stdlib_root[0] != 0) { path = str_concat(g_stdlib_root, str_concat("/", path)); } }
+        string head = spec;
+        string module = "";
+        if (slash >= 0) { head = p_sub(spec, 0, slash); module = p_sub(spec, slash + 1, n); }
+        string proot = pkg_root_of(head);
+        if (proot != null && (slash >= 0 || fs_is_file(path) == 0)) { return pkg_module_path(proot, head, module); }
+        if (g_pkg_active == 1 && head[0] != 0 && fs_is_file(path) == 0) {
+            g_import_err = str_concat("unknown package '", str_concat(head, "' (not in eskiu.toml)"));
+        }
         return path;
     }
     if ((int)path[0] != 47) { return str_concat(basedir, str_concat("/", path)); }
     return path;
+}
+
+// $ESKIU_HOME, else ~/.eskiu: where packages are checked out (mirrors pkgHome).
+string pkg_home() {
+    string h = getenv("ESKIU_HOME");
+    if (h != null) { if (h[0] != 0) { return h; } }
+    string home = getenv("HOME");
+    if (home == null) { home = "."; }
+    return str_concat(home, "/.eskiu");
+}
+
+// Fill g_pkg_names / g_pkg_roots for a compile whose first input is `input` (mirrors
+// pkgLoadRoots): find eskiu.toml in its directory or above and read the eskiu.lock next
+// to it. Nothing is fetched.
+void pkg_load_roots(string input) {
+    List_init<string>(&g_pkg_names, 8);
+    List_init<string>(&g_pkg_roots, 8);
+    g_pkg_active = 0;
+    string dir = str_dir(canonical_path(input));
+    while (fs_is_file(str_concat(dir, "/eskiu.toml")) == 0) {
+        if (dir[0] == 0 || str_eq(dir, ".") == 1) { return; }
+        dir = str_dir(dir);
+    }
+    g_pkg_active = 1;
+    let len: int64 = 0;
+    *uint8 raw = fs_read_all(str_concat(dir, "/eskiu.lock"), &len);
+    if (raw == null) { return; }
+    string text = (string)raw;
+    int pos = 0;
+    int line_no = 0;
+    while (pos < (int)len) {
+        int end = pos;
+        while (end < (int)len && (int)text[end] != 10) { end = end + 1; }
+        line_no = line_no + 1;
+        int stop = end;
+        if (stop > pos && (int)text[stop - 1] == 13) { stop = stop - 1; }
+        if (stop > pos && (int)text[pos] != 35) {
+            List<string> f;
+            List_init<string>(&f, 5);
+            int a = pos;
+            int k = pos;
+            while (k <= stop) {
+                if (k == stop || (int)text[k] == 9) { List_push<string>(&f, p_sub(text, a, k)); a = k + 1; }
+                k = k + 1;
+            }
+            int nf = List_len<string>(&f);
+            string kind = "";
+            if (nf > 1) { kind = List_get<string>(&f, 1); }
+            string root = null;
+            if (str_eq(kind, "git") == 1 && nf == 5) {
+                root = str_concat(pkg_home(), str_concat("/pkgs/", str_concat(List_get<string>(&f, 0),
+                       str_concat("/", List_get<string>(&f, 4)))));
+            } else if (str_eq(kind, "path") == 1 && nf == 3) {
+                root = List_get<string>(&f, 2);
+            } else if (str_eq(kind, "root") == 1 && nf == 3) {
+                root = dir;
+            } else {
+                uint8[64] nb;
+                sprintf((string)&nb[0], ":%d: ", line_no);
+                lx_puts_err("error: ");
+                lx_puts_err(str_concat(dir, "/eskiu.lock"));
+                lx_puts_err((string)&nb[0]);
+                lx_puts_err("malformed entry (run eskiuc fetch)\n");
+                exit(1);
+            }
+            List_push<string>(&g_pkg_names, List_get<string>(&f, 0));
+            List_push<string>(&g_pkg_roots, root);
+        }
+        pos = end + 1;
+    }
 }
 
 // The pp_run import hook (see g_pp_import_hook): preprocess the import now, once.
@@ -2544,6 +2662,7 @@ void do_import(Parser* p, *Program prog) {
     p_expect(p, SEMICOLON, "Expected ';' after import");
 
     string full = resolve_import(path, is_std, p.basedir);
+    if (g_import_err != null) { p_report(p, path_tok, g_import_err); }
     if (register_file(full) == 0) { return; }   // dedup by canonical path — parse each file once
 
     // The preprocessor already handled this import at its line (see pre_import);
