@@ -17,12 +17,43 @@ std::string Parser::canonicalPath(const std::string& path) {
     return ec ? path : c.string();
 }
 
+PackageRoots packageRoots;
+
+static bool isFile(const std::string& p) {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(p, ec);
+}
+
+// The file a package import names inside package root `root` (see resolveImport).
+static std::string packageModulePath(const std::string& root, const std::string& name,
+                                     const std::string& module) {
+    if (!module.empty()) {
+        std::string inSrc = root + "/src/" + module + ".esk";
+        return isFile(inSrc) ? inSrc : root + "/" + module + ".esk";
+    }
+    for (const std::string& c : {root + "/" + name + ".esk", root + "/src/" + name + ".esk"})
+        if (isFile(c)) return c;
+    return root + "/lib.esk";
+}
+
 std::string Parser::resolveImport(const std::string& spec, bool isStdlib,
-                                  const std::string& basedir, const std::string& stdlibPath) {
+                                  const std::string& basedir, const std::string& stdlibPath,
+                                  std::string* err) {
     std::string path = spec;
-    // Allow bare name or name with path separator
-    if (isStdlib && path.find('/') == std::string::npos) path = "stdlib/" + path + ".esk";
-    if (isStdlib && !stdlibPath.empty()) return stdlibPath + "/" + path;
+    if (isStdlib) {
+        size_t slash = path.find('/');
+        // Allow bare name or name with path separator
+        if (slash == std::string::npos) path = "stdlib/" + path + ".esk";
+        if (!stdlibPath.empty()) path = stdlibPath + "/" + path;
+        std::string head = slash == std::string::npos ? spec : spec.substr(0, slash);
+        auto pkg = packageRoots.roots.find(head);
+        if (pkg != packageRoots.roots.end() && (slash != std::string::npos || !isFile(path)))
+            return packageModulePath(pkg->second, head,
+                                     slash == std::string::npos ? "" : spec.substr(slash + 1));
+        if (err && packageRoots.active && !head.empty() && !isFile(path))
+            *err = "unknown package '" + head + "' (not in eskiu.toml)";
+        return path;
+    }
     if (!basedir.empty() && (path.empty() || path[0] != '/')) return basedir + "/" + path;
     return path;
 }
@@ -398,7 +429,9 @@ std::vector<DeclPtr> Parser::parseProgram() {
                 }
                 consume(TokenType::SEMICOLON, "Expected ';' after import");
 
-                std::string fullPath = resolveImport(spec, isStdlib, basedir, stdlibPath);
+                std::string pkgErr;
+                std::string fullPath = resolveImport(spec, isStdlib, basedir, stdlibPath, &pkgErr);
+                if (!pkgErr.empty()) fail(pkgErr, pathTok);
                 std::string canon = canonicalPath(fullPath);
                 if (!importedFiles->count(canon)) {
                     importedFiles->insert(canon);
