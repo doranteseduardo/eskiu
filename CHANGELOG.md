@@ -8,6 +8,23 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Added
+- Editor tooling in `eskiuc`: `--hover-at` shows a function's signature at its declaration,
+  at a call and at a dot-call (`s.replace_all` shows `int64 String_replace_all(String*
+  self, string from, string to)`) and a field's type, and spells generic instances as
+  `List<int>`; `--definition-at` also resolves a method from a dot-call (inline methods
+  included) and a struct field; `--complete-at LINE:COL` lists the fields and the
+  dot-callable `Type_method` functions after `x.`, or the names in scope; `--symbols`
+  lists a file's declarations.
+- VS Code extension 0.2.0 (also Antigravity, Cursor, VSCodium): completion, signature
+  help and the outline, hover with signatures. `server.js` serves the same features as
+  an LSP server (Neovim, Helix, Zed).
+- IntelliJ plugin: the language server through LSP4IJ (errors, completion, hover,
+  signature help, go to definition, structure view, formatting), with the `eskiuc` and
+  Node.js paths in Settings | Tools | Eskiu.
+
 ## [0.10.1] - 2026-10-14
 
 ### Added

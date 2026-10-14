@@ -606,6 +606,14 @@ int main() {
 }
 ```
 
+Eskiu has no namespaces and no `Type::method` or `Type.method` syntax: a function
+belongs to a type through its name. `Type_method` is the function's real name and the
+symbol C code links against (there is no name mangling), so `nm`, a debugger and a
+stack trace show it as written. Call it with dot syntax on a value
+(`s.replace_all("-", "+")`) and by its full name when you need the function itself, to
+pass it as a value or to call it from C. Editors offer these functions after `x.`
+(see `editor/vscode`).
+
 ### Fixed-size array fields
 
 A struct field can be a fixed-size array:

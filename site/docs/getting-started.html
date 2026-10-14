@@ -708,6 +708,13 @@ int main() {
     return 0;
 }
 </code></pre>
+<p>Eskiu has no namespaces and no <code>Type::method</code> or <code>Type.method</code> syntax: a function
+belongs to a type through its name. <code>Type_method</code> is the function's real name and the
+symbol C code links against (there is no name mangling), so <code>nm</code>, a debugger and a
+stack trace show it as written. Call it with dot syntax on a value
+(<code>s.replace_all("-", "+")</code>) and by its full name when you need the function itself, to
+pass it as a value or to call it from C. Editors offer these functions after <code>x.</code>
+(see <code>editor/vscode</code>).</p>
 <h3 id="fixed-size-array-fields">Fixed-size array fields</h3>
 <p>A struct field can be a fixed-size array:</p>
 <pre><code class="language-eskiu">struct Packet {

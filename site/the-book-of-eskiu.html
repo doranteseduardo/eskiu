@@ -986,6 +986,7 @@ pre.code-block {
  printf(&quot;%d\n&quot;, c.peek());      // 3
  // a *Counter method on c is an error: declare it const Counter* self</pre>
 <p>A field and a method with the same name, or two fields with the same name, are rejected.</p>
+<p>Eskiu has no namespaces and no <code>Type::method</code> or <code>Type.method</code> syntax: a function belongs to a type through its name. <code>Type_method</code> is the function&#39;s real name and the symbol C code links against, since there is no name mangling, so <code>nm</code>, a debugger and a stack trace show it as written. You call it with dot syntax on a value, <code>s.replace_all(&quot;-&quot;, &quot;+&quot;)</code>, and by its full name when you need the function itself: to pass it as a value or to call it from C. The VS Code extension and the IntelliJ plugin offer these functions after <code>x.</code>, and their hover shows the full signature.</p>
 <h2 class="section" id="sec-5-3a">5.3a Operator overloading</h2>
 <p>For value types like vectors and matrices, the algebra reads better than nested calls. A struct can give an operator meaning by declaring <code>operator</code>, and then <code>a + b</code> resolves to it:</p>
 <pre class="code-block"> struct V3 { float x; float y; float z; }</pre>
