@@ -461,6 +461,34 @@ async function documentSymbols(document) {
     return top;
 }
 
+// "undefined variable 'totl' (did you mean 'total'?)": a quick fix that replaces the
+// misspelled name, found on the diagnostic's line nearest to its column.
+const MISSPELLED = /(?:variable|function|method|member|type) '([^']+)'[^]*\(did you mean '([^']+)'\?\)/;
+
+function quickFixes(document, range, context) {
+    const actions = [];
+    for (const d of context.diagnostics) {
+        if (d.source !== 'eskiuc') continue;
+        const m = d.message.match(MISSPELLED);
+        if (!m) continue;
+        const [, wrong, right] = m;
+        const line = document.lineAt(d.range.start.line).text;
+        const re = new RegExp(`\\b${wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+        let best = -1, hit;
+        while ((hit = re.exec(line)) !== null) {
+            if (best < 0 || Math.abs(hit.index - d.range.start.character) < Math.abs(best - d.range.start.character)) best = hit.index;
+        }
+        if (best < 0) continue;
+        const fix = new vscode.CodeAction(`Change to '${right}'`, vscode.CodeActionKind.QuickFix);
+        fix.edit = new vscode.WorkspaceEdit();
+        fix.edit.replace(document.uri, new vscode.Range(d.range.start.line, best, d.range.start.line, best + wrong.length), right);
+        fix.diagnostics = [d];
+        fix.isPreferred = true;
+        actions.push(fix);
+    }
+    return actions;
+}
+
 // `eskiuc fmt` rewrites a file in place, so format a temporary copy and replace the
 // whole document with the result.
 async function format(document) {
@@ -529,6 +557,8 @@ function activate(context) {
         vscode.languages.registerCompletionItemProvider('eskiu', { provideCompletionItems: complete }, '.'),
         vscode.languages.registerSignatureHelpProvider('eskiu', { provideSignatureHelp: signatureHelp }, '(', ','),
         vscode.languages.registerDocumentSymbolProvider('eskiu', { provideDocumentSymbols: documentSymbols }),
+        vscode.languages.registerCodeActionsProvider('eskiu', { provideCodeActions: quickFixes },
+            { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
         vscode.languages.registerDocumentFormattingEditProvider('eskiu', { provideDocumentFormattingEdits: format }),
         vscode.commands.registerCommand('eskiu.runFile', runFile),
     );
@@ -541,4 +571,4 @@ function deactivate() {
     if (diagnosticCollection) diagnosticCollection.dispose();
 }
 
-module.exports = { activate, deactivate, _test: { complete, signatureHelp, documentSymbols, hover } };
+module.exports = { activate, deactivate, _test: { complete, signatureHelp, documentSymbols, hover, quickFixes } };

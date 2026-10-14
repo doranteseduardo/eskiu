@@ -4,8 +4,8 @@
  *
  * LSP server over the compiler's editor modes: diagnostics (--test-typechecker),
  * hover (--hover-at), go to definition (--definition-at), completion (--complete-at),
- * signature help (the callee's --hover-at), document symbols (--symbols) and
- * formatting (eskiuc fmt). For editors that speak LSP: Neovim, Helix, Zed, and
+ * signature help (the callee's --hover-at), document symbols (--symbols),
+ * formatting (eskiuc fmt) and a quick fix for "did you mean" errors. For editors that speak LSP: Neovim, Helix, Zed, and
  * JetBrains IDEs through the Eskiu IntelliJ plugin (LSP4IJ).
  *
  * Protocol: JSON-RPC over stdin/stdout (standard LSP transport).
@@ -350,6 +350,30 @@ const REQUESTS = {
         }
         return top;
     },
+    // "undefined variable 'totl' (did you mean 'total'?)": replace the name on the
+    // diagnostic's line nearest to its column.
+    'textDocument/codeAction': async (p) => {
+        const lines = (docs.get(p.textDocument.uri) || '').split('\n');
+        const actions = [];
+        for (const d of (p.context && p.context.diagnostics) || []) {
+            const m = (d.message || '').match(/(?:variable|function|method|member|type) '([^']+)'[^]*\(did you mean '([^']+)'\?\)/);
+            if (!m) continue;
+            const [, wrong, right] = m;
+            const ln = d.range.start.line;
+            const text = lines[ln] || '';
+            const re = new RegExp('\\b' + wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+            let best = -1, hit;
+            while ((hit = re.exec(text)) !== null) {
+                if (best < 0 || Math.abs(hit.index - d.range.start.character) < Math.abs(best - d.range.start.character)) best = hit.index;
+            }
+            if (best < 0) continue;
+            actions.push({ title: `Change to '${right}'`, kind: 'quickfix', diagnostics: [d], isPreferred: true,
+                           edit: { changes: { [p.textDocument.uri]: [{
+                               range: { start: { line: ln, character: best }, end: { line: ln, character: best + wrong.length } },
+                               newText: right }] } } });
+        }
+        return actions;
+    },
     'textDocument/formatting': async (p) => {
         const text = docs.get(p.textDocument.uri);
         if (text == null) return [];
@@ -390,6 +414,7 @@ function handleMessage(msg) {
                 signatureHelpProvider: { triggerCharacters: ['(', ','] },
                 documentSymbolProvider: true,
                 documentFormattingProvider: true,
+                codeActionProvider: { codeActionKinds: ['quickfix'] },
             },
             serverInfo: { name: 'eskiu-lsp', version: VERSION },
         }});

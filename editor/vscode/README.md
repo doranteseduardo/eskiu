@@ -22,6 +22,9 @@ signatures, signature help, go to definition, an outline, formatting and a Run c
   highlighted; a dot-call leaves out `self`.
 - **Go to definition** (`--definition-at`) jumps to where a variable, function, method
   (also from a dot-call, inline methods included) or struct field is declared.
+- **Quick fix** for a misspelled name: an error such as `undefined variable 'totl' (did you
+  mean 'total'?)` offers "Change to 'total'" (Cmd/Ctrl+.). Uses of a `deprecated` function
+  show as warnings with the replacement.
 - **Outline** (`--symbols`): functions, structs with their fields and inline methods,
   enums, interfaces, type aliases and globals, for the Outline view, breadcrumbs and
   Go to Symbol (Cmd/Ctrl+Shift+O).
