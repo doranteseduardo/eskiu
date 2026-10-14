@@ -172,6 +172,7 @@ public:
         std::string name;
         int bitWidth = 0;   // >0 for a bitfield (e.g. `uint32 x : 1;`), 0 otherwise, -1 for `: 0`
         bool unnamed = false;   // only in layoutFields(): an unnamed bitfield (width 0 = `: 0`)
+        int line = 0, col = 0;  // the field name's position (editor tooling)
     };
     // An unnamed bitfield `T : N;`: padding laid out like a bitfield of type T, where
     // N = 0 moves the next bitfield to a new unit of T. It is not a member, so it is kept
@@ -657,6 +658,7 @@ class MemberExpr : public Expr {
 public:
     ExprPtr base;
     std::string member;
+    int memberLine = 0, memberCol = 0;   // the member name's position (editor tooling)
 
     MemberExpr(ExprPtr base, const std::string& member)
         : base(std::move(base)), member(member) {}

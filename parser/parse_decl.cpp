@@ -69,10 +69,11 @@ DeclPtr Parser::parseDeclaration() {
                     pads.push_back(parseUnnamedBitfield(fieldType, fields.size()));
                     continue;
                 }
-                std::string fieldName = consume(TokenType::IDENT,
-                    "Expected field name").value;
+                Token fieldTok = consume(TokenType::IDENT, "Expected field name");
                 consume(TokenType::SEMICOLON, "Expected ';'");
-                fields.push_back({fieldType, fieldName});
+                StructDecl::Field f{fieldType, fieldTok.value};
+                f.line = fieldTok.line; f.col = fieldTok.column;
+                fields.push_back(f);
             }
             consume(TokenType::RBRACE, "Expected '}'");
             sharedTypeNames->insert(name);
@@ -468,7 +469,8 @@ DeclPtr Parser::parseStructDecl() {
                 pads.push_back(parseUnnamedBitfield(memberType, fields.size()));
                 continue;
             }
-            std::string memberName = consume(TokenType::IDENT, "Expected member name").value;
+            Token memberTok = consume(TokenType::IDENT, "Expected member name");
+            std::string memberName = memberTok.value;
 
             if (check(TokenType::LPAREN)) {
                 // Method — backtrack and parse as a full function declaration
@@ -484,7 +486,9 @@ DeclPtr Parser::parseStructDecl() {
                     if (bitWidth == 0) bitWidth = -1;   // `: 0`, rejected by the type checker
                 }
                 consume(TokenType::SEMICOLON, "Expected ';' after field");
-                fields.push_back({memberType, memberName, bitWidth});
+                StructDecl::Field f{memberType, memberName, bitWidth};
+                f.line = memberTok.line; f.col = memberTok.column;
+                fields.push_back(f);
             }
         } catch (const std::exception& e) {
             throw std::runtime_error(std::string("In struct '") + name + "': " + e.what());
