@@ -123,6 +123,7 @@ struct Codegen {
     int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
     int safe;                // --safe: emit runtime slice/array index bounds checks (opt-in)
     int freestanding;        // --freestanding: closure envs use esk_alloc/esk_free, not malloc/free
+    int no_split;            // folding a byte image: arrays keep their `[N x T]` constant form
     int uses_trap;           // a bounds check was emitted → declare @llvm.trap once
     string cur_unwind;       // active landingpad label inside a try body ("" = plain calls)
     string cur_lbl;          // label of the basic block being emitted (for phi incoming edges)
@@ -1133,7 +1134,10 @@ void cg_ll_ws(string s, int* pos) { while ((int)s[pos[0]] == 32) { pos[0] = pos[
 
 int cg_ll_num(string s, int* pos) {
     int v = 0;
-    while ((int)s[pos[0]] >= 48 && (int)s[pos[0]] <= 57) { v = v * 10 + ((int)s[pos[0]] - 48); pos[0] = pos[0] + 1; }
+    while ((int)s[pos[0]] >= 48 && (int)s[pos[0]] <= 57) {
+        if (v > 214748363) { v = 2147483647; } else { v = v * 10 + ((int)s[pos[0]] - 48); }   // saturates
+        pos[0] = pos[0] + 1;
+    }
     return v;
 }
 
@@ -1145,6 +1149,10 @@ int cg_ll_kw(string s, int* pos, string kw) {                    // consume keyw
 }
 
 // Fields of `{ … }` / `<{ … }>` after the opening brace, through the closing `}`.
+// Layout sizes saturate at 2^31-1 instead of wrapping, so a huge type never looks small.
+int cg_sat_add(int a, int b) { if (a > 2147483647 - b) { return 2147483647; } return a + b; }
+int cg_sat_mul(int a, int b) { if (a > 0 && b > 2147483647 / a) { return 2147483647; } return a * b; }
+
 int cg_ll_fields(Codegen* g, string s, int* pos, int* al, int pk) {
     int bytes = 0; int maxal = 1;
     cg_ll_ws(s, pos);
@@ -1153,7 +1161,7 @@ int cg_ll_fields(Codegen* g, string s, int* pos, int* al, int pk) {
         int fsz = cg_ll_layout(g, s, pos, &fal);
         if (pk == 1) { fal = 1; }
         if (fal > maxal) { maxal = fal; }
-        bytes = cg_align_up(bytes, fal) + fsz;
+        bytes = cg_sat_add(cg_align_up(bytes, fal), fsz);
         cg_ll_ws(s, pos);
         if ((int)s[pos[0]] == 44) { pos[0] = pos[0] + 1; }       // ','
         cg_ll_ws(s, pos);
@@ -1193,8 +1201,8 @@ int cg_ll_layout(Codegen* g, string s, int* pos, int* al) {
         int vn = cg_ll_num(s, pos); cg_ll_ws(s, pos); cg_ll_kw(s, pos, "x");     // vector `<N x T>`
         int val = 1; int vsz = cg_ll_layout(g, s, pos, &val);
         cg_ll_ws(s, pos); if ((int)s[pos[0]] == 62) { pos[0] = pos[0] + 1; }
-        al[0] = vn * vsz;
-        return vn * vsz;
+        al[0] = cg_sat_mul(vn, vsz);
+        return cg_sat_mul(vn, vsz);
     }
     if (c == 91) {                                                                  // '[N x T]'
         pos[0] = pos[0] + 1; cg_ll_ws(s, pos);
@@ -1202,7 +1210,7 @@ int cg_ll_layout(Codegen* g, string s, int* pos, int* al) {
         int eal = 1; int esz = cg_ll_layout(g, s, pos, &eal);
         cg_ll_ws(s, pos); if ((int)s[pos[0]] == 93) { pos[0] = pos[0] + 1; }
         al[0] = eal;
-        return an * esz;
+        return cg_sat_mul(an, esz);
     }
     if (c == 37) {                                                                  // '%name'
         pos[0] = pos[0] + 1;
@@ -1234,7 +1242,7 @@ int cg_ll_layout(Codegen* g, string s, int* pos, int* al) {
 
 int cg_layout_size(Codegen* g, List<string>* fields);   // fwd: mutually recursive with cg_size
 
-int cg_align_up(int x, int a) { return ((x + a - 1) / a) * a; }
+int cg_align_up(int x, int a) { if (x > 2147483647 - a) { return 2147483647; } return ((x + a - 1) / a) * a; }
 
 // ABI alignment of an Eskiu type (of its LLVM lowering).
 int cg_align(Codegen* g, string t) {
@@ -2685,6 +2693,29 @@ string cg_const_image(Codegen* g, string sname, *ExprNode e) {
     return cg_img_render(g, &im, llty, 0);
 }
 
+// A constant whose LLVM type is not the declared one (an array with a long zero tail
+// folded as `{ given..., [tail x T] zeroinitializer }`) is spelled "!TYPE VALUE", the type
+// a balanced `{ … }` / `<{ … }>`. cg_const_ty / cg_tyval read either spelling.
+string cg_split_const(string ty, string body) { return cg_cat("!", cg_cat(ty, cg_cat(" ", body))); }
+
+string cg_const_ty(string declty, string v) {
+    if ((int)v[0] != 33) { return declty; }
+    int i = 1; int depth = 0;
+    while (v[i] != 0) {
+        int c = (int)v[i];
+        if (c == 123) { depth = depth + 1; }
+        if (c == 125) { depth = depth - 1; if (depth == 0) { i = i + 1; break; } }
+        i = i + 1;
+    }
+    if ((int)v[i] == 62) { i = i + 1; }                  // the `>` closing a packed `<{ … }>`
+    return cg_sub_str(v, 1, i);
+}
+
+string cg_tyval(string declty, string v) {
+    if ((int)v[0] == 33) { return cg_sub_str(v, 1, cg_strlen(v)); }
+    return cg_cat(declty, cg_cat(" ", v));
+}
+
 // Constant struct-literal text "{ ty v, ty v, ... }" for a global initializer (a
 // bitfield struct or a union goes through its byte image, cg_const_image; "" when it
 // cannot be folded). Named + positional fields; missing → zero.
@@ -2694,7 +2725,9 @@ string cg_const_struct(Codegen* g, string sname0, *ExprNode e) {
     int nf = List_len<string>(&s.fnames);
     if (nf == 0) { return ""; }
     if (cg_is_union(g, sname) == 1 || cg_is_bf_struct(g, sname) == 1) {
+        int ns = g.no_split; g.no_split = 1;             // the byte image reads `[N x T]` constants
         string img = cg_const_image(g, sname, e);
+        g.no_split = ns;
         if (img[0] == 0) {
             dprintf(2, "error: a '%s' literal initializer is not a compile-time constant\n", sname);
             exit(1);
@@ -2707,13 +2740,15 @@ string cg_const_struct(Codegen* g, string sname0, *ExprNode e) {
     if (sbody[0] == 0) { int pal = 1; cg_ll_named(g, sname, &pal); sbody = cg_tydef_body(g, sname); }
     if ((int)sbody[0] == 60) { pkd = 1; }
     let out: String; String_init(&out, 64);
-    if (pkd == 1) { String_append(&out, "<{ "); } else { String_append(&out, "{ "); }
+    let tys: String; String_init(&tys, 64);             // the field types, for a split form
+    int split = 0;
+    if (pkd == 1) { String_append(&out, "<{ "); String_append(&tys, "<{ "); }
+    else { String_append(&out, "{ "); String_append(&tys, "{ "); }
     int nk = List_len<*ExprNode>(&e.kids);
     int i = 0;
     while (i < nf) {
-        if (i > 0) { String_append(&out, ", "); }
+        if (i > 0) { String_append(&out, ", "); String_append(&tys, ", "); }
         string flty = cg_lltype(g, List_get<string>(&s.fetys, i));
-        String_append(&out, flty); String_push(&out, ' ');
         *ExprNode fe = null;                              // the init provided for field i, if any
         int k = 0;
         while (k < nk) {
@@ -2723,11 +2758,17 @@ string cg_const_struct(Codegen* g, string sname0, *ExprNode e) {
             if (idx == i) { fe = List_get<*ExprNode>(&e.kids, k); }
             k = k + 1;
         }
-        if (fe != null) { String_append(&out, cg_global_init_ty(g, fe, List_get<string>(&s.fetys, i))); }
-        else { String_append(&out, "zeroinitializer"); }
+        string fv = "zeroinitializer";
+        if (fe != null) { fv = cg_global_init_ty(g, fe, List_get<string>(&s.fetys, i)); }
+        if ((int)fv[0] == 33) { split = 1; }
+        String_append(&tys, cg_const_ty(flty, fv));
+        String_append(&out, cg_tyval(flty, fv));
         i = i + 1;
     }
-    if (pkd == 1) { String_append(&out, " }>"); } else { String_append(&out, " }"); }
+    if (pkd == 1) { String_append(&out, " }>"); String_append(&tys, " }>"); }
+    else { String_append(&out, " }"); String_append(&tys, " }"); }
+    // A field in the split array form makes the struct a literal one with the same layout.
+    if (split == 1) { return cg_split_const((string)String_cstr(&tys), (string)String_cstr(&out)); }
     return (string)String_cstr(&out);
 }
 
@@ -3097,9 +3138,9 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         if ((int)llty[0] != 91) { return "zeroinitializer"; }    // 91 = '[' ; not an array type
         int L = cg_strlen(llty);
         int i = 1;                                               // past '['
-        int cnt = 0;
+        int64 cnt = (int64)0;
         while (llty[i] != 0 && (int)llty[i] >= 48 && (int)llty[i] <= 57) {
-            cnt = cnt * 10 + ((int)llty[i] - 48); i = i + 1;
+            cnt = cnt * (int64)10 + (int64)((int)llty[i] - 48); i = i + 1;
         }
         int es = i + 3;                                          // skip " x " to the element type
         int ee = L - 1;                                          // drop the trailing ']'
@@ -3107,19 +3148,51 @@ string cg_global_init(Codegen* g, *ExprNode e, string llty) {
         int k = 0; while (k < ee - es) { buf[k] = (uint8)llty[es + k]; k = k + 1; }
         buf[ee - es] = 0;
         string elemty = (string)buf;
+        int nk = List_len<*ExprNode>(&e.kids);
+        if ((int64)nk > cnt) { nk = (int)cnt; }                  // extra elements ignored
+        List<string> vals; List_init<string>(&vals, nk + 1);
+        int split = 0;
+        int idx = 0;
+        while (idx < nk) {
+            string v = cg_global_init(g, List_get<*ExprNode>(&e.kids, idx), elemty);
+            if ((int)v[0] == 33) { split = 1; }
+            List_push<string>(&vals, v);
+            idx = idx + 1;
+        }
+        // A long zero tail (or an element already in this form) is a struct of the given
+        // elements and one zeroinitializer array for the rest, as clang emits it: the same
+        // bytes, without a constant per zero element (cg_split_const).
+        int64 tail = cnt - (int64)nk;
+        if (g.no_split == 0 && (split == 1 || tail >= (int64)1024)) {
+            let tys: String; String_init(&tys, 64);
+            let body: String; String_init(&body, 64);
+            String_append(&tys, "{ "); String_append(&body, "{ ");
+            idx = 0;
+            while (idx < nk) {
+                if (idx > 0) { String_append(&tys, ", "); String_append(&body, ", "); }
+                string v = List_get<string>(&vals, idx);
+                String_append(&tys, cg_const_ty(elemty, v));
+                String_append(&body, cg_tyval(elemty, v));
+                idx = idx + 1;
+            }
+            if (tail > (int64)0) {
+                string tt = cg_cat("[", cg_cat(cg_i64toa(tail), cg_cat(" x ", cg_cat(elemty, "]"))));
+                if (nk > 0) { String_append(&tys, ", "); String_append(&body, ", "); }
+                String_append(&tys, tt);
+                String_append(&body, tt); String_append(&body, " zeroinitializer");
+            }
+            String_append(&tys, " }"); String_append(&body, " }");
+            return cg_split_const((string)String_cstr(&tys), (string)String_cstr(&body));
+        }
         let out: String; String_init(&out, 64);
         String_push(&out, '[');
-        int nk = List_len<*ExprNode>(&e.kids);
-        int idx = 0;
-        while (idx < cnt) {
-            if (idx > 0) { String_append(&out, ", "); }
+        int64 j = (int64)0;
+        while (j < cnt) {
+            if (j > (int64)0) { String_append(&out, ", "); }
             String_append(&out, elemty); String_push(&out, ' ');
-            if (idx < nk) {
-                String_append(&out, cg_global_init(g, List_get<*ExprNode>(&e.kids, idx), elemty));
-            } else {
-                String_append(&out, "zeroinitializer");
-            }
-            idx = idx + 1;
+            if (j < (int64)nk) { String_append(&out, List_get<string>(&vals, (int)j)); }
+            else { String_append(&out, "zeroinitializer"); }
+            j = j + (int64)1;
         }
         String_push(&out, ']');
         return (string)String_cstr(&out);
@@ -5953,12 +6026,49 @@ void cg_bf_write(Codegen* g, string baseptr, string sname, CgBF slot, string rhs
     cg_bf_store(g, cg_bf_wordptr(g, baseptr, sname, slot), slot, rhsop);
 }
 
+// An aggregate larger than this is zeroed by cg_zero_fill rather than by storing its
+// zeroinitializer (clang expands that store element by element).
+int cg_ll_big(Codegen* g, string llty) { return cg_ll_size_of(g, llty) > 4096 ? 1 : 0; }
+
+// Zero the `llty` storage at `slot` in one operation: llvm.memset, or a byte loop when
+// freestanding (no C library to call). The size is the type's, computed by LLVM.
+void cg_zero_fill(Codegen* g, string slot, string llty) {
+    string sz = cg_cat("ptrtoint (ptr getelementptr (", cg_cat(llty, ", ptr null, i32 1) to i64)"));
+    if (g.freestanding == 0) {
+        cg_ensure_extern(g, "llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
+        cg_emit(g, "  call void @llvm.memset.p0.i64(ptr "); cg_emit(g, slot); cg_emit(g, ", i8 0, i64 ");
+        cg_emit(g, sz); cg_emit(g, ", i1 false)\n");
+        return;
+    }
+    string ctr = cg_entry_alloca(g, "i64");
+    string head = cg_lbl(g); string body = cg_lbl(g); string done = cg_lbl(g);
+    cg_emit(g, "  store i64 0, ptr "); cg_emit(g, ctr); cg_emit(g, "\n");
+    cg_br(g, head);
+    cg_label(g, head);
+    string iv = cg_tmp(g); string cmp = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, iv); cg_emit(g, " = load i64, ptr "); cg_emit(g, ctr); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, cmp); cg_emit(g, " = icmp ult i64 "); cg_emit(g, iv); cg_emit(g, ", "); cg_emit(g, sz); cg_emit(g, "\n");
+    cg_emit(g, "  br i1 "); cg_emit(g, cmp); cg_emit(g, ", label %"); cg_emit(g, body);
+    cg_emit(g, ", label %"); cg_emit(g, done); cg_emit(g, "\n");
+    g.terminated = 1;
+    cg_label(g, body);
+    string bp = cg_tmp(g); string nx = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, bp); cg_emit(g, " = getelementptr i8, ptr "); cg_emit(g, slot); cg_emit(g, ", i64 "); cg_emit(g, iv); cg_emit(g, "\n");
+    cg_emit(g, "  store i8 0, ptr "); cg_emit(g, bp); cg_emit(g, "\n");
+    cg_emit(g, "  "); cg_emit(g, nx); cg_emit(g, " = add i64 "); cg_emit(g, iv); cg_emit(g, ", 1\n");
+    cg_emit(g, "  store i64 "); cg_emit(g, nx); cg_emit(g, ", ptr "); cg_emit(g, ctr); cg_emit(g, "\n");
+    cg_br(g, head);
+    cg_label(g, done);
+}
+
 void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e) {
     string sname = cg_dealias(g, sname0);                // `Alias{...}` of a struct alias fills the struct
     CgStruct s = cg_find_struct(g, sname);
     // Fields the literal omits are zero (C aggregate-initializer semantics), not whatever
     // the stack slot held: store the zero value first, then the given fields.
-    cg_emit(g, "  store %"); cg_emit(g, s.name); cg_emit(g, " zeroinitializer, ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    string sty = cg_cat("%", s.name);
+    if (cg_ll_big(g, sty) == 1) { cg_zero_fill(g, slot, sty); }
+    else { cg_emit(g, "  store "); cg_emit(g, sty); cg_emit(g, " zeroinitializer, ptr "); cg_emit(g, slot); cg_emit(g, "\n"); }
     int n = List_len<*ExprNode>(&e.kids);
     int i = 0;
     while (i < n) {
@@ -5980,7 +6090,7 @@ void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e) {
                 cg_emit(g, s.name); cg_emit(g, ", ptr "); cg_emit(g, slot);
                 cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(aidx)); cg_emit(g, "\n");
             }
-            cg_array_init(g, ap, fety, fex, 1);
+            cg_array_init(g, ap, fety, fex, 0);         // the struct is already zero
             i = i + 1; continue;
         }
         CgVal val = cg_expr(g, fex);
@@ -6125,7 +6235,8 @@ void cg_array_init(Codegen* g, string slot, string arrType0, *ExprNode lit, int 
     string elemStr = cg_array_elem(arrType);
     string elemLl = cg_lltype(g, elemStr);
     int elemIsArr = cg_is_array(elemStr);
-    if (do_zero == 1) {
+    if (do_zero == 1 && cg_ll_big(g, ty) == 1) { cg_zero_fill(g, slot, ty); }
+    else if (do_zero == 1) {
         cg_emit(g, "  store "); cg_emit(g, ty); cg_emit(g, " zeroinitializer, ptr ");
         cg_emit(g, slot); cg_emit(g, "\n");
     }
@@ -6428,9 +6539,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
             g.lam_expret = "";
             String_append(&g.globals, gname);
             String_append(&g.globals, " = internal global ");
-            String_append(&g.globals, ty);
-            String_append(&g.globals, " ");
-            String_append(&g.globals, sinit);
+            String_append(&g.globals, cg_tyval(ty, sinit));
             String_append(&g.globals, "\n");
             cg_add_local(g, st.name, gname, ty, cg_apply_sub(g, st.type));
             if (st.is_vol == 1) { List_push<string>(&g.vols, st.name); }
@@ -8968,8 +9077,7 @@ void cg_program(Codegen* g, *Program prog) {
             string initstr = cg_global_init_ty(g, d.init, d.ret_type);
             g.lam_expret = "";
             String_append(&g.globals, gsym);
-            String_append(&g.globals, " = global "); String_append(&g.globals, llty);
-            String_append(&g.globals, " "); String_append(&g.globals, initstr);
+            String_append(&g.globals, " = global "); String_append(&g.globals, cg_tyval(llty, initstr));
             String_append(&g.globals, "\n");
         }
         si = si + 1;
