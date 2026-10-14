@@ -79,6 +79,16 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `extern` keep their declarations and say which modules already have the common ones.
 
 ### Fixed
+- An array with a short `{...}` initializer and a large size no longer makes compiling slow
+  or run out of memory (found by the CI fuzzer with a dimension of `2147483647`). Both
+  compilers zero a local of more than 4 KB with one `memset` (a byte loop under
+  `--freestanding`) and store only the given elements, and a constant with a zero tail of
+  1024 elements or more is folded as `{ given..., [rest x T] zeroinitializer }`, as clang
+  does. An array larger than the largest object (2^61-1 bytes with 64-bit pointers,
+  2^32-1 with 32-bit ones) is an error, "array is too large", as in C. The self-hosted
+  compiler no longer rejects `int[4294967295] a = {0};` (it compared the size as 32 bits).
+- `tests/fuzz/eskiu_fuzz.py` reads its seed corpus in sorted order, so a seed gives the same
+  programs on every OS, and CI uploads the fuzz findings when a fuzz step fails.
 - `process_run` with a timeout reports the command's own exit code when it exited in time
   and a background process it started still holds the output pipe; it waited for the pipe,
   then killed the group and reported a timeout (137).

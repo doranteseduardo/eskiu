@@ -233,6 +233,16 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>An array with a short <code>{...}</code> initializer and a large size no longer makes compiling slow
+  or run out of memory (found by the CI fuzzer with a dimension of <code>2147483647</code>). Both
+  compilers zero a local of more than 4 KB with one <code>memset</code> (a byte loop under
+  <code>--freestanding</code>) and store only the given elements, and a constant with a zero tail of
+  1024 elements or more is folded as <code>{ given..., [rest x T] zeroinitializer }</code>, as clang
+  does. An array larger than the largest object (2^61-1 bytes with 64-bit pointers,
+  2^32-1 with 32-bit ones) is an error, "array is too large", as in C. The self-hosted
+  compiler no longer rejects <code>int[4294967295] a = {0};</code> (it compared the size as 32 bits).</li>
+<li><code>tests/fuzz/eskiu_fuzz.py</code> reads its seed corpus in sorted order, so a seed gives the same
+  programs on every OS, and CI uploads the fuzz findings when a fuzz step fails.</li>
 <li><code>process_run</code> with a timeout reports the command's own exit code when it exited in time
   and a background process it started still holds the output pipe; it waited for the pipe,
   then killed the group and reported a timeout (137).</li>

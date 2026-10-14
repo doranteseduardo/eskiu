@@ -530,7 +530,7 @@ int main() {
 }
 ```
 
-An array dimension is an integer constant expression: literals, `enum` members and `const` ints, combined with the integer operators, `?:`, parentheses and casts to an integer type, which truncate as in C (`int[(uint8)258]` has 2 elements, `int[CAP * 2]` 8). It must be positive. `const` bindings are block-scoped like any other variable.
+An array dimension is an integer constant expression: literals, `enum` members and `const` ints, combined with the integer operators, `?:`, parentheses and casts to an integer type, which truncate as in C (`int[(uint8)258]` has 2 elements, `int[CAP * 2]` 8). It must be positive, and the array may not be larger than the largest object of the target (2^61-1 bytes with 64-bit pointers, 2^32-1 with 32-bit ones; "array is too large", as in C). `const` bindings are block-scoped like any other variable.
 
 **`const` works on any type** (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a `const` value:
 

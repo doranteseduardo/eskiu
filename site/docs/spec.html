@@ -674,7 +674,7 @@ int main() {
     return sizeof(Ring);          // 16
 }
 </code></pre>
-<p>An array dimension is an integer constant expression: literals, <code>enum</code> members and <code>const</code> ints, combined with the integer operators, <code>?:</code>, parentheses and casts to an integer type, which truncate as in C (<code>int[(uint8)258]</code> has 2 elements, <code>int[CAP * 2]</code> 8). It must be positive. <code>const</code> bindings are block-scoped like any other variable.</p>
+<p>An array dimension is an integer constant expression: literals, <code>enum</code> members and <code>const</code> ints, combined with the integer operators, <code>?:</code>, parentheses and casts to an integer type, which truncate as in C (<code>int[(uint8)258]</code> has 2 elements, <code>int[CAP * 2]</code> 8). It must be positive, and the array may not be larger than the largest object of the target (2^61-1 bytes with 64-bit pointers, 2^32-1 with 32-bit ones; "array is too large", as in C). <code>const</code> bindings are block-scoped like any other variable.</p>
 <p><strong><code>const</code> works on any type</strong> (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a <code>const</code> value:</p>
 <pre><code class="language-eskiu">const string name = &quot;Eskiu&quot;;   // any type may be const
 const let p: Point = Point { x: 1.0, y: 2.0 };
