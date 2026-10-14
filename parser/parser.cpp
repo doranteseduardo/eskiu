@@ -363,6 +363,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
     auto recover = [&](const std::exception& e) {
         std::cerr << "error: " << (filename.empty() ? "<input>" : filename) << ":"
                   << errLine << ":" << errCol << ": " << e.what() << std::endl;
+        if (firstErrorLine() == 0) { firstErrorLine() = errLine; firstErrorCol() = errCol; firstErrorFile() = filename; }
         hadError = true;
         skipToNextDecl(declStart);
     };

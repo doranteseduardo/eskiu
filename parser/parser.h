@@ -35,6 +35,11 @@ public:
     // Set true when any declaration/import failed to parse. parse() returns
     // nullptr in that case so callers fail loudly instead of silently dropping code.
     bool hadError = false;
+    // The first syntax error of the run (file and line), for editor tooling that
+    // retries without the broken line (--complete-at).
+    static std::string& firstErrorFile() { static std::string f; return f; }
+    static int& firstErrorLine() { static int l = 0; return l; }
+    static int& firstErrorCol() { static int c = 0; return c; }
 
     // Directory of the current source file — used to resolve relative imports
     std::string basedir;

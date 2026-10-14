@@ -520,8 +520,47 @@ static int compilerMain(int argc, char** argv) {
         bool restBlank = src.find_first_not_of(" \t\r", q) >= le;
         std::string spliced = src.substr(0, p) + TypeChecker::kCompleteSentinel +
                               (restBlank ? ";" : "") + src.substr(q);
-        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding,
-                                   nullptr, nullptr, &spliced);
+        // A syntax error elsewhere in the file (the user is mid-edit): blank the broken
+        // line and try again. An error at the first token of a line blames the line
+        // before it (an unfinished statement is reported at the next token). A line that
+        // opens or closes a block is kept, and so is the cursor's line.
+        std::shared_ptr<Program> program;
+        std::streambuf* errBuf = std::cerr.rdbuf();
+        std::ostringstream quiet;
+        auto lineSpan = [&](int ln, size_t& b, size_t& e) {
+            b = 0;
+            for (int l = 1; l < ln && b != std::string::npos; ++l) {
+                b = spliced.find('\n', b);
+                if (b != std::string::npos) ++b;
+            }
+            if (b == std::string::npos) return false;
+            e = spliced.find('\n', b);
+            if (e == std::string::npos) e = spliced.size();
+            return true;
+        };
+        for (int attempt = 0; attempt < 8 && !program; ++attempt) {
+            Parser::firstErrorLine() = 0;
+            std::cerr.rdbuf(quiet.rdbuf());
+            program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding,
+                                  nullptr, nullptr, &spliced);
+            std::cerr.rdbuf(errBuf);
+            if (program) break;
+            int bad = Parser::firstErrorLine();
+            if (bad <= 0 || Parser::canonicalPath(Parser::firstErrorFile()) !=
+                                Parser::canonicalPath(std::string(InputFilename))) break;
+            size_t b = 0, e = 0;
+            if (!lineSpan(bad, b, e)) break;
+            size_t first = spliced.find_first_not_of(" \t", b);
+            if (first == std::string::npos || first >= e || (int)(first - b) + 1 >= Parser::firstErrorCol()) {
+                do {
+                    --bad;
+                } while (bad > 0 && lineSpan(bad, b, e) &&
+                         spliced.find_first_not_of(" \t\r", b) >= e);
+            }
+            if (bad <= 0 || bad == line || !lineSpan(bad, b, e)) break;
+            if (spliced.substr(b, e - b).find_first_of("{}") != std::string::npos) break;
+            spliced.replace(b, e - b, std::string(e - b, ' '));
+        }
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
             TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
