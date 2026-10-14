@@ -8,7 +8,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.10.1] - 2026-10-12
+## [0.10.1] - 2026-10-14
 
 ### Added
 - `<mem>` declares the C string functions `strcmp`, `strncmp`, `strchr` and `strstr` next to
