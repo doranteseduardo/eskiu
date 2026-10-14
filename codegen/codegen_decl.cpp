@@ -342,14 +342,21 @@ void CodeGen::visit(VarDecl* node) {
         // A global has external (C) linkage, so a C object can reference it by name. An
         // earlier `extern` declaration of it becomes this definition.
         llvm::GlobalVariable* gv = nullptr;
-        if (prior && prior->isDeclaration() && prior->getValueType() == declType) {
+        // The initializer's type is the declared one, or a struct of the same layout
+        // (constInitializer's split form of an array with a long zero tail).
+        if (prior && prior->isDeclaration() && prior->getValueType() == init->getType()) {
             gv = prior;
             gv->setInitializer(init);
             gv->setConstant(false);
         } else {
             gv = new llvm::GlobalVariable(
-                *module, declType, /*isConstant=*/false,
+                *module, init->getType(), /*isConstant=*/false,
                 llvm::GlobalValue::ExternalLinkage, init, node->name);
+            if (prior && prior->isDeclaration()) {
+                gv->takeName(prior);
+                prior->replaceAllUsesWith(gv);
+                prior->eraseFromParent();
+            }
         }
 
         if (constVal && !node->isVolatile) constValueOf[gv] = constVal;
@@ -369,7 +376,7 @@ void CodeGen::visit(VarDecl* node) {
         if (!init) init = llvm::Constant::getNullValue(declType);
         std::string gname = currentFunction->getName().str() + "." + node->name;
         auto* gv = new llvm::GlobalVariable(
-            *module, declType, /*isConstant=*/false,
+            *module, init->getType(), /*isConstant=*/false,
             llvm::GlobalValue::PrivateLinkage, init, gname);
         defineSymbol(node->name, gv);
         defineVarType(node->name, node->type);

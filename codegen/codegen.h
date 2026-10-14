@@ -657,8 +657,18 @@ private:
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
     // Fill an array alloca `dest` (of type `arrType`, e.g. "int[3]") from an array
-    // literal: store each element, then zero-fill the remaining slots (C-style).
-    void emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType);
+    // literal: store each element, then zero-fill the remaining slots (C-style). With
+    // `zeroed` the storage is already zero and only the given elements are stored.
+    void emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType,
+                           bool zeroed = false);
+    // Zero `ty`'s storage at `dest` in one operation: memset, or a byte loop when
+    // freestanding (no C library to call).
+    void emitZeroFill(llvm::Value* dest, llvm::Type* ty);
+    // An aggregate this large is zeroed by emitZeroFill rather than element by element.
+    static constexpr uint64_t kBulkZeroBytes = 4096;
+    // A constant array whose zero tail has this many elements is folded as a struct
+    // `{ given..., [tail x T] zeroinitializer }` (constInitializer).
+    static constexpr uint64_t kSplitZeroTail = 1024;
     // Resolve a struct-initializer name to a concrete struct type name, instantiating
     // the template if the name is of the form Name<Arg,...> (e.g. Pair<int,float>).
     std::string resolveStructInitName(const std::string& name);

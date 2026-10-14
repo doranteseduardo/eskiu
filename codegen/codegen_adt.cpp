@@ -121,7 +121,33 @@ std::string CodeGen::resolveStructInitName(const std::string& name) {
     return mangled;
 }
 
-void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType) {
+void CodeGen::emitZeroFill(llvm::Value* dest, llvm::Type* ty) {
+    const llvm::DataLayout& DL = module->getDataLayout();
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Value* size = llvm::ConstantInt::get(i64, DL.getTypeAllocSize(ty).getFixedValue());
+    if (!freestanding) {
+        builder->CreateMemSet(dest, builder->getInt8(0), size, DL.getABITypeAlign(ty));
+        return;
+    }
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* pre = builder->GetInsertBlock();
+    llvm::BasicBlock* head = llvm::BasicBlock::Create(*context, "zero.head", fn);
+    llvm::BasicBlock* body = llvm::BasicBlock::Create(*context, "zero.body", fn);
+    llvm::BasicBlock* done = llvm::BasicBlock::Create(*context, "zero.done", fn);
+    builder->CreateBr(head);
+    builder->SetInsertPoint(head);
+    llvm::PHINode* i = builder->CreatePHI(i64, 2, "zero.i");
+    i->addIncoming(llvm::ConstantInt::get(i64, 0), pre);
+    builder->CreateCondBr(builder->CreateICmpULT(i, size), body, done);
+    builder->SetInsertPoint(body);
+    builder->CreateStore(builder->getInt8(0), builder->CreateGEP(builder->getInt8Ty(), dest, i));
+    i->addIncoming(builder->CreateAdd(i, llvm::ConstantInt::get(i64, 1)), body);
+    builder->CreateBr(head);
+    builder->SetInsertPoint(done);
+}
+
+void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std::string& arrType,
+                                bool zeroed) {
     // Peel the outer (leftmost) dimension: `int[2][3]` → dim 2, element `int[3]`. An
     // alias (`type A3 = int[3]`) names the array it stands for.
     ty::Type bt = ty::Type::parse(expandAlias(arrType));
@@ -133,6 +159,12 @@ void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std:
     llvm::Type* arrTy = llvm::ArrayType::get(elemTy, n);
     llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
     bool elemIsArray = ty::Type::parse(expandAlias(elemStr)).kind == ty::Type::Kind::Array;   // `A3[2]`
+    // A large array is zeroed once, then only the given elements are stored.
+    if (!zeroed && module->getDataLayout().getTypeAllocSize(arrTy).getFixedValue() > kBulkZeroBytes) {
+        emitZeroFill(dest, arrTy);
+        zeroed = true;
+    }
+    if (zeroed) n = std::min<uint64_t>(n, lit->elements.size());
 
     for (uint64_t i = 0; i < n; ++i) {
         llvm::Value* slot = builder->CreateGEP(arrTy, dest,
@@ -142,7 +174,7 @@ void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std:
             // element is evaluated and coerced to the element type.
             if (elemIsArray) {
                 if (auto* sub = dynamic_cast<ArrayLitExpr*>(lit->elements[i].get()))
-                    emitArrayInitInto(slot, sub, elemStr);
+                    emitArrayInitInto(slot, sub, elemStr, zeroed);
                 else
                     builder->CreateStore(evaluateExpr(lit->elements[i]), slot);
                 continue;
@@ -166,7 +198,10 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
     llvm::StructType* st = structTypes[sname];
     // Fields the literal omits are zero (C aggregate-initializer semantics), not
     // whatever the stack slot held; write the zero first, then the given fields.
-    builder->CreateStore(llvm::Constant::getNullValue(st), dest);
+    if (module->getDataLayout().getTypeAllocSize(st).getFixedValue() > kBulkZeroBytes)
+        emitZeroFill(dest, st);
+    else
+        builder->CreateStore(llvm::Constant::getNullValue(st), dest);
 
     bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
 
@@ -181,7 +216,7 @@ void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
             auto lit = structLayout.find(sname);
             if (lit != structLayout.end()) at = layoutFieldAddr(sname, dest, lit->second.at(fields[idx].name));
             else if (!unionFields.count(sname)) at = builder->CreateStructGEP(st, dest, idx);
-            emitArrayInitInto(at, arr, fields[idx].type);
+            emitArrayInitInto(at, arr, fields[idx].type, /*zeroed=*/true);
             return;
         }
         llvm::Value* val = evalForType(expr, fields[idx].type);
