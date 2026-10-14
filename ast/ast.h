@@ -120,6 +120,9 @@ public:
     bool isAsync = false;
     // `must_use`: discarding a call to this function (a bare call statement) is an error.
     bool mustUse = false;
+    // `deprecated("use X") T f(...)`: each use outside an imported module warns, with
+    // this message (empty: not deprecated).
+    std::string deprecatedMsg;
     // Operator overload: the op this `operator <op>(...)` implements ("+","[]","u-",...);
     // empty for a normal function. Sema registers it so `a op b` resolves here by operands.
     std::string operatorSym;

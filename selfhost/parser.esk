@@ -2494,6 +2494,14 @@ void parse_unnamed_bitfield(Parser* p, *DeclNode d, string ty) {
     if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
     if (t == ASYNC) { p_adv(p); d = parse_function(p); d.is_async = 1; return d; }   // async fn
     if (t == MUST_USE) { p_adv(p); d = parse_function(p); d.is_mustuse = 1; return d; }   // must_use fn
+    // `deprecated("use X") T f(...)`: accepted and ignored (the warning is C++ only, like -Wall).
+    if (t == IDENT && p_peek_k(p, 1).type == LPAREN && p_peek_k(p, 2).type == STRING_LIT && p_peek_k(p, 3).type == RPAREN) {
+        Token dt = p_peek(p);
+        if (lexeme_eq(p.src, dt.start, dt.len, "deprecated") == 1) {
+            p_adv(p); p_adv(p); p_adv(p); p_adv(p);
+            return parse_decl_top(p);
+        }
+    }
     if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
     if (t == PACKED) { p_adv(p); p_adv(p); d = parse_struct(p); d.is_packed = 1; d.pack_align = 1; register_type(p, d.name); return d; }
     if (t == UNION) { p_adv(p); d = parse_union(p); register_type(p, d.name); return d; }
