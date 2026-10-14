@@ -36,17 +36,17 @@ int main(int argc, string* argv) {
     int port = atoi(argv[1]);
     thread_create(void() { http_serve(port, 2, handler); });
     let url: String;  url.init(64);
-    str_format(&url, "http://127.0.0.1:%d/ping", port);
+    String_format(&url, "http://127.0.0.1:%d/ping", port);
     let r: Response;
     int rc = -1;
     for (int i = 0; i < 250 && rc != 0; i++) {
         rc = fetch(url.cstr(), &r);
         Response_free(&r);
-        if (rc != 0) { sleep_ms(20); }
+        if (rc != 0) { time_sleep_ms(20); }
     }
     url.free();
     if (rc != 0) { return 1; }
     fs_write_text(argv[2], "ready\n");
-    sleep_ms(120000);
+    time_sleep_ms(120000);
     return 0;
 }

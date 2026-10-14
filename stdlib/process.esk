@@ -21,8 +21,9 @@
 // process_last_error says why and r.exit_code is -1. exit_code is the exit
 // status, or 128+N when a signal N ended the child (POSIX). A timeout kills the
 // child and what it started (its process group on POSIX, a Job object on
-// Windows, so `sh -c` pipelines die too), sets timed_out and reports exit
-// code 137.
+// Windows, so `sh -c` pipelines die too; on POSIX only the child itself when
+// it inherits a terminal stdin, which it could not read from another process
+// group), sets timed_out and reports exit code 137.
 //
 // process_spawn starts a child and returns at once with pipe handles in a
 // Process: Process_write_stdin / Process_close_stdin feed it, Process_read reads
@@ -131,6 +132,7 @@ extern int   open(string path, int flags, ...);
 extern int   fcntl(int fd, int cmd, ...);
 extern int   kill(int pid, int sig);
 extern int   setpgid(int pid, int pgid);
+extern int   isatty(int fd);
 extern *void signal(int sig, *void handler);
 extern int   chdir(string path);
 
@@ -149,6 +151,8 @@ void _proc_set_environ(*string e) { *_NSGetEnviron() = e; }
 #define _PROC_O_NONBLOCK 4
 #define _PROC_O_CLOEXEC  16777216
 #define _PROC_EAGAIN     35
+#define _PROC_SIG_BLOCK   1
+#define _PROC_SIG_SETMASK 3
 #else
 extern int pipe2(*int fds, int flags);
 #if defined(__aarch64__) || defined(__x86_64__)
@@ -163,6 +167,8 @@ void _proc_set_environ(*string e) { environ = e; }
 #define _PROC_O_NONBLOCK 2048
 #define _PROC_O_CLOEXEC  524288
 #define _PROC_EAGAIN     11
+#define _PROC_SIG_BLOCK   0
+#define _PROC_SIG_SETMASK 2
 #endif
 #define _PROC_F_SETFD 2
 #define _PROC_F_GETFL 3
@@ -191,6 +197,44 @@ void _proc_close(*int fd) {
 void _proc_dup_to(int src, int dst) {
     if (src == dst) { fcntl(dst, _PROC_F_SETFD, 0); return; }
     dup2(src, dst);
+}
+
+extern int pthread_sigmask(int how, *void set, *void old);
+extern int sigemptyset(*void set);
+extern int sigaddset(*void set, int sig);
+extern int sigismember(*void set, int sig);
+extern int sigpending(*void set);
+extern int sigwait(*void set, *int sig);
+
+// write() to a child's stdin where a closed read end is EPIPE, not a SIGPIPE that
+// kills the program, without changing the process-wide disposition (other threads
+// may be writing to pipes of their own). macOS sends that SIGPIPE to the process,
+// so the descriptor itself is marked F_SETNOSIGPIPE. Linux sends it to the writing
+// thread: only this thread blocks it, for the one call, and takes the signal the
+// failed write left pending.
+int64 _proc_write_nosig(int fd, *void buf, int64 n) {
+#ifdef __APPLE__
+    fcntl(fd, 73, 1);   // F_SETNOSIGPIPE
+    return write(fd, buf, n);
+#else
+    uint64[16] set;    // a sigset_t (128 bytes covers every libc)
+    uint64[16] old;
+    uint64[16] pend;
+    sigemptyset((*void)&set[0]);
+    sigaddset((*void)&set[0], _PROC_SIGPIPE);
+    pthread_sigmask(_PROC_SIG_BLOCK, (*void)&set[0], (*void)&old[0]);
+    const int64 w = write(fd, buf, n);
+    const int e = _fs_errno_now();
+    if (w < 0 && e == 32 && sigismember((*void)&old[0], _PROC_SIGPIPE) == 0) {   // EPIPE
+        sigemptyset((*void)&pend[0]);
+        if (sigpending((*void)&pend[0]) == 0 && sigismember((*void)&pend[0], _PROC_SIGPIPE) == 1) {
+            int sig = 0;
+            sigwait((*void)&set[0], &sig);
+        }
+    }
+    pthread_sigmask(_PROC_SIG_SETMASK, (*void)&old[0], null);
+    return w;
+#endif
 }
 #endif
 
@@ -687,19 +731,22 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
     r.exit_code = -1;
     r.timed_out = false;
     let p: Process;
-    const bool group = o.timeout_ms > 0;
+    bool group = o.timeout_ms > 0;
+#ifndef _WIN32
+    // A child in its own process group is in the background for the terminal,
+    // so reading the inherited terminal would stop it (SIGTTIN): keep it in ours.
+    if (o.inherit_stdin && isatty(0) == 1) { group = false; }
+#endif
     if (_proc_start(argv, o, o.stdin_text != null, group, &p) != 0) { return -1; }
     int64 deadline = o.timeout_ms > 0 ? time_monotonic_ms() + o.timeout_ms : 0;
     bool killed = false;
     const string text = o.stdin_text;
     const int64 tlen = text != null ? strlen(text) : 0;
     int64 toff = 0;
-    *void old_pipe = null;
     if (p.stdin_fd >= 0) {
         if (tlen == 0) { _proc_close(&p.stdin_fd); }
         else {
             fcntl(p.stdin_fd, _PROC_F_SETFL, fcntl(p.stdin_fd, _PROC_F_GETFL) | _PROC_O_NONBLOCK);
-            old_pipe = signal(_PROC_SIGPIPE, (*void)(int64)1);   // SIG_IGN: a closed stdin is EPIPE
         }
     }
     *uint8 buf = alloc<uint8>(65536);
@@ -725,6 +772,15 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         }
         if (pr == 0) {
             if (killed) { break; }   // the grace period after the kill ran out
+            // The child exited in time and something it started still holds the
+            // pipes open: that is the child's result, not a timeout. Stop reading
+            // and leave the descendants alone.
+            int st = 0;
+            if (waitpid(p.pid, &st, 1) == p.pid) {   // WNOHANG
+                p.exited = true;
+                p.exit_code = _proc_decode(st);
+                break;
+            }
             _proc_kill(&p);
             killed = true;
             r.timed_out = true;
@@ -733,7 +789,7 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         }
         if (i_in >= 0 && fds[i_in].revents != (int16)0) {
             const int64 chunk = tlen - toff > 65536 ? 65536 : tlen - toff;
-            const int64 w = write(p.stdin_fd, (*void)((*uint8)text + toff), chunk);
+            const int64 w = _proc_write_nosig(p.stdin_fd, (*void)((*uint8)text + toff), chunk);
             if (w > 0) { toff += w; }
             else if (w < 0 && _fs_errno_now() != _PROC_EAGAIN && _fs_errno_now() != _PROC_EINTR) { toff = tlen; }
             if (toff >= tlen) { _proc_close(&p.stdin_fd); }
@@ -750,12 +806,11 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         }
     }
     free((*void)buf);
-    if (tlen > 0) { signal(_PROC_SIGPIPE, old_pipe); }
     _proc_close(&p.stdin_fd);
     _proc_close(&p.stdout_fd);
     _proc_close(&p.stderr_fd);
     bool late = false;
-    _proc_reap(&p, killed ? 0 : deadline, &late);
+    if (!p.exited) { _proc_reap(&p, killed ? 0 : deadline, &late); }
     if (late) { r.timed_out = true; }
     r.exit_code = r.timed_out ? 137 : p.exit_code;
     return 0;
@@ -797,16 +852,14 @@ int Process_write_stdin(Process* p, string text) {
     if (p.stdin_fd < 0) { return -1; }
     const int64 n = strlen(text);
     int64 off = 0;
-    *void old_pipe = signal(_PROC_SIGPIPE, (*void)(int64)1);
     int rc = 0;
     while (off < n) {
-        const int64 w = write(p.stdin_fd, (*void)((*uint8)text + off), n - off);
+        const int64 w = _proc_write_nosig(p.stdin_fd, (*void)((*uint8)text + off), n - off);
         if (w > 0) { off += w; continue; }
         if (w < 0 && _fs_errno_now() == _PROC_EINTR) { continue; }
         rc = _fs_fail_os();
         break;
     }
-    signal(_PROC_SIGPIPE, old_pipe);
     return rc;
 }
 

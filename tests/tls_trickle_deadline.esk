@@ -63,7 +63,7 @@ int g_got = 0;
 void client() {
     const int64 w = net_send(g_client, (*void)g_buf, (int64)g_at_once);
     for (int i = g_at_once; i < g_len; i++) {
-        sleep_ms(25);
+        time_sleep_ms(25);
         if (net_send(g_client, (*void)(g_buf + i), (int64)1) != 1) { break; }
     }
     int64 k = net_recv(g_client, (*void)g_rb, (int64)131072);
@@ -75,7 +75,7 @@ void client() {
 void run(string label, int at_once, bool serve, int64 lo, int64 hi) {
     *int sv = alloc<int>(2);
     socketpair(1, 1, 0, sv);
-    net_nosigpipe(sv[1]);
+    _net_nosigpipe(sv[1]);
     g_client = sv[1];
     g_at_once = at_once;
     g_got = 0;

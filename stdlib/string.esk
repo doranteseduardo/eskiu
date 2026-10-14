@@ -62,8 +62,9 @@ void String_append(String* self, string s) {
     self.len = newlen;
 }
 
+// Append `other`'s bytes, all of them: a NUL inside it is kept.
 void String_concat(String* self, String* other) {
-    self.append(other.data);
+    _string_append_bytes(self, other.data, other.len);
 }
 
 // Append a single character, growing the buffer if needed and keeping the
@@ -267,7 +268,7 @@ void String_split(String* self, char sep, List<String>* out) {
     int pos = 0;
     while (self.next_token(sep, &pos, &tok) == 1) {
         let copy: String;  copy.init(8);
-        copy.append(tok.cstr());
+        _string_append_bytes(&copy, tok.data, tok.len);
         List_push<String>(out, copy);
     }
 }
@@ -424,18 +425,10 @@ void String_lines(String* self, List<String>* out) {
     }
 }
 
-// Clear `out` and fill it with the parts joined by `sep`. The list keeps its
-// strings (nothing is freed).
-void str_join(List<string>* parts, string sep, String* out) {
-    out.clear();
-    for (i in 0..List_len<string>(parts)) {
-        if (i > 0) { out.append(sep); }
-        out.append(List_get<string>(parts, i));
-    }
-}
-
-// Same as str_join, callable as `parts.join(sep, &out)`. Generic so the dot-call
-// reaches it from a List<string>; only T = string type-checks.
+// Clear `out` and fill it with the C strings in `parts` joined by `sep`, called
+// as `parts.join(sep, &out)`. The list keeps its strings (nothing is freed).
+// Generic so the dot-call reaches it from a List<string>; only T = string
+// type-checks.
 void List_join<T>(List<T>* self, string sep, String* out) {
     out.clear();
     for (i in 0..List_len<T>(self)) {
@@ -522,10 +515,21 @@ int String_parse_double(String* self, *double out) {
     return 1;
 }
 
+#ifdef _WIN32
+// msvcrt's vsnprintf is not C99: "%g" of 1e6 is "1e+006" and infinity is
+// "1.#INF". mingw-w64's own implementation follows C99, so every platform
+// prints the same text.
+extern int __mingw_vsnprintf(*char buf, int64 n, string fmt, va_list ap);
+#endif
+
 // vsnprintf into the spare room after the current contents; returns the length
 // the formatted text needs (it may not all fit).
 int _string_vwrite(String* self, string fmt, va_list ap) {
+#ifdef _WIN32
+    return __mingw_vsnprintf(self.data + self.len, self.cap - self.len, fmt, ap);
+#else
     return vsnprintf(self.data + self.len, self.cap - self.len, fmt, ap);
+#endif
 }
 
 // printf-style append: `s.appendf("%s=%d\n", k, v)`. Uses the C library's
@@ -547,7 +551,37 @@ void String_appendf(String* self, string fmt, ...) {
     self.len = self.len + (int64)n;
 }
 
-// printf-style formatting into `out` (cleared first). See String_appendf.
+// printf-style formatting into self (cleared first): `s.format("%d", n)`. See
+// String_appendf.
+void String_format(String* self, string fmt, ...) {
+    self.clear();
+    String_reserve(self, 128);
+    va_list ap;
+    va_start(ap);
+    const int n = _string_vwrite(self, fmt, ap);
+    va_end(ap);
+    if (n < 0) { self.data[0] = 0; return; }
+    if ((int64)n >= self.cap) {
+        String_reserve(self, (int64)n + 1);
+        va_start(ap);
+        _string_vwrite(self, fmt, ap);
+        va_end(ap);
+    }
+    self.len = (int64)n;
+}
+
+// Render a double into self: the shortest of %.15g / %.17g that reads back as
+// the same value ("0.1", "3", "1e+20", "inf", "nan").
+void String_from_double(String* self, double d) {
+    String_format(self, "%.15g", d);
+    if (strtod((string)self.data, null) != d) { String_format(self, "%.17g", d); }
+}
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use List_join (`parts.join(sep, &out)`).
+void str_join(List<string>* parts, string sep, String* out) { List_join<string>(parts, sep, out); }
+// Deprecated (0.10.1): use String_format. A variadic call cannot be forwarded, so
+// this keeps its own body.
 void str_format(String* out, string fmt, ...) {
     out.clear();
     String_reserve(out, 128);
@@ -563,11 +597,4 @@ void str_format(String* out, string fmt, ...) {
         va_end(ap);
     }
     out.len = (int64)n;
-}
-
-// Render a double into self: the shortest of %.15g / %.17g that reads back as
-// the same value ("0.1", "3", "1e+20", "inf", "nan").
-void String_from_double(String* self, double d) {
-    str_format(self, "%.15g", d);
-    if (strtod((string)self.data, null) != d) { str_format(self, "%.17g", d); }
 }

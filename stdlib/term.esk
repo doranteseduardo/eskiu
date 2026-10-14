@@ -6,13 +6,13 @@
 //   term_style(&s, "error:", TERM_BOLD | TERM_RED);
 //   s.append(" file not found");
 //   println(s.cstr());
-//   term_print("orange\n", term_rgb(255, 128, 0) | TERM_BG_BLACK);
+//   term_print("orange\n", term_fg_rgb(255, 128, 0) | TERM_BG_BLACK);
 //   int cols = term_width();
 //
 // A style is an int64 built with `|` from attributes (TERM_BOLD, TERM_DIM,
 // TERM_ITALIC, TERM_UNDERLINE, TERM_BLINK, TERM_REVERSE, TERM_HIDDEN,
 // TERM_STRIKE), at most one foreground color (TERM_RED ... TERM_BRIGHT_WHITE,
-// term_fg256(n), term_rgb(r, g, b)) and at most one background color
+// term_fg256(n), term_fg_rgb(r, g, b)) and at most one background color
 // (TERM_BG_RED ..., term_bg256(n), term_bg_rgb(r, g, b)). TERM_PLAIN is no
 // style.
 //
@@ -129,7 +129,7 @@ int64 _term_rgb_field(int r, int g, int b) {
 }
 
 // 24-bit foreground color.
-int64 term_rgb(int r, int g, int b) { return _term_rgb_field(r, g, b) << 8; }
+int64 term_fg_rgb(int r, int g, int b) { return _term_rgb_field(r, g, b) << 8; }
 
 // 24-bit background color.
 int64 term_bg_rgb(int r, int g, int b) { return _term_rgb_field(r, g, b) << 34; }
@@ -335,3 +335,7 @@ int term_width() {
 #endif
     return 80;
 }
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use term_fg_rgb.
+int64 term_rgb(int r, int g, int b) { return term_fg_rgb(r, g, b); }

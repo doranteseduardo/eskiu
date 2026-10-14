@@ -90,7 +90,7 @@ when you add a test.
 | `enums` | enum members as int constants, usable in `switch`/comparisons |
 | `enum_adt` | algebraic enums + `match`: payload variants, multiple bindings, `_` default, classic enum coexisting |
 | `enum_generic` | generic algebraic enums `Option<T>`/`Either<A,B>`: turbofish construction, per-instance monomorphization, `match` |
-| `either_stdlib` | `<either>` `Option`/`Either` helpers (`opt_is_some`, `opt_unwrap_or`) |
+| `either_stdlib` | `<either>` `Option`/`Either` helpers (`Option_is_some`, `Option_unwrap_or`) |
 | `type_alias` | `type u8 = uint8;` resolves to the underlying type |
 | `bitfields` | bitfield assignment + masked read; signed fields sign-extend |
 | `bitfield_signed_store` | a narrower signed value stored into a wide bitfield sign-extends (assignment, struct literal, `+=`); an unsigned one zero-extends |
@@ -141,7 +141,7 @@ when you add a test.
 | `string_methods` | `<string>` builder ops (`push`, `char_at`, `len`) |
 | `string_ops` | `<string>` `split` (e.g. `"a,b,,c"` on `','`) |
 | `threading` | `<threading>` `Mutex`/`Cond`/`Sem`; shared state captured by pointer |
-| `time` | `<time>` wall clock / monotonic / `sleep_ms` |
+| `time` | `<time>` wall clock / monotonic / `time_sleep_ms` |
 | `executor` | async `Executor`: scheduled wakers run on the loop thread in FIFO order |
 | `net_async` | leaf future: a coroutine awaits `net_read_async` over the reactor |
 | `async_basic` | `async`/`await` transform: one await of an already-ready future (fast path) |
@@ -149,7 +149,7 @@ when you add a test.
 | `async_multi` | multiple awaits (fast path); values thread through frame states |
 | `async_multi_io` | two suspending awaits over the reactor (multi-state chain) |
 | `async_return_await` | `return await E;` desugaring and `async void` (uint8 unit) |
-| `async_cancel` | `future_drop` on a suspended async function: cascade-drop + free, no UAF |
+| `async_cancel` | `Future_drop` on a suspended async function: cascade-drop + free, no UAF |
 | `async_loop` | `while` loop containing an await (read-until-EOF; loop back-edge) |
 | `async_if` | `if`/`else` with an await in each branch (branch-join states) |
 | `async_for` | C-style `for` loop containing an await |
@@ -214,7 +214,7 @@ when you add a test.
 | `float_literal_range` | Float literals follow C: a denormal keeps its (tiny, nonzero) value, and a literal too large for double is infinity. |
 | `forin_multidim` | for-in over a multidimensional array binds each row (an `int[3]` for `int[2][3]`). |
 | `fs_read_pipe` | fs_read_all on a stream that cannot seek (a pipe, like stdin) must read to end of file instead of trusting ftell (-1 there), growing past its first guess. |
-| `future_polled` | free_future_polled frees the resume closure a hand-driven future_poll installed along with the future (free_future leaves it, so a capturing resume leaked). |
+| `future_polled` | Future_free_polled frees the resume closure a hand-driven Future_poll installed along with the future (Future_free leaves it, so a capturing resume leaked). |
 | `generic_operators` | Operator overloads resolve inside a generic body, per instantiation. |
 | `global_const_expr` | Global initializers are folded at compile time, operators included (C semantics). |
 | `global_neg_const` | Negative constants in global initializers keep their sign, and a doubly negated literal folds to the positive value. |
@@ -226,19 +226,19 @@ when you add a test.
 | `http2_big_headers` | Response headers larger than the old fixed 8 KB block are sized from the headers, and a block over MAX_FRAME_SIZE (16384) is split into a HEADERS frame plus... |
 | `http2_flow_control` | h2c flow control with a window-honoring client thread: a 100000-byte upload gets WINDOW_UPDATE credit, a response waiting for window is not credited by another stream's update, and a request arriving meanwhile is decoded (HPACK in sync) and answered. |
 | `http2_field_rules` | RFC 9113 §8.2.1: a request field with CR/LF/NUL or edge whitespace in its value, or an uppercase/space/colon in its name, is answered 400 without the handler (an LF used to forge a header line). |
-| `http2_fill_request_leak` | `h2_fill_request` sets the version by clear + append; `String_from` on the allocated String leaked 16 bytes per HTTP/2 request (checked with `leaks --atExit` / LeakSanitizer). |
+| `http2_fill_request_leak` | `_h2_fill_request` sets the version by clear + append; `String_from` on the allocated String leaked 16 bytes per HTTP/2 request (checked with `leaks --atExit` / LeakSanitizer). |
 | `http2_frame_rules` | h2c frame rules: PADDED DATA/HEADERS unpadded, CONTINUATION reassembled (interrupted = PROTOCOL_ERROR), PING answered, window overflow and bad SETTINGS are GOAWAY, over-long padding rejected, >64 header fields get 431 without the handler. |
 | `http2_head_trailers` | An HTTP/2 HEAD response has the content-length but no body and a 304 neither (both sent the body as DATA); a trailer with an uppercase name, a connection-specific field, `te`, a CR or a pseudo-header resets the stream without the handler. |
 | `http2_settings_values` | SETTINGS values are validated before any is applied (ENABLE_PUSH 0/1, MAX_FRAME_SIZE range, INITIAL_WINDOW_SIZE at most 2^31 - 1), with the RFC 9113 error code from h2_settings_error. |
 | `http2_malformed` | RFC 9113 §8.1.1, §8.2.2, §8.3: a malformed request (unknown, response, repeated or late pseudo-header, missing `:method`/`:scheme`/`:path`, CONNECT rules, connection-specific field, `te` other than trailers, content-length not matching the DATA, pseudo-header in trailers) is reset with PROTOCOL_ERROR without the handler; late frames on the reset stream are ignored and HPACK stays in sync. |
-| `http2_response_fields` | An HTTP/2 response drops connection-specific fields and the handler's content-length (it went out twice), and a 204/1xx response has no content-length and no body; engine and `h2_build_response`. |
+| `http2_response_fields` | An HTTP/2 response drops connection-specific fields and the handler's content-length (it went out twice), and a 204/1xx response has no content-length and no body; engine and `_h2_build_response`. |
 | `http2_stream_errors` | RST_STREAM on an idle stream is a PROTOCOL_ERROR GOAWAY, a GOAWAY under 8 bytes a FRAME_SIZE_ERROR, and a HEADERS/PRIORITY self-dependency a PROTOCOL_ERROR reset (its block still decoded, HPACK in sync). |
 | `http2_tls_engine` | Both h2-over-TLS servers run the H2Server engine: padding, CONTINUATION, PING (async), >64 headers (431) and window overflow, over an OpenSSL stand-in (C companion `http2_tls_engine.c`). |
 | `http_async_accept_retry` | The async servers retry a failed accept (EMFILE) after a backoff via net_accept_retry_async instead of spawning a handler on fd -1 that never completes the wait-group. |
 | `http_header_edges` | HTTP/1.1 edge cases: header values lose surrounding whitespace (OWS), an overflowing or malformed Content-Length is a 400 (it used to wrap to 0),... |
 | `http_host_value` | A Host value must be uri-host [":" port] (RFC 9110 §7.2): whitespace, a list, a bad port, a bad `%` escape or an unclosed IP-literal is 400 in `http_recv` and `HttpRequest_parse_status`. |
 | `http_reply_null_body` | `http_reply` with a null body sends Content-Length: 0 (it used to read body.len through the null pointer). |
-| `http_nul_header` | RFC 9110 §5.5: a NUL in a header value or the request target makes `HttpRequest_parse` and `http_parse_head` fail (a lookup used to stop at the NUL). |
+| `http_nul_header` | RFC 9110 §5.5: a NUL in a header value or the request target makes `HttpRequest_parse` and `HttpReq_parse_head` fail (a lookup used to stop at the NUL). |
 | `http_parse_framing` | `HttpRequest_parse` frames by RFC 9112 like `http_recv`: the body is exactly Content-Length bytes, an invalid or conflicting Content-Length is 400, a request cut short (no blank line, a short body) is incomplete (-1 from `HttpRequest_parse_status`); `HttpConnBuf_feed` waits for a request fed a few bytes at a time. |
 | `http_no_content_length` | RFC 9110 §8.6: `HttpResponse_render` and `http_reply` send no Content-Length and no body for a 1xx or 204 status (they used to add `Content-Length: 0`). |
 | `http_strict` | HTTP/1.1 strictness: a body cut short by the peer is 400, conflicting Content-Length values are 400, a bare CR/LF in the head or an empty method/path is malformed (the servers answer 400 without the handler), and render sends a body past an embedded NUL. |
@@ -284,7 +284,7 @@ when you add a test.
 | `ternary_null` | A `null` ternary arm takes the other arm's pointer type. |
 | `ternary_wide` | A ternary arm that is an integer literal too wide for `int` makes the result 64-bit, and equal-width mixed signedness is unsigned (C usual arithmetic... |
 | `time_negative_year` | DateTime_format_iso prints a negative (proleptic) year in ISO 8601 expanded form, "-0001", instead of zero-padding the digits around the sign ("00-1"). |
-| `tls_alpn_bounds` | tls_alpn_pick_h2 stops at an ALPN entry whose length runs past the list instead of reading beyond the buffer. |
+| `tls_alpn_bounds` | `_tls_alpn_pick_h2` stops at an ALPN entry whose length runs past the list instead of reading beyond the buffer. |
 | `tls_frame_limit` | A peer-controlled 24-bit frame length larger than the 16384-byte frame buffer must be rejected (FRAME_SIZE_ERROR), not read past the buffer. |
 | `union_layout` | A union takes the alignment of its most-aligned member, so it lands at the C offset inside a struct and the struct is padded like C (u at 8, size 24). |
 | `async_name_collisions` | Locals and parameters named like the async transform's synthesized names (`__fr`, `st`, `ret`, `awaiting`, the await temporaries, the resume function) do not collide with them. |
@@ -853,10 +853,11 @@ python3 tests/fuzz/neg_fuzz.py --repro 7:123               # print one program
 
 **`stdlib_fuzz.py`** fuzzes the stdlib parsers under AddressSanitizer. Each target in
 `tests/fuzz/stdlib/` (`json`, `base64`, `url`, `regex`, `hpack`, `http`, `fetch`, `multipart`,
-`uuid_time`) is an Eskiu program built with `eskiuc --asan` that reads a batch of inputs
-and runs them through the parser, checking round trips where there is one (base64 and
-url encode/decode and url_parse, hpack encode/decode, epoch/calendar conversion, and the
-fetch response parser fed whole and in small pieces). The driver mutates a
+`uuid_time`, `csv`, `dotenv`, `args`, `time_parse`) is an Eskiu program built with `eskiuc --asan`
+that reads a batch of inputs and runs them through the parser, checking round trips where there
+is one (base64 and url encode/decode and url_parse, hpack encode/decode, epoch/calendar
+conversion, the fetch response parser fed whole and in small pieces, csv and dotenv write/parse,
+and time_format/time_parse). The `args` target splits an input at NUL bytes into an argv. The driver mutates a
 seed corpus (hand-written seeds plus string literals from the matching tests) and fails
 on a crash, an ASan report, a broken invariant, a hang or a memory blowup, saving the
 input to `stdlib_<target>_<seed>_<n>.bin`.

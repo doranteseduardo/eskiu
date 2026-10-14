@@ -1,19 +1,19 @@
 // hash.esk: SHA-256, SHA-1, MD5, HMAC-SHA256 and hex, in pure Eskiu (no OpenSSL).
 //
 //   let hex: String;  hex.init(65);
-//   sha256_str("abc", &hex);              // ba7816bf8f01cfea...
+//   hash_sha256_str("abc", &hex);              // ba7816bf8f01cfea...
 //
 //   let h: Sha256;  h.init();             // streaming
 //   h.update(buf, n);  h.update_str("more");
 //   let digest: uint8[32];  h.final(&digest[0]);
 //
-//   hmac_sha256_str("key", "message", &hex);
+//   hash_hmac_sha256_str("key", "message", &hex);
 //   if (hash_equal(&mac[0], &expected[0], 32) == 1) { ... }   // constant time
 //
 // Each algorithm has a streaming type (`Sha256`, `Sha1`, `Md5`, `HmacSha256`:
 // init, update, update_str, final, final_hex) and one-shot functions over bytes
-// (`sha256(data, n, out)` writes the raw digest, `sha256_hex(data, n, out)` the
-// lowercase hex) and over a C string (`sha256_str(s, out)`, hex). Raw digests are
+// (`hash_sha256(data, n, out)` writes the raw digest, `hash_sha256_hex(data, n, out)` the
+// lowercase hex) and over a C string (`hash_sha256_str(s, out)`, hex). Raw digests are
 // SHA256_SIZE (32), SHA1_SIZE (20) and MD5_SIZE (16) bytes, written to a buffer
 // the caller provides. A hex result goes into a caller-initialised String,
 // cleared first. After `final` a streaming value must be `init`ed again before
@@ -29,7 +29,7 @@ const int MD5_SIZE = 16;
 // ── Hex ──────────────────────────────────────────────────────────────────────
 
 // Lowercase hex of `n` bytes at `data` into `out` (cleared first).
-void hex_encode(*uint8 data, int64 n, String* out) {
+void hash_hex_encode(*uint8 data, int64 n, String* out) {
     out.clear();
     String_reserve(out, n * 2 + 1);
     for (int64 i = 0; i < n; i++) {
@@ -50,7 +50,7 @@ int _hex_digit(char c) {
 // room for `cap` bytes. Returns the number of bytes written, or -1 when `s` has
 // an odd length, a non-hex character, or decodes to more than `cap` bytes
 // (nothing useful is left in `out` then).
-int64 hex_decode(string s, *uint8 out, int64 cap) {
+int64 hash_hex_decode(string s, *uint8 out, int64 cap) {
     const int64 n = strlen(s);
     if (n % 2 != 0 || n / 2 > cap) { return -1; }
     for (int64 i = 0; i < n; i += 2) {
@@ -186,24 +186,24 @@ void Sha256_final(Sha256* self, *uint8 out) {
 void Sha256_final_hex(Sha256* self, String* out) {
     let d: uint8[32];
     Sha256_final(self, &d[0]);
-    hex_encode(&d[0], 32, out);
+    hash_hex_encode(&d[0], 32, out);
 }
 
-void sha256(*uint8 data, int64 n, *uint8 out) {
+void hash_sha256(*uint8 data, int64 n, *uint8 out) {
     let h: Sha256;
     Sha256_init(&h);
     Sha256_update(&h, data, n);
     Sha256_final(&h, out);
 }
 
-void sha256_hex(*uint8 data, int64 n, String* out) {
+void hash_sha256_hex(*uint8 data, int64 n, String* out) {
     let h: Sha256;
     Sha256_init(&h);
     Sha256_update(&h, data, n);
     Sha256_final_hex(&h, out);
 }
 
-void sha256_str(string s, String* out) { sha256_hex((*uint8)s, strlen(s), out); }
+void hash_sha256_str(string s, String* out) { hash_sha256_hex((*uint8)s, strlen(s), out); }
 
 // ── SHA-1 (FIPS 180-4) ───────────────────────────────────────────────────────
 
@@ -277,24 +277,24 @@ void Sha1_final(Sha1* self, *uint8 out) {
 void Sha1_final_hex(Sha1* self, String* out) {
     let d: uint8[20];
     Sha1_final(self, &d[0]);
-    hex_encode(&d[0], 20, out);
+    hash_hex_encode(&d[0], 20, out);
 }
 
-void sha1(*uint8 data, int64 n, *uint8 out) {
+void hash_sha1(*uint8 data, int64 n, *uint8 out) {
     let h: Sha1;
     Sha1_init(&h);
     Sha1_update(&h, data, n);
     Sha1_final(&h, out);
 }
 
-void sha1_hex(*uint8 data, int64 n, String* out) {
+void hash_sha1_hex(*uint8 data, int64 n, String* out) {
     let h: Sha1;
     Sha1_init(&h);
     Sha1_update(&h, data, n);
     Sha1_final_hex(&h, out);
 }
 
-void sha1_str(string s, String* out) { sha1_hex((*uint8)s, strlen(s), out); }
+void hash_sha1_str(string s, String* out) { hash_sha1_hex((*uint8)s, strlen(s), out); }
 
 // ── MD5 (RFC 1321) ───────────────────────────────────────────────────────────
 
@@ -379,24 +379,24 @@ void Md5_final(Md5* self, *uint8 out) {
 void Md5_final_hex(Md5* self, String* out) {
     let d: uint8[16];
     Md5_final(self, &d[0]);
-    hex_encode(&d[0], 16, out);
+    hash_hex_encode(&d[0], 16, out);
 }
 
-void md5(*uint8 data, int64 n, *uint8 out) {
+void hash_md5(*uint8 data, int64 n, *uint8 out) {
     let h: Md5;
     Md5_init(&h);
     Md5_update(&h, data, n);
     Md5_final(&h, out);
 }
 
-void md5_hex(*uint8 data, int64 n, String* out) {
+void hash_md5_hex(*uint8 data, int64 n, String* out) {
     let h: Md5;
     Md5_init(&h);
     Md5_update(&h, data, n);
     Md5_final_hex(&h, out);
 }
 
-void md5_str(string s, String* out) { md5_hex((*uint8)s, strlen(s), out); }
+void hash_md5_str(string s, String* out) { hash_md5_hex((*uint8)s, strlen(s), out); }
 
 // ── HMAC-SHA256 (RFC 2104, RFC 4231) ─────────────────────────────────────────
 
@@ -410,7 +410,7 @@ struct HmacSha256 {
 void HmacSha256_init(HmacSha256* self, *uint8 key, int64 klen) {
     let k: uint8[64];
     for (int i = 0; i < 64; i++) { k[i] = 0; }
-    if (klen > 64) { sha256(key, klen, &k[0]); }
+    if (klen > 64) { hash_sha256(key, klen, &k[0]); }
     else { for (int64 i = 0; i < klen; i++) { k[i] = key[i]; } }
     let ikey: uint8[64];
     for (int i = 0; i < 64; i++) {
@@ -439,10 +439,10 @@ void HmacSha256_final(HmacSha256* self, *uint8 out) {
 void HmacSha256_final_hex(HmacSha256* self, String* out) {
     let d: uint8[32];
     HmacSha256_final(self, &d[0]);
-    hex_encode(&d[0], 32, out);
+    hash_hex_encode(&d[0], 32, out);
 }
 
-void hmac_sha256(*uint8 key, int64 klen, *uint8 data, int64 n, *uint8 out) {
+void hash_hmac_sha256(*uint8 key, int64 klen, *uint8 data, int64 n, *uint8 out) {
     let m: HmacSha256;
     HmacSha256_init(&m, key, klen);
     HmacSha256_update(&m, data, n);
@@ -450,9 +450,37 @@ void hmac_sha256(*uint8 key, int64 klen, *uint8 data, int64 n, *uint8 out) {
 }
 
 // Hex HMAC-SHA256 of the C string `msg` under the C string `key`.
-void hmac_sha256_str(string key, string msg, String* out) {
+void hash_hmac_sha256_str(string key, string msg, String* out) {
     let m: HmacSha256;
     HmacSha256_init(&m, (*uint8)key, strlen(key));
     HmacSha256_update(&m, (*uint8)msg, strlen(msg));
     HmacSha256_final_hex(&m, out);
 }
+
+// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
+// Deprecated (0.10.1): use hash_hex_encode.
+void hex_encode(*uint8 data, int64 n, String* out) { hash_hex_encode(data, n, out); }
+// Deprecated (0.10.1): use hash_hex_decode.
+int64 hex_decode(string s, *uint8 out, int64 cap) { return hash_hex_decode(s, out, cap); }
+// Deprecated (0.10.1): use hash_sha256.
+void sha256(*uint8 data, int64 n, *uint8 out) { hash_sha256(data, n, out); }
+// Deprecated (0.10.1): use hash_sha256_hex.
+void sha256_hex(*uint8 data, int64 n, String* out) { hash_sha256_hex(data, n, out); }
+// Deprecated (0.10.1): use hash_sha256_str.
+void sha256_str(string s, String* out) { hash_sha256_str(s, out); }
+// Deprecated (0.10.1): use hash_sha1.
+void sha1(*uint8 data, int64 n, *uint8 out) { hash_sha1(data, n, out); }
+// Deprecated (0.10.1): use hash_sha1_hex.
+void sha1_hex(*uint8 data, int64 n, String* out) { hash_sha1_hex(data, n, out); }
+// Deprecated (0.10.1): use hash_sha1_str.
+void sha1_str(string s, String* out) { hash_sha1_str(s, out); }
+// Deprecated (0.10.1): use hash_md5.
+void md5(*uint8 data, int64 n, *uint8 out) { hash_md5(data, n, out); }
+// Deprecated (0.10.1): use hash_md5_hex.
+void md5_hex(*uint8 data, int64 n, String* out) { hash_md5_hex(data, n, out); }
+// Deprecated (0.10.1): use hash_md5_str.
+void md5_str(string s, String* out) { hash_md5_str(s, out); }
+// Deprecated (0.10.1): use hash_hmac_sha256.
+void hmac_sha256(*uint8 key, int64 klen, *uint8 data, int64 n, *uint8 out) { hash_hmac_sha256(key, klen, data, n, out); }
+// Deprecated (0.10.1): use hash_hmac_sha256_str.
+void hmac_sha256_str(string key, string msg, String* out) { hash_hmac_sha256_str(key, msg, out); }

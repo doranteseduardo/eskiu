@@ -150,7 +150,14 @@ void TypeChecker::checkCapturedMethodCall(ASTNode* at, MemberExpr* member) {
 void TypeChecker::visit(BinaryExpr* node) {
     std::vector<BinaryExpr*> spine;
     for (BinaryExpr* b = node; b; b = dynamic_cast<BinaryExpr*>(b->left.get())) spine.push_back(b);
+    // `f = <lambda>` rebinds a lambda local: the target is not a use of f's value (it would
+    // otherwise make f escape and send every env to the heap, unfreed).
+    std::string savedCallee = calleeContext;
+    if (spine.back()->op == "=" && dynamic_cast<LambdaExpr*>(spine.back()->right.get()))
+        if (auto* id = dynamic_cast<IdentExpr*>(spine.back()->left.get()); id && lambdaLocals.count(id->name))
+            calleeContext = id->name;
     spine.back()->left->accept(this);
+    calleeContext = savedCallee;
     // Narrowing keys of the left operand of the operator just handled: in a run of the
     // same `&&` (or `||`), the next operator's left narrows to those plus the previous
     // right operand's, so each operand is scanned once instead of the whole prefix.
@@ -182,7 +189,17 @@ void TypeChecker::visit(BinaryExpr* node) {
 }
 
 void TypeChecker::finishBinary(BinaryExpr* node) {
-    if (node->op == "=") { checkAssignment(node); return; }
+    if (node->op == "=") {
+        checkAssignment(node);
+        // A lambda assigned to a lambda local is bound to it like an initializer.
+        if (auto* lam = dynamic_cast<LambdaExpr*>(node->right.get()))
+            if (auto* id = dynamic_cast<IdentExpr*>(node->left.get());
+                id && lambdaLocals.count(id->name) && !inInstance) {
+                lambdaLocal[lam] = id->name;
+                if (inAsyncFn) asyncLocalLambdas.insert(lam);
+            }
+        return;
+    }
 
     std::string leftType = getExpressionType(node->left.get());
     std::string rightType = getExpressionType(node->right.get());

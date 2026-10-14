@@ -27,7 +27,7 @@
 // themselves, so free it with Response_free in either case.
 //
 // The client sends one request per connection ("Connection: close"), with Host,
-// User-Agent ("eskiu/0.10.0" unless set), Accept ("*/*" unless set) and, when
+// User-Agent ("eskiu/0.10.1" unless set), Accept ("*/*" unless set) and, when
 // there is a body (or the method is POST, PUT or PATCH), Content-Length. A
 // Host, Content-Length, Connection or Transfer-Encoding header in the options
 // is not sent: the client frames the request itself. The response body is
@@ -52,7 +52,8 @@
 //
 // Header injection: a method that is not a token, a header name that is not a
 // token, or a CR or LF in a header value is rejected (FetchOptions_header
-// returns 0 and the request fails with FETCH_ERR_REQUEST); url_parse already
+// returns 0 and the request fails with FETCH_ERR_REQUEST; so does a CR or LF
+// in o.user_agent or a CR in o.headers set directly); url_parse already
 // rejects control bytes in the URL, so the request target cannot hold a CR or
 // LF.
 //
@@ -66,8 +67,9 @@
 // fetch_async(lp, url, &o, &r) is the same request over an <eventloop>: it
 // returns a Future<int> with the same code, filling *out (which, like the url
 // string, must stay valid until the future completes; the options are copied
-// when the call starts). Connecting, TLS and the I/O wait on the loop; only the
-// host name lookup blocks.
+// when the call starts). Connecting, TLS and the I/O wait on the loop; the host
+// name lookup runs on a thread of its own, which the loop checks on a short
+// timer (a dropped fetch leaves the lookup to finish and free itself).
 //
 // fetch_last_error() keeps one message for the whole program (not per thread).
 
@@ -83,6 +85,8 @@ import <time>;
 import <future>;
 import <eventloop>;
 import <net_async>;
+import <timer>;
+import <atomic>;
 
 #ifndef ESKIU_FETCH_NO_TLS
 import <fetch_tls>;
@@ -140,7 +144,7 @@ string fetch_last_error() {
 const int64 FETCH_DEFAULT_TIMEOUT_MS = 30000;
 const int64 FETCH_DEFAULT_MAX_BODY   = 67108864;
 const int   FETCH_DEFAULT_REDIRECTS  = 10;
-const string FETCH_USER_AGENT        = "eskiu/0.10.0";
+const string FETCH_USER_AGENT        = "eskiu/0.10.1";
 
 struct FetchOptions {
     String method;            // "GET"
@@ -192,7 +196,7 @@ void FetchOptions_method(FetchOptions* self, string method) {
 // FETCH_ERR_REQUEST (a header that would split into an injected line is never
 // sent).
 int FetchOptions_header(FetchOptions* self, string name, string value) {
-    if (http_field_ok(name, value) == 0) {
+    if (_http_field_ok(name, value) == 0) {
         self.bad_header = 1;
         return 0;
     }
@@ -347,6 +351,32 @@ int _fp_too_large(int64 max) {
     return FETCH_ERR_TOO_LARGE;
 }
 
+// 1 if the last coding of the last non-empty Transfer-Encoding line is
+// "chunked" (or there is no coding at all), else 0.
+int _fp_te_final_chunked(String* h) {
+    int last = 1;
+    const int64 n = h.len;
+    int64 i = 0;
+    while (i < n) {
+        int64 e = i;
+        while (e < n && h.data[e] != '\n') { e++; }
+        if (_http_line_named(h, i, e, "transfer-encoding") == 1) {
+            int64 t = e;
+            while (t > i && (h.data[t - 1] == ' ' || h.data[t - 1] == '\t' || h.data[t - 1] == ',')) { t--; }
+            int64 b = t;
+            while (b > i && h.data[b - 1] != ',' && h.data[b - 1] != ':' && h.data[b - 1] != ' ' && h.data[b - 1] != '\t') { b--; }
+            if (t > b) {
+                let item: String;  item.init(16);
+                for (k in b..t) { item.push(_http_lc(h.data[k])); }
+                last = String_eq_cstr(&item, "chunked");
+                item.free();
+            }
+        }
+        i = e + 1;
+    }
+    return last;
+}
+
 // Parse the head b[0..hend) into r and pick the body framing.
 int _fp_head(FetchParser* p, Response* r, int hend) {
     *uint8 b = p.buf.data;
@@ -386,8 +416,13 @@ int _fp_head(FetchParser* p, Response* r, int hend) {
     if (p.no_body == 1 || status == 204 || status == 304) { p.stage = _FP_DONE; return 0; }
     const int te = _http_transfer_encoding(&r.headers);
     if (te == 1 || te == 501) { p.stage = _FP_CHUNKED; p.bpos = 0; return 0; }
-    if (te != 0) { return _fp_bad("invalid Transfer-Encoding"); }
-    const int64 cl = http_content_length(&r.headers);
+    if (te != 0) {
+        // A response whose final transfer coding is not chunked runs to the end
+        // of the connection (RFC 9112 6.3); the body is returned undecoded.
+        if (_fp_te_final_chunked(&r.headers) == 0) { p.stage = _FP_CLOSE; return 0; }
+        return _fp_bad("invalid Transfer-Encoding");
+    }
+    const int64 cl = _http_content_length(&r.headers);
     if (cl == -1) { return _fp_bad("invalid Content-Length"); }
     if (cl == -2) { p.stage = _FP_CLOSE; return 0; }
     if (cl > p.max_body) { return _fp_too_large(p.max_body); }
@@ -486,6 +521,7 @@ int FetchParser_finish(FetchParser* p, Response* r) {
 
 const int _FETCH_WANT_READ  = 1;
 const int _FETCH_WANT_WRITE = 2;
+const int _FETCH_WANT_DNS   = 3;   // fetch_async: the lookup runs on a thread
 
 const int _FC_RESOLVE    = 0;
 const int _FC_NEXT_ADDR  = 1;
@@ -512,6 +548,36 @@ const int _FETCH_SO_ERROR    = 4;
 #endif
 #endif
 
+// A lookup for fetch_async on a thread of its own, so getaddrinfo does not block
+// the event loop. state: 0 running, 1 done, 2 abandoned by a dropped fetch. The
+// side that comes second frees the job.
+struct _FetchDns {
+    String host;
+    String port;
+    *_dns_addrinfo addrs;
+    int rc;
+    int state;
+}
+
+extern int pthread_detach(*void t);
+
+void _fetch_dns_free(_FetchDns* j) {
+    if (j.addrs != null) { freeaddrinfo(j.addrs); }
+    String_free(&j.host);
+    String_free(&j.port);
+    free((*void)j);
+}
+
+void _fetch_dns_work(_FetchDns* j) {
+    j.rc = _dns_getaddrinfo(j.host.cstr(), j.port.cstr(), &j.addrs);
+    if (atomic_swap(&j.state, 1) == 2) { _fetch_dns_free(j); }
+}
+
+// Leave a running lookup to its thread, or free a finished one.
+void _fetch_dns_drop(_FetchDns* j) {
+    if (atomic_swap(&j.state, 2) == 1) { _fetch_dns_free(j); }
+}
+
 struct _FetchCall {
     // From the options (copied when the call starts).
     String method;
@@ -536,6 +602,8 @@ struct _FetchCall {
     *void  ssl;
     *_dns_addrinfo addrs;
     *_dns_addrinfo next;
+    int    dns_async;
+    _FetchDns* dns_job;
     int    conn_err;
     Bytes  req;
     int64  sent;
@@ -553,6 +621,12 @@ int _fetch_is_token(String* s) {
     return 1;
 }
 
+// 1 if `s` holds a CR (a header value set through the fields, not
+// FetchOptions_header, could otherwise end its line early on the wire).
+int _fetch_has_cr(String* s) {
+    return String_index_of(s, '\r') >= 0 ? 1 : 0;
+}
+
 // Close the connection of the current request (the call stays usable).
 void _fetch_close(_FetchCall* c) {
     if (c.ssl != null) { _ftls_free(c.ssl); c.ssl = null; }
@@ -564,6 +638,7 @@ void _fetch_close(_FetchCall* c) {
 
 void _fetch_call_free(_FetchCall* c) {
     _fetch_close(c);
+    if (c.dns_job != null) { _fetch_dns_drop(c.dns_job); c.dns_job = null; }
     String_free(&c.method);
     String_free(&c.headers);
     Bytes_free(&c.body);
@@ -657,12 +732,36 @@ void _fetch_render(_FetchCall* c) {
     c.sent = 0;
 }
 
+// Resolve the host into c.addrs: 0, FETCH_ERR_DNS, or _FETCH_WANT_DNS while
+// fetch_async's lookup thread runs (fetch_async polls; call again).
 int _fetch_resolve(_FetchCall* c) {
-    let port: String;  String_init(&port, 8);
-    String_appendf(&port, "%d", c.url.port);
-    const int rc = _dns_lookup(c.url.host.cstr(), port.cstr(), &c.addrs);
-    String_free(&port);
+    int rc = 0;
+    if (c.dns_async == 1) {
+        _FetchDns* j = c.dns_job;
+        if (j == null) {
+            _dns_wsa_init();
+            j = alloc<_FetchDns>(1);
+            String_from(&j.host, c.url.host.cstr());
+            String_init(&j.port, 8);
+            String_appendf(&j.port, "%d", c.url.port);
+            c.dns_job = j;
+            pthread_detach(thread_create(void() { _fetch_dns_work(j); }));
+        }
+        if (atomic_load(&j.state) == 0) { return _FETCH_WANT_DNS; }
+        rc = j.rc;
+        _dns_last = rc;
+        c.addrs = j.addrs;
+        j.addrs = null;
+        _fetch_dns_free(j);
+        c.dns_job = null;
+    } else {
+        let port: String;  String_init(&port, 8);
+        String_appendf(&port, "%d", c.url.port);
+        rc = _dns_lookup(c.url.host.cstr(), port.cstr(), &c.addrs);
+        String_free(&port);
+    }
     if (rc != 0 || c.addrs == null) {
+        if (c.addrs != null) { freeaddrinfo(c.addrs); }
         c.addrs = null;
         _fetch_fail(FETCH_ERR_DNS, "cannot resolve host '");
         String_append(&_fetch_err, c.url.host.cstr());
@@ -683,7 +782,7 @@ int _fetch_connect_failed(_FetchCall* c) {
     String_free(&hp);
     if (c.conn_err != 0) {
 #ifdef _WIN32
-        if (c.conn_err == 10061) { String_append(&_fetch_err, ": connection refused"); }
+        if (c.conn_err == 10061) { String_append(&_fetch_err, ": Connection refused"); }
         else { String_appendf(&_fetch_err, ": socket error %d", c.conn_err); }
 #else
         String_append(&_fetch_err, ": ");
@@ -702,7 +801,7 @@ int _fetch_connect_next(_FetchCall* c) {
         const int s = socket(ai.ai_family, ai.ai_socktype, ai.ai_protocol);
         if (s < 0) { continue; }
         net_set_nonblocking(s);
-        net_nosigpipe(s);
+        _net_nosigpipe(s);
         if (connect(s, ai.ai_addr, (int)ai.ai_addrlen) == 0) { c.fd = s; return 0; }
         const int e = _net_errno();
         if (e == _FETCH_EINPROGRESS || e == _NET_EAGAIN) { c.fd = s; return _FETCH_WANT_WRITE; }
@@ -715,7 +814,8 @@ int _fetch_connect_next(_FetchCall* c) {
 int _fetch_timed_out(_FetchCall* c) {
     _fetch_fail(FETCH_ERR_TIMEOUT, "");
     String_appendf(&_fetch_err, "timed out after %lld ms (", c.timeout_ms);
-    if (c.phase == _FC_CONNECTING) { String_append(&_fetch_err, "connecting"); }
+    if (c.phase == _FC_RESOLVE) { String_append(&_fetch_err, "resolving the host"); }
+    else if (c.phase == _FC_CONNECTING) { String_append(&_fetch_err, "connecting"); }
     else if (c.phase == _FC_TLS) { String_append(&_fetch_err, "TLS handshake"); }
     else if (c.phase == _FC_SEND) { String_append(&_fetch_err, "sending the request"); }
     else { String_append(&_fetch_err, "waiting for the response"); }
@@ -744,7 +844,7 @@ int _fetch_redirect(_FetchCall* c) {
         return FETCH_ERR_REDIRECTS;
     }
     let next: Url;
-    if (url_resolve(&c.url, loc.cstr(), &next) == 0) {
+    if (Url_resolve(&c.url, loc.cstr(), &next) == 0) {
         Url_free(&next);
         _fetch_fail(FETCH_ERR_RESPONSE, "malformed response: invalid Location '");
         String_append(&_fetch_err, loc.cstr());
@@ -764,7 +864,8 @@ int _fetch_redirect(_FetchCall* c) {
     }
     r.redirects++;
     _fetch_response_clear(r);
-    return _fetch_target(c, &next) < 0 ? FETCH_ERR_URL : 1;
+    const int rc = _fetch_target(c, &next);
+    return rc < 0 ? rc : 1;
 }
 
 // Run the call until it completes, fails or must wait (see above).
@@ -772,7 +873,7 @@ int _fetch_step(_FetchCall* c) {
     while (true) {
         if (c.phase == _FC_RESOLVE) {
             const int rc = _fetch_resolve(c);
-            if (rc < 0) { return rc; }
+            if (rc != 0) { return rc; }
             c.phase = _FC_NEXT_ADDR;
         } else if (c.phase == _FC_NEXT_ADDR) {
             const int rc = _fetch_connect_next(c);
@@ -896,7 +997,8 @@ int _fetch_begin(_FetchCall* c, string url, FetchOptions* o, Response* out) {
     Url_init(&c.url);
     Bytes_init(&c.req, 512);
     c.rbuf = alloc<uint8>(_FETCH_RBUF);
-    if (o.bad_header == 1 || _http_headers_valid(&c.headers) == 0) {
+    if (o.bad_header == 1 || _http_headers_valid(&c.headers) == 0 || _fetch_has_cr(&c.headers) == 1
+        || _fetch_has_cr(&c.user_agent) == 1 || String_index_of(&c.user_agent, '\n') >= 0) {
         return _fetch_fail(FETCH_ERR_REQUEST, "invalid request header (a name must be a token; a value may not hold CR or LF)");
     }
     if (_fetch_is_token(&c.method) == 0) {
@@ -954,11 +1056,23 @@ async int fetch_async(EventLoop* lp, string url, FetchOptions* o, Response* out)
     Response_init(out);
     _FetchCall* c = alloc<_FetchCall>(1);
     defer { _fetch_call_free(c); free((*void)c); }
+    c.dns_async = 1;
     int rc = _fetch_begin(c, url, o, out);
+    int64 nap = 1;
     while (rc > 0) {
-        const int w = await net_ready_deadline_async(lp, c.fd, rc == _FETCH_WANT_WRITE ? 1 : 0, c.deadline);
-        if (w == NET_TIMED_OUT) { rc = _fetch_timed_out(c); }
-        else { rc = _fetch_step(c); }
+        if (rc == _FETCH_WANT_DNS) {
+            if (c.deadline > 0 && time_monotonic_ms() >= c.deadline) { rc = _fetch_timed_out(c); }
+            else {
+                await timer_after(lp, nap);
+                if (nap < 16) { nap = nap * 2; }
+                rc = _fetch_step(c);
+            }
+        } else {
+            nap = 1;
+            const int w = await net_ready_deadline_async(lp, c.fd, rc == _FETCH_WANT_WRITE ? 1 : 0, c.deadline);
+            if (w == NET_TIMED_OUT) { rc = _fetch_timed_out(c); }
+            else { rc = _fetch_step(c); }
+        }
     }
     if (rc < 0) { _fetch_response_clear(out); }
     return rc;

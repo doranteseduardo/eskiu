@@ -16,8 +16,8 @@ int main() {
     HttpResponse_header(&res, "X-Small", "ok");
     String_append(&res.body, "hi");
 
-    *uint8 out = alloc<uint8>(h2_response_bufsize(&res));
-    int n = h2_build_response(out, 1, &res);
+    *uint8 out = alloc<uint8>(_h2_response_bufsize(&res));
+    int n = _h2_build_response(out, 1, &res);
 
     *uint8 block = alloc<uint8>(n);
     int blen = 0;
@@ -37,7 +37,7 @@ int main() {
     }
     let dec: HpackDecoder;  HpackDecoder_init(&dec, (int64)4096);
     *HpackHeader hs = alloc<HpackHeader>(8);
-    int c = hpack_decode(&dec, block, blen, hs, 8);
+    int c = HpackDecoder_decode(&dec, block, blen, hs, 8);
     printf("headers=%d big=%d small=%.*s\n", c, hs[2].vlen, hs[3].vlen, (string)hs[3].value);
     let df: H2Frame;
     h2_read_header(out + off, &df);

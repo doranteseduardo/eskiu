@@ -11,18 +11,18 @@ void all3(string label, *uint8 p, int64 n) {
     let a: String;  a.init(65);
     let b: String;  b.init(41);
     let c: String;  c.init(33);
-    sha256_hex(p, n, &a);
-    sha1_hex(p, n, &b);
-    md5_hex(p, n, &c);
+    hash_sha256_hex(p, n, &a);
+    hash_sha1_hex(p, n, &b);
+    hash_md5_hex(p, n, &c);
     printf("%s %s %s %s\n", label, a.data, b.data, c.data);
     a.free();  b.free();  c.free();
 }
 
 void hmac_case(string label, *uint8 key, int64 kl, *uint8 msg, int64 ml) {
     let mac: uint8[32];
-    hmac_sha256(key, kl, msg, ml, &mac[0]);
+    hash_hmac_sha256(key, kl, msg, ml, &mac[0]);
     let hex: String;  hex.init(65);
-    hex_encode(&mac[0], 32, &hex);
+    hash_hex_encode(&mac[0], 32, &hex);
     printf("%s %s\n", label, hex.data);
     hex.free();
 }
@@ -54,9 +54,9 @@ int main() {
     m5.final_hex(&h);  printf("million md5 %s\n", h.data);
     free(big);
 
-    sha256_str("The quick brown fox jumps over the lazy dog", &h);  printf("fox %s\n", h.data);
-    md5_str("The quick brown fox jumps over the lazy dog", &h);     printf("fox %s\n", h.data);
-    sha1_str("The quick brown fox jumps over the lazy dog", &h);    printf("fox %s\n", h.data);
+    hash_sha256_str("The quick brown fox jumps over the lazy dog", &h);  printf("fox %s\n", h.data);
+    hash_md5_str("The quick brown fox jumps over the lazy dog", &h);     printf("fox %s\n", h.data);
+    hash_sha1_str("The quick brown fox jumps over the lazy dog", &h);    printf("fox %s\n", h.data);
 
     // Generated data: lengths 0..129 and 1000 from a fixed LCG.
     *uint8 buf = alloc<uint8>(1000);
@@ -67,7 +67,7 @@ int main() {
     }
     for (int n = 0; n < 130; n += 13) {
         let lab: String;  lab.init(16);
-        str_format(&lab, "lcg%d", n);
+        String_format(&lab, "lcg%d", n);
         all3((string)lab.data, buf, n);
         lab.free();
     }
@@ -90,7 +90,7 @@ int main() {
     hmac_case("rfc4231-6", &key[0], 131, (*uint8)"Test Using Larger Than Block-Size Key - Hash Key First", 54);
     string m7 = "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.";
     hmac_case("rfc4231-7", &key[0], 131, (*uint8)m7, strlen(m7));
-    hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &h);
+    hash_hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &h);
     printf("hmac fox %s\n", h.data);
 
     // Streaming HMAC in pieces equals the one-shot.
@@ -104,10 +104,10 @@ int main() {
 
     // Hex decode.
     let out: uint8[8];
-    printf("hex %lld %d %d %d\n", hex_decode("00fFA5", &out[0], 8), (int)out[0], (int)out[1], (int)out[2]);
-    printf("hex bad %lld %lld %lld %lld\n", hex_decode("abc", &out[0], 8), hex_decode("zz", &out[0], 8),
-           hex_decode("000000000000000000", &out[0], 8), hex_decode("", &out[0], 8));
-    hex_encode(&out[0], 0, &h);
+    printf("hex %lld %d %d %d\n", hash_hex_decode("00fFA5", &out[0], 8), (int)out[0], (int)out[1], (int)out[2]);
+    printf("hex bad %lld %lld %lld %lld\n", hash_hex_decode("abc", &out[0], 8), hash_hex_decode("zz", &out[0], 8),
+           hash_hex_decode("000000000000000000", &out[0], 8), hash_hex_decode("", &out[0], 8));
+    hash_hex_encode(&out[0], 0, &h);
     printf("hex empty [%s]\n", h.data);
 
     // Constant-time compare.

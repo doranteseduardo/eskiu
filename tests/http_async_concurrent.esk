@@ -10,7 +10,6 @@ import <net>;
 extern int    printf(string fmt, ...);
 extern int    usleep(uint32 usec);
 extern int64  recv(int fd, *void buf, int64 n, int flags);
-extern *char  strstr(*char haystack, *char needle);
 
 EventLoop* g_lp;
 int g_ok = 0;     // shared success counter (incremented by client threads)
@@ -28,7 +27,7 @@ void client() {
     int64 n = recv(c, (*void)&resp[0], (int64)1023, 0);
     if (n > 0) {
         resp[(int)n] = (uint8)0;
-        if (strstr((*char)&resp[0], (*char)"hello-concurrent") != (*char)0) { g_ok = g_ok + 1; }
+        if (strstr((string)&resp[0], "hello-concurrent") != (*char)0) { g_ok = g_ok + 1; }
     }
     net_close(c);
 }
@@ -40,9 +39,9 @@ int main() {
     let t0: *void = thread_create(client);
     let t1: *void = thread_create(client);
     let t2: *void = thread_create(client);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t0);  thread_join(t1);  thread_join(t2);
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     EventLoop_free(g_lp);
     net_close(fd);
     printf("ok=%d\n", g_ok);

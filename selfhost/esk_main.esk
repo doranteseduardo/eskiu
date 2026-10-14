@@ -29,8 +29,8 @@ extern int    execvp(string file, *string argv);
 extern int    waitpid(int pid, *int status, int options);
 extern void   _exit(int code);
 extern string getenv(string name);  // $CLANG selects the clang binary (default "clang")
-extern int    getpid();             // unique temp-exe name for `run`
-extern int    mkstemps(string tmpl, int suffixlen);   // the unique temp .ll (temp_ll_path)
+extern int    getpid();             // unique temp names on Windows (temp_file)
+extern int    mkstemps(string tmpl, int suffixlen);   // unique temp files (temp_file)
 extern int    close(int fd);
 #ifdef __APPLE__
 extern int    _NSGetExecutablePath(*uint8 buf, *uint32 size);   // locate stdlib next to us
@@ -168,22 +168,58 @@ string find_stdlib_root() {
     return null;
 }
 
-// A fresh, uniquely named `.ll` file in the temp dir ($TMPDIR, else /tmp), created
-// with mkstemps so it never names (or replaces) an existing file, such as a user's
-// `<out>.ll`. Returns its path, or null when it cannot be created.
-string temp_ll_path() {
+// The platform temp dir, ending in a separator: $TMPDIR (else /tmp), or GetTempPathA on
+// Windows (it honors TMP and TEMP), like the C++ driver's createTemporaryFile.
+#ifdef _WIN32
+extern uint32 GetTempPathA(uint32 n, *uint8 buf);
+string temp_dir() {
+    *uint8 buf = alloc<uint8>(1024);
+    uint32 n = GetTempPathA(1024, buf);
+    if (n == 0 || n >= 1024) { return ".\\"; }
+    return (string)buf;
+}
+#else
+string temp_dir() {
     string dir = getenv("TMPDIR");
     if (dir == null) { dir = "/tmp"; }
     else if (dir[0] == 0) { dir = "/tmp"; }
     int dn = 0;
     while (dir[dn] != 0) { dn = dn + 1; }
-    string sep = "/";
-    if (dn > 0 && (int)dir[dn - 1] == 47) { sep = ""; }
-    string path = cg_cat(dir, cg_cat(sep, "eskiu-XXXXXX.ll"));
-    int fd = mkstemps(path, 3);
+    if ((int)dir[dn - 1] == 47) { return dir; }
+    return cg_cat(dir, "/");
+}
+#endif
+
+// A fresh, uniquely named file `eskiu-<stem>-XXXXXX<suffix>` in the temp dir, created
+// with mkstemps so it never names (or replaces) an existing file, such as a user's
+// `<out>.ll`. Returns its path, or null when it cannot be created. Windows has no
+// mkstemps: the name is unique by process id there.
+#ifdef _WIN32
+string temp_file(string stem, string suffix) {
+    uint8[64] nm;
+    sprintf((string)&nm[0], "eskiu-%s-%d", stem, getpid());
+    return cg_cat(temp_dir(), cg_cat((string)&nm[0], suffix));
+}
+#else
+string temp_file(string stem, string suffix) {
+    string path = cg_cat(temp_dir(), cg_cat("eskiu-", cg_cat(stem, cg_cat("-XXXXXX", suffix))));
+    int sn = 0;
+    while (suffix[sn] != 0) { sn = sn + 1; }
+    int fd = mkstemps(path, sn);
     if (fd < 0) { return null; }
     close(fd);
     return path;
+}
+#endif
+
+// The executable `run` builds: a temp file, named `.exe` on Windows as the linker
+// driver would name it anyway.
+string temp_exe_path() {
+#ifdef _WIN32
+    return temp_file("run", ".exe");
+#else
+    return temp_file("run", "");
+#endif
 }
 
 int bytes_eq(*uint8 a, int an, *uint8 b, int bn) {
@@ -399,14 +435,11 @@ int esk_main(int argc, string* argv) {
         }
         ai = ai + 1;
     }
-    // `run` links to a unique temp exe under /tmp, then executes it below.
-    uint8[256] runexe;
-    if (runmode == 1) {
-        sprintf((string)&runexe[0], "/tmp/eskiu-run-%d", getpid());
-        outfile = (string)&runexe[0];
-    }
+    // `run` links to a unique temp exe in the temp dir (temp_exe_path, made once the IR
+    // is written), then executes it below.
+    if (runmode == 1) { outfile = null; }
     if (cg_streq(mode, "--version") == 1) {
-        printf("Eskiu 0.10.0\n");
+        printf("Eskiu 0.10.1\n");
         return 0;
     }
     if (List_len<string>(&infiles) == 0) {
@@ -568,7 +601,7 @@ int esk_main(int argc, string* argv) {
         return 0;
     }
 
-    // -o: assemble the full IR, write it to a fresh temp .ll (see temp_ll_path), and invoke
+    // -o: assemble the full IR, write it to a fresh temp .ll (see temp_file), and invoke
     // clang to link a native binary end to end.
     let ir: String;
     String_init(&ir, 8192);
@@ -577,12 +610,20 @@ int esk_main(int argc, string* argv) {
     String_append(&ir, (string)String_cstr(&g.out));
     string irtext = (string)String_cstr(&ir);
     if (freestanding == 1) { irtext = ir_no_builtins(irtext); }
-    string tmp = temp_ll_path();
+    string tmp = temp_file("ir", ".ll");
     int64 irlen = 0;
     while (irtext[irlen] != 0) { irlen = irlen + 1; }
     if (tmp == null || fs_write_all(tmp, (*uint8)irtext, irlen) == 0) {
         eprint("error: cannot write temporary IR\n");
         return 1;
+    }
+    if (runmode == 1) {
+        outfile = temp_exe_path();
+        if (outfile == null) {
+            remove(tmp);
+            eprint("error: could not create a temporary executable\n");
+            return 1;
+        }
     }
     string cc = getenv("CLANG");        // clang emits from .ll; cc/gcc can't, so no findCDriver ladder
     if (cc == null) { cc = "clang"; }
@@ -666,6 +707,7 @@ int esk_main(int argc, string* argv) {
     int rc = spawn_wait(&cargs);
     remove(tmp);
     if (rc != 0) {
+        if (runmode == 1) { remove(outfile); }
         eprint("error: clang failed to link the output\n");
         return 1;
     }

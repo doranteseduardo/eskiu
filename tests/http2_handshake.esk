@@ -23,7 +23,7 @@ int main() {
     string pf = h2_preface();
     net_send(cli, (*void)pf, (int64)24);
     *uint8 cb = alloc<uint8>(64);
-    let cs: H2Settings;  h2_settings_defaults(&cs);
+    let cs: H2Settings;  H2Settings_defaults(&cs);
     cs.max_concurrent_streams = (int64)50;
     int sn = h2_write_settings(cb, &cs);
     net_send(cli, (*void)cb, (int64)sn);
@@ -32,7 +32,7 @@ int main() {
     g_lp = el_new(16);
     H2Conn_init(&g_conn, srv);
     Future<int>* f = h2_server_handshake_async(g_lp, &g_conn);
-    future_poll<int>(f, void() { EventLoop_stop(g_lp); });
+    Future_poll<int>(f, void() { EventLoop_stop(g_lp); });
     EventLoop_run(g_lp);
 
     printf("rc=%d max_streams=%lld\n", f.value, g_conn.remote.max_concurrent_streams);

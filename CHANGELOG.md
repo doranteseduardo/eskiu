@@ -8,6 +8,180 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [0.10.1] - 2026-10-14
+
+### Added
+- `<mem>` declares the C string functions `strcmp`, `strncmp`, `strchr` and `strstr` next to
+  `strlen` (`strchr` and `strstr` return `*char`), so a program no longer declares them
+  itself. A program that imports `<mem>` (directly or through another module) and declares
+  one of them with other types gets a "conflicting declaration" error: drop its own `extern`.
+
+### Changed
+- CI runs `tests/leaks.sh` (AddressSanitizer with LeakSanitizer) as its own job, and a
+  macOS arm64 job runs the test suite and a smoke of the self-host parity gates.
+- `<args>` functions that take the parser are `ArgParser_*`, so they work as dot-calls:
+  `args_flag`, `args_option`, `args_option_int`, `args_argument`, `args_get`, `args_get_int`,
+  `args_get_flag`, `args_get_at`, `args_get_all`, `args_count`, `args_positional`,
+  `args_positional_count` and `args_rest` -> `ArgParser_flag` ... `ArgParser_rest` (same
+  suffix). The old names remain as deprecated wrappers.
+- `<either>`: `opt_is_some`, `opt_is_none`, `opt_unwrap_or` -> `Option_is_some`,
+  `Option_is_none`, `Option_unwrap_or` and `either_is_left` -> `Either_is_left`, so
+  `o.is_some()` works as a dot-call. The old names remain as deprecated wrappers.
+- `<future>`: `future_poll`, `future_complete`, `future_drop`, `free_future` and
+  `free_future_polled` -> `Future_poll`, `Future_complete`, `Future_drop`, `Future_free` and
+  `Future_free_polled` (`future_new` stays, it is a factory). The async lowering of both
+  compilers calls the new names. The old names remain as deprecated wrappers. The type-erased
+  cores `select2_hdr`, `join2_hdr` and `spawn_hdr` are internal now (`_select2_hdr`, ...); use
+  `select2`, `join2` and `spawn`.
+- More functions that take a module's struct first follow the `Type_method` convention:
+  `hpack_decode` -> `HpackDecoder_decode`, `hpack_huff_decode` -> `HpackHuff_decode`,
+  `h2_settings_defaults` -> `H2Settings_defaults`, `h2_apply_settings` -> `H2Settings_apply`,
+  `h2_stream_on_recv`/`h2_stream_on_send` -> `H2Stream_on_recv`/`H2Stream_on_send`,
+  `h2_account_sent`/`h2_account_recv`/`h2_grant_window`/`h2_send_goaway` ->
+  `H2Conn_account_sent`/`H2Conn_account_recv`/`H2Conn_grant_window`/`H2Conn_send_goaway`,
+  `http_parse_head` -> `HttpReq_parse_head` and `url_resolve` -> `Url_resolve`. The old names
+  remain as deprecated wrappers.
+- Undocumented stdlib helpers are internal now, named with a leading underscore and without a
+  deprecated wrapper: the `<regex>` parser and VM (`re_*` -> `_re_*`, and its structs `Inst`,
+  `Range`, `Prop`, `ClassInfo`, `Node`, `ReComp`, `Thread`, `Vm` -> `_ReInst` ... `_ReVm`, which
+  no longer clash with a program's own `Node` or `Range`), `<json>` `JParser`/`JParser_*`,
+  `<multipart>` `mp_*`, `<http>` `http_lc`, `http_trim_ows_tail`, `http_str_to_i64`,
+  `http_idx_header_end`, `http_field_ok`, `http_json_escape`, `http_content_length`,
+  `http_status_no_content`, `http_reason`, `<map>` `map_hash`/`map_streq`, `<alloc>`
+  `alloc_align8`, `<sort>` `heap_sift`, `<sysheap>` `sys_unpages`, `<url>`
+  `url_hex`/`url_unhex`/`url_is_unreserved`, `<time>` `time_pad`/`time_days_from_civil`,
+  `<random>` `rng_rotl`/`rng_splitmix`, `<uuid>` `uuid_hex`, `<net>`
+  `net_wsa_init`/`net_fill_addr`/`net_close_fd`/`net_nosigpipe`, `<tls>`
+  `tls_nosigpipe`/`tls_alpn_pick_h2`/`tls_alpn_select`/`http2_tls_dispatch_async[_with]`,
+  `<http2>` `h2_put_u32`/`h2_get_u32`/`h2_put_setting`/`h2_headers_fragment` and the
+  `<http2_server>` response and field helpers (`h2_build_response`, `h2_fill_request`,
+  `h2_name_eq`, `h2_send_response`, ...), and the `<hpack>` table and decoder internals
+  (`hpack_read_str`, `hpack_evict`, `hpack_resolve`, `hpack_set_max`, `hpack_static_name`,
+  `hpack_decode_int_at`, ...). Each becomes `_` plus its old name.
+- So do `Map_grow`, `HashMap_grow`, `Json_sep` and the internal structs `PoolNode`, `FFNode`
+  (`<alloc>`), `ArgSpec` (`<args>`), `RQNode` (`<executor>`), `HpackStr` and `HpackEntry`
+  (`<hpack>`), which could clash with a program's own struct of the same name.
+- Names made consistent inside their modules: `<term>` `term_rgb` -> `term_fg_rgb` (next to
+  `term_bg_rgb`); `<hash>` one-shot functions take the module prefix,
+  `sha256`/`sha256_hex`/`sha256_str` -> `hash_sha256`/`hash_sha256_hex`/`hash_sha256_str` (the
+  same for `sha1` and `md5`), `hmac_sha256`/`hmac_sha256_str` ->
+  `hash_hmac_sha256`/`hash_hmac_sha256_str`, `hex_encode`/`hex_decode` ->
+  `hash_hex_encode`/`hash_hex_decode`; `<time>` `sleep_ms` -> `time_sleep_ms`, `duration_format`
+  -> `time_format_duration`; `<string>` `str_format(out, ...)` -> `String_format(self, ...)` (so
+  `s.format("%d", n)` works) and `str_join`, which duplicated the generic `List_join`, is
+  deprecated in favor of it (`parts.join(sep, &out)`). The old names remain as deprecated
+  wrappers.
+- `<sort>`: `bsearch<T>` -> `sort_search<T>`, so a program that imports `<sort>` can declare and
+  call the C library's `bsearch`. No wrapper keeps the old name, since it would keep the clash.
+  Test `sort_libc_bsearch`.
+- The examples, the language docs, the README and the book import `<io>`, `<mem>` and `<math>`
+  instead of declaring `printf`, `strcmp` or `sqrt` with `extern` themselves; the chapters about
+  `extern` keep their declarations and say which modules already have the common ones.
+
+### Fixed
+- An array with a short `{...}` initializer and a large size no longer makes compiling slow
+  or run out of memory (found by the CI fuzzer with a dimension of `2147483647`). Both
+  compilers zero a local of more than 4 KB with one `memset` (a byte loop under
+  `--freestanding`) and store only the given elements, and a constant with a zero tail of
+  1024 elements or more is folded as `{ given..., [rest x T] zeroinitializer }`, as clang
+  does. An array larger than the largest object (2^61-1 bytes with 64-bit pointers,
+  2^32-1 with 32-bit ones) is an error, "array is too large", as in C. The self-hosted
+  compiler no longer rejects `int[4294967295] a = {0};` (it compared the size as 32 bits).
+- `tests/fuzz/eskiu_fuzz.py` reads its seed corpus in sorted order, so a seed gives the same
+  programs on every OS, and CI uploads the fuzz findings when a fuzz step fails.
+- `process_run` with a timeout reports the command's own exit code when it exited in time
+  and a background process it started still holds the output pipe; it waited for the pipe,
+  then killed the group and reported a timeout (137).
+- `dns_resolve` keeps the zone of a scoped IPv6 address (`fe80::1%en0`, the index on
+  Windows); it dropped it, so a link-local result did not resolve to the same address.
+- `fs_remove_all` and `fs_walk` go down a tree through directory descriptors (`openat` with
+  `O_NOFOLLOW`) on macOS and Linux. A directory swapped for a symbolic link during the walk
+  is no longer entered, so `fs_remove_all` cannot delete outside the tree, and trees deeper
+  than `PATH_MAX` are walked and removed whole (both stopped with an error before).
+- On Windows, `fs_remove_all` and `fs_walk` go down a tree through directory handles: each
+  entry is opened relative to its directory's handle (`NtOpenFile`) without following a
+  junction or link, checked through that handle, and listed or deleted through it. A
+  directory swapped for a junction or directory link during the walk is no longer entered
+  (`fs_remove_all` removes the link itself, never its target), and trees deeper than
+  `MAX_PATH` are walked and removed whole.
+- On Windows, the `<fs>` path functions accept paths longer than `MAX_PATH` (260): a path
+  whose absolute form is 248 characters or more is resolved with `GetFullPathNameW` and
+  given the `\\?\` prefix (`\\?\UNC\` for a share). Shorter paths are passed as before.
+- `fs_copy` writes the copy owner-only (0600) and gives it the source's permission bits when
+  it is complete. Before, the copy was created with the default mode, so a private file was
+  readable by other users while it was copied, or for good when the copy failed.
+- `<process>` no longer sets the process-wide SIGPIPE disposition while it writes a child's
+  stdin: two threads running processes at once could restore the default under each other
+  (a SIGPIPE then killed the program) or leave it ignored. A closed stdin is EPIPE through
+  `F_SETNOSIGPIPE` on macOS and a SIGPIPE blocked in the writing thread on Linux.
+- `String_concat` and `String_split` keep a NUL byte inside a `String`; both stopped at the
+  first one.
+- `<executor>` works on Windows: it woke its loop through a `pipe()`, which mingw does not
+  have (a program using it did not link) and WSAPoll cannot wait on. The wake is a loopback
+  UDP socket there. `executor_new` returns null when the wake channel cannot be opened.
+- `eskiuc-esk run` builds its program in the platform temp dir (`$TMPDIR`, else `/tmp`;
+  `GetTempPathA` on Windows, with a `.exe` name) through `mkstemps`, like the C++ driver,
+  instead of a fixed `/tmp/eskiu-run-<pid>`.
+- An `extern` with the name of a generic function is a declaration error in both compilers;
+  the C++ compiler crashed in codegen when the extern was called.
+- `fetch_async` looks the host name up on a thread of its own, so a slow DNS answer no longer
+  blocks the event loop; a fetch dropped during the lookup leaves the thread to finish and
+  free it.
+- `<fetch>` over HTTPS: a peer that drops the connection without `close_notify` is
+  `FETCH_ERR_IO`. Before, it ended a body delimited by the close, so a forged TCP close could
+  truncate it silently.
+- `<fetch>`: a CR or LF in `o.user_agent`, or a CR in `o.headers` set directly, is rejected with
+  `FETCH_ERR_REQUEST` instead of being sent as an extra header line.
+- `<fetch>` on Windows: HTTPS with verification on and no `ca_file` now trusts the
+  certificates of the Windows "ROOT" store, since OpenSSL's default store is usually
+  empty there.
+- `<net>` on Windows: `send` and `recv` are declared with Winsock's `int` types. A
+  failed or would-block `net_recv` returned 4294967295 instead of -1, which crashed
+  plain `http://` fetches.
+- `<string>` on Windows: `String_format` (`str_format`), `String_appendf`, `String_from_double`, the
+  `<json>` number writer and `<log>` format through mingw-w64's C99 printf, so
+  exponents and infinity print as on other platforms (`1e+06`, not `1e+006`; `inf`,
+  not `1.#INF`).
+- `eskiuc run` on Windows: the temporary program gets an `.exe` name, so it runs.
+- windows.yml builds and runs every 0.10 scripting module test, the example scripts,
+  a console check of `<term>` and an HTTPS fetch against the system trust store.
+  `tests/process_self.esk` tests `<process>` with copies of itself as the children,
+  including a timeout that must also end a grandchild.
+- On macOS the link uses the same minimum OS version as the object (the native triple carries
+  the host's version; the C driver otherwise picks its SDK's), so `ld` no longer warns that an
+  object is newer than the target it links for, as happened when the host and SDK versions
+  differ.
+- A lambda assigned to a local after its declaration (`f = <lambda>`), or to a `fn` local
+  declared without a value, is bound to that local like an initializer: while the local is
+  only called its environment lives on the stack. Before, each such assignment leaked a heap
+  environment. Both compilers. Test `closure_rebind_env`, also in `tests/leaks.sh`.
+- `<fetch>`: a response whose last transfer coding is not `chunked` (such as
+  `Transfer-Encoding: gzip`) is read until the connection closes, as RFC 9112 says, instead
+  of failing as malformed.
+- `<fetch>`: a redirect that cannot be followed (an `https://` target without TLS, an unsupported
+  scheme) returns its own error code, such as `FETCH_ERR_NO_TLS`, not always `FETCH_ERR_URL`.
+- `<args>`: an empty command-line argument no longer reads one byte past its end.
+- `<time>`: `time_parse` rejects a `%s` value outside `int64` instead of wrapping around.
+- `<fs>`: `fs_remove_all` given a symbolic link with a trailing slash (`"link/"`) removes the
+  link; it used to follow it and delete the target directory's contents.
+- `<fs>`: `fs_copy` onto the source file itself, or onto a link to it, fails with EINVAL
+  instead of truncating the source and reporting success.
+- `<fs>`: `fs_mkdir_p` reports the error of the failed `mkdir` (such as EACCES), not ENOENT.
+- `<fs>`: `fs_glob` removes backslash escapes from a path component without wildcards, as
+  `fs_match` does for one with them.
+- `<process>`: a child run with a timeout and `inherit_stdin` on a terminal can read it; it was
+  put in a background process group, so a read stopped it until the timeout killed it.
+- `<dotenv>`: in a file with CRLF line endings, a line end inside a quoted value reads as `\n`
+  instead of keeping the `\r`.
+- Self-hosted compiler: a dot-call on an instance of a generic enum (`o.is_some()` on an
+  `Option<int>`) reaches the generic free function `Option_is_some<T>`, as in the C++ compiler;
+  it emitted an invalid call before. Test `either_stdlib`.
+- Self-hosted compiler: a program that declares `strcmp` (now any program that imports `<mem>`)
+  and catches an exception no longer declares `strcmp` twice in its IR, which clang rejected.
+  Test `catch_strcmp_extern`.
+
+---
+
 ## [0.10.0] - 2026-10-11
 
 ### Added

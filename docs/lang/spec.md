@@ -1,6 +1,6 @@
 # Eskiu Language Specification
 
-**Version:** v0.10.0
+**Version:** v0.10.1
 
 ---
 
@@ -530,7 +530,7 @@ int main() {
 }
 ```
 
-An array dimension is an integer constant expression: literals, `enum` members and `const` ints, combined with the integer operators, `?:`, parentheses and casts to an integer type, which truncate as in C (`int[(uint8)258]` has 2 elements, `int[CAP * 2]` 8). It must be positive. `const` bindings are block-scoped like any other variable.
+An array dimension is an integer constant expression: literals, `enum` members and `const` ints, combined with the integer operators, `?:`, parentheses and casts to an integer type, which truncate as in C (`int[(uint8)258]` has 2 elements, `int[CAP * 2]` 8). It must be positive, and the array may not be larger than the largest object of the target (2^61-1 bytes with 64-bit pointers, 2^32-1 with 32-bit ones; "array is too large", as in C). `const` bindings are block-scoped like any other variable.
 
 **`const` works on any type** (string, struct, pointer, scalar). Immutability covers both rebinding the variable and mutating a field or element of a `const` value:
 
@@ -1047,7 +1047,7 @@ thread_join(*void handle) -> void
 `thread_create` accepts any `fn()->void` value, including a closure, and returns an opaque `*void` thread handle. `thread_join` blocks the calling thread until the spawned thread completes. Any other worker type, or a `thread_join` operand that is not a `*void` handle, is a compile error.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     *void t = thread_create(void() { printf("hello from thread\n"); });
@@ -1075,7 +1075,7 @@ An `async` function lowers to a resumable state machine and executes over the
 `<eventloop>`/`<executor>` runtime. Single and multiple awaits, `async void`, and every
 control-flow construct containing an await (`if`/`while`/`do`-`while`/C-style
 `for`/`switch`/`match`/`for-in`, with `break`/`continue`, and `try`/`catch`) are
-supported; a pending future is cancelled with `future_drop`.
+supported; a pending future is cancelled with `Future_drop`.
 
 An `await` may appear anywhere in an expression: a `let` initializer, a `return` value,
 an assignment or compound assignment (`x += await f();`), a call argument, an operand
@@ -1100,7 +1100,7 @@ the `finally` finishes.
 
 A future dropped while suspended runs the `finally` blocks and `defer`s pending at its
 await once, innermost first, after the future it was awaiting has been dropped. When that
-cleanup awaits, it runs detached, like a task given to `spawn`: `future_drop` returns while
+cleanup awaits, it runs detached, like a task given to `spawn`: `Future_drop` returns while
 the cleanup is suspended, the event loop resumes it, and its frame is freed when it ends.
 Nobody reads the result of a dropped future, and dropping it again while its cleanup runs
 does nothing. An exception that escapes such a cleanup propagates to whatever resumed it,
@@ -1941,7 +1941,7 @@ error: f.esk:3:28: invalid operands for operator: struct:Box and struct:Box (in 
 
 ```eskiu
 import <result>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let r: Result<int, string> = Ok<int, string>(42);
@@ -2216,6 +2216,8 @@ int main() {
 
 An `extern` declaration makes a C function available to Eskiu code. The declaration must match the C function's ABI exactly.
 
+The standard library already declares the common C functions: `<io>` has `printf`, `puts` and the rest of C stdio, `<mem>` the memory and string functions (`memcpy`, `memset`, `strlen`, `strcmp`, `strncmp`, `strchr`, `strstr`), `<math>` the libm ones (`sqrt`, `pow`, ...), and `<process>` has `process_exit`. A program imports those modules and declares an `extern` itself only for other functions; an `extern` that repeats one of them with different types is a conflicting declaration.
+
 ```eskiu
 extern int printf(string fmt, ...);
 extern int64 strlen(string s);
@@ -2322,7 +2324,7 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 |-----------------------|------------------------------------------------------------------|
 | `stdlib/result.esk`   | `Result<T,E>` template struct; `Ok<T,E>(value)` and `Err<T,E>(err)` constructor functions |
 | `stdlib/list.esk`     | `List<T>` template struct; `List_init`, `List_push`, `List_get`, `List_set`, `List_remove`, `List_len`, `List_free`; scripting helpers `List_map`, `List_filter`, `List_reduce`, `List_find`, `List_any`, `List_all`, `List_contains`, `List_index_of`, `List_reverse`, `List_slice`, `List_unique`, `List_clear`, `List_pop`, `List_insert` (see [List helpers](#list-helpers)) |
-| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`); scripting helpers `String_find`, `String_contains`, `String_replace`, `String_replace_all`, `String_split_str`, `String_lines`, `String_join`, `str_join`, `List_join`, `String_lower`, `String_upper`, `String_repeat`, `String_pad_left`, `String_pad_right`, `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, `String_appendf`, `str_format` (see [String scripting helpers](#string-scripting-helpers)). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
+| `stdlib/string.esk`   | `String` struct; `String_init`, `String_from`, `String_append`, `String_concat`, `String_push`, `String_char_at`, `String_set`, `String_clear`, `String_index_of`, `String_eq`, `String_eq_cstr`, `String_reverse`, `String_substring`, `String_from_int`, `String_to_int`, `String_cstr`, `String_len`, `String_free`, `String_starts_with`, `String_ends_with`, `String_trim`, `String_next_token` (streaming split), `String_split`/`String_split_free` (into a `List<String>`); scripting helpers `String_find`, `String_contains`, `String_replace`, `String_replace_all`, `String_split_str`, `String_lines`, `String_join`, `List_join`, `String_lower`, `String_upper`, `String_repeat`, `String_pad_left`, `String_pad_right`, `String_to_double`, `String_parse_double`, `String_from_double`, `String_reserve`, `String_appendf`, `String_format` (see [String scripting helpers](#string-scripting-helpers)). `String_to_int` accepts a leading sign and saturates at the `int` range. `String_is_space` is deprecated; use `is_space` from `<ctype>` |
 | `stdlib/ctype.esk`    | Pure-Eskiu ASCII character classification (comparisons only, no libc, freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont`. Each takes and returns `int` (1/0) |
 | `stdlib/math.esk`     | `extern` declarations for `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `fmod`, `abs` |
 | `stdlib/io.esk`       | `extern` declarations for `printf`, `fprintf`, `sprintf`, `scanf`, `puts`, `getchar`, `putchar`; console helpers `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin`, and the C streams `io_stdin`/`io_stdout`/`io_stderr` |
@@ -2330,11 +2332,11 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/fs.esk`       | File I/O: `fs_open`, `fs_close`, `fs_flush`, `fs_read`, `fs_readline`, `fs_write`, `fs_puts`, `fs_seek`, `fs_tell`, `fs_size`, `fs_read_all`, `fs_write_all`, `fs_eof`, `fs_error`. Text files (`fs_read_text`, `fs_write_text`, `fs_append_text`, `fs_read_lines`), metadata (`FileStat`, `fs_stat`, `fs_lstat`, `fs_exists`, `fs_is_dir`, `fs_is_file`), directories (`fs_mkdir`, `fs_mkdir_p`, `fs_remove`, `fs_remove_all`, `fs_rename`, `fs_copy`, `fs_list_dir`, `fs_walk`, `fs_glob`, `fs_match`), `fs_cwd`, `fs_chdir`, `fs_temp_file`, `fs_temp_dir`, `fs_temp_base`, and errors (`fs_last_error`, `fs_errno`, `fs_errno_missing`); see [Files and directories](#files-and-directories-fs) |
 | `stdlib/net.esk`      | TCP sockets: `net_tcp_listen`, `net_accept`, `net_accept_addr` (accept + peer IPv4), `net_tcp_connect` (a dotted IPv4 address, or a host name or IPv6 address resolved through `<dns>`), `net_send`, `net_recv`, `net_send_str`, `net_close`, socket timeouts (`net_set_recv_timeout`, `net_set_send_timeout`, `net_set_timeouts`, `net_would_block`; the `struct timeval` is two C `long`s, so 8 bytes on 32-bit ARM), deadlines (`net_deadline`, `NET_TIMED_OUT`) and a blocking readiness wait (`net_wait_ready`, over `poll` / `WSAPoll`) (plus the raw POSIX `extern`s and a portable `sockaddr_in`) |
 | `stdlib/alloc.esk`    | Allocators over caller-provided memory for `alloc_with` (see §11.5): `Bump`, `Arena`, `Pool`, `FirstFit`, each with `_init`/`_alloc` (and `_free`/`_reset`/`_save`/`_restore` as applicable) |
-| `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`); local time (`time_to_local`, `time_local_offset`), `time_format`/`time_parse`/`time_parse_local` with strftime-style specifiers, `duration_format`, `Stopwatch` |
+| `stdlib/time.esk`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `time_sleep_ms`; a UTC civil calendar: `DateTime` (year/month/day/hour/min/sec plus `wday`/`yday`), `time_to_utc(t, &dt)` (epoch seconds to fields), `DateTime_to_epoch`, and `DateTime_format_iso` (ISO 8601, e.g. `2026-07-13T18:30:00Z`); local time (`time_to_local`, `time_local_offset`), `time_format`/`time_parse`/`time_parse_local` with strftime-style specifiers, `time_format_duration`, `Stopwatch` |
 | `stdlib/random.esk`   | `Rng`, a seedable xoshiro256\*\* generator (not cryptographic): `Rng_seed`, `Rng_next` (raw 64-bit), `Rng_below` (unbiased `[0, n)`), `Rng_range` (`[lo, hi)`), `Rng_bool`, `Rng_double` (`[0.0, 1.0)`), `Rng_fill` (random bytes) |
 | `stdlib/regex.esk`    | A Thompson-NFA regex engine run as a Pike VM (linear time, no catastrophic backtracking): `regex_compile(pattern) -> Regex` (check `.ok` / `.err`), `Regex_search(&re, text, &m)` for the leftmost match with capture groups, `Match_group`, `Match_free`, `Regex_free`, and the one-shot `regex_match(pattern, text)`. RE2 syntax and semantics (as Go's regexp) over UTF-8: `.`, classes and literals match whole code points, match offsets are byte offsets, and a byte that is not valid UTF-8 reads as U+FFFD. Literals, `.`, classes `[a-z]`/`[^...]` with POSIX names inside (`[[:alpha:]]`, `[[:^space:]]`), the ASCII shorthands `\d \w \s` (and negations; `\s` is `[\t\n\f\r ]`), Unicode classes `\pL`, `\p{Lu}`, `\p{Greek}`, `\P{..}`, `\p{^..}` (general categories, scripts, `Any`; the Unicode 15 tables are `stdlib/regex_unicode.esk`), `* + ? {m} {m,} {m,n}` (lazy with `?`; any other `{` is a literal), `|`, groups, non-capturing `(?:...)`, named `(?P<name>...)` / `(?<name>...)`, the flags `(?i)` (simple case folding) `(?m)` `(?s)` `(?U)` for the rest of a group or scoped `(?flags:...)`, `^` / `$`, `\A` / `\z`, the ASCII word boundaries `\b` / `\B`, `\xHH` / `\x{10FFFF}` and octal escapes, literal text `\Q...\E` (any other escaped letter or digit is an error) |
-| `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `bsearch<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive); `List_sort_by(&list, cmp)` sorts a `List<T>` in place |
-| `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space); `url_parse(text, &u)` into a `Url` (`scheme`, `host`, `port`, `path`, `query`), `url_resolve(&base, ref, &u)` (RFC 3986 reference resolution), `Url_to_string`, `Url_target`, `Url_host_port`, `url_default_port`, `url_query_add(&text, key, value)` (see [HTTP client](#http-client-fetch)) |
+| `stdlib/sort.esk`     | Generic in-place heapsort `sort<T>(a, n, cmp)` and binary search `sort_search<T>(a, n, key, cmp)` (index or `-1`) over a `*T` array; `cmp` is `fn(*T, *T)->int` (negative / zero / positive); `List_sort_by(&list, cmp)` sorts a `List<T>` in place |
+| `stdlib/url.esk`      | RFC 3986 percent-encoding: `url_encode`, `url_decode` (and `url_decode_range`), plus `url_query_get(query, key, &out)` for `a=1&b=2` query strings (keys and values are decoded, `+` to a space); `url_parse(text, &u)` into a `Url` (`scheme`, `host`, `port`, `path`, `query`), `Url_resolve(&base, ref, &u)` (RFC 3986 reference resolution), `Url_to_string`, `Url_target`, `Url_host_port`, `url_default_port`, `url_query_add(&text, key, value)` (see [HTTP client](#http-client-fetch)) |
 | `stdlib/uuid.esk`     | `uuid_v4(&rng, &out)`: an RFC 4122 version-4 UUID string (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) drawn from a `<random>` `Rng` |
 | `stdlib/env.esk`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` (process environment; CLI args come from `main`'s `argc`/`argv`) |
 | `stdlib/process.esk`  | Child processes: `process_run` (capture stdout/stderr into a `ProcessResult`, with `ProcessOptions` for stdin text, cwd, extra environment, a timeout), `sh`/`sh_with` (through `/bin/sh -c` or `cmd.exe /c`), `process_spawn` with `Process_write_stdin`/`_close_stdin`/`_read`/`_read_all`/`_wait`/`_kill`/`_free`, `process_exit`, `process_pid`, `process_last_error`; see [Processes](#processes-process) |
@@ -2353,17 +2355,17 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free`. Documents: `JsonValue_object`/`_array`/`_string`/`_number`/`_int`/`_bool`/`_null`, `JsonValue_set`/`_push`/`_remove`, `JsonValue_stringify`/`_pretty`, `json_get(v, "a.b[0][\"k.x\"]")` |
 | `stdlib/csv.esk`      | RFC 4180 CSV: `csv_parse`/`csv_parse_with`/`csv_parse_buf` into a `CsvTable` (`CsvTable_len`/`_row`/`_cell`/`_col`/`_get`/`_error`/`_write`/`_free`), `csv_write_row`/`csv_write_row_with` |
 | `stdlib/dotenv.esk`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` into a `Map<string>`, `dotenv_free`, `dotenv_error`/`dotenv_error_line` |
-| `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `sha256`/`sha256_hex`/`sha256_str` (same for `sha1`, `md5`), `hmac_sha256`/`hmac_sha256_str`, `hex_encode`/`hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
-| `stdlib/args.esk`     | Command-line parsing: `ArgParser` (`_init`/`_parse`/`_parse_or_exit`/`_help`/`_usage`/`_error`/`_free`), declared with `args_flag`, `args_option`, `args_option_int`, `args_argument`, read with `args_get`, `args_get_int`, `args_get_flag`, `args_count`, `args_get_at`, `args_get_all`, `args_positional`, `args_rest` |
-| `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
+| `stdlib/hash.esk`     | Pure-Eskiu digests: `Sha256`, `Sha1`, `Md5`, `HmacSha256` (streaming `_init`/`_update`/`_update_str`/`_final`/`_final_hex`) and one-shot `hash_sha256`/`hash_sha256_hex`/`hash_sha256_str` (same for `hash_sha1`, `hash_md5`), `hash_hmac_sha256`/`hash_hmac_sha256_str`, `hash_hex_encode`/`hash_hex_decode`, constant-time `hash_equal`/`hash_equal_str` |
+| `stdlib/args.esk`     | Command-line parsing: `ArgParser` (`_init`/`_parse`/`_parse_or_exit`/`_help`/`_usage`/`_error`/`_free`), declared with `ArgParser_flag`, `ArgParser_option`, `ArgParser_option_int`, `ArgParser_argument`, read with `ArgParser_get`, `ArgParser_get_int`, `ArgParser_get_flag`, `ArgParser_count`, `ArgParser_get_at`, `ArgParser_get_all`, `ArgParser_positional`, `ArgParser_rest` |
+| `stdlib/term.esk`     | Terminal output: styles as `int64` bit sets (`TERM_BOLD`, `TERM_RED`, `TERM_BG_BLUE`, `term_fg256`, `term_fg_rgb`, ...), `term_style`/`term_style_fd`/`term_print`/`term_println`/`term_sgr`/`term_reset`/`term_strip`, `term_is_tty`, `term_width`, `term_color_enabled`, `term_set_color_mode` |
 | `stdlib/log.esk`      | Leveled logging: `log_trace`/`log_debug`/`log_info`/`log_warn`/`log_error`/`log_at` (printf-style), `log_set_level` (or `LOG_LEVEL`), `log_set_file`/`log_set_stderr`, `log_set_time`, `log_set_color`, `log_freeze_time` |
 | `stdlib/sysheap.esk`  | `Heap`, a general-purpose heap that `mmap`s OS pages and runs `FirstFit` over them, providing allocation with no libc `malloc` (suitable as a freestanding backend) |
-| `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`future_complete`/`future_poll`/`future_drop`/`free_future`/`free_future_polled` (the latter also frees the waker a hand-driven `future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
+| `stdlib/future.esk`   | The async runtime's `Future<T>` (the interface the compiler's async lowering targets): the `state`/`waker`/`on_drop` handshake, `future_new`/`Future_complete`/`Future_poll`/`Future_drop`/`Future_free`/`Future_free_polled` (the latter also frees the waker a hand-driven `Future_poll` installed), and the generic combinators `spawn<T>`, `select2<A,B>` (first of two), `join2<A,B>` (all of two) |
 | `stdlib/executor.esk` | `Executor`, a thread that owns an event loop plus a thread-safe ready-queue of wakers woken through a self-pipe, so a waker (a coroutine resume) always runs on the executor's own thread: `executor_new`, `Executor_schedule`, `Executor_run`, `Executor_stop`, `Executor_free` |
 | `stdlib/net_async.esk`| Leaf futures for non-blocking network I/O over `<eventloop>`: `net_set_nonblocking`, `net_read_async`, `net_write_async`, `net_accept_async`, each registers an fd and completes its `*Future<int>` when ready; `net_read_deadline_async`, `net_write_deadline_async` and `net_ready_deadline_async` race the same against a `timer_after` (via `select2`) and complete with `NET_TIMED_OUT` once the deadline passes |
 | `stdlib/timer.esk`    | `timer_after(lp, ms)`, a `*Future<int>` that completes once `ms` of monotonic time elapses, driven by the loop's timer wheel; combine with a read for a real timeout |
 | `stdlib/channel.esk`  | `Chan<T>`, an async message channel over the Future runtime: `chan_new<T>(cap)`, `Chan_send`, `Chan_recv` (a `*Future<T>` that completes with the next item), and `Chan_free` |
-| `stdlib/either.esk`   | The standard sum types `Option<T>` and `Either<A,B>` (generic algebraic enums) plus helpers (`opt_is_some`/`opt_unwrap_or`, …) |
+| `stdlib/either.esk`   | The standard sum types `Option<T>` and `Either<A,B>` (generic algebraic enums) plus helpers (`Option_is_some`/`Option_unwrap_or`, …) |
 | `stdlib/futureval.esk`| Value-returning future combinators: `select2v<A,B>` resolves to the winner's value wrapped in `Either<A,B>`; `join2v<A,B>` resolves to a `Pair<A,B>` of both values |
 | `stdlib/http_async.esk`| Non-blocking concurrent HTTP/1.1 server built on the event loop's accept loop: `http_serve_async` (and `http_serve_async_with(lp, fd, handler, max_conns, lim)` for other `HttpLimits`; the reads and the write race a timer, and at most `lim.max_open` connections are open at once), with the same `fn(HttpRequest*, HttpResponse*)->void` handler interface as `<http>`. Each connection socket is non-blocking and the answer is written with `net_write_async`, so a client that does not read parks only its own connection |
 | `stdlib/http2.esk`    | HTTP/2 (RFC 7540) wire layer: the 9-byte frame header codec, frame-type/flag constants, the connection lifecycle (`H2Conn`: SETTINGS exchange + ACK, PING/PONG, GOAWAY), the per-stream state machine and credit-based flow control (`H2Stream`), the HEADERS/DATA/WINDOW_UPDATE/RST_STREAM codecs, and async frame I/O |
@@ -2372,13 +2374,13 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/http2_server.esk`| HTTP/2 (h2c, cleartext) server over the async event loop, `http2_serve_async` (`http2_serve_async_with` / `http2_serve_conn_async_with` take an `HttpLimits`: a connection without the preface and SETTINGS by `header_ms` is closed, one with no open stream gets GOAWAY NO_ERROR after `idle_ms` (PING does not extend it), a stream must be received within `body_ms` and its response taken within `write_ms` of the last data sent and within `write_total_ms` in all (a stream past `write_total_ms` is reset with CANCEL, `H2Server_expire`); the transport reads with `H2Server_deadline` after `H2Server_tick` and on a timeout calls `H2Server_timed_out_with`). The protocol is the transport-agnostic `H2Server` engine (also used by `<tls>`): multiplexed streams, flow control in both directions, padding, CONTINUATION, and RFC 9113 connection/stream errors; a completed request is HPACK-decoded into an `HttpRequest` and the `HttpResponse` goes back as a HEADERS frame plus flow-controlled DATA frames. Request bodies are bounded: at most `s.max_body` bytes per stream (default `HTTP_SERVE_MAX_BODY`, 1 MiB) and `s.max_buffered` across a connection's streams (default `H2_MAX_BUFFERED`, 4 MiB), both settable after `H2Server_init`; a request past either, or with a content-length past `max_body`, is answered 413 without the handler and its stream reset with NO_ERROR. A request's decoded header list is bounded too: more than `H2_MAX_HEADERS` (64) fields, more than `H2_MAX_HEADER_LIST` bytes (64 KiB, counted as `SETTINGS_MAX_HEADER_LIST_SIZE` counts them: name + value + 32 per field, and advertised in the server's SETTINGS), or more than `s.max_buffered` leaves (the open streams' header lists count toward it with their bodies) is answered 431 without the handler. The HTTP/1.1 Host rules apply: a host field or `:authority` that is not uri-host [":" port] is 400, and two host fields or a host that differs from `:authority` (ignoring case) is malformed (RST_STREAM PROTOCOL_ERROR); without a host field the handler sees `:authority` as its Host header. A response header line with a non-token name or an LF or NUL in its value is not sent |
 | `stdlib/tls.esk`      | TLS for HTTP/2 over OpenSSL (libssl) with ALPN negotiating `"h2"`: a server `SSL_CTX` that loads a cert/key and selects `"h2"`, plus blocking (`http2_tls_serve_conn`) and async (`http2_tls_serve_async`) h2-over-TLS servers that run the `<http2>` protocol over the encrypted stream, with the h2c server's deadlines (`http2_tls_serve_conn_with`, `http2_tls_serve_async_with` take an `HttpLimits`; the handshake counts toward `header_ms`, and `tls_accept` bounds a blocking handshake too, `tls_accept_with` with other limits). The blocking calls (`tls_accept_with`, `tls_read_full_deadline`, `tls_write_all_deadline`, `http2_tls_serve_conn_with`) run the socket non-blocking and wait with `poll` on what is left of the deadline, so a peer that trickles bytes inside one TLS record cannot stretch it (a socket timeout restarts with every byte OpenSSL's record loop reads); `tls_accept_with` leaves the socket non-blocking |
 
-Modules built around a struct name their operations `Type_method`, so they can also be called with dot syntax (`rng.next()` calls `Rng_next(&rng)`). A keyword after `.` is a member name, so `j.int(5)` and `j.bool(1)` call `<json>`'s `Json_int` and `Json_bool`. Functions that create a value keep a lowercase module name (`el_new`, `executor_new`, `chan_new`, `regex_compile`). Release 0.9.2 renamed the older lowercase forms: `rng_*` to `Rng_*`, `regex_search`/`regex_free`/`match_*` to `Regex_*`/`Match_*`, `heap_*` to `Heap_*`, `el_*` to `EventLoop_*`, `executor_*` to `Executor_*`, `chan_*` to `Chan_*`, `hpack_decoder_init`/`hpack_decoder_free` and `hpack_huff_build`/`hpack_huff_free` to `HpackDecoder_init`/`HpackDecoder_free` and `HpackHuff_build`/`HpackHuff_free` (the other `hpack_huff_*` functions, `hpack_huff_code`, `hpack_huff_len`, `hpack_huff_decode`, `hpack_huff_encode` and `hpack_huff_encoded_len`, keep their names), `h2_conn_init`/`h2_stream_init`/`h2_can_send` to `H2Conn_init`/`H2Stream_init`/`H2Conn_can_send`, and `time_from_utc`/`time_format_iso` to `DateTime_to_epoch`/`DateTime_format_iso`. The old names still work as deprecated wrappers and will be removed in a later release.
+Modules built around a struct name their operations `Type_method`, so they can also be called with dot syntax (`rng.next()` calls `Rng_next(&rng)`). A keyword after `.` is a member name, so `j.int(5)` and `j.bool(1)` call `<json>`'s `Json_int` and `Json_bool`. Functions that create a value keep a lowercase module name (`el_new`, `executor_new`, `chan_new`, `regex_compile`). Release 0.9.2 renamed the older lowercase forms: `rng_*` to `Rng_*`, `regex_search`/`regex_free`/`match_*` to `Regex_*`/`Match_*`, `heap_*` to `Heap_*`, `el_*` to `EventLoop_*`, `executor_*` to `Executor_*`, `chan_*` to `Chan_*`, `hpack_decoder_init`/`hpack_decoder_free` and `hpack_huff_build`/`hpack_huff_free` to `HpackDecoder_init`/`HpackDecoder_free` and `HpackHuff_build`/`HpackHuff_free` (the other `hpack_huff_*` functions, `hpack_huff_code`, `hpack_huff_len`, `HpackHuff_decode`, `hpack_huff_encode` and `hpack_huff_encoded_len`, keep their names), `h2_conn_init`/`h2_stream_init`/`h2_can_send` to `H2Conn_init`/`H2Stream_init`/`H2Conn_can_send`, and `time_from_utc`/`time_format_iso` to `DateTime_to_epoch`/`DateTime_format_iso`. The old names still work as deprecated wrappers and will be removed in a later release.
 
 ### Result<T,E>
 
 ```eskiu
 import <result>;
-extern int printf(string fmt, ...);
+import <io>;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) return Err<int, string>("division by zero");
@@ -2400,7 +2402,7 @@ int main() {
 
 ```eskiu
 import <list>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let items: List<int>;
@@ -2419,7 +2421,7 @@ int main() {
 
 ```eskiu
 import <string>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let s: String;
@@ -2461,7 +2463,7 @@ changes ASCII letters only and leaves every other byte (UTF-8 included) as is.
 | `int64 String_replace_all(String* self, string from, string to)` | Replace every non-overlapping occurrence, left to right (`"aaa"`, `"aa"` to `"b"` gives `"ba"`); returns the count |
 | `void String_split_str(String* self, string sep, List<String>* out)` | Split on a string; separators at the ends or side by side give empty parts, an empty `sep` gives one part |
 | `void String_lines(String* self, List<String>* out)` | Split on `\n` or `\r\n`; a final terminator adds no empty line, an empty String has none |
-| `void str_join(List<string>* parts, string sep, String* out)` | Join C strings into `out`; `parts.join(sep, &out)` (`List_join`) does the same |
+| `void List_join<T>(List<T>* self, string sep, String* out)` | Join the C strings of a `List<string>` into `out`: `parts.join(sep, &out)` |
 | `void String_join(String* self, List<String>* parts, string sep)` | Join Strings (the inverse of a split) into `self` |
 | `void String_lower(String* self)`, `void String_upper(String* self)` | ASCII case mapping in place |
 | `void String_repeat(String* self, int64 n)` | `n` copies of itself; `n <= 0` empties it |
@@ -2469,7 +2471,7 @@ changes ASCII letters only and leaves every other byte (UTF-8 included) as is.
 | `double String_to_double(String* self)` | Leading number in C `strtod` syntax, 0.0 if none |
 | `int String_parse_double(String* self, *double out)` | The whole String (surrounding whitespace allowed) as one number: 1 and `*out` set, or 0 |
 | `void String_from_double(String* self, double d)` | Shortest of `%.15g` / `%.17g` that reads back as `d` (`0.1`, `3`, `1e+20`) |
-| `void str_format(String* out, string fmt, ...)` | `printf`-style formatting into `out`, through the C library's `vsnprintf` (C rules: `%lld` for `int64`, `s.cstr()` for a String) |
+| `void String_format(String* self, string fmt, ...)` | `printf`-style formatting into `self` (cleared first), through the C library's `vsnprintf` (C rules: `%lld` for `int64`, `s.cstr()` for a String) |
 | `void String_appendf(String* self, string fmt, ...)` | The same, appending |
 | `void String_reserve(String* self, int64 need)` | Grow the buffer to at least `need` bytes |
 
@@ -2480,7 +2482,7 @@ s.split_str(";", &parts);                   // [a=1] [b=2] [] [c=3]
 String_split_free(&parts);
 s.replace_all(";", ", ");                   // "a=1, b=2, , c=3"
 let out: String;  out.init(16);
-str_format(&out, "%s has %d bytes", s.cstr(), (int)s.len);
+String_format(&out, "%s has %d bytes", s.cstr(), (int)s.len);
 out.free();
 s.free();
 ```
@@ -2553,8 +2555,7 @@ stdlib module. Sockets need no compiler support beyond the C FFI.
 ```eskiu
 import <net>;
 import <mem>;
-
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int fd = net_tcp_listen(8080);            // bind + listen on 0.0.0.0:8080
@@ -2734,7 +2735,7 @@ variable.
 
 ```eskiu
 import <dns>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let addrs: List<string>;  List_init<string>(&addrs, 4);
@@ -2755,7 +2756,7 @@ numeric host resolves to itself. The strings are heap copies: free the list with
 
 ```eskiu
 import <fetch>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let o: FetchOptions;  FetchOptions_init(&o);
@@ -2802,7 +2803,7 @@ up by name in any case, `Response_text` returns the body as a NUL-terminated str
 `method` (`"GET"`), `timeout_ms` (30000, for the whole call including redirects; 0 for
 none; the host name lookup is not bounded by it), `follow_redirects` (1),
 `max_redirects` (10), `max_body` (64 MiB; a longer body is `FETCH_ERR_TOO_LARGE`),
-`user_agent` (`"eskiu/0.10.0"`; empty sends none), `verify_tls` (1) and `ca_file` (a PEM
+`user_agent` (`"eskiu/0.10.1"`; empty sends none), `verify_tls` (1) and `ca_file` (a PEM
 bundle trusted besides the system store). `FetchOptions_header(&o, name, value)` returns
 0 and adds nothing when the name is not a token or the value holds a CR or LF; the
 request then fails with `FETCH_ERR_REQUEST`, so a header can never be split into an
@@ -2820,7 +2821,7 @@ are not decoded (no `Accept-Encoding` is sent).
 
 Redirects (301, 302, 303, 307, 308 with a `Location`) are followed up to `max_redirects`
 times; one more is `FETCH_ERR_REDIRECTS`. A relative `Location` is resolved against the
-current URL with `url_resolve`. After 301, 302 or 303 the request becomes a `GET` without
+current URL with `Url_resolve`. After 301, 302 or 303 the request becomes a `GET` without
 a body (a `HEAD` stays a `HEAD`); 307 and 308 repeat it unchanged. A redirect from
 `https` to `http` is followed, as browsers and `curl -L` do. A redirect to another origin
 (scheme, host or port) drops the `Authorization` and `Cookie` headers.
@@ -2834,7 +2835,10 @@ library path, and on macOS also in Homebrew (`/opt/homebrew/opt/openssl@3/lib`,
 `/usr/local/opt/openssl@3/lib`) and MacPorts; `fetch_tls_available()` reports whether it
 was found. The client sends SNI, verifies the certificate against OpenSSL's default trust
 store and checks the host name (`SSL_set1_host`); `verify_tls = 0` skips both, for local
-tests only. On Windows OpenSSL's default store is usually empty, so set `ca_file`.
+tests only. On Windows OpenSSL's default store is usually empty, so a verifying request
+without `ca_file` also trusts the certificates of the system "ROOT" store (read with
+`CertOpenSystemStoreW` from crypt32 and added to the context's `X509_STORE`), the roots
+Windows itself trusts. With `ca_file` set, only that file and OpenSSL's default store count.
 Defining `ESKIU_FETCH_NO_TLS` before `import <fetch>` leaves HTTPS out of the program.
 
 `fetch_async(lp, url, &o, &r)` runs the same request over an `<eventloop>` and returns a
@@ -2850,7 +2854,7 @@ async int get_both(EventLoop* lp, FetchOptions* o) {
     Future<int>* fb = fetch_async(lp, "https://example.com/b", o, &b);
     int both = await join2(fa, fb);           // the two requests run at the same time
     int rc = fa.value != 0 ? fa.value : fb.value;
-    free_future<int>(fa);  free_future<int>(fb);
+    Future_free<int>(fa);  Future_free<int>(fb);
     Response_free(&a);  Response_free(&b);
     return rc;
 }
@@ -2866,7 +2870,7 @@ connection closes.
 
 ```eskiu
 import <json>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     *JsonValue doc = JsonValue_object();
@@ -2911,7 +2915,7 @@ null when a step is missing, has the wrong kind, or the path is malformed.
 
 ```eskiu
 import <csv>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let t: CsvTable;
@@ -2956,7 +2960,7 @@ delim, &out)` writes a whole table (cleared first).
 
 ```eskiu
 import <dotenv>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     if (dotenv_load(".env") < 0) {
@@ -2988,11 +2992,11 @@ the value copies, so free it with `dotenv_free`.
 
 ```eskiu
 import <hash>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let hex: String;  hex.init(65);
-    sha256_str("abc", &hex);                     // ba7816bf...f20015ad
+    hash_sha256_str("abc", &hex);                // ba7816bf...f20015ad
     printf("%s\n", hex.data);
 
     let h: Sha256;  h.init();                    // streaming
@@ -3000,7 +3004,7 @@ int main() {
     let digest: uint8[32];
     h.final(&digest[0]);
 
-    hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &hex);
+    hash_hmac_sha256_str("key", "The quick brown fox jumps over the lazy dog", &hex);
     printf("%d\n", hash_equal_str((string)hex.data, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"));
     hex.free();
     return 0;
@@ -3011,11 +3015,11 @@ SHA-256, SHA-1 and MD5 are written in Eskiu (no OpenSSL). Each has a streaming t
 (`Sha256`, `Sha1`, `Md5`) with `_init`, `_update(data, n)`, `_update_str(s)`,
 `_final(out)` (the raw digest: `SHA256_SIZE` 32, `SHA1_SIZE` 20, `MD5_SIZE` 16 bytes into
 a caller buffer) and `_final_hex(&out)`; a value is `init`ed again before reuse. The
-one-shot forms are `sha256(data, n, out)` (raw), `sha256_hex(data, n, &out)` and
-`sha256_str(s, &out)` (lowercase hex), and the same for `sha1` and `md5`. `HmacSha256`
-(`_init(key, klen)`, `_update`, `_final`) and `hmac_sha256(key, klen, data, n, out)` /
-`hmac_sha256_str(key, msg, &out)` implement RFC 2104 (keys over 64 bytes are hashed
-first). `hex_encode(data, n, &out)` writes lowercase hex; `hex_decode(s, out, cap)`
+one-shot forms are `hash_sha256(data, n, out)` (raw), `hash_sha256_hex(data, n, &out)` and
+`hash_sha256_str(s, &out)` (lowercase hex), and the same for `hash_sha1` and `hash_md5`. `HmacSha256`
+(`_init(key, klen)`, `_update`, `_final`) and `hash_hmac_sha256(key, klen, data, n, out)` /
+`hash_hmac_sha256_str(key, msg, &out)` implement RFC 2104 (keys over 64 bytes are hashed
+first). `hash_hex_encode(data, n, &out)` writes lowercase hex; `hash_hex_decode(s, out, cap)`
 returns the byte count, or -1 for an odd length, a non-hex character or more than `cap`
 bytes. `hash_equal(a, b, n)` and `hash_equal_str(a, b)` compare in time that depends
 only on the length, for MACs and tokens. SHA-1 and MD5 are only for matching existing
@@ -3060,9 +3064,9 @@ int main() {
     time_format(time_now_s(), "%a %F %T %Z (%z)", TIME_LOCAL, &s);
     int64 t = 0;
     time_parse("2026-10-11T10:30:05+02:00", "%FT%T%z", &t);   // 1791707405
-    duration_format(3723000, &s);                              // "1h 2m 3s"
+    time_format_duration(3723000, &s);                              // "1h 2m 3s"
     let sw: Stopwatch;  sw.start();
-    sleep_ms(10);
+    time_sleep_ms(10);
     printf("%lld ms\n", sw.elapsed_ms());
     s.free();
     return 0;
@@ -3086,7 +3090,7 @@ or `+hh:mm` and `%Z` takes `UTC`, `GMT` or `Z`. Fields not given default to 1970
 and the time is UTC unless an offset is parsed or `%s` sets the instant.
 `time_parse_local` reads a time without an offset in the local zone.
 
-`duration_format(ms, &out)` writes `1d 2h 3m 4s 5ms`, leaving out zero parts (`0ms` for
+`time_format_duration(ms, &out)` writes `1d 2h 3m 4s 5ms`, leaving out zero parts (`0ms` for
 zero, a leading `-` when negative). A `Stopwatch` measures on the monotonic clock:
 `start` (or restart), `elapsed_ms`, and `lap` (milliseconds since the previous lap or the
 start).
@@ -3102,7 +3106,7 @@ int main() {
     term_style(&s, "error:", TERM_BOLD | TERM_RED);
     s.append(" not found");
     println(s.cstr());
-    term_print("sunset\n", term_rgb(255, 128, 0) | term_bg256(17));
+    term_print("sunset\n", term_fg_rgb(255, 128, 0) | term_bg256(17));
     printf("%d columns\n", term_width());
     s.free();
     return 0;
@@ -3112,7 +3116,7 @@ int main() {
 A style is an `int64` combined with `|`: attributes `TERM_BOLD`, `TERM_DIM`,
 `TERM_ITALIC`, `TERM_UNDERLINE`, `TERM_BLINK`, `TERM_REVERSE`, `TERM_HIDDEN`,
 `TERM_STRIKE`; one foreground color (`TERM_BLACK` ... `TERM_WHITE`, `TERM_BRIGHT_*`,
-`TERM_GRAY`, `term_fg256(n)`, `term_rgb(r, g, b)`); one background color (`TERM_BG_*`,
+`TERM_GRAY`, `term_fg256(n)`, `term_fg_rgb(r, g, b)`); one background color (`TERM_BG_*`,
 `term_bg256(n)`, `term_bg_rgb(r, g, b)`). `TERM_PLAIN` is no style. `term_sgr(&out,
 style)` appends the escape sequence and `term_reset(&out)` the reset, always.
 `term_style(&out, text, style)` appends the text wrapped in them only when colors are
@@ -3166,32 +3170,32 @@ int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "copy", "Copy files.");
     defer ArgParser_free(&p);
-    args_flag(&p, "-v", "--verbose", "say more");
-    args_option(&p, "-o", "--output", "DIR", ".", "where to copy");
-    args_option_int(&p, "-j", "--jobs", "N", 1, "parallel copies");
-    args_argument(&p, "files", "files to copy", ARGS_REQUIRED | ARGS_MANY);
+    ArgParser_flag(&p, "-v", "--verbose", "say more");
+    ArgParser_option(&p, "-o", "--output", "DIR", ".", "where to copy");
+    ArgParser_option_int(&p, "-j", "--jobs", "N", 1, "parallel copies");
+    ArgParser_argument(&p, "files", "files to copy", ARGS_REQUIRED | ARGS_MANY);
     ArgParser_parse_or_exit(&p, argc, argv);
-    for (i in 0..args_count(&p, "files")) {
-        printf("%s -> %s\n", args_get_at(&p, "files", i), args_get(&p, "output"));
+    for (i in 0..ArgParser_count(&p, "files")) {
+        printf("%s -> %s\n", ArgParser_get_at(&p, "files", i), ArgParser_get(&p, "output"));
     }
     return 0;
 }
 ```
 
-`args_flag(p, short, long, help)`, `args_option(p, short, long, metavar, default, help)`
-and `args_option_int(...)` (an `int` default; a value that is not an integer is a parse
-error) declare options; either name may be `null`. `args_argument(p, name, help, mode)`
+`ArgParser_flag(p, short, long, help)`, `ArgParser_option(p, short, long, metavar, default, help)`
+and `ArgParser_option_int(...)` (an `int` default; a value that is not an integer is a parse
+error) declare options; either name may be `null`. `ArgParser_argument(p, name, help, mode)`
 declares a positional argument: `ARGS_OPTIONAL`, `ARGS_REQUIRED`, and `ARGS_MANY` for the
 last one (zero or more, one or more with `ARGS_REQUIRED`). A parser that declares no
 arguments accepts any positionals; one that declares some rejects extras.
 
 Accepted forms: `-v`, `--verbose`, `-o x`, `-ox`, `--output x`, `--output=x`, short
 clusters (`-vo x`: an option in a cluster takes the rest of it or the next argument),
-`--` (everything after it is positional, also kept for `args_rest`), and `-` as a
+`--` (everything after it is positional, also kept for `ArgParser_rest`), and `-` as a
 positional. An option's value is the next argument even when it starts with `-`; `-5` is a
 positional unless a short option is a digit. A repeated option keeps all its values
-(`args_get` returns the last, `args_get_all`/`args_get_at` every one) and a repeated flag
-counts (`args_count`). `-h`/`--help` are automatic unless the program declares those
+(`ArgParser_get` returns the last, `ArgParser_get_all`/`ArgParser_get_at` every one) and a repeated flag
+counts (`ArgParser_count`). `-h`/`--help` are automatic unless the program declares those
 names.
 
 `ArgParser_parse(p, argc, argv)` returns `ARGS_OK`, `ARGS_HELP` after printing the
@@ -3199,9 +3203,9 @@ generated help to stdout, or `ARGS_ERROR` after printing the usage line and `pro
 ...` to stderr (the message is also `ArgParser_error(p)`). `ArgParser_parse_or_exit`
 exits with 0 after the help and with 2 after an error. `ArgParser_help(p, &out)` and
 `ArgParser_usage(p, &out)` produce the texts. Accessors take a long name without dashes
-(`"output"`), a short name (`"o"` or `"-o"`) or an argument name: `args_get` (the value or
-the default, `null` if neither), `args_get_int`, `args_get_flag`, `args_count`,
-`args_get_at`, `args_get_all`, and `args_positional(p, i)` / `args_positional_count(p)`
+(`"output"`), a short name (`"o"` or `"-o"`) or an argument name: `ArgParser_get` (the value or
+the default, `null` if neither), `ArgParser_get_int`, `ArgParser_get_flag`, `ArgParser_count`,
+`ArgParser_get_at`, `ArgParser_get_all`, and `ArgParser_positional(p, i)` / `ArgParser_positional_count(p)`
 for every positional in order. Returned strings point into `argv` or the defaults.
 
 ## 15. Inline Assembly
@@ -3411,7 +3415,7 @@ A line ending in a backslash (`\`) is **continued** onto the next line, so a mac
     ((x) * (x)         \
      + 2 * (x) + 1)
 
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int n = MAX;          // 100

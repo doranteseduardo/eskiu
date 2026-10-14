@@ -1,0 +1,41 @@
+// process_run writes stdin_text to children that exit without reading it, from two
+// threads at once. A closed stdin is EPIPE for the writer: no SIGPIPE may kill the
+// program, and the process-wide SIGPIPE disposition stays what it was (the default
+// here; ignored when the parent passed that down, as CI runners do). Before, each
+// call set SIGPIPE to ignored and put the old value back, so one thread could restore
+// the default while the other was still writing (or leave it ignored for good).
+import <process>;
+import <string>;
+import <io>;
+extern *void signal(int sig, *void handler);
+
+int[2] g_ok;
+String g_big;
+
+void worker(int slot) {
+    for (i in 0..30) {
+        let o: ProcessOptions;
+        memset((*void)&o, 0, sizeof(ProcessOptions));
+        o.stdin_text = g_big.cstr();
+        let r: ProcessResult;
+        sh_with("exit 0", &o, &r);
+        if (r.exit_code == 0) { g_ok[slot]++; }
+        ProcessResult_free(&r);
+    }
+}
+
+int main() {
+    *void before = signal(13, (*void)(int64)1);   // read the disposition: set SIG_IGN (1), put it back
+    signal(13, before);
+    g_big.init(8);
+    g_big.append("x");
+    g_big.repeat(1 << 20);
+    let a: *void = thread_create(void() { worker(0); });
+    let b: *void = thread_create(void() { worker(1); });
+    thread_join(a);
+    thread_join(b);
+    printf("children ok: %d\n", g_ok[0] + g_ok[1]);
+    printf("sigpipe unchanged: %d\n", signal(13, (*void)(int64)1) == before ? 1 : 0);
+    g_big.free();
+    return 0;
+}

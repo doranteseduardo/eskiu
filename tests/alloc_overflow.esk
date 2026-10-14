@@ -1,6 +1,6 @@
 // The <alloc>/<sysheap> allocators reject requests that cannot fit instead of
 // letting the size arithmetic wrap: a huge or negative Bump/Arena size used to
-// pass `start + n > cap` after overflowing, and FirstFit's `alloc_align8(n)`
+// pass `start + n > cap` after overflowing, and FirstFit's `_alloc_align8(n)`
 // wrapped to a tiny size. A FirstFit buffer smaller than one region header
 // holds nothing (it used to write the header past the end).
 import <mem>;

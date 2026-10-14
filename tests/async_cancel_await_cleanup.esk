@@ -11,7 +11,7 @@ extern int printf(string fmt, ...);
 EventLoop* g;
 int done = 0;
 
-Future<int>* ready(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+Future<int>* ready(int v) { Future<int>* f = future_new<int>(); Future_complete<int>(f, v); return f; }
 
 async int slow(int64 ms) {
     try {
@@ -31,8 +31,8 @@ async int race() {
     Future<int>* a = slow((int64)500);
     Future<int>* b = timer_after(g, (int64)1);
     int w = await select2(a, b);
-    if (w == 0) { free_future<int>(a); return 0; }
-    free_future<int>(b);
+    if (w == 0) { Future_free<int>(a); return 0; }
+    Future_free<int>(b);
     printf("race: timer won\n");
     return 1;
 }
@@ -86,9 +86,9 @@ async int unwinding() {
 }
 
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;
-    free_future_polled<int>(f);
+    Future_free_polled<int>(f);
     return v;
 }
 
@@ -102,31 +102,31 @@ int main() {
 
     done = 0;
     Future<int>* l = lifo();
-    future_drop((FutureHdr*)l);
+    Future_drop((FutureHdr*)l);
     printf("lifo dropped: done=%d\n", done);
     drain();
     printf("after lifo: done=%d\n", done);
 
     done = 0;
     Future<int>* s = sync_cleanup();
-    future_drop((FutureHdr*)s);
+    Future_drop((FutureHdr*)s);
     printf("sync_cleanup dropped: done=%d\n", done);
 
     done = 0;
     Future<int>* t = lifo();
-    future_drop((FutureHdr*)t);
-    future_drop((FutureHdr*)t);
+    Future_drop((FutureHdr*)t);
+    Future_drop((FutureHdr*)t);
     drain();
     printf("dropped twice: done=%d\n", done);
 
     done = 0;
     Future<int>* f = in_finally();
-    future_drop((FutureHdr*)f);
+    Future_drop((FutureHdr*)f);
     printf("in_finally dropped: done=%d\n", done);
 
     done = 0;
     Future<int>* u = unwinding();
-    future_drop((FutureHdr*)u);
+    Future_drop((FutureHdr*)u);
     drain();
     printf("unwinding dropped: done=%d\n", done);
     EventLoop_free(g);

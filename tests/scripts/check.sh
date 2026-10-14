@@ -25,6 +25,9 @@ export TZ=UTC
 unset NO_COLOR FORCE_COLOR LOG_LEVEL GITHUB_TOKEN COLUMNS
 
 work="$(mktemp -d)"
+# How a native Windows program spells it under MSYS2 (D:/.../tmp/...).
+work_native="$work"
+if command -v cygpath > /dev/null 2>&1; then work_native="$(cygpath -m "$work")"; fi
 server_pid=""
 cleanup() {
     [[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null
@@ -45,14 +48,18 @@ run() {
     "$@" > "$work/stdout" 2> "$work/stderr"
     local code=$?
     cat "$work/stdout" >> "$work/out"
-    sed -E -e 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' -e "s|$work|TMP|g" \
+    sed -E -e 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' -e "s|$work_native|TMP|g" -e "s|$work|TMP|g" \
         -e '/disk usage: /d' "$work/stderr" | sed 's/^/stderr: /' >> "$work/out"
     echo "exit $code" >> "$work/out"
 }
 compare() {
     local name="$1"
     [[ -n "${UPDATE:-}" ]] && cp "$work/out" "$here/$name.expected"
-    if diff -u "$here/$name.expected" "$work/out" > "$work/diff"; then
+    # CRs are dropped on both sides (a Windows checkout and a Windows program's
+    # text-mode output add them).
+    tr -d '\r' < "$here/$name.expected" > "$work/want"
+    tr -d '\r' < "$work/out" > "$work/got"
+    if diff -u "$work/want" "$work/got" > "$work/diff"; then
         echo "ok $name"
     else
         echo "FAIL $name"

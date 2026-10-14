@@ -21,7 +21,7 @@
 //   *int xs = alloc_with(&a, int, 16);
 
 // Round n up to the next multiple of 8 (alignment for any scalar/pointer).
-int64 alloc_align8(int64 n) {
+int64 _alloc_align8(int64 n) {
     return ((n + 7) / 8) * 8;
 }
 
@@ -35,7 +35,7 @@ void Bump_init(Bump* self, *uint8 buf, int64 cap) {
     self.buf = buf; self.cap = cap; self.off = 0;
 }
 *void Bump_alloc(Bump* self, int64 n) {
-    const int64 start = alloc_align8(self.off);
+    const int64 start = _alloc_align8(self.off);
     if (n < 0 || start > self.cap || n > self.cap - start) { return null; }   // no `start + n` wrap
     self.off = start + n;
     return (*void)(self.buf + start);
@@ -52,7 +52,7 @@ void Arena_init(Arena* self, *uint8 buf, int64 cap) {
     self.buf = buf; self.cap = cap; self.off = 0;
 }
 *void Arena_alloc(Arena* self, int64 n) {
-    const int64 start = alloc_align8(self.off);
+    const int64 start = _alloc_align8(self.off);
     if (n < 0 || start > self.cap || n > self.cap - start) { return null; }   // no `start + n` wrap
     self.off = start + n;
     return (*void)(self.buf + start);
@@ -62,23 +62,23 @@ void  Arena_restore(Arena* self, int64 marker) { self.off = marker; }
 void  Arena_reset(Arena* self) { self.off = 0; }
 
 // ── Pool: fixed-size blocks with a free list threaded through free blocks ────
-struct PoolNode { *PoolNode next; }
+struct _PoolNode { *_PoolNode next; }
 struct Pool {
     *uint8     buf;
     int64      cap;
     int64      blockSize;
-    *PoolNode  freeHead;
+    *_PoolNode  freeHead;
     int64      highWater;
 }
 void Pool_init(Pool* self, *uint8 buf, int64 cap, int64 blockSize) {
-    const int64 bs = alloc_align8(blockSize);
+    const int64 bs = _alloc_align8(blockSize);
     self.buf = buf; self.cap = cap; self.blockSize = bs < 8 ? 8 : bs;
     self.freeHead = null; self.highWater = 0;
 }
 *void Pool_alloc(Pool* self, int64 n) {
     if (n < 0 || n > self.blockSize) { return null; }
     if (self.freeHead != null) {             // reuse a freed block
-        *PoolNode node = self.freeHead;
+        *_PoolNode node = self.freeHead;
         self.freeHead = node.next;
         return (*void)node;
     }
@@ -88,53 +88,53 @@ void Pool_init(Pool* self, *uint8 buf, int64 cap, int64 blockSize) {
     return p;
 }
 void Pool_free(Pool* self, *void p) {
-    *PoolNode node = (*PoolNode)p;
+    *_PoolNode node = (*_PoolNode)p;
     node.next = self.freeHead;
     self.freeHead = node;
 }
 
 // ── First-fit general-purpose (after Thompson's original) ────────────────────
-// Each region is [FFNode header][payload]. Free regions are linked through the
+// Each region is [_FFNode header][payload]. Free regions are linked through the
 // header's `next`; used regions keep their size in the header. Alloc does a
 // first-fit search and splits a large region. The free list is kept in address
 // order, so free merges the region with an adjacent free neighbour on either
 // side (coalescing): freeing everything restores one region, and the heap does
 // not fragment permanently.
-struct FFNode {
+struct _FFNode {
     int64    size;   // payload bytes available in this region
-    *FFNode  next;   // next free region (used regions: ignored)
+    *_FFNode  next;   // next free region (used regions: ignored)
 }
-// The region header's size, sizeof(FFNode) on every target: payload offsets
+// The region header's size, sizeof(_FFNode) on every target: payload offsets
 // and split/merge arithmetic are all in terms of it.
 const int64 _FF_HDR = 16;
 
 struct FirstFit {
     *uint8    buf;
     int64     cap;
-    *FFNode   freeHead;
+    *_FFNode   freeHead;
 }
 // A buffer too small for one region header (cap < 16) holds nothing: the free
 // list starts empty, so every alloc returns null and nothing is written to `buf`.
 void FirstFit_init(FirstFit* self, *uint8 buf, int64 cap) {
     self.buf = buf; self.cap = cap;
     if (cap < _FF_HDR) { self.freeHead = null; return; }
-    *FFNode head = (*FFNode)buf;
+    *_FFNode head = (*_FFNode)buf;
     head.size = cap - _FF_HDR;
     head.next = null;
     self.freeHead = head;
 }
 *void FirstFit_alloc(FirstFit* self, int64 n) {
     // No region is larger than the buffer, so a bigger (or negative) request can
-    // never fit; rejecting it first also keeps alloc_align8(n) from wrapping.
+    // never fit; rejecting it first also keeps _alloc_align8(n) from wrapping.
     if (n < 0 || n > self.cap) { return null; }
-    const int64 want = alloc_align8(n);
-    *FFNode prev = null;
-    *FFNode cur  = self.freeHead;
+    const int64 want = _alloc_align8(n);
+    *_FFNode prev = null;
+    *_FFNode cur  = self.freeHead;
     while (cur != null) {
         if (cur.size >= want) {
             // Split if the leftover can hold a header plus a little payload.
             if (cur.size >= want + _FF_HDR + 8) {
-                *FFNode rest = (*FFNode)((*uint8)cur + _FF_HDR + want);
+                *_FFNode rest = (*_FFNode)((*uint8)cur + _FF_HDR + want);
                 rest.size = cur.size - want - _FF_HDR;
                 rest.next = cur.next;
                 cur.size  = want;
@@ -154,10 +154,10 @@ void FirstFit_init(FirstFit* self, *uint8 buf, int64 cap) {
 }
 void FirstFit_free(FirstFit* self, *void p) {
     if (p == null) { return; }       // free(null) is a no-op
-    *FFNode hdr = (*FFNode)((*uint8)p - _FF_HDR);
+    *_FFNode hdr = (*_FFNode)((*uint8)p - _FF_HDR);
     const int64 at = (int64)hdr;
-    *FFNode prev = null;
-    *FFNode cur  = self.freeHead;
+    *_FFNode prev = null;
+    *_FFNode cur  = self.freeHead;
     while (cur != null && (int64)cur < at) { prev = cur; cur = cur.next; }
     hdr.next = cur;
     if (prev == null) { self.freeHead = hdr; } else { prev.next = hdr; }

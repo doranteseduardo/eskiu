@@ -1,6 +1,6 @@
 import <result>;
 
-extern int printf(string fmt, ...);
+import <io>;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) {

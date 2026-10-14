@@ -80,9 +80,9 @@ void run(string label, int64 lo, bool ping) {
     const int64 t0 = time_monotonic_ms();
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async_with(g_lp, sv[0], hello, done, g_lim, null);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     const int64 dt = time_monotonic_ms() - t0;
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     Chan_free<int>(done);
     if (ping) { atomic_store(&g_stop, 1);  thread_join(t); }
 
@@ -98,7 +98,7 @@ void run(string label, int64 lo, bool ping) {
         if (fr.type == H2_SETTINGS) { printf((fr.flags & 1) != 0 ? " ACK" : " SETTINGS"); }
         else if (fr.type == H2_HEADERS) { printf(" HEADERS"); }
         else if (fr.type == H2_DATA) { printf(" DATA[%.*s]", fr.length, (string)pl); }
-        else if (fr.type == H2_GOAWAY) { printf(" GOAWAY(last=%lld,%lld)", h2_get_u32(pl, 0), h2_get_u32(pl, 4)); }
+        else if (fr.type == H2_GOAWAY) { printf(" GOAWAY(last=%lld,%lld)", _h2_get_u32(pl, 0), _h2_get_u32(pl, 4)); }
         else if (fr.type == H2_PING) { }                   // PING answers: their number varies
         else { printf(" type%d", fr.type); }
         pos += 9 + fr.length;
@@ -135,7 +135,7 @@ int main() {
 
     begin();
     uint8[6] s;
-    h2_put_setting(&s[0], 0, H2_SETTINGS_INITIAL_WINDOW_SIZE, 0);
+    _h2_put_setting(&s[0], 0, H2_SETTINGS_INITIAL_WINDOW_SIZE, 0);
     frame(H2_SETTINGS, 0, 0, &s[0], 6);
     get(1, H2_FLAG_END_HEADERS | H2_FLAG_END_STREAM);
     run("no window for the response", 55, false);

@@ -38,6 +38,7 @@ struct EVar { string en; string variant; string val; int plain; }   // val = mem
 
 struct Sema {
     int fold_depth;          // recursion guard for sema_fold_int through const initializers
+    int too_large;           // sema_const_layout met an array larger than the largest object
     int ptrsz;               // the target's pointer size and int64/double alignment, so
     int i64al;               // sizeof folds to its layout (sema_set_target)
     int msbf;                // 1: bitfields follow the MS (Windows) layout rules
@@ -906,6 +907,11 @@ int64 sema_const_layout(Sema* s, string t0, int64* al, int depth) {
         int64 eal = (int64)1;
         int64 esz = sema_const_layout(s, rest, &eal, depth + 1);
         al[0] = eal;
+        // The target's largest object: 2^61-1 bytes with 64-bit pointers, 2^32-1 with
+        // 32-bit ones, as clang (mirrors the C++ layoutTooLarge).
+        int64 limit = (int64)4294967295;
+        if (s.ptrsz >= 8) { limit = (int64)2305843009213693951; }
+        if (esz > (int64)0 && dv > limit / esz) { s.too_large = 1; return (int64)0; }
         return esz * dv;
     }
     if ((int)t[0] == 42 || (int)t[n - 1] == 42 || sema_streq(t, "string") == 1) { al[0] = ps; return ps; }
@@ -1176,6 +1182,16 @@ void sema_check_decl_type(Sema* s, string t) {
         return;
     }
     sema_check_dims(s, t);
+    if (sema_is_arr_ty(t) == 1) {
+        int64 zal = (int64)1;
+        s.too_large = 0;
+        sema_const_layout(s, t, &zal, 0);
+        if (s.too_large == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: array is too large: '%s' exceeds the largest object size\n", s.filename, s.line, s.col, t);
+        }
+        s.too_large = 0;
+    }
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
@@ -3227,7 +3243,7 @@ void sema_check_arr_init(Sema* s, string arrT0, *ExprNode a) {
     string dim = sema_arr_count(arrT);
     if (sema_all_digits(dim) == 1) {
         int cnt = List_len<*ExprNode>(&a.kids);
-        if (cnt > sema_atoi(dim)) {
+        if ((int64)cnt > sema_parse_int(dim)) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: array literal has %d elements but '%s' holds %s\n", s.filename, s.line, s.col, cnt, arrT, dim);
         }
@@ -4704,11 +4720,25 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             sema_error(s, "cannot assign to read-only location");
         }
         if (sema_is_assign(e.sval) == 1) { sema_check_captured_write(s, e.a); }
+        // `f = <lambda>` rebinds a lambda local: the target is not a use of f's value, and
+        // the lambda is bound to f like an initializer (mirrors the C++ visit(BinaryExpr)).
+        int lam_rebind = 0;
+        if (sema_streq(e.sval, "=") == 1 && e.a != null && e.a.kind == EK_IDENT && e.b != null
+            && e.b.kind == EK_LAMBDA && s.in_inst == 0 && sema_in_list(&s.wlocals, e.a.sval) == 1) { lam_rebind = 1; }
+        string saved_callee = s.callee_ctx;
+        if (lam_rebind == 1) { s.callee_ctx = e.a.sval; }
         sema_expr(s, e.a);
+        s.callee_ctx = saved_callee;
         if (sema_streq(e.sval, "=") == 1) {
             sema_hint_iface(s, e.b, sema_infer_type(s, e.a));
         }
+        if (lam_rebind == 1) { s.lam_local = e.a.sval; }
         sema_expr(s, e.b);
+        if (lam_rebind == 1) {
+            s.lam_local = "";
+            List_push<*ExprNode>(&s.wlam, e.b); List_push<string>(&s.wlam_name, e.a.sval);
+            List_push<int>(&s.wlam_async, s.in_async);
+        }
         // `p = ...` ends p's narrowing unless it stores an address `&x` or steps the pointer
         // itself (`p = p + k`, `p += k`).
         int keeps = 0;
@@ -6178,6 +6208,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             List_push<*ExprNode>(&s.wlam, st.expr); List_push<string>(&s.wlam_name, st.name);
             List_push<int>(&s.wlam_async, s.in_async);
         }
+        // A `fn(...)` local declared without a value can still be a lambda local: lambdas
+        // assigned to it later are bound to it (mirrors the C++ visit(VarDecl)).
+        if (st.expr == null && st.is_static == 0 && s.in_inst == 0 && sema_is_fn_type(vty) == 1) {
+            List_push<string>(&s.wlocals, st.name);
+        }
         // A `for (i in A..B)` bound decl takes its bound's integer type (promoted to at
         // least `int`); SK_FOR then widens both decls to their common type.
         int bad_range = 0;
@@ -7364,6 +7399,24 @@ void sema_check_top_names(Sema* s, *Program prog) {
         }
         else if (d.kind == DK_INTERFACE) { sema_declare_top(s, &tab, d.name, "interface", d); }
         else if (d.kind == DK_TYPEALIAS) { sema_declare_top(s, &tab, d.name, "type alias", d); }
+        i = i + 1;
+    }
+    // An extern names a C function, so it cannot share its name with a generic one either
+    // (a call would reach the generic, or a mistyped mix of the two).
+    i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_EXTERN) {
+            int k = sema_name_index(&tab, d.name);
+            if (k >= 0) {
+                NameEnt ne = List_get<NameEnt>(&tab, k);
+                if (sema_streq(ne.kind, "function") == 1 && List_len<TypeParam>(&ne.d.type_params) > 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: conflicting declaration of extern '%s' (a generic function has the same name)\n",
+                           s.filename, d.line, d.col, d.name);
+                }
+            }
+        }
         i = i + 1;
     }
 }

@@ -1,6 +1,6 @@
 import <future>;
 extern int printf(string fmt, ...);
-Future<int>* rdy(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+Future<int>* rdy(int v) { Future<int>* f = future_new<int>(); Future_complete<int>(f, v); return f; }
 int risky(int x) { if (x > 2) { throw x; } return x; }
 enum Opt { No, Yes(int) }
 

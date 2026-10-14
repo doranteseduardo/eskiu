@@ -15,8 +15,8 @@ async int race(EventLoop* lp, int fa, int fb) {
     Future<int>* ra = net_read_async(lp, fa, &ba[0], (int64)64);
     Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
     int w = await select2(ra, rb);
-    if (w == 0) { int n = ra.value;  free_future<int>(ra); return n; }
-    int n2 = rb.value;  free_future<int>(rb); return 100 + n2;
+    if (w == 0) { int n = ra.value;  Future_free<int>(ra); return n; }
+    int n2 = rb.value;  Future_free<int>(rb); return 100 + n2;
 }
 
 int run_race(int aBytes, int bBytes) {
@@ -26,9 +26,9 @@ int run_race(int aBytes, int bBytes) {
     if (bBytes > 0) { write(pb[1], (*void)"bbb", (int64)bBytes); }
     g_lp = el_new(64);
     Future<int>* f = race(g_lp, pa[0], pb[0]);
-    if (future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     int r = f.value;
-    free_future<int>(f);
+    Future_free<int>(f);
     EventLoop_free(g_lp);
     return r;
 }

@@ -19,9 +19,9 @@ int main() {
     Future<int>* f = net_read_async(g_lp, fds[0], &g_buf[0], (int64)64);
 
     // await f: park, resume when readable (resume runs on the loop thread)
-    future_poll<int>(f, void() {
+    Future_poll<int>(f, void() {
         g_result = f.value;
-        free_future<int>(f);
+        Future_free<int>(f);
         EventLoop_stop(g_lp);
     });
     EventLoop_run(g_lp);

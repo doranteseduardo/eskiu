@@ -97,11 +97,21 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         llvm::Type* elemTy = arrTy->getElementType();
         uint64_t n = arrTy->getNumElements();
         std::vector<llvm::Constant*> elems;
+        bool split = false;
         for (auto& e : arr->elements) {
             if (elems.size() >= n) break;        // extra elements ignored
             llvm::Constant* c = constInitializer(e, elemTy);   // recurse (nested arrays)
             if (!c) return nullptr;              // a non-constant element: not foldable
+            if (c->getType() != elemTy) split = true;
             elems.push_back(c);
+        }
+        // A long zero tail (or an element already in this form) is a struct of the given
+        // elements and one zeroinitializer array for the rest, as clang emits it: the same
+        // bytes, without a constant per zero element.
+        uint64_t tail = n - elems.size();
+        if (split || tail >= kSplitZeroTail) {
+            if (tail) elems.push_back(llvm::ConstantAggregateZero::get(llvm::ArrayType::get(elemTy, tail)));
+            return llvm::ConstantStruct::getAnon(*context, elems);
         }
         while (elems.size() < n) elems.push_back(llvm::Constant::getNullValue(elemTy));
         return llvm::ConstantArray::get(arrTy, elems);
@@ -135,8 +145,14 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
             for (size_t i = 0; i < si->fieldInits.size() && i < fields.size(); ++i)
                 if (!foldField(i, si->fieldInits[i].second)) return nullptr;
         }
-        for (size_t i = 0; i < vals.size(); ++i)
+        bool split = false;
+        for (size_t i = 0; i < vals.size(); ++i) {
             if (!vals[i]) vals[i] = llvm::Constant::getNullValue(st->getElementType((unsigned)i));
+            if (vals[i]->getType() != st->getElementType((unsigned)i)) split = true;
+        }
+        // A field in the split array form (above) makes the struct a literal one with the
+        // same layout.
+        if (split) return llvm::ConstantStruct::getAnon(*context, vals, st->isPacked());
         return llvm::ConstantStruct::get(st, vals);
     }
     if (dynamic_cast<LambdaExpr*>(expr.get())) {

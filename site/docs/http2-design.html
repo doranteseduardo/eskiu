@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.1</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.10.0</a>
+        <a class="btn-install" href="../index.html#install">Install 0.10.1</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -170,10 +170,10 @@ length/type/flags/stream), the frame-type and flag constants (<code>H2_*</code> 
 <code>H2_FLAG_*</code>), and the connection preface. Self-contained; everything below builds
 on it. Unit-tested by <code>tests/http2_frame</code>.</p>
 <h3 id="connection-lifecycle-stdlibhttp2esk">Connection lifecycle (<code>stdlib/http2.esk</code>)</h3>
-<p>The SETTINGS codec (<code>h2_write_settings</code>/<code>h2_apply_settings</code> over the 6 standard
+<p>The SETTINGS codec (<code>h2_write_settings</code>/<code>H2Settings_apply</code> over the 6 standard
 params, with an <code>H2Settings</code> model carrying the RFC defaults), the SETTINGS ACK,
 PING/PONG (<code>h2_write_ping</code>/<code>h2_send_pong</code>), and GOAWAY
-(<code>h2_write_goaway</code>/<code>h2_read_goaway</code>/<code>h2_send_goaway</code>) with the §7 error codes. An
+(<code>h2_write_goaway</code>/<code>h2_read_goaway</code>/<code>H2Conn_send_goaway</code>) with the §7 error codes. An
 <code>H2Conn</code> holds per-connection state. I/O is async over the event loop:
 <code>h2_read_full_async</code> (partial-read loop), <code>h2_read_frame_async</code> (header +
 payload), and <code>h2_server_handshake_async</code> (validate preface → read + apply client
@@ -197,8 +197,8 @@ raw/Huffman per string. Validated against the RFC vectors, §C.1.1 (integer),
 (<code>tests/hpack</code>).</p>
 <h3 id="streams-and-flow-control-stdlibhttp2esk">Streams and flow control (<code>stdlib/http2.esk</code>)</h3>
 <p>The per-stream state machine (<code>H2Stream</code>: idle → open → half-closed-local/remote →
-closed, via <code>h2_stream_on_recv</code>/<code>h2_stream_on_send</code>); credit-based flow control
-(<code>H2Conn_can_send</code>/<code>h2_account_sent</code>/<code>h2_account_recv</code>/<code>h2_grant_window</code>) over
+closed, via <code>H2Stream_on_recv</code>/<code>H2Stream_on_send</code>); credit-based flow control
+(<code>H2Conn_can_send</code>/<code>H2Conn_account_sent</code>/<code>H2Conn_account_recv</code>/<code>H2Conn_grant_window</code>) over
 per-stream and connection windows; and the stream-frame codecs: HEADERS, DATA,
 WINDOW_UPDATE, RST_STREAM (<code>h2_write_*</code>). HEADERS+CONTINUATION reassembly to
 END_HEADERS is the async <code>h2_read_header_block_async</code>. RESERVED states are omitted

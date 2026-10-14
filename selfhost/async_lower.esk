@@ -7,7 +7,7 @@
 //   void __name_resume(*__name_frame fr) { while (1) { if (fr.st==0){…} else if … } }
 //   *Future<T> name(params) { fr = alloc; init; fr.st=0; __name_resume(fr); return &fr.ret; }
 //
-// A state machine: each `await` splits a state — evaluate the future, `future_poll` it,
+// A state machine: each `await` splits a state — evaluate the future, `Future_poll` it,
 // suspend (return) if pending, and resume in the next state reading `fr.__awI.value`. The
 // waker is a closure `void(){ fr.st=<next>; __name_resume(fr); }` capturing the frame.
 //
@@ -952,7 +952,7 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
             int next = al_newst(c);
             List<*ExprNode> pa; List_init<*ExprNode>(&pa, 2);
             List_push<*ExprNode>(&pa, al_fr(awf)); List_push<*ExprNode>(&pa, al_waker(c.resumeN, next));
-            *ExprNode poll = al_tcall(str_concat("future_poll<", str_concat(Ti, ">")), &pa);
+            *ExprNode poll = al_tcall(str_concat("Future_poll<", str_concat(Ti, ">")), &pa);
             List<*StmtNode> pk; List_init<*StmtNode>(&pk, 2);
             List_push<*StmtNode>(&pk, al_assign(al_fr(al_fawt), mk_cast("*FutureHdr", al_fr(awf))));
             List_push<*StmtNode>(&pk, al_return(null));
@@ -977,7 +977,7 @@ int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
             fw.kind = EK_FREECLOSURE; fw.a = al_member(al_fr(awf), "waker");
             al_push(c, next, al_exprstmt(fw));
             List<*ExprNode> fa; List_init<*ExprNode>(&fa, 1); List_push<*ExprNode>(&fa, al_fr(awf));
-            al_push(c, next, al_exprstmt(al_tcall(str_concat("free_future<", str_concat(Ti, ">")), &fa)));
+            al_push(c, next, al_exprstmt(al_tcall(str_concat("Future_free<", str_concat(Ti, ">")), &fa)));
             return next;
         }
         al_push(c, cur, al_init_field(c, s));
@@ -1577,8 +1577,8 @@ void al_wrap_state(*AlCtx c, int si, string cx) {
 // Cancellation: dropped while parked at an await, the future runs the defers and finally
 // blocks pending there once, from states of their own (the on_drop closure resumes into
 // them). A cleanup that awaits runs detached: on_drop marks the frame DETACHED (4), so
-// future_drop leaves the frame alone, and the last cleanup state frees it (or, when it ends
-// inside future_drop, lets that free it).
+// Future_drop leaves the frame alone, and the last cleanup state frees it (or, when it ends
+// inside Future_drop, lets that free it).
 void al_build_drop(*AlCtx c, int i) {
     AlSnap snap = List_get<AlSnap>(&c.ds_snap, i);
     List<List<*StmtNode>> frames; al_snap_frames(&frames, &snap);
@@ -2637,15 +2637,15 @@ void al_transform(*Program prog, *DeclNode d, List<*DeclNode>* out) {
     return e;
 }
 
-// The cancellation closure: `void() { if (fr.awaiting != (*FutureHdr)0) future_drop(fr.awaiting);
-// <cleanups> }` (captures fr). Run by future_drop when a suspended async function is cancelled: it
+// The cancellation closure: `void() { if (fr.awaiting != (*FutureHdr)0) Future_drop(fr.awaiting);
+// <cleanups> }` (captures fr). Run by Future_drop when a suspended async function is cancelled: it
 // cascade-drops the future being awaited, then resumes into the cleanup state of the await it is
-// parked at (its pending defers and finally blocks); future_drop then frees the frame (== &fr.ret)
+// parked at (its pending defers and finally blocks); Future_drop then frees the frame (== &fr.ret)
 // and this env.
 *ExprNode al_ondrop(*AlCtx c) {
     List<*ExprNode> da; List_init<*ExprNode>(&da, 1); List_push<*ExprNode>(&da, al_fr(al_fawt));
     List<*StmtNode> drop; List_init<*StmtNode>(&drop, 1);
-    List_push<*StmtNode>(&drop, al_exprstmt(al_call("future_drop", &da)));
+    List_push<*StmtNode>(&drop, al_exprstmt(al_call("Future_drop", &da)));
     List<*StmtNode> body; List_init<*StmtNode>(&body, 1);
     List_push<*StmtNode>(&body, al_if(mk_bin("!=", al_fr(al_fawt), mk_cast("*FutureHdr", al_int(0))), al_block(&drop), null));
     // Parked where no cleanup is pending, the frame's end runs from here.

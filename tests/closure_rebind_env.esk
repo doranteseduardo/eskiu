@@ -1,0 +1,35 @@
+// A lambda assigned to a local after its declaration (`f = <lambda>`), or to a `fn` local
+// declared without a value, is bound to that local like an initializer: while the local is
+// only called its environment lives on the stack and nothing leaks; a local that escapes
+// (returned) keeps a heap environment.
+import <mem>;
+extern int printf(string fmt, ...);
+
+int rebind(int k) {
+    let f: fn(int)->int = int(int x) { return x; };
+    f = int(int x) { return x + k; };
+    return f(1);
+}
+
+int later(int k) {
+    let f: fn(int)->int;
+    if (k % 2 == 0) { f = int(int x) { return x + k; }; }
+    else { f = int(int x) { return x - k; }; }
+    return f(1);
+}
+
+fn(int)->int make(int k) {
+    let f: fn(int)->int = int(int x) { return x; };
+    f = int(int x) { return x * k; };
+    return f;
+}
+
+int main() {
+    int s = 0;
+    for (i in 0..100) { s = s + rebind(i) + later(i); }
+    printf("%d\n", s);
+    let m: fn(int)->int = make(21);
+    printf("%d\n", m(2));
+    free_closure(m);
+    return 0;
+}

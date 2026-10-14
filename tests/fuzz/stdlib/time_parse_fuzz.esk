@@ -1,0 +1,36 @@
+// Fuzz target: <time> time_parse / time_parse_local / time_format. The input is
+// "FORMAT\nTEXT": the text is parsed with the format, and a parsed instant is
+// formatted again with "%FT%T%z" and parsed back to the same value. The format
+// alone is also used to format the instant read from the first 8 input bytes.
+import "harness.esk";
+import <time>;
+import <string>;
+
+void fuzz_one(*uint8 data, int len, string s) {
+    int nl = 0;
+    while (nl < len && data[nl] != (uint8)10) { nl++; }
+    *char fmt = alloc<char>(nl + 1);
+    if (nl > 0) { memcpy((*void)fmt, (*void)data, nl); }
+    const int tl = nl < len ? len - nl - 1 : 0;
+    *char text = alloc<char>(tl + 1);
+    if (tl > 0) { memcpy((*void)text, (*void)(data + nl + 1), tl); }
+    let out: String;  out.init(32);
+    int64 t = 0;
+    if (time_parse((string)text, (string)fmt, &t) == 0 && t > -62135596800 && t < 253402300800) {
+        time_format(t, "%FT%T%z", TIME_UTC, &out);
+        int64 back = 0;
+        if (time_parse(out.cstr(), "%FT%T%z", &back) != 0 || back != t) { fuzz_fail("format + parse changed the instant"); }
+    }
+    time_parse_local((string)text, (string)fmt, &t);
+    int64 seed = 0;
+    for (i in 0..8) { if (i < len) { seed = (seed << 8) | (int64)data[i]; } }
+    seed = seed % 400000000000;
+    time_format(seed, (string)fmt, TIME_UTC, &out);
+    time_format(seed, (string)fmt, TIME_LOCAL, &out);
+    let dur: String;  dur.init(16);
+    time_format_duration(seed, &dur);
+    dur.free();
+    out.free();
+    free((*void)fmt);
+    free((*void)text);
+}

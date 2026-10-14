@@ -81,7 +81,7 @@ int main() {
     int rc = -1;
     for (int i = 0; i < 100 && rc != 0; i++) {
         rc = fetch("http://127.0.0.1:18431/text", &r);
-        if (rc != 0) { Response_free(&r); sleep_ms(20); }
+        if (rc != 0) { Response_free(&r); time_sleep_ms(20); }
     }
     show("text", rc, &r);
     Response_free(&r);

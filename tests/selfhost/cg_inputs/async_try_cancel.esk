@@ -1,6 +1,6 @@
 // A future dropped while suspended runs the `finally` blocks and defers pending at
 // its await exactly once (innermost first), then its frame is freed: here `select2`
-// drops the slow worker when the short timer wins, and `future_drop` cancels one by
+// drops the slow worker when the short timer wins, and `Future_drop` cancels one by
 // hand. A worker that finishes normally runs its finally once, on the normal path.
 import <future>;
 import <timer>;
@@ -47,15 +47,15 @@ async int race(int64 slow_ms, int64 quick_ms) {
     Future<int>* a = slow(1, slow_ms);
     Future<int>* b = timer_after(g, quick_ms);
     int w = await select2(a, b);            // the loser is dropped by select2
-    if (w == 0) { int v = a.value; free_future<int>(a); return v; }
-    free_future<int>(b);
+    if (w == 0) { int v = a.value; Future_free<int>(a); return v; }
+    Future_free<int>(b);
     return 100;
 }
 
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;
-    free_future_polled<int>(f);
+    Future_free_polled<int>(f);
     return v;
 }
 
@@ -68,11 +68,11 @@ int main() {
     printf("cleanups=%d\n", cleanups);
     cleanups = 0;
     Future<int>* h = in_handler((int64)200);
-    future_drop((FutureHdr*)h);
+    Future_drop((FutureHdr*)h);
     printf("dropped in handler: cleanups=%d\n", cleanups);
     cleanups = 0;
     Future<int>* s = slow(2, (int64)200);
-    future_drop((FutureHdr*)s);
+    Future_drop((FutureHdr*)s);
     printf("dropped: cleanups=%d\n", cleanups);
     EventLoop_free(g);
     return 0;

@@ -16,6 +16,9 @@ TABBED=[1]
 LAST=[no newline]
 export unset
 len 13
+Q:a\nb
+S:c\nd
+R:lone\rcr
 bad -1 (2) line 2: expected '=' after the variable name
 bad -1 (3) line 3: expected a variable name
 bad -1 (2) line 2: unterminated double-quoted value

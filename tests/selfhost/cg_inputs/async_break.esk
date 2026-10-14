@@ -7,7 +7,7 @@
 import <future>;
 extern int printf(string fmt, ...);
 
-Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); Future_complete<int>(f, v); return f; }
 
 // while: skip even values (continue), stop at 5 (break), sum the rest.
 async int w_loop() {
@@ -37,13 +37,13 @@ async int for_loop() {
 
 int main() {
     Future<int>* a = w_loop();
-    future_poll<int>(a, void() {});     // ready -> completes on the fast path
+    Future_poll<int>(a, void() {});     // ready -> completes on the fast path
     printf("%d\n", a.value);            // 406
-    free_future<int>(a);
+    Future_free<int>(a);
 
     Future<int>* b = for_loop();
-    future_poll<int>(b, void() {});
+    Future_poll<int>(b, void() {});
     printf("%d\n", b.value);            // 9
-    free_future<int>(b);
+    Future_free<int>(b);
     return 0;
 }

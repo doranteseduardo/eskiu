@@ -15,6 +15,9 @@
 //     libcrypto next to it, as MSYS2 and the OpenSSL installers ship them).
 // fetch_tls_available() says whether one was found.
 //
+// On Windows, where OpenSSL's default trust store is usually empty, a verifying
+// context without a CA file also trusts the system "ROOT" certificate store.
+//
 // The OpenSSL entry points are plain C functions reached through a pointer
 // from dlsym. Eskiu calls a fn value as code(env, args...), so each call here
 // builds a fn value whose code is the OpenSSL function and whose env is its
@@ -60,6 +63,8 @@ struct _FtILP { fn(int, int64, *void)->int f; }
 struct _FtISI { fn(string, int)->int f; }
 struct _FtISS { fn(string, string)->int f; }
 struct _FtSI  { fn()->string f; }
+struct _FtIP  { fn(*void)->int f; }
+struct _FtPPI { fn(*void, int)->*void f; }
 
 // Call the C function `code` with `a` as its first argument (or no argument).
 *void _ftls_call_p(*void code, *void a) {
@@ -117,6 +122,16 @@ string _ftls_call_s(*void code, *void a) {
     let f: fn()->string = ((*_FtSI)&r).f;
     return f();
 }
+int _ftls_call_ip(*void code, *void a, *void p) {
+    let r: _FtRaw;  r.code = code;  r.env = a;
+    let f: fn(*void)->int = ((*_FtIP)&r).f;
+    return f(p);
+}
+*void _ftls_call_ppi(*void code, *void a, *void p, int n) {
+    let r: _FtRaw;  r.code = code;  r.env = a;
+    let f: fn(*void, int)->*void = ((*_FtPPI)&r).f;
+    return f(p, n);
+}
 
 // ── Loading ──────────────────────────────────────────────────────────────────
 
@@ -156,6 +171,9 @@ int _ftls_load() {
     if (lib == null) { lib = _ftls_try("libssl-3-x64.dll"); if (lib != null) { _ftls_crypto = _ftls_try("libcrypto-3-x64.dll"); } }
     if (lib == null) { lib = _ftls_try("libssl-3.dll"); if (lib != null) { _ftls_crypto = _ftls_try("libcrypto-3.dll"); } }
     if (lib == null) { lib = _ftls_try("libssl-1_1-x64.dll"); if (lib != null) { _ftls_crypto = _ftls_try("libcrypto-1_1-x64.dll"); } }
+    // A libssl named by ESKIU_LIBSSL: its libcrypto is already loaded with it.
+    if (lib != null && _ftls_crypto == null) { _ftls_crypto = _ftls_try("libcrypto-3-x64.dll"); }
+    if (lib != null && _ftls_crypto == null) { _ftls_crypto = _ftls_try("libcrypto-3.dll"); }
 #else
     if (lib == null) { lib = _ftls_try("libssl.so.3"); }
     if (lib == null) { lib = _ftls_try("libssl.so.1.1"); }
@@ -189,8 +207,59 @@ void _ftls_clear_errors() {
     if (p != null) { _ftls_call_v(p, null); }
 }
 
-// A client SSL_CTX: verification on (the system trust store, plus `ca_file`
-// when it is not empty) or off. The two contexts without a CA file are made
+#ifdef _WIN32
+// OpenSSL's default trust store is a directory that usually does not exist on
+// Windows, so a verifying context without a CA file also trusts the
+// certificates of the Windows "ROOT" system store (what the system itself
+// trusts), copied into the context's X509_STORE.
+#pragma link("crypt32")
+struct _FtlsCertContext {
+    uint32 encoding;
+    *uint8 encoded;
+    uint32 encoded_len;
+    *void info;
+    *void store;
+}
+extern *void CertOpenSystemStoreW(*void prov, *uint16 name);
+extern *_FtlsCertContext CertEnumCertificatesInStore(*void store, *_FtlsCertContext prev);
+extern int CertCloseStore(*void store, uint32 flags);
+
+// The number of certificates added (0 when the store or a symbol is missing).
+int _ftls_add_system_roots(*void ctx) {
+    *void d2i = _ftls_sym("d2i_X509");
+    *void get_store = _ftls_sym("SSL_CTX_get_cert_store");
+    *void add = _ftls_sym("X509_STORE_add_cert");
+    *void xfree = _ftls_sym("X509_free");
+    if (d2i == null || get_store == null || add == null || xfree == null) { return 0; }
+    *void xs = _ftls_call_p(get_store, ctx);
+    if (xs == null) { return 0; }
+    uint16[5] name = { (uint16)'R', (uint16)'O', (uint16)'O', (uint16)'T', (uint16)0 };
+    *void sys = CertOpenSystemStoreW(null, &name[0]);
+    if (sys == null) { return 0; }
+    int added = 0;
+    *_FtlsCertContext c = CertEnumCertificatesInStore(sys, null);
+    while (c != null) {
+        if (c.encoding == (uint32)1 && c.encoded != null) {   // X509_ASN_ENCODING
+            *uint8 der = c.encoded;
+            // d2i_X509(null, &der, len): the env slot is its first argument.
+            *void x = _ftls_call_ppi(d2i, null, (*void)&der, (int)c.encoded_len);
+            if (x != null) {
+                if (_ftls_call_ip(add, xs, x) == 1) { added++; }
+                _ftls_call_v(xfree, x);
+            }
+        }
+        c = CertEnumCertificatesInStore(sys, c);
+    }
+    CertCloseStore(sys, (uint32)0);
+    // A certificate the store already held leaves an error queued.
+    _ftls_clear_errors();
+    return added;
+}
+#endif
+
+// A client SSL_CTX: verification on (OpenSSL's default trust store, plus
+// `ca_file` when it is not empty, or on Windows without one the system "ROOT"
+// store) or off. The two contexts without a CA file are made
 // once and kept; one with a CA file is the caller's to free (_ftls_ctx_free).
 *void _ftls_ctx(int verify, string ca_file) {
     const bool own = ca_file != null && ca_file[0] != 0;
@@ -201,6 +270,9 @@ void _ftls_clear_errors() {
     if (ctx == null) { return null; }
     if (verify != 0) {
         _ftls_call_i(_ftls_sym("SSL_CTX_set_default_verify_paths"), ctx);
+#ifdef _WIN32
+        if (!own) { _ftls_add_system_roots(ctx); }
+#endif
         if (own && _ftls_call_iss(_ftls_sym("SSL_CTX_load_verify_locations"), ctx, ca_file, null) != 1) {
             _ftls_call_v(_ftls_sym("SSL_CTX_free"), ctx);
             return null;
@@ -284,10 +356,10 @@ int _ftls_handshake(*void ssl) {
     return o > 0 ? o : -1;
 }
 
-// Read up to `cap` bytes: the count, 0 at the end of the stream, a WANT
-// constant (negated: -2 read, -3 write) to wait and call again, or -1. A peer
-// that closes without close_notify ends the stream too; <fetch> catches a body
-// cut short by its framing.
+// Read up to `cap` bytes: the count, 0 at the end of the stream (close_notify),
+// a WANT constant (negated: -2 read, -3 write) to wait and call again, or -1. A
+// peer that closes without close_notify is -1, so a body that ends with the
+// connection cannot be cut short by a forged TCP close.
 int64 _ftls_read(*void ssl, *uint8 buf, int64 cap) {
     if (cap > 1073741824) { cap = 1073741824; }
     _ftls_clear_errors();
@@ -296,7 +368,7 @@ int64 _ftls_read(*void ssl, *uint8 buf, int64 cap) {
     const int o = _ftls_outcome(ssl, r);
     if (o == _FTLS_WANT_READ) { return -2; }
     if (o == _FTLS_WANT_WRITE) { return -3; }
-    return 0;
+    return o == -6 ? 0 : -1;
 }
 
 // Write up to `n` bytes: the count written, -2 / -3 to wait, or -1.

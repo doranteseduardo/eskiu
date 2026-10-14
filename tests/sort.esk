@@ -33,9 +33,9 @@ int main() {
 
     // binary search
     printf("find 7=%d find 4=%d find 0=%d\n",
-           bsearch<int>(a, n, 7, cmp_int),
-           bsearch<int>(a, n, 4, cmp_int),
-           bsearch<int>(a, n, 0, cmp_int));
+           sort_search<int>(a, n, 7, cmp_int),
+           sort_search<int>(a, n, 4, cmp_int),
+           sort_search<int>(a, n, 0, cmp_int));
 
     // struct sort
     int m = 4;

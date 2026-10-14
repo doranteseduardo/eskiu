@@ -1,12 +1,13 @@
 name: Windows build
 
-# Manual Windows x86-64 build of eskiuc, on demand. Used to iterate the MSYS2/MinGW
-# build and to produce a .zip that can be attached to a release. Kept separate from
+# Windows x86-64 build of eskiuc plus the Windows checks of the stdlib, on every
+# push to develop (and ci/windows, used to iterate on it) or on demand. Also
+# produces a .zip that can be attached to a release. Kept separate from
 # release.yml so it can run without cutting a release.
 on:
   workflow_dispatch:
   push:
-    branches: [ci/windows]
+    branches: [develop, ci/windows]
 
 jobs:
   build-windows-x86_64:
@@ -27,6 +28,7 @@ jobs:
             mingw-w64-x86_64-llvm
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-openssl
             diffutils
 
       - name: Configure
@@ -153,32 +155,33 @@ jobs:
           echo "program output: $out"
           test "$out" = "read heo"
 
-      - name: Scripting stdlib (build every new module's tests, run the portable ones)
+      - name: Scripting stdlib tests
         run: |
-          # Every test of the 0.10 scripting modules and the two example scripts must
-          # build for Windows. The tests whose output does not depend on the platform
-          # (no shell commands, no printf exponent format, no terminal) then run and must
-          # print their .expected text. git may check the files out with CRLF, so both
-          # sides drop CRs before the diff.
-          set -eo pipefail
-          export ESKIU_ROOT="$PWD"
-          mkdir -p winbin
-          for t in string_script list_script map_script json_build csv dotenv hash url_parse \
-                   args term log time_format console_io fs_dir process_run dns_connect \
-                   fetch_basic fetch_raw fetch_async fetch_no_tls; do
-            echo "build $t"
-            ./build/eskiuc.exe "tests/$t.esk" -o "winbin/$t.exe"
-          done
-          for s in repo_stats organize; do
-            echo "build examples/scripts/$s"
-            ./build/eskiuc.exe "examples/scripts/$s.esk" -o "winbin/$s.exe"
-          done
-          for t in list_script map_script csv dotenv hash url_parse; do
-            echo "run $t"
-            timeout 60 "./winbin/$t.exe" | tr -d '\r' > "winbin/$t.out"
-            tr -d '\r' < "tests/$t.expected" > "winbin/$t.want"
-            diff -u "winbin/$t.want" "winbin/$t.out"
-          done
+          # Every test of the 0.10 scripting modules, built and run on Windows
+          # (tests/windows/run.sh). fetch_https needs OpenSSL: MSYS2's
+          # libssl-3-x64.dll is on PATH here, and ESKIU_REQUIRE_TLS makes a
+          # missing one a failure instead of a skip.
+          ESKIU_REQUIRE_TLS=1 ESKIUC="$PWD/build/eskiuc.exe" tests/windows/run.sh
+
+      - name: Terminal on a real console
+        if: ${{ !cancelled() }}
+        run: |
+          # The job's output is redirected, so the program opens a console of its
+          # own and checks VT mode, colors and term_width on it.
+          ./build/eskiuc.exe tests/windows/term_console.esk -o winbin/term_console.exe
+          timeout 60 ./winbin/term_console.exe
+
+      - name: HTTPS with the Windows trust store (network)
+        if: ${{ !cancelled() }}
+        run: |
+          # Verification on, no ca_file: the roots come from the Windows "ROOT"
+          # certificate store (<fetch_tls>), not from OpenSSL's default paths.
+          ./build/eskiuc.exe tests/windows/fetch_system_roots.esk -o winbin/fetch_system_roots.exe
+          timeout 120 ./winbin/fetch_system_roots.exe
+
+      - name: Example scripts
+        if: ${{ !cancelled() }}
+        run: ESKIUC="$PWD/build/eskiuc.exe" tests/scripts/check.sh
 
       - name: Package
         run: |

@@ -1,0 +1,20 @@
+// Run on a terminal by tests/run.sh (through `script`): a child given a timeout
+// and the inherited terminal stdin can read it (it is not put in a background
+// process group, where the read would stop it until the timeout).
+import <process>;
+import <time>;
+extern int printf(string fmt, ...);
+
+int main() {
+    let o: ProcessOptions;
+    memset((*void)&o, 0, sizeof(ProcessOptions));
+    o.inherit_stdin = true;
+    o.timeout_ms = 5000;
+    let r: ProcessResult;
+    const int64 t0 = time_monotonic_ms();
+    sh_with("read x; echo got:$x", &o, &r);
+    printf("code=%d timed_out=%d fast=%d out=%s", r.exit_code, r.timed_out ? 1 : 0,
+           time_monotonic_ms() - t0 < 4000 ? 1 : 0, r.stdout.cstr());
+    ProcessResult_free(&r);
+    return 0;
+}

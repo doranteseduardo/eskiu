@@ -6,7 +6,7 @@ extern int printf(string fmt, ...);
 struct V { int x; int y; }
 struct Box<T> { T v; }
 struct W { int64 a; double b; }
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 async V mk(int a) { int q = await rdy<int>(a); V r = V{q, q + 1}; return r; }
 async Box<V> mkb(int a) { int q = await rdy<int>(a); return Box<V>{V{q, q + 1}}; }
 async int run() {

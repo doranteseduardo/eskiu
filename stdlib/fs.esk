@@ -197,6 +197,15 @@ extern uint32 GetCurrentDirectoryW(uint32 n, *uint16 buf);
 extern int    SetCurrentDirectoryW(*uint16 path);
 extern uint32 GetTempPathW(uint32 n, *uint16 buf);
 extern uint32 GetTempFileNameW(*uint16 dir, *uint16 prefix, uint32 unique, *uint16 out);
+extern uint32 GetFullPathNameW(*uint16 name, uint32 n, *uint16 buf, *void file_part);
+extern *void  CreateFileW(*uint16 path, uint32 access, uint32 share, *void sa, uint32 disp, uint32 flags, *void tmpl);
+extern int    CloseHandle(*void h);
+extern int    GetFileInformationByHandleEx(*void h, int cls, *void buf, uint32 n);
+extern int    SetFileInformationByHandle(*void h, int cls, *void buf, uint32 n);
+// ntdll: NtOpenFile opens a name relative to an open directory handle (openat).
+#pragma link("ntdll")
+extern uint32 NtOpenFile(*void out, uint32 access, *void attrs, *void iosb, uint32 share, uint32 options);
+extern uint32 RtlNtStatusToDosError(uint32 status);
 #define _FS_ATTR_READONLY  1
 #define _FS_ATTR_DIRECTORY 16
 #define _FS_ATTR_REPARSE   1024
@@ -212,16 +221,27 @@ extern int    close(int fd);
 extern *void  opendir(string path);
 extern *void  readdir(*void dir);
 extern int    closedir(*void dir);
+extern int    open(string path, int flags, ...);
+extern *void  fdopen(int fd, string mode);
+extern int    openat(int dfd, string path, int flags, ...);
+extern int    unlinkat(int dfd, string path, int flags);
+extern *void  fdopendir(int fd);
 #ifdef __APPLE__
 extern int    mkdir(string path, uint16 mode);
 extern int    chmod(string path, uint16 mode);
+extern int    fchmod(int fd, uint16 mode);
 extern *int   __error();
 int _fs_errno_now() { return *__error(); }
+int _fs_fchmod(int fd, int mode) { return fchmod(fd, (uint16)mode); }
+#define _FS_O_COPY 16778753   // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC
 #else
 extern int    mkdir(string path, uint32 mode);
 extern int    chmod(string path, uint32 mode);
+extern int    fchmod(int fd, uint32 mode);
 extern *int   __errno_location();
 int _fs_errno_now() { return *__errno_location(); }
+int _fs_fchmod(int fd, int mode) { return fchmod(fd, (uint32)mode); }
+#define _FS_O_COPY 524865     // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC
 #endif
 
 #if defined(__APPLE__) && defined(__x86_64__)
@@ -229,42 +249,70 @@ extern int stat64(string path, *void buf);
 extern int lstat64(string path, *void buf);
 int _fs_stat_raw(string p, *void b)  { return stat64(p, b); }
 int _fs_lstat_raw(string p, *void b) { return lstat64(p, b); }
+extern int fstat64(int fd, *void buf);
+extern int fstatat64(int dfd, string path, *void buf, int flags);
+int _fs_fstat_raw(int fd, *void b) { return fstat64(fd, b); }
+int _fs_lstatat_raw(int dfd, string name, *void b) { return fstatat64(dfd, name, b, 32); }   // AT_SYMLINK_NOFOLLOW
 #define _FS_HAVE_STAT 1
+#define _FS_O_DIRFD 17826052   // O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+#define _FS_AT_REMOVEDIR 128
 #define _FS_ST_MODE 4
 #define _FS_ST_MODE16 1
 #define _FS_ST_MTIME 48
 #define _FS_ST_SIZE 96
+#define _FS_ST_DEV_SIZE 4
 #define _FS_DIRENT_NAME 8
 #elif defined(__APPLE__)
 extern int stat(string path, *void buf);
 extern int lstat(string path, *void buf);
 int _fs_stat_raw(string p, *void b)  { return stat(p, b); }
 int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
+extern int fstat(int fd, *void buf);
+extern int fstatat(int dfd, string path, *void buf, int flags);
+int _fs_fstat_raw(int fd, *void b) { return fstat(fd, b); }
+int _fs_lstatat_raw(int dfd, string name, *void b) { return fstatat(dfd, name, b, 32); }   // AT_SYMLINK_NOFOLLOW
 #define _FS_HAVE_STAT 1
+#define _FS_O_DIRFD 17826052   // O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+#define _FS_AT_REMOVEDIR 128
 #define _FS_ST_MODE 4
 #define _FS_ST_MODE16 1
 #define _FS_ST_MTIME 48
 #define _FS_ST_SIZE 96
+#define _FS_ST_DEV_SIZE 4
 #define _FS_DIRENT_NAME 21
 #elif defined(__linux__) && defined(__x86_64__)
 extern int stat(string path, *void buf);
 extern int lstat(string path, *void buf);
 int _fs_stat_raw(string p, *void b)  { return stat(p, b); }
 int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
+extern int fstat(int fd, *void buf);
+extern int fstatat(int dfd, string path, *void buf, int flags);
+int _fs_fstat_raw(int fd, *void b) { return fstat(fd, b); }
+int _fs_lstatat_raw(int dfd, string name, *void b) { return fstatat(dfd, name, b, 256); }   // AT_SYMLINK_NOFOLLOW
 #define _FS_HAVE_STAT 1
+#define _FS_O_DIRFD 722944   // O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+#define _FS_AT_REMOVEDIR 512
 #define _FS_ST_MODE 24
 #define _FS_ST_MTIME 88
 #define _FS_ST_SIZE 48
+#define _FS_ST_DEV_SIZE 8
 #define _FS_DIRENT_NAME 19
 #elif defined(__linux__) && defined(__aarch64__)
 extern int stat(string path, *void buf);
 extern int lstat(string path, *void buf);
 int _fs_stat_raw(string p, *void b)  { return stat(p, b); }
 int _fs_lstat_raw(string p, *void b) { return lstat(p, b); }
+extern int fstat(int fd, *void buf);
+extern int fstatat(int dfd, string path, *void buf, int flags);
+int _fs_fstat_raw(int fd, *void b) { return fstat(fd, b); }
+int _fs_lstatat_raw(int dfd, string name, *void b) { return fstatat(dfd, name, b, 256); }   // AT_SYMLINK_NOFOLLOW
 #define _FS_HAVE_STAT 1
+#define _FS_O_DIRFD 575488   // O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+#define _FS_AT_REMOVEDIR 512
 #define _FS_ST_MODE 16
 #define _FS_ST_MTIME 88
 #define _FS_ST_SIZE 48
+#define _FS_ST_DEV_SIZE 8
 #define _FS_DIRENT_NAME 19
 #else
 #define _FS_DIRENT_NAME 11
@@ -332,6 +380,52 @@ void _fs_append_bytes(String* s, *uint8 p, int64 n) {
     return w;
 }
 
+// _fs_wide for a path handed to a file API: a path whose absolute form is 248
+// characters or more (the limit of CreateDirectoryW; MAX_PATH is 260) becomes
+// that absolute form with the \\?\ prefix (\\?\UNC\ for \\server\share), so it
+// is not cut at MAX_PATH. GetFullPathNameW resolves it first (relative to the
+// current directory, '/' to '\', "." and ".."), since the prefix turns that off.
+// A shorter path is converted as given, so it behaves as before.
+*uint16 _fs_wpath(string s) {
+    *uint16 w = _fs_wide(s);
+    if (w == null) { return null; }
+    if (w[0] == (uint16)92 && w[1] == (uint16)92 && (w[2] == (uint16)63 || w[2] == (uint16)46)) { return w; }   // \\?\ or \\.\ already
+    const uint32 need = GetFullPathNameW(w, (uint32)0, null, null);   // characters with the NUL
+    if (need < (uint32)249) { return w; }
+    *uint16 full = alloc<uint16>((int64)need + 1);
+    const uint32 got = GetFullPathNameW(w, need, full, null);
+    if (got == (uint32)0 || got >= need) { free((*void)full); return w; }
+    const bool unc = full[0] == (uint16)92 && full[1] == (uint16)92 && full[2] != (uint16)63 && full[2] != (uint16)46;
+    const bool drive = full[1] == (uint16)58 && full[2] == (uint16)92;
+    if (!unc && !drive) { free((*void)full); return w; }
+    *uint16 res = alloc<uint16>((int64)got + 9);
+    res[0] = (uint16)92;  res[1] = (uint16)92;  res[2] = (uint16)63;  res[3] = (uint16)92;
+    int64 at = 4;
+    int64 from = 0;
+    if (unc) {
+        // \\?\UNC followed by full[1..], which is \server\share\...
+        res[4] = (uint16)85;  res[5] = (uint16)78;  res[6] = (uint16)67;
+        at = 7;
+        from = 1;
+    }
+    memcpy((*void)(res + at), (*void)(full + from), ((int64)got - from) * 2);
+    res[at + (int64)got - from] = (uint16)0;
+    free((*void)full);
+    free((*void)w);
+    return res;
+}
+
+// Append n UTF-16 units (no NUL needed) to `out` as UTF-8.
+void _fs_append_wide_n(String* out, *uint16 w, int n) {
+    if (n <= 0) { return; }
+    const int m = WideCharToMultiByte((uint32)65001, (uint32)0, w, n, null, 0, null, null);
+    if (m <= 0) { return; }
+    *uint8 b = alloc<uint8>((int64)m + 1);
+    WideCharToMultiByte((uint32)65001, (uint32)0, w, n, b, m, null, null);
+    _fs_append_bytes(out, b, (int64)m);
+    free((*void)b);
+}
+
 // Append a NUL-terminated UTF-16 string to `out` as UTF-8.
 void _fs_append_wide(String* out, *uint16 w) {
     const int n = WideCharToMultiByte((uint32)65001, (uint32)0, w, -1, null, 0, null, null);
@@ -358,7 +452,7 @@ int64 _fs_filetime_at(*uint8 b, int off) {
 // fopen with a UTF-8 path on every platform (_wfopen on Windows).
 *void _fs_fopen(string path, string mode) {
 #ifdef _WIN32
-    *uint16 wp = _fs_wide(path);
+    *uint16 wp = _fs_wpath(path);
     *uint16 wm = _fs_wide(mode);
     *void fp = null;
     if (wp != null && wm != null) { fp = _wfopen(wp, wm); }
@@ -460,7 +554,7 @@ int _fs_stat_impl(string path, FileStat* out, bool follow) {
     out.is_file = false;
     out.is_symlink = false;
 #ifdef _WIN32
-    *uint16 w = _fs_wide(path);
+    *uint16 w = _fs_wpath(path);
     if (w == null) { _fs_err = 123; _fs_err_win = true; return -1; }   // ERROR_INVALID_NAME
     int64[8] raw;
     *uint8 b = (*uint8)&raw;
@@ -543,7 +637,7 @@ int fs_is_file(string path) {
 // Create one directory (its parent must exist). 0 or -1 (also if it exists).
 int fs_mkdir(string path) {
 #ifdef _WIN32
-    *uint16 w = _fs_wide(path);
+    *uint16 w = _fs_wpath(path);
     const int ok = w != null ? CreateDirectoryW(w, null) : 0;
     free((*void)w);
     return ok != 0 ? 0 : _fs_fail_os();
@@ -574,7 +668,11 @@ int fs_mkdir_p(string path) {
     for (int64 i = 0; i <= n; i++) {
         if (i == n || (_fs_is_sep(path[i]) && i > 0)) {
             if (part.len > 0 && fs_is_dir(part.cstr()) == 0) {
-                if (fs_mkdir(part.cstr()) != 0 && fs_is_dir(part.cstr()) == 0) { return -1; }
+                if (fs_mkdir(part.cstr()) != 0) {
+                    const int e = _fs_err;
+                    const bool ew = _fs_err_win;
+                    if (fs_is_dir(part.cstr()) == 0) { _fs_err = e; _fs_err_win = ew; return -1; }   // the mkdir error, not the check's
+                }
             }
         }
         if (i < n) { part.push(path[i]); }
@@ -585,7 +683,7 @@ int fs_mkdir_p(string path) {
 // Remove a file or an empty directory. 0 or -1.
 int fs_remove(string path) {
 #ifdef _WIN32
-    *uint16 w = _fs_wide(path);
+    *uint16 w = _fs_wpath(path);
     if (w == null) { _fs_err = 123; _fs_err_win = true; return -1; }
     const uint32 attrs = GetFileAttributesW(w);
     int ok = 0;
@@ -612,14 +710,443 @@ void _fs_join(String* out, string dir, string name) {
     out.append(name);
 }
 
+#if !defined(_WIN32) && defined(_FS_HAVE_STAT)
+// ── Directory trees through descriptors ──────────────────────────────────────
+//
+// fs_remove_all and fs_walk go down a tree one open directory at a time: each
+// entry is looked up relative to its directory's descriptor (fstatat, openat with
+// O_NOFOLLOW), never by a path from the root. So a directory swapped for a
+// symbolic link while the walk runs is never entered (rm -rf could otherwise
+// delete outside the tree), and the depth is not limited by PATH_MAX. Only one
+// directory is open at a time: going back up opens ".." and checks it is the
+// directory the walk came from.
+
+struct _FsLevel {
+    List<String> names;   // the entries, sorted
+    int   next;           // the next one to visit
+    int64 dev;            // identity of this directory
+    int64 ino;
+    int64 path_len;       // fs_walk: length of this directory's path
+}
+
+// A stat buffer's file kind: 1 for a directory, 0 for anything else.
+bool _fs_raw_is_dir(*uint8 b) {
+#ifdef _FS_ST_MODE16
+    let m16: uint16 = (uint16)0;
+    memcpy((*void)&m16, (*void)(b + _FS_ST_MODE), 2);
+    return ((int)m16 & 61440) == 16384;
+#else
+    let m32: uint32 = (uint32)0;
+    memcpy((*void)&m32, (*void)(b + _FS_ST_MODE), 4);
+    return ((int)m32 & 61440) == 16384;
+#endif
+}
+
+// The device and inode of an open file (as _fs_same_file reads them). 0 or -1.
+int _fs_fd_id(int fd, *int64 dev, *int64 ino) {
+    int64[32] raw;
+    *dev = 0;
+    *ino = 0;
+    if (_fs_fstat_raw(fd, (*void)&raw) != 0) { return -1; }
+    memcpy((*void)dev, (*void)&raw, _FS_ST_DEV_SIZE);
+    memcpy((*void)ino, (*void)((*uint8)&raw + 8), 8);
+    return 0;
+}
+
+// Push a level for the open directory `fd`: its identity and sorted entries.
+int _fs_level_push(List<_FsLevel>* levels, int fd, int64 path_len) {
+    let lv: _FsLevel;
+    List_init<String>(&lv.names, 16);
+    lv.next = 0;
+    lv.path_len = path_len;
+    if (_fs_fd_id(fd, &lv.dev, &lv.ino) != 0) { List_free<String>(&lv.names); return _fs_fail_os(); }
+    const int lfd = openat(fd, ".", _FS_O_DIRFD);   // fdopendir owns its descriptor
+    if (lfd < 0) { List_free<String>(&lv.names); return _fs_fail_os(); }
+    *void d = fdopendir(lfd);
+    if (d == null) { const int e = _fs_fail_os(); close(lfd); List_free<String>(&lv.names); return e; }
+    while (true) {
+        *uint8 ent = (*uint8)readdir(d);
+        if (ent == null) { break; }
+        string nm = (string)(ent + _FS_DIRENT_NAME);
+        if (strcmp(nm, ".") == 0 || strcmp(nm, "..") == 0) { continue; }
+        let n: String;  n.from(nm);
+        List_push<String>(&lv.names, n);
+    }
+    closedir(d);
+    _fs_sort(&lv.names);
+    List_push<_FsLevel>(levels, lv);
+    return 0;
+}
+
+void _fs_level_free(List<_FsLevel>* levels) {
+    for (i in 0..List_len<_FsLevel>(levels)) { fs_list_free(&levels.data[i].names); }
+    List_free<_FsLevel>(levels);
+}
+
+// From the directory `cur` (the deepest level, now popped) back to its parent,
+// which must still be the directory one level up. The parent's descriptor, or -1
+// (EBUSY when the tree was moved meanwhile).
+int _fs_level_up(List<_FsLevel>* levels, int cur) {
+    const int up = openat(cur, "..", _FS_O_DIRFD);
+    close(cur);
+    if (up < 0) { return _fs_fail_os(); }
+    int64 dev = 0;
+    int64 ino = 0;
+    *_FsLevel parent = &levels.data[List_len<_FsLevel>(levels) - 1];
+    if (_fs_fd_id(up, &dev, &ino) != 0 || dev != parent.dev || ino != parent.ino) {
+        close(up);
+        _fs_err = 16;   // EBUSY
+        _fs_err_win = false;
+        return -1;
+    }
+    return up;
+}
+
+// Remove everything under the directory `path` (not `path` itself). 0 or -1.
+int _fs_remove_tree(string path) {
+    int cur = open(path, _FS_O_DIRFD);
+    if (cur < 0) { return _fs_fail_os(); }
+    let levels: List<_FsLevel>;  List_init<_FsLevel>(&levels, 8);
+    defer _fs_level_free(&levels);
+    if (_fs_level_push(&levels, cur, 0) != 0) { close(cur); return -1; }
+    int64[32] raw;
+    while (true) {
+        *_FsLevel lv = &levels.data[List_len<_FsLevel>(&levels) - 1];
+        if (lv.next >= List_len<String>(&lv.names)) {
+            if (List_len<_FsLevel>(&levels) == 1) { break; }
+            let done: _FsLevel = List_pop<_FsLevel>(&levels);
+            fs_list_free(&done.names);
+            cur = _fs_level_up(&levels, cur);
+            if (cur < 0) { return -1; }
+            *_FsLevel parent = &levels.data[List_len<_FsLevel>(&levels) - 1];
+            string dname = parent.names.data[parent.next - 1].cstr();
+            if (unlinkat(cur, dname, _FS_AT_REMOVEDIR) != 0) { const int e = _fs_fail_os(); close(cur); return e; }
+            continue;
+        }
+        string name = lv.names.data[lv.next].cstr();
+        lv.next++;
+        if (_fs_lstatat_raw(cur, name, (*void)&raw) != 0) {
+            if (_fs_errno_now() == 2) { continue; }   // gone already
+            const int e = _fs_fail_os(); close(cur); return e;
+        }
+        if (_fs_raw_is_dir((*uint8)&raw)) {
+            const int sub = openat(cur, name, _FS_O_DIRFD);
+            if (sub >= 0) {
+                if (_fs_level_push(&levels, sub, 0) != 0) { close(sub); close(cur); return -1; }
+                close(cur);
+                cur = sub;
+                continue;
+            }
+            // No longer a directory (swapped for a link or a file): remove the entry.
+            if (_fs_errno_now() == 2) { continue; }
+        }
+        if (unlinkat(cur, name, 0) != 0 && _fs_errno_now() != 2) { const int e = _fs_fail_os(); close(cur); return e; }
+    }
+    close(cur);
+    return 0;
+}
+
+// fs_walk over the directory `root` (path `base`).
+void _fs_walk_tree(String* base, fn(string, bool)->void visit) {
+    int cur = open(base.cstr(), _FS_O_DIRFD);
+    if (cur < 0) { return; }
+    let levels: List<_FsLevel>;  List_init<_FsLevel>(&levels, 8);
+    defer _fs_level_free(&levels);
+    let path: String;  path.from(base.cstr());
+    defer path.free();
+    if (_fs_level_push(&levels, cur, path.len) != 0) { close(cur); return; }
+    int64[32] raw;
+    while (true) {
+        *_FsLevel lv = &levels.data[List_len<_FsLevel>(&levels) - 1];
+        if (lv.next >= List_len<String>(&lv.names)) {
+            if (List_len<_FsLevel>(&levels) == 1) { break; }
+            let done: _FsLevel = List_pop<_FsLevel>(&levels);
+            fs_list_free(&done.names);
+            cur = _fs_level_up(&levels, cur);
+            if (cur < 0) { return; }
+            continue;
+        }
+        string name = lv.names.data[lv.next].cstr();
+        lv.next++;
+        path.len = lv.path_len;
+        path.data[path.len] = 0;
+        if (path.len > 0 && path.data[path.len - 1] != '/') { path.push('/'); }
+        path.append(name);
+        const bool is_dir = _fs_lstatat_raw(cur, name, (*void)&raw) == 0 && _fs_raw_is_dir((*uint8)&raw);
+        visit(path.cstr(), is_dir);
+        if (!is_dir) { continue; }
+        const int sub = openat(cur, name, _FS_O_DIRFD);
+        if (sub < 0) { continue; }                     // unreadable, or no longer a directory
+        if (_fs_level_push(&levels, sub, path.len) != 0) { close(sub); continue; }
+        close(cur);
+        cur = sub;
+    }
+    close(cur);
+}
+#endif
+
+#ifdef _WIN32
+// ── Directory trees through handles (Windows) ────────────────────────────────
+//
+// The Windows counterpart of the descriptor walk above. Each entry is opened
+// relative to its directory's open handle (NtOpenFile with a RootDirectory, the
+// openat of NT) with FILE_OPEN_REPARSE_POINT, so the open names the entry itself,
+// never what a junction or symbolic link points to; whether it is a directory is
+// then read from that handle, and a directory is listed and removed through it.
+// Nothing is looked up by a path from the root after the root itself, so a
+// directory swapped for a junction while the walk runs is never entered, and the
+// depth is not limited by MAX_PATH. The handles of the directories above the
+// current one stay open (Windows has no "..").
+
+#define _FS_NT_ACC_LIST    1          // FILE_LIST_DIRECTORY
+#define _FS_NT_ACC_ATTRS   1048704    // FILE_READ_ATTRIBUTES | SYNCHRONIZE
+#define _FS_NT_ACC_DELETE  1114240    // DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE
+#define _FS_NT_SHARE_ALL   7
+#define _FS_NT_OPT_ENTRY   2113568    // FILE_OPEN_REPARSE_POINT | FILE_OPEN_FOR_BACKUP_INTENT | FILE_SYNCHRONOUS_IO_NONALERT
+#define _FS_NT_OPT_DIR     2113569    // the same | FILE_DIRECTORY_FILE
+#define _FS_NT_OPT_FILE    2113632    // the same as _FS_NT_OPT_ENTRY | FILE_NON_DIRECTORY_FILE
+#define _FS_FLAG_BACKUP    33554432   // FILE_FLAG_BACKUP_SEMANTICS
+#define _FS_FLAG_REPARSE   2097152    // FILE_FLAG_OPEN_REPARSE_POINT
+
+struct _FsUStr {          // UNICODE_STRING
+    uint16  len;
+    uint16  max;
+    *uint16 buf;
+}
+
+struct _FsObjAttrs {      // OBJECT_ATTRIBUTES
+    uint32  length;
+    *void   root;
+    *void   name;
+    uint32  attributes;
+    *void   sd;
+    *void   sqos;
+}
+
+struct _FsWLevel {
+    List<String> names;   // the entries, sorted
+    int   next;           // the next one to visit
+    *void h;              // this directory, opened to list it (fs_remove_all: and delete it)
+    int64 path_len;       // fs_walk: length of this directory's path
+}
+
+int _fs_fail_nt(uint32 st) { _fs_err = (int)RtlNtStatusToDosError(st); _fs_err_win = true; return -1; }
+
+// Open `name` (one component) relative to the directory handle `dir`; the entry
+// itself, a junction or link not followed. The handle, or null with *st set.
+*void _fs_nt_open(*void dir, string name, uint32 access, uint32 options, *uint32 st) {
+    *uint16 w = _fs_wide(name);
+    if (w == null) { *st = (uint32)3221225523; return null; }   // STATUS_OBJECT_NAME_INVALID
+    defer free((*void)w);
+    int64 n = 0;
+    while (w[n] != (uint16)0) { n++; }
+    let us: _FsUStr;
+    us.len = (uint16)(n * 2);
+    us.max = (uint16)(n * 2);
+    us.buf = w;
+    let oa: _FsObjAttrs;
+    oa.length = (uint32)sizeof(_FsObjAttrs);
+    oa.root = dir;
+    oa.name = (*void)&us;
+    oa.attributes = (uint32)64;   // OBJ_CASE_INSENSITIVE, as Win32 opens
+    oa.sd = null;
+    oa.sqos = null;
+    int64[2] iosb;
+    *void h = null;
+    *st = NtOpenFile((*void)&h, access, (*void)&oa, (*void)&iosb, (uint32)_FS_NT_SHARE_ALL, options);
+    if (*st >= (uint32)2147483648) { return null; }
+    return h;
+}
+
+// What the open handle `h` is: 1 a directory, 0 anything else (a file, or a
+// junction or symbolic link of either kind), -1 if it cannot be read.
+int _fs_handle_kind(*void h) {
+    int64 info = 0;   // FILE_ATTRIBUTE_TAG_INFO: attributes, reparse tag
+    if (GetFileInformationByHandleEx(h, 9, (*void)&info, (uint32)8) == 0) { return -1; }
+    const int64 attrs = info & 4294967295;
+    if ((attrs & _FS_ATTR_REPARSE) != 0) { return 0; }
+    return (attrs & _FS_ATTR_DIRECTORY) != 0 ? 1 : 0;
+}
+
+// Delete the entry `h` names (an empty directory, a file or a link itself) when
+// the handle closes. 0 or -1; the handle is closed either way.
+int _fs_handle_delete(*void h) {
+    uint8 yes = (uint8)1;   // FILE_DISPOSITION_INFO
+    const int ok = SetFileInformationByHandle(h, 4, (*void)&yes, (uint32)1);
+    const int rc = ok != 0 ? 0 : _fs_fail_os();
+    CloseHandle(h);
+    return rc;
+}
+
+// Push a level for the directory opened as `list_h`: its sorted entries. The
+// level owns the handle, also when this fails.
+int _fs_wlevel_push(List<_FsWLevel>* levels, *void list_h, int64 path_len) {
+    let lv: _FsWLevel;
+    List_init<String>(&lv.names, 16);
+    lv.next = 0;
+    lv.h = list_h;
+    lv.path_len = path_len;
+    List_push<_FsWLevel>(levels, lv);
+    *_FsWLevel top = &levels.data[List_len<_FsWLevel>(levels) - 1];
+    *uint8 buf = alloc<uint8>(65536);
+    defer free((*void)buf);
+    while (true) {
+        // FILE_FULL_DIR_INFO records: next offset at 0, name length (bytes) at 60, name at 68.
+        if (GetFileInformationByHandleEx(list_h, 14, (*void)buf, (uint32)65536) == 0) {
+            const uint32 e = GetLastError();
+            if (e == (uint32)18 || e == (uint32)2) { break; }   // NO_MORE_FILES, FILE_NOT_FOUND (empty)
+            return _fs_fail_os();
+        }
+        int64 off = 0;
+        while (true) {
+            const int64 next = _fs_u32_at(buf, (int)off);
+            const int nlen = (int)(_fs_u32_at(buf, (int)off + 60) / 2);
+            *uint16 nm = (*uint16)(buf + off + 68);
+            const bool dot = (nlen == 1 && nm[0] == (uint16)46) || (nlen == 2 && nm[0] == (uint16)46 && nm[1] == (uint16)46);
+            if (!dot) {
+                let s: String;  s.init(nlen + 8);
+                _fs_append_wide_n(&s, nm, nlen);
+                List_push<String>(&top.names, s);
+            }
+            if (next == 0) { break; }
+            off += next;
+        }
+    }
+    _fs_sort(&top.names);
+    return 0;
+}
+
+void _fs_wlevel_free(List<_FsWLevel>* levels) {
+    for (i in 0..List_len<_FsWLevel>(levels)) {
+        *_FsWLevel lv = &levels.data[i];
+        fs_list_free(&lv.names);
+        if (lv.h != null) { CloseHandle(lv.h); }
+    }
+    List_free<_FsWLevel>(levels);
+}
+
+// Remove everything under the directory `path` (not `path` itself). 0 or -1.
+int _fs_remove_tree(string path) {
+    *uint16 w = _fs_wpath(path);
+    if (w == null) { _fs_err = 123; _fs_err_win = true; return -1; }
+    *void root = CreateFileW(w, (uint32)(_FS_NT_ACC_LIST | _FS_NT_ACC_ATTRS), (uint32)_FS_NT_SHARE_ALL, null, (uint32)3,
+                             (uint32)(_FS_FLAG_BACKUP | _FS_FLAG_REPARSE), null);
+    free((*void)w);
+    if ((int64)root == -1) { return _fs_fail_os(); }
+    const int kind = _fs_handle_kind(root);
+    if (kind != 1) {
+        CloseHandle(root);
+        if (kind < 0) { return _fs_fail_os(); }
+        return 0;   // a link now: fs_remove removes the link itself
+    }
+    let levels: List<_FsWLevel>;  List_init<_FsWLevel>(&levels, 8);
+    defer _fs_wlevel_free(&levels);
+    if (_fs_wlevel_push(&levels, root, 0) != 0) { return -1; }
+    while (true) {
+        *_FsWLevel lv = &levels.data[List_len<_FsWLevel>(&levels) - 1];
+        if (lv.next >= List_len<String>(&lv.names)) {
+            if (List_len<_FsWLevel>(&levels) == 1) { break; }
+            let done: _FsWLevel = List_pop<_FsWLevel>(&levels);
+            fs_list_free(&done.names);
+            if (_fs_handle_delete(done.h) != 0) { return -1; }
+            continue;
+        }
+        *void cur = lv.h;
+        string name = lv.names.data[lv.next].cstr();
+        lv.next++;
+        // Open the entry itself as a directory, for listing and deleting it; a
+        // non-directory fails with NOT_A_DIRECTORY and is opened for deleting only.
+        let st: uint32 = (uint32)0;
+        *void h = _fs_nt_open(cur, name, (uint32)(_FS_NT_ACC_DELETE | _FS_NT_ACC_LIST), (uint32)_FS_NT_OPT_DIR, &st);
+        if (h == null && st == (uint32)3221225731) {   // STATUS_NOT_A_DIRECTORY
+            h = _fs_nt_open(cur, name, (uint32)_FS_NT_ACC_DELETE, (uint32)_FS_NT_OPT_FILE, &st);
+        }
+        if (h == null) {
+            // OBJECT_NAME_NOT_FOUND, DELETE_PENDING: gone already
+            if (st == (uint32)3221225524 || st == (uint32)3221225558) { continue; }
+            return _fs_fail_nt(st);
+        }
+        const int k = _fs_handle_kind(h);
+        if (k < 0) { const int e = _fs_fail_os(); CloseHandle(h); return e; }
+        if (k == 1) {
+            if (_fs_wlevel_push(&levels, h, 0) != 0) { return -1; }
+            continue;
+        }
+        // A file, or a junction or link: the handle names the entry, not a target.
+        if (_fs_handle_delete(h) != 0) { return -1; }
+    }
+    return 0;
+}
+
+// fs_walk over the directory `base`.
+void _fs_walk_tree(String* base, fn(string, bool)->void visit) {
+    *uint16 w = _fs_wpath(base.cstr());
+    if (w == null) { return; }
+    *void root = CreateFileW(w, (uint32)(_FS_NT_ACC_LIST | _FS_NT_ACC_ATTRS), (uint32)_FS_NT_SHARE_ALL, null, (uint32)3,
+                             (uint32)_FS_FLAG_BACKUP, null);
+    free((*void)w);
+    if ((int64)root == -1) { return; }
+    let levels: List<_FsWLevel>;  List_init<_FsWLevel>(&levels, 8);
+    defer _fs_wlevel_free(&levels);
+    let path: String;  path.from(base.cstr());
+    defer path.free();
+    if (_fs_wlevel_push(&levels, root, path.len) != 0) { return; }
+    while (true) {
+        *_FsWLevel lv = &levels.data[List_len<_FsWLevel>(&levels) - 1];
+        if (lv.next >= List_len<String>(&lv.names)) {
+            if (List_len<_FsWLevel>(&levels) == 1) { break; }
+            let done: _FsWLevel = List_pop<_FsWLevel>(&levels);
+            fs_list_free(&done.names);
+            CloseHandle(done.h);
+            continue;
+        }
+        *void cur = lv.h;
+        string name = lv.names.data[lv.next].cstr();
+        lv.next++;
+        path.len = lv.path_len;
+        path.data[path.len] = 0;
+        if (path.len > 0 && !_fs_is_sep(path.data[path.len - 1])) { path.push('/'); }
+        path.append(name);
+        let st: uint32 = (uint32)0;
+        bool is_dir = false;
+        *void ah = _fs_nt_open(cur, name, (uint32)_FS_NT_ACC_ATTRS, (uint32)_FS_NT_OPT_ENTRY, &st);
+        if (ah != null) { is_dir = _fs_handle_kind(ah) == 1; CloseHandle(ah); }
+        visit(path.cstr(), is_dir);
+        if (!is_dir) { continue; }
+        // Opened again after the visit, and checked through that handle: a
+        // directory swapped for a junction or link meanwhile is not entered.
+        *void dh = _fs_nt_open(cur, name, (uint32)(_FS_NT_ACC_LIST | _FS_NT_ACC_ATTRS), (uint32)_FS_NT_OPT_DIR, &st);
+        if (dh == null) { continue; }
+        if (_fs_handle_kind(dh) != 1) { CloseHandle(dh); continue; }
+        if (_fs_wlevel_push(&levels, dh, path.len) != 0) {
+            let bad: _FsWLevel = List_pop<_FsWLevel>(&levels);
+            fs_list_free(&bad.names);
+            CloseHandle(bad.h);
+        }
+    }
+}
+#endif
+
 // Remove a path and everything under it ("rm -rf"). Symbolic links are removed,
 // never followed. A missing path is success. 0 or -1 (the first failure).
 int fs_remove_all(string path) {
+    // lstat("link/") follows the link: drop trailing separators first, so a
+    // symbolic link named with one is removed, not emptied.
+    let trimmed: String;  trimmed.from(path);
+    defer trimmed.free();
+    while (trimmed.len > 1 && _fs_is_sep(trimmed.data[trimmed.len - 1])) {
+        trimmed.len--;
+        trimmed.data[trimmed.len] = 0;
+    }
+    path = trimmed.cstr();
     let st: FileStat;
     if (_fs_stat_impl(path, &st, false) != 0) {
         if (fs_errno_missing()) { _fs_err = 0; return 0; }
         return -1;
     }
+#if defined(_WIN32) || defined(_FS_HAVE_STAT)
+    if (st.is_dir && !st.is_symlink && _fs_remove_tree(path) != 0) { return -1; }
+#else
     if (st.is_dir && !st.is_symlink) {
         let names: List<String>;  List_init<String>(&names, 8);
         defer fs_list_free(&names);
@@ -632,6 +1159,7 @@ int fs_remove_all(string path) {
             if (fs_remove_all(child.cstr()) != 0) { return -1; }
         }
     }
+#endif
     return fs_remove(path);
 }
 
@@ -646,8 +1174,8 @@ bool fs_errno_missing() {
 // Rename or move a path, replacing an existing file at `to`. 0 or -1.
 int fs_rename(string from, string to) {
 #ifdef _WIN32
-    *uint16 wf = _fs_wide(from);
-    *uint16 wt = _fs_wide(to);
+    *uint16 wf = _fs_wpath(from);
+    *uint16 wt = _fs_wpath(to);
     // MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED
     const int ok = wf != null && wt != null ? MoveFileExW(wf, wt, (uint32)3) : 0;
     free((*void)wf);
@@ -658,12 +1186,25 @@ int fs_rename(string from, string to) {
 #endif
 }
 
+// 1 if `a` and `b` name the same file (device and inode, links followed).
+bool _fs_same_file(string a, string b) {
+#ifdef _FS_HAVE_STAT
+    int64[32] ra;
+    int64[32] rb;
+    if (_fs_stat_raw(a, (*void)&ra) != 0 || _fs_stat_raw(b, (*void)&rb) != 0) { return false; }
+    return memcmp((*void)&ra, (*void)&rb, _FS_ST_DEV_SIZE) == 0
+        && memcmp((*void)((*uint8)&ra + 8), (*void)((*uint8)&rb + 8), 8) == 0;
+#else
+    return false;
+#endif
+}
+
 // Copy a regular file's bytes to `to` (replaced if it exists), keeping its
-// permission bits. 0 or -1.
+// permission bits. 0 or -1 (EINVAL when `to` is `from` itself, or a link to it).
 int fs_copy(string from, string to) {
 #ifdef _WIN32
-    *uint16 wf = _fs_wide(from);
-    *uint16 wt = _fs_wide(to);
+    *uint16 wf = _fs_wpath(from);
+    *uint16 wt = _fs_wpath(to);
     const int ok = wf != null && wt != null ? CopyFileW(wf, wt, 0) : 0;
     free((*void)wf);
     free((*void)wt);
@@ -672,11 +1213,17 @@ int fs_copy(string from, string to) {
     let st: FileStat;
     if (fs_stat(from, &st) != 0) { return -1; }
     if (st.is_dir) { _fs_err = 21; _fs_err_win = false; return -1; }   // EISDIR
+    if (_fs_same_file(from, to)) { _fs_err = 22; _fs_err_win = false; return -1; }   // EINVAL: would truncate the source
     *void src = fopen(from, "rb");
     if (src == null) { return _fs_fail_crt(); }
     defer fclose(src);
-    *void dst = fopen(to, "wb");
-    if (dst == null) { return _fs_fail_crt(); }
+    // Owner-only until the bytes are in, also when `to` already exists: a copy of a
+    // private file is never readable by others, not even halfway.
+    const int dfd = open(to, _FS_O_COPY, 384);   // 0600
+    if (dfd < 0) { return _fs_fail_crt(); }
+    _fs_fchmod(dfd, 384);
+    *void dst = fdopen(dfd, "wb");
+    if (dst == null) { const int e = _fs_fail_crt(); close(dfd); return e; }
     *uint8 buf = alloc<uint8>(65536);
     defer free((*void)buf);
     int rc = 0;
@@ -686,14 +1233,13 @@ int fs_copy(string from, string to) {
         if (fwrite((*void)buf, 1, got, dst) != got) { rc = _fs_fail_crt(); break; }
     }
     if (rc == 0 && ferror(src) != 0) { rc = _fs_fail_crt(); }
-    if (fclose(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
+    if (fflush(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
 #ifdef _FS_HAVE_STAT
-#ifdef __APPLE__
-    if (rc == 0) { chmod(to, (uint16)st.mode); }
+    if (rc == 0) { _fs_fchmod(dfd, st.mode & 4095); }   // the source's permission bits
 #else
-    if (rc == 0) { chmod(to, (uint32)st.mode); }
+    if (rc == 0) { _fs_fchmod(dfd, 420); }               // 0644: no stat to read them from
 #endif
-#endif
+    if (fclose(dst) != 0 && rc == 0) { rc = _fs_fail_crt(); }
     return rc;
 #endif
 }
@@ -723,7 +1269,7 @@ int fs_list_dir(string path, List<String>* out) {
 #ifdef _WIN32
     let pat: String;  pat.init(64);
     _fs_join(&pat, path, "*");
-    *uint16 w = _fs_wide(pat.cstr());
+    *uint16 w = _fs_wpath(pat.cstr());
     pat.free();
     if (w == null) { List_free<String>(&names); _fs_err = 123; _fs_err_win = true; return -1; }
     int64[80] raw;   // WIN32_FIND_DATAW is 592 bytes; cFileName at 44
@@ -793,7 +1339,11 @@ int fs_walk(string root, fn(string, bool)->void visit) {
     let base: String;  base.from(root);
     defer base.free();
     while (base.len > 1 && _fs_is_sep(base.data[base.len - 1])) { base.len--; base.data[base.len] = 0; }
+#if defined(_WIN32) || defined(_FS_HAVE_STAT)
+    _fs_walk_tree(&base, visit);
+#else
     _fs_walk_dir(&base, visit);
+#endif
     return 0;
 }
 
@@ -916,7 +1466,17 @@ void _fs_glob_at(String* base, List<String>* comps, int i, List<String>* out) {
         return;
     }
     if (!_fs_has_magic(&comp)) {
-        _fs_join(&child, base.cstr(), comp.cstr());
+        // A component without wildcards is a name, with fs_match's backslash
+        // escapes removed (so `d\1` names "d1", as a pattern would match it).
+        let lit: String;  lit.init(comp.len + 1);
+        defer lit.free();
+        for (int64 k = 0; k < comp.len; k++) {
+#ifndef _WIN32
+            if (comp.data[k] == '\\' && k + 1 < comp.len) { k++; }
+#endif
+            lit.push(comp.data[k]);
+        }
+        _fs_join(&child, base.cstr(), lit.cstr());
         if (last) {
             let st: FileStat;
             if (_fs_stat_impl(child.cstr(), &st, false) == 0) { _fs_glob_push(out, &child); }

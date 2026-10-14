@@ -30,7 +30,7 @@ int main() {
 
     *uint8 b = alloc<uint8>(512);
     net_send(cli, (*void)h2_preface(), (int64)24);
-    let cs: H2Settings;  h2_settings_defaults(&cs);
+    let cs: H2Settings;  H2Settings_defaults(&cs);
     int sn = h2_write_settings(b, &cs);  net_send(cli, (*void)b, (int64)sn);
 
     // HEADERS: GET / on stream 1, END_STREAM | END_HEADERS.
@@ -46,7 +46,7 @@ int main() {
     g_lp = el_new(16);
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async(g_lp, srv, hello, done);
-    future_poll<uint8>(f, void() { EventLoop_stop(g_lp); });
+    Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); });
     EventLoop_run(g_lp);
 
     // Read and walk the server's frames; decode the response HEADERS + DATA.
@@ -59,14 +59,14 @@ int main() {
         let fr: H2Frame;  h2_read_header(rb + pos, &fr);
         int payload = pos + 9;
         if (fr.type == H2_HEADERS) {
-            int n = hpack_decode(&dec, rb + payload, fr.length, hs, 32);
+            int n = HpackDecoder_decode(&dec, rb + payload, fr.length, hs, 32);
             int i = 0;
             while (i < n) {
-                if (h2_name_eq(&hs[i], ":status") != 0) {
+                if (_h2_name_eq(&hs[i], ":status") != 0) {
                     int v = 0;  int j = 0;
                     while (j < hs[i].vlen) { v = v * 10 + ((int)hs[i].value[j] - 48); j = j + 1; }
                     status = v;
-                } else if (h2_name_eq(&hs[i], "content-length") != 0) {
+                } else if (_h2_name_eq(&hs[i], "content-length") != 0) {
                     int v = 0;  int j = 0;
                     while (j < hs[i].vlen) { v = v * 10 + ((int)hs[i].value[j] - 48); j = j + 1; }
                     clen = v;

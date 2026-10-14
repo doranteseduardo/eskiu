@@ -9,7 +9,7 @@ import <eventloop>;
 extern int printf(string fmt, ...);
 EventLoop* g;
 
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 int boom(int v) { if (v < 0) { throw v; } return v; }
 Future<int>* boom_f(int v) { if (v < 0) { throw v; } return rdy<int>(v); }
 
@@ -125,9 +125,9 @@ async int defer_in_try() {
 }
 
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     int v = f.value;
-    free_future_polled<int>(f);
+    Future_free_polled<int>(f);
     return v;
 }
 

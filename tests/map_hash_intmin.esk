@@ -5,7 +5,7 @@ import <map>;
 extern int printf(string fmt, ...);
 
 int main() {
-    printf("hash=%d\n", map_hash("ovuga,m"));
+    printf("hash=%d\n", _map_hash("ovuga,m"));
     let m: Map<int>;  Map_init<int>(&m, 10);
     int created = 0;
     *int slot = Map_at<int>(&m, "ovuga,m", &created);

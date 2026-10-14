@@ -5,7 +5,7 @@
 // struct and array literals, a static local, and a switch inside a try.
 import <future>;
 extern int printf(string fmt, ...);
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 int boom(int v) { if (v < 0) { throw v; } return v; }
 enum Color { Red, Green, Blue }
 struct P { int x; int y; }
@@ -116,7 +116,7 @@ async int switch_in_try(int v) {
     return r;
 }
 
-int get(Future<int>* f) { int v = f.value; free_future<int>(f); return v; }
+int get(Future<int>* f) { int v = f.value; Future_free<int>(f); return v; }
 
 int main() {
     printf("%d\n", get(ret_in_try(5)));

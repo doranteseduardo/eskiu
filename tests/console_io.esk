@@ -16,6 +16,9 @@ int child(string mode) {
     } else if (mode[0] == 'i') {
         while (input("> ", &line) == 0) { printf("got %s\n", line.cstr()); }
         println("<eof>");
+    } else if (mode[0] == 'e') {
+        uint8[5] bytes = { (uint8)'a', (uint8)0, (uint8)'b', (uint8)0, (uint8)255 };
+        fwrite((*void)&bytes[0], 1, 5, io_stdout());
     } else if (mode[0] == 'a') {
         const int64 n = read_all_stdin(&line);
         int64 nul = 0;
@@ -61,10 +64,11 @@ int main(int argc, string* argv) {
     feed(argv[0], "input", "ann\nbob\n");
 
     // read_all_stdin: process_run passes text up to its first NUL, so the
-    // binary case writes through a shell with printf.
+    // binary case pipes a copy of this program that writes the bytes into
+    // another one (a pipeline sh and cmd.exe both understand).
     let r: ProcessResult;
     let big: String;  big.init(16);
-    str_format(&big, "printf 'a\\000b\\000\\377' | '%s' all", argv[0]);
+    String_format(&big, "\"%s\" emit | \"%s\" all", argv[0], argv[0]);
     sh(big.cstr(), &r);
     printf("binary: %s", r.stdout.data);
     ProcessResult_free(&r);

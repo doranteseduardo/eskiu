@@ -48,7 +48,7 @@ void send_frame(int type, int flags, int sid, *uint8 p, int n) {
 }
 
 void send_wu(int sid, int64 inc) {
-    uint8[4] p;  h2_put_u32(&p[0], 0, inc);
+    uint8[4] p;  _h2_put_u32(&p[0], 0, inc);
     send_frame(H2_WINDOW_UPDATE, 0, sid, &p[0], 4);
 }
 
@@ -173,9 +173,9 @@ int main() {
     Chan<int>* done = chan_new<int>(1);
     Future<uint8>* f = http2_serve_conn_async(g_lp, sv[0], handler, done);
     let t: *void = thread_create(client);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t);
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     Chan_free<int>(done);
     net_close(sv[1]);
     free((*void)g_rb);

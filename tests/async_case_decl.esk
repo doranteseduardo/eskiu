@@ -5,7 +5,7 @@ extern int printf(string fmt, ...);
 
 Future<int>* one() {
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, 1);
+    Future_complete<int>(f, 1);
     return f;
 }
 
@@ -61,9 +61,9 @@ async int shadowed(int mode) {
 }
 
 int run(Future<int>* f) {
-    future_poll<int>(f, void() { });
+    Future_poll<int>(f, void() { });
     int v = f.value;
-    free_future<int>(f);
+    Future_free<int>(f);
     return v;
 }
 

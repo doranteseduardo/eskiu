@@ -66,7 +66,7 @@ int main() {
     let t0: *void = thread_create(lazy);
     let t1: *void = thread_create(good);
     let t2: *void = thread_create(watchdog);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     atomic_store(&g_done, 1);
     thread_join(t0);
     thread_join(t1);

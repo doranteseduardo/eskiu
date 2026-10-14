@@ -215,6 +215,16 @@ ESKIU_ROOT="$ROOT" "$ESKMAIN" tests/selfhost/driver_inputs/hello.esk -o "$WORK/k
 if [ -x "$WORK/keep" ] && [ "$(cat "$WORK/keep.ll")" = "user file" ]; then echo "ok    flags/temp-ll-unique"
 else echo "FAIL  flags/temp-ll-unique  (<out>.ll was replaced or deleted)"; fail=1; fi
 
+# `run` builds its program in $TMPDIR (not a fixed /tmp) and leaves nothing behind there.
+for drv in "$BIN" "$ESKMAIN"; do
+    total=$((total + 1))
+    rm -rf "$WORK/tmpd"; mkdir -p "$WORK/tmpd"
+    out="$(TMPDIR="$WORK/tmpd/" ESKIU_ROOT="$ROOT" "$drv" run tests/selfhost/driver_inputs/run_tmp/argv0_in_tmpdir.esk 2>&1)"; rc=$?
+    left="$(ls -A "$WORK/tmpd")"
+    if [ "$rc" = 0 ] && [ "$out" = "in-tmpdir" ] && [ -z "$left" ]; then echo "ok    flags/run-tmpdir  ($(basename "$drv"))"
+    else echo "FAIL  flags/run-tmpdir  ($(basename "$drv"): rc $rc, output '$out', left '$left')"; fail=1; fi
+done
+
 # Target macros: _WIN64 accompanies _WIN32 on every 64-bit Windows triple (x86_64,
 # aarch64 and arm64 spellings), and both drivers predefine the same set.
 for tgt in x86_64-pc-windows-msvc aarch64-pc-windows-msvc arm64-pc-windows-msvc i686-pc-windows-msvc; do
@@ -243,11 +253,18 @@ else echo "FAIL  freestanding-no-builtins  (an object references memset/memcpy)"
 # --mattr reaches the backend in both drivers: without FP, a double multiply is a call.
 total=$((total + 1))
 maok=1
+nm_bin="$(dirname "${CLANG:-clang}")/llvm-nm"
+[ -x "$nm_bin" ] || nm_bin=nm
 for drv in "$BIN" "$ESKMAIN"; do
     rm -f "$WORK/ma.o"
-    ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/mattr_softfloat.esk --freestanding --target aarch64-unknown-none-elf \
-        --mattr=-fp-armv8,-neon -O2 -c -o "$WORK/ma.o" >/dev/null 2>&1 || maok=0
-    { [ -s "$WORK/ma.o" ] && grep -aq '__muldf3' "$WORK/ma.o"; } || maok=0
+    if ! ESKIU_ROOT="$ROOT" "$drv" tests/run_cmd/mattr_softfloat.esk --freestanding --target aarch64-unknown-none-elf \
+        --mattr=-fp-armv8,-neon -O2 -c -o "$WORK/ma.o" >"$WORK/ma.log" 2>&1; then
+        maok=0; echo "      $drv failed:"; sed 's/^/        /' "$WORK/ma.log" | head -5
+    elif ! "$nm_bin" "$WORK/ma.o" 2>/dev/null | grep -q '__muldf3'; then
+        # The symbol table, not a grep through the bytes: grep -a missed it on the macOS runner.
+        maok=0; echo "      $drv: no __muldf3 in the object"
+        { file "$WORK/ma.o"; "$nm_bin" "$WORK/ma.o"; sed 's/^/log: /' "$WORK/ma.log"; } 2>&1 | head -12 | sed 's/^/        /'
+    fi
 done
 if [ "$maok" -eq 1 ]; then echo "ok    mattr-softfloat"
 else echo "FAIL  mattr-softfloat  (--mattr did not reach the backend)"; fail=1; fi

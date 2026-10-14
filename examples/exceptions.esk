@@ -3,7 +3,7 @@
 // throw raises an int error code; the nearest matching catch handles it, and a
 // finally block always runs (success or failure). Exceptions propagate out of
 // nested calls. Link with -lc++ (macOS) / -lstdc++ (Linux) for the C++ runtime.
-extern int printf(string fmt, ...);
+import <io>;
 
 const int ERR_DIVIDE_BY_ZERO = 1;
 

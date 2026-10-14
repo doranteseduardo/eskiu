@@ -26,7 +26,7 @@ void dump(H2Server* s, HpackDecoder* d) {
     while (o + 9 <= s.outlen) {
         let f: H2Frame; h2_read_header(s.out + o, &f);
         if (f.type == H2_HEADERS) {
-            const int n = hpack_decode(d, s.out + o + 9, f.length, &hs[0], 8);
+            const int n = HpackDecoder_decode(d, s.out + o + 9, f.length, &hs[0], 8);
             for (i in 0..n) {
                 printf("  stream %d ", f.stream_id);
                 for (int64 k = 0; k < hs[i].nlen; k++) { printf("%c", (int)hs[i].name[k]); }
@@ -36,8 +36,8 @@ void dump(H2Server* s, HpackDecoder* d) {
             }
         }
         if (f.type == H2_DATA) { printf("  stream %d DATA len %d flags %d\n", f.stream_id, f.length, f.flags); }
-        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, h2_get_u32(s.out + o + 9, 0)); }
-        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", h2_get_u32(s.out + o + 9, 4)); }
+        if (f.type == H2_RST_STREAM) { printf("  stream %d rst %lld\n", f.stream_id, _h2_get_u32(s.out + o + 9, 0)); }
+        if (f.type == H2_GOAWAY) { printf("  goaway %lld\n", _h2_get_u32(s.out + o + 9, 4)); }
         o += 9 + f.length;
     }
     s.outlen = 0;

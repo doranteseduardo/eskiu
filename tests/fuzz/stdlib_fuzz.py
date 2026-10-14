@@ -3,7 +3,7 @@
 stdlib_fuzz.py: mutation fuzzing of the stdlib parsers under AddressSanitizer.
 
 Each target is an Eskiu program in tests/fuzz/stdlib/ (json, base64, url, regex,
-hpack, http, fetch, multipart, uuid_time, csv, dotenv) built with `eskiuc --asan`. The driver mutates
+hpack, http, fetch, multipart, uuid_time, csv, dotenv, args, time_parse) built with `eskiuc --asan`. The driver mutates
 a seed corpus (hand-written seeds plus the string literals of the matching
 tests/*.esk files), packs the inputs into batch files, and runs the target on
 each batch. A finding is any of:
@@ -126,6 +126,15 @@ def target_seeds(name):
         return literals("dotenv*.esk") + [
             b"# c\nA=1\nexport B = two words # x\nC='lit'\nD=\"e\\n\\\"q\\\"\"\r\nE=\n",
             b"M=\"multi\nline\"\nX=a#b", b"=bad", b"A='open", b"A=\"x\" y"]
+    if name == "args":
+        return [b"-v\x00in", b"-vvo\x00x\x00in\x00a\x00b", b"--output=f\x00--count\x00-5\x00in", b"",
+                b"\x00", b"-n\x00x\x00in", b"--\x00-v\x00--x", b"-1\x00-\x00-h", b"--help=1\x00--dry-run=2",
+                b"-o", b"--count=2147483648\x00i", b"-onv"]
+    if name == "time_parse":
+        return [b"%FT%T%z\n2026-10-11T08:30:00+02:00", b"%Y-%m-%d %H:%M:%S\n2024-02-29 23:59:60",
+                b"%a, %d %b %Y %T %Z\nSun, 11 Oct 2026 08:30:00 GMT", b"%s\n-9223372036854775808",
+                b"%s\n99999999999999999999", b"%j %Y\n366 2023", b"%A %B\nThursday january", b"%%%\n%",
+                b"%z\n+2359", b"%Y%m%d\n20261011", b"%F %T %Z\n1970-01-01 00:00:00 UTC"]
     if name == "uuid_time":
         return [bytes(40), bytes([255] * 40), struct.pack("<qqiiiiii", 1, 1700000000, 2024, 2, 29, 23, 59, 60),
                 struct.pack("<qq", -1, -62135596800)]
@@ -148,10 +157,15 @@ DICTS = {
     "multipart": [b"--", b"\r\n", b"boundary=", b"name=\"", b"\"", b";", b"form-data", b"\r\n\r\n"],
     "csv": [b",", b";", b"\t", b"|", b"\"", b"\"\"", b"\r\n", b"\n", b"\r", b"\x00"],
     "dotenv": [b"=", b"#", b" #", b"export ", b"'", b"\"", b"\\", b"\\n", b"\n", b"\r\n", b"\t", b"A", b"_x.y-z"],
+    "args": [b"\x00", b"-", b"--", b"-v", b"--verbose", b"-o", b"--output=", b"-n", b"--count", b"-1", b"-h",
+             b"--help", b"=", b"5", b"-5"],
+    "time_parse": [b"%Y", b"%m", b"%d", b"%H", b"%M", b"%S", b"%j", b"%a", b"%A", b"%b", b"%B", b"%s", b"%z",
+                   b"%Z", b"%F", b"%T", b"%%", b"%", b"\n", b" ", b"-", b"+", b":", b"9", b"0", b"Z", b"UTC"],
     "uuid_time": [b"\xff\xff\xff\xff", b"\x00\x00\x00\x80", b"\xff\xff\xff\x7f"],
 }
 MAX_LEN = {"http": 12000, "fetch": 12000, "regex": 600, "hpack": 3000}
-TARGETS = ["json", "base64", "url", "regex", "hpack", "http", "fetch", "multipart", "uuid_time", "csv", "dotenv"]
+TARGETS = ["json", "base64", "url", "regex", "hpack", "http", "fetch", "multipart", "uuid_time", "csv", "dotenv",
+           "args", "time_parse"]
 
 
 # ── Mutation ───────────────────────────────────────────────────────────────────

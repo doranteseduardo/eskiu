@@ -2,7 +2,7 @@
 // fall-through + break work, and an await splits a case's state like any other.
 import <future>;
 extern int printf(string fmt, ...);
-Future<int>* produce(int x) { Future<int>* f = future_new<int>(); future_complete<int>(f, x); return f; }
+Future<int>* produce(int x) { Future<int>* f = future_new<int>(); Future_complete<int>(f, x); return f; }
 
 async int pick(int sel) {
     int r = 0;

@@ -9,11 +9,11 @@ int main() {
     // --- A server stream's request/response lifecycle (§5.1).
     let s: H2Stream;  H2Stream_init(&s, 1, 65535, 65535);
     int a = s.state;                                            // 0 idle
-    h2_stream_on_recv(&s, H2_HEADERS, H2_FLAG_END_STREAM);      // GET, no body
+    H2Stream_on_recv(&s, H2_HEADERS, H2_FLAG_END_STREAM);      // GET, no body
     int b = s.state;                                            // 3 half-closed (remote)
-    h2_stream_on_send(&s, H2_HEADERS, H2_FLAG_END_HEADERS);     // response headers (not END_STREAM)
+    H2Stream_on_send(&s, H2_HEADERS, H2_FLAG_END_HEADERS);     // response headers (not END_STREAM)
     int c2 = s.state;                                           // 3 (unchanged)
-    h2_stream_on_send(&s, H2_DATA, H2_FLAG_END_STREAM);         // body + END_STREAM
+    H2Stream_on_send(&s, H2_DATA, H2_FLAG_END_STREAM);         // body + END_STREAM
     int d = s.state;                                            // 4 closed
     printf("states %d %d %d %d\n", a, b, c2, d);                // 0 3 3 4
 
@@ -21,10 +21,10 @@ int main() {
     let cn: H2Conn;  H2Conn_init(&cn, 0);
     let st: H2Stream;  H2Stream_init(&st, 1, 65535, 65535);
     printf("cansend %d\n", H2Conn_can_send(&cn, &st, 1000));        // 1
-    h2_account_sent(&cn, &st, 60000);
+    H2Conn_account_sent(&cn, &st, 60000);
     printf("after %d %d %d\n", cn.send_window, st.send_window, H2Conn_can_send(&cn, &st, 10000)); // 5535 5535 0
-    h2_grant_window(&cn, &st, 20000);                           // stream-level
-    h2_grant_window(&cn, (H2Stream*)0, 20000);                 // connection-level
+    H2Conn_grant_window(&cn, &st, 20000);                           // stream-level
+    H2Conn_grant_window(&cn, (H2Stream*)0, 20000);                 // connection-level
     printf("granted %d %d\n", cn.send_window, st.send_window);  // 25535 25535
 
     *uint8 buf = alloc<uint8>(64);
@@ -37,7 +37,7 @@ int main() {
     // --- RST_STREAM codec.
     int rn = h2_write_rst_stream(buf, 5, H2_CANCEL);
     let rh: H2Frame;  h2_read_header(buf, &rh);
-    printf("rst %d %d %d %d\n", rn, rh.type, rh.stream_id, (int)h2_get_u32(buf + 9, 0)); // 13 3 5 8
+    printf("rst %d %d %d %d\n", rn, rh.type, rh.stream_id, (int)_h2_get_u32(buf + 9, 0)); // 13 3 5 8
 
     // --- HEADERS / DATA frame headers + flags.
     int hn = h2_write_headers(buf, 1, (*uint8)"abc", 3, 1, 1);  // END_STREAM | END_HEADERS

@@ -37,8 +37,8 @@ int main() {
     sgr("bg", TERM_BOLD | TERM_WHITE | TERM_BG_BLUE);
     sgr("black", TERM_BLACK | TERM_BG_BLACK);
     sgr("256", term_fg256(208) | term_bg256(0));
-    sgr("rgb", term_rgb(255, 128, 0) | term_bg_rgb(1, 2, 3) | TERM_UNDERLINE);
-    sgr("clamp", term_rgb(300, -5, 128) | term_fg256(999) & 0);
+    sgr("rgb", term_fg_rgb(255, 128, 0) | term_bg_rgb(1, 2, 3) | TERM_UNDERLINE);
+    sgr("clamp", term_fg_rgb(300, -5, 128) | term_fg256(999) & 0);
     let r: String;  r.init(8);
     term_reset(&r);
     show("reset", &r);
@@ -78,7 +78,7 @@ int main() {
     term_println("plain println", TERM_BOLD);
 
     let s: String;  s.init(16);
-    term_sgr(&s, TERM_BOLD | term_rgb(1, 2, 3));
+    term_sgr(&s, TERM_BOLD | term_fg_rgb(1, 2, 3));
     s.append("bold");
     term_reset(&s);
     s.append(" and ");

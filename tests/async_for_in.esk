@@ -15,7 +15,7 @@ struct IntList { *int data; int size; }
 uint8[8] rb;
 EventLoop* g;
 
-Future<int>* produce(int v) { Future<int>* f = future_new<int>(); future_complete<int>(f, v); return f; }
+Future<int>* produce(int v) { Future<int>* f = future_new<int>(); Future_complete<int>(f, v); return f; }
 
 // Array path, ready futures: skip zeros (continue), stop at 99 (break).
 async int sum_arr() {
@@ -43,9 +43,9 @@ async int sum_list(EventLoop* lp, IntList* xs, int fd) {
 
 int main() {
     Future<int>* a = sum_arr();
-    future_poll<int>(a, void() {});
+    Future_poll<int>(a, void() {});
     printf("%d\n", a.value);            // 60
-    free_future<int>(a);
+    Future_free<int>(a);
 
     IntList lst;
     lst.data = alloc<int>(3); lst.size = 3;
@@ -55,9 +55,9 @@ int main() {
     close(fds[1]);
     g = el_new(64);
     Future<int>* b = sum_list(g, &lst, fds[0]);
-    if (future_poll<int>(b, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    if (Future_poll<int>(b, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
     printf("%d\n", b.value);            // 12
-    free_future<int>(b);
+    Future_free<int>(b);
     EventLoop_free(g);
     free((*void)lst.data);
     return 0;

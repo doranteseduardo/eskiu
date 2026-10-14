@@ -16,7 +16,22 @@ int64 json_walk(JsonValue* v, int depth) {
     if (v.kind == JObject && n > 0) {
         *JsonValue first = JsonValue_get(v, (string)String_cstr(&v.child.key));
         if (first == null) { fuzz_fail("JsonValue_get misses a present key"); }
+        // The same member through a ["key"] path step (a key without NUL bytes).
+        *String k = &v.child.key;
+        if (String_index_of(k, (char)0) < 0) {
+            let path: String;  path.init(16);
+            path.append("[\"");
+            for (i in 0..k.len) {
+                if (k.data[i] == '"' || k.data[i] == '\\') { path.push('\\'); }
+                path.push(k.data[i]);
+            }
+            path.append("\"]");
+            if (json_get(v, path.cstr()) != first) { fuzz_fail("json_get [\"key\"] misses a present key"); }
+            path.free();
+        }
     }
+    if (v.kind == JArray && n > 0 && json_get(v, "[0]") != v.child) { fuzz_fail("json_get [0] misses the first element"); }
+    if (json_get(v, "") != v) { fuzz_fail("json_get of an empty path is not the value"); }
     if (v.kind == JArray && n > 0 && JsonValue_at(v, n - 1) == null) { fuzz_fail("JsonValue_at misses the last element"); }
     return h;
 }

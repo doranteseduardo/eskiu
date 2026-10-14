@@ -2,7 +2,7 @@
 // their frame fields, before and after an await.
 import <future>;
 extern int printf(string fmt, ...);
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 async int af(int v) {
     int r = 0;
     int w = await rdy<int>(v);
@@ -24,6 +24,6 @@ async int af(int v) {
 int main() {
     Future<int>* fu = af(3);
     printf("%d\n", fu.value);
-    free_future<int>(fu);
+    Future_free<int>(fu);
     return 0;
 }

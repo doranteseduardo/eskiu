@@ -1,0 +1,15 @@
+// A program that declares strcmp (itself, or through <mem>) and catches an
+// exception: the catch matching also calls strcmp, and the symbol is declared once.
+extern int printf(string fmt, ...);
+extern int strcmp(string a, string b);
+
+struct Oops { int code; }
+
+int main() {
+    try {
+        throw Oops { code: 7 };
+    } catch (Oops e) {
+        printf("caught %d %d\n", e.code, strcmp("a", "a"));
+    }
+    return 0;
+}

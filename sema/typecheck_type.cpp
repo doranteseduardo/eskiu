@@ -213,6 +213,13 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
             if (cur->kind == ty::Type::Kind::Array && at) checkArrayDim(cur->dim, at);
             cur = cur->elem.get();
         }
+        if (at && t.kind == ty::Type::Kind::Array) {
+            unsigned long long sz = 0, al = 1;
+            layoutTooLarge = false;
+            constLayout(baseType, sz, al);
+            if (layoutTooLarge) errorAt(at, "array is too large: '" + type + "' exceeds the largest object size");
+            layoutTooLarge = false;
+        }
         if (cur != &t) baseType = cur->str();
     }
     // Strip ALL pointer decorators (*T, T*, **T, etc.)
@@ -330,6 +337,8 @@ bool TypeChecker::constLayout(const std::string& t0, unsigned long long& size,
             if (!known || n <= 0) return false;
             unsigned long long es = 0, ea = 1;
             if (!constLayout(pt.elem->str(), es, ea, depth + 1)) return false;
+            unsigned long long limit = L.ptrSize >= 8 ? (1ull << 61) - 1 : 0xffffffffull;
+            if (es && (unsigned long long)n > limit / es) { layoutTooLarge = true; return false; }
             size = es * (unsigned long long)n; align = ea;
             return true;
         }

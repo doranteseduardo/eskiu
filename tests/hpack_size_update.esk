@@ -1,6 +1,6 @@
 // A §6.3 dynamic table size update above SETTINGS_HEADER_TABLE_SIZE is a
 // COMPRESSION_ERROR (the decode fails) instead of growing the table past the
-// entry array it was allocated with. Raising the limit through hpack_set_max
+// entry array it was allocated with. Raising the limit through _hpack_set_max
 // grows the array, so many small inserts stay in bounds.
 import <mem>;
 import <hpack>;
@@ -25,19 +25,19 @@ int main() {
     let d: HpackDecoder;  HpackDecoder_init(&d, (int64)4096);
     int off = hpack_encode_int(blk, 0, 5, 32, (int64)1000000);
     off = fill(blk, off, 200);
-    printf("oversize update: %d\n", hpack_decode(&d, blk, off, out, 300));
+    printf("oversize update: %d\n", HpackDecoder_decode(&d, blk, off, out, 300));
 
     off = hpack_encode_int(blk, 0, 5, 32, (int64)64);
     off = hpack_encode_int(blk, off, 5, 32, (int64)4096);
     off = fill(blk, off, 200);
-    int c = hpack_decode(&d, blk, off, out, 300);
+    int c = HpackDecoder_decode(&d, blk, off, out, 300);
     printf("within limit: %d dyn=%d\n", c, d.dyn_count);
     HpackDecoder_free(&d);
 
     let e: HpackDecoder;  HpackDecoder_init(&e, (int64)64);
-    hpack_set_max(&e, (int64)100000);
+    _hpack_set_max(&e, (int64)100000);
     off = fill(blk, 0, 200);
-    c = hpack_decode(&e, blk, off, out, 300);
+    c = HpackDecoder_decode(&e, blk, off, out, 300);
     printf("raised: %d dyn=%d\n", c, e.dyn_count);
     HpackDecoder_free(&e);
 

@@ -1,0 +1,80 @@
+// fs_walk and fs_remove_all go down a tree through directory descriptors (handles
+// on Windows): a tree deeper than PATH_MAX (MAX_PATH) is walked and removed whole,
+// and a directory swapped for a symbolic link (a junction on Windows) to a place
+// outside the tree after it was listed is not entered (fs_remove_all would
+// otherwise delete there). Both used paths from the root.
+import <fs>;
+import <string>;
+import <io>;
+#ifdef _WIN32
+import <process>;
+#else
+extern int symlink(string target, string link);
+#endif
+
+String g_dir;
+
+int g_entries = 0;
+int g_outside = 0;
+int64 g_longest = 0;
+
+int main() {
+    g_dir.init(64);
+    if (fs_temp_dir("fs_tree_fd", &g_dir) != 0) { printf("no temp dir\n"); return 1; }
+    string dir = g_dir.cstr();
+    fs_chdir(dir);
+
+    // 500 levels of "dddddddddd": over 5000 bytes of path.
+#ifdef _WIN32
+    // The current directory cannot be that deep: create it by (long) paths.
+    let deep: String;  deep.from("deep");
+    fs_mkdir(deep.cstr());
+    for (i in 0..500) { deep.append("/dddddddddd"); fs_mkdir(deep.cstr()); }
+    deep.append("/leaf.txt");
+    fs_write_text(deep.cstr(), "x");
+    deep.free();
+#else
+    fs_mkdir("deep");
+    fs_chdir("deep");
+    for (i in 0..500) { fs_mkdir("dddddddddd"); fs_chdir("dddddddddd"); }
+    fs_write_text("leaf.txt", "x");
+#endif
+    fs_chdir(dir);
+    printf("walk rc=%d\n", fs_walk("deep", void(string p, bool is_dir) {
+        g_entries++;
+        if (strlen(p) > g_longest) { g_longest = strlen(p); }
+    }));
+    printf("entries=%d longest over 5000: %d\n", g_entries, g_longest > 5000 ? 1 : 0);
+    printf("remove deep rc=%d gone=%d\n", fs_remove_all("deep"), fs_exists("deep") == 0 ? 1 : 0);
+
+    // A directory replaced by a link to "outside" while the walk is at it.
+    fs_mkdir("outside");
+    fs_write_text("outside/keep.txt", "keep");
+    fs_mkdir("tree");
+    fs_mkdir("tree/a");
+    fs_write_text("tree/a/inner.txt", "x");
+    fs_walk("tree", void(string p, bool is_dir) {
+        if (strstr(p, "keep.txt") != null) { g_outside++; }
+        if (strcmp(p, "tree/a") == 0) {
+            fs_rename("tree/a", "moved");
+#ifdef _WIN32
+            let cmd: String;  cmd.from("mklink /J tree\\a \"");
+            cmd.append(g_dir.cstr());
+            cmd.append("\\outside\"");
+            let r: ProcessResult;
+            sh(cmd.cstr(), &r);
+            ProcessResult_free(&r);
+            cmd.free();
+#else
+            symlink("../outside", "tree/a");
+#endif
+        }
+    });
+    printf("walk entered the link: %d\n", g_outside);
+    printf("remove tree rc=%d outside kept=%d\n", fs_remove_all("tree"), fs_exists("outside/keep.txt"));
+
+    fs_chdir("/");
+    fs_remove_all(g_dir.cstr());
+    g_dir.free();
+    return 0;
+}

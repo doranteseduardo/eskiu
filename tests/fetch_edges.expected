@@ -1,0 +1,8 @@
+/tegzip: 200 url=http://127.0.0.1:18438/tegzip redirects=0 body=[raw until close]
+/tetwice: rc=-7 (malformed response: invalid Transfer-Encoding)
+/protorel: 200 url=http://127.0.0.1:18438/echo?x=1 redirects=1 body=[GET /echo?x=1 HTTP/1.1 clean]
+/locspace: 200 url=http://127.0.0.1:18438/two%20words redirects=1 body=[GET /two%20words HTTP/1.1 clean]
+ua crlf: rc=-10 (invalid request header (a name must be a token; a value may not hold CR or LF))
+ua lf: rc=-10 (invalid request header (a name must be a token; a value may not hold CR or LF))
+ua plain: 200 url=http://127.0.0.1:18438/echo redirects=0 body=[GET /echo HTTP/1.1 clean]
+headers cr: rc=-10 (invalid request header (a name must be a token; a value may not hold CR or LF))

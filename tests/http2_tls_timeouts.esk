@@ -57,8 +57,8 @@ void run(string label, int async_mode, int64 lo) {
     } else {
         Chan<int>* done = chan_new<int>(1);
         Future<uint8>* f = http2_tls_conn_async_with(g_lp, sv[0], ctx, hello, done, g_lim, null);
-        if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
-        free_future<uint8>(f);
+        if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+        Future_free<uint8>(f);
         Chan_free<int>(done);
     }
     const int64 dt = time_monotonic_ms() - t0;
@@ -76,7 +76,7 @@ void run(string label, int async_mode, int64 lo) {
         if (fr.type == H2_SETTINGS) { printf((fr.flags & 1) != 0 ? " ACK" : " SETTINGS"); }
         else if (fr.type == H2_HEADERS) { printf(" HEADERS"); }
         else if (fr.type == H2_DATA) { printf(" DATA[%.*s]", fr.length, (string)pl); }
-        else if (fr.type == H2_GOAWAY) { printf(" GOAWAY(last=%lld,%lld)", h2_get_u32(pl, 0), h2_get_u32(pl, 4)); }
+        else if (fr.type == H2_GOAWAY) { printf(" GOAWAY(last=%lld,%lld)", _h2_get_u32(pl, 0), _h2_get_u32(pl, 4)); }
         else { printf(" type%d", fr.type); }
         pos += 9 + fr.length;
     }

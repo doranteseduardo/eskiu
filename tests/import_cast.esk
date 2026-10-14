@@ -6,9 +6,9 @@ extern int printf(string fmt, ...);
 
 int main() {
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, 5);
+    Future_complete<int>(f, 5);
     FutureHdr* h = (FutureHdr*)f;          // imported-type cast (used to misparse)
     printf("%d %d\n", h.state, f.value);   // 2 (READY) and 5
-    free_future<int>(f);
+    Future_free<int>(f);
     return 0;
 }

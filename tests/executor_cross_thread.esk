@@ -1,0 +1,31 @@
+// Executor_schedule from another thread wakes the loop thread, which is blocked
+// waiting for I/O: the worker sleeps first, so the loop is already parked when
+// each wake arrives. On Windows the loop is WSAPoll, which only takes sockets,
+// so the wake channel there is a socket and not a pipe. The last waker stops
+// the loop; a lost wake would hang it.
+import <executor>;
+import <time>;
+import <threading>;
+extern int printf(string fmt, ...);
+
+Executor* g_ex;
+int g_ran = 0;
+int g_rounds = 5;
+
+int main() {
+    g_ex = executor_new(el_new(64));
+    *void t = thread_create(void() {
+        for (int r = 0; r < g_rounds; r++) {
+            time_sleep_ms(30);                       // the loop is blocked by now
+            Executor_schedule(g_ex, void() { g_ran++; });
+            Executor_schedule(g_ex, void() { g_ran++; });
+        }
+        time_sleep_ms(30);
+        Executor_schedule(g_ex, void() { Executor_stop(g_ex); });
+    });
+    Executor_run(g_ex);
+    thread_join(t);
+    printf("ran=%d\n", g_ran);
+    Executor_free(g_ex);
+    return 0;
+}

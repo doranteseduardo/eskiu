@@ -24,7 +24,7 @@ declare ptr @memchr(ptr, i32, i64)
 
 declare i32 @printf(ptr, ...)
 
-define i32 @map_hash(ptr %s) {
+define i32 @_map_hash(ptr %s) {
 entry:
   %i = alloca i32, align 4
   %h = alloca i32, align 4
@@ -75,7 +75,7 @@ merge:                                            ; preds = %then, %while_exit
   ret i32 %21
 }
 
-define i32 @map_streq(ptr %a, ptr %b) {
+define i32 @_map_streq(ptr %a, ptr %b) {
 entry:
   %i = alloca i32, align 4
   %b2 = alloca ptr, align 8

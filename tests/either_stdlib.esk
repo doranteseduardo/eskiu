@@ -3,7 +3,10 @@ extern int printf(string fmt, ...);
 int main() {
     Option<int> a = Some(7);
     Option<int> b = None<int>();
-    printf("%d %d\n", opt_is_some<int>(&a), opt_is_some<int>(&b));   // 1 0
-    printf("%d %d\n", opt_unwrap_or<int>(&a, -1), opt_unwrap_or<int>(&b, -1)); // 7 -1
+    printf("%d %d\n", Option_is_some<int>(&a), Option_is_some<int>(&b));   // 1 0
+    printf("%d %d\n", Option_unwrap_or<int>(&a, -1), Option_unwrap_or<int>(&b, -1)); // 7 -1
+    Either<int, string> e = Left<int, string>(3);
+    Option<int>* pb = &b;
+    printf("%d %d %d %d\n", a.is_some(), pb.is_none(), b.unwrap_or(4), e.is_left());   // dot-calls: 1 1 4 1
     return 0;
 }

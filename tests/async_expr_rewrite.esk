@@ -7,7 +7,7 @@ struct P { int a; int b; }
 
 Future<int>* produce(int v) {
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, v);
+    Future_complete<int>(f, v);
     return f;
 }
 
@@ -37,9 +37,9 @@ async int forms(int n) {
 int main() {
     Future<int>* r = sumN(5);
     printf("%d\n", r.value);
-    free_future<int>(r);
+    Future_free<int>(r);
     Future<int>* q = forms(4);
     printf("%d\n", q.value);
-    free_future<int>(q);
+    Future_free<int>(q);
     return 0;
 }

@@ -9,7 +9,7 @@
 import <string>;
 import <map>;
 import <sort>;
-extern int printf(string fmt, ...);
+import <io>;
 
 struct Entry { string word; int count; }
 

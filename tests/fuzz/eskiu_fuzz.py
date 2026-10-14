@@ -225,7 +225,7 @@ def gen_async_await():
 extern int printf(string fmt, ...);
 Future<int>* produce() {{
     Future<int>* f = future_new<int>();
-    future_complete<int>(f, {val});
+    Future_complete<int>(f, {val});
     return f;
 }}
 async int run() {{
@@ -234,7 +234,7 @@ async int run() {{
 int main() {{
     Future<int>* r = run();
     printf("%d\\n", r.value);
-    free_future<int>(r);
+    Future_free<int>(r);
     return 0;
 }}
 """
@@ -577,7 +577,7 @@ def main():
     if not args.no_differential and not clang:
         print("note: clang not found — running without the O0/O2 differential oracle")
 
-    seeds = [open(p).read() for p in glob.glob(str(TESTS / "*.esk"))]
+    seeds = [open(p).read() for p in sorted(glob.glob(str(TESTS / "*.esk")))]   # sorted: same order on every OS
     FINDINGS.mkdir(exist_ok=True)
     findings = 0
 

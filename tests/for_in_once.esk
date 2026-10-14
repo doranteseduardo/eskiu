@@ -8,7 +8,7 @@ int[] view() { calls += 1; return arr[0..4]; }
 int[3] mk() { calls += 10; int[3] r = {1, 2, 3}; return r; }
 List<int> lst;
 *List<int> getl() { calls += 100; return &lst; }
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 async int run() {
   int t = 0;
   for (x in view()) { int q = await rdy<int>(1); t += q; }

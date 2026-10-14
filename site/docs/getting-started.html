@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.1</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.10.0</a>
+        <a class="btn-install" href="../index.html#install">Install 0.10.1</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -158,7 +158,7 @@ a:hover { color: var(--ink); }
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
-<p>All code blocks in this document compile and run with <strong>Eskiu v0.10.0</strong>.</p>
+<p>All code blocks in this document compile and run with <strong>Eskiu v0.10.1</strong>.</p>
 <hr>
 <h2 id="installation">Installation</h2>
 <p>Prebuilt releases for macOS and Linux install with one command; see the
@@ -215,13 +215,13 @@ cmake --build build -j$(nproc)
 </code></pre>
 <h3 id="verify">Verify</h3>
 <pre><code class="language-bash">./build/eskiuc --version
-# Eskiu 0.10.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.10.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 </code></pre>
 <p>Add <code>./build</code> to your <code>PATH</code> so you can type <code>eskiuc</code> from any directory.</p>
 <hr>
 <h2 id="your-first-program">Your First Program</h2>
 <p>Create <code>hello.esk</code>:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int add(int a, int b) {
     return a + b;
@@ -258,7 +258,7 @@ temporary executable, runs it, and cleans up, forwarding any arguments after the
 <p>Add a shebang line and a <code>.esk</code> file becomes directly executable, the way a Python or Ruby
 script is:</p>
 <pre><code class="language-eskiu">#!/usr/bin/env -S eskiuc run
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 int main() { printf(&quot;hello\n&quot;); return 0; }
 </code></pre>
 <pre><code class="language-bash">chmod +x hello.esk
@@ -488,7 +488,7 @@ int copy = *ptr;      // dereference → 42
 </code></pre>
 <h3 id="pointer-arithmetic">Pointer arithmetic</h3>
 <pre><code class="language-eskiu">import &lt;mem&gt;;     // alloc&lt;T&gt; / free
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let buf: *uint8 = alloc&lt;uint8&gt;(4);
@@ -509,7 +509,7 @@ uint8 b = (uint8)255;
 <hr>
 <h2 id="control-flow">Control Flow</h2>
 <h3 id="if-else">if / else</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     int x = 7;
@@ -525,7 +525,7 @@ int main() {
 </code></pre>
 <p>Output: <code>medium</code></p>
 <h3 id="while">while</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     int i = 1;
@@ -538,7 +538,7 @@ int main() {
 </code></pre>
 <h3 id="for-with-declaration-init">for with declaration init</h3>
 <p>The loop variable can be declared directly in the <code>for</code> header:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     for (int i = 0; i &lt; 5; i += 1) {
@@ -548,7 +548,7 @@ int main() {
 }
 </code></pre>
 <h3 id="break-and-continue">break and continue</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     for (int i = 0; i &lt; 10; i += 1) {
@@ -561,7 +561,7 @@ int main() {
 </code></pre>
 <p>Output: <code>0 1 2 4 5</code> (one per line).</p>
 <h3 id="switch-case">switch / case</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     int day = 3;
@@ -587,7 +587,7 @@ int main() {
 <h2 id="functions">Functions</h2>
 <h3 id="defining-and-calling">Defining and calling</h3>
 <p>Return type comes first, followed by the name and parameter list:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int square(int n) {
     return n * n;
@@ -613,6 +613,11 @@ extern int puts(string s);
 extern double sqrt(double x);
 </code></pre>
 <p>The <code>...</code> marks a variadic function, required for <code>printf</code>, <code>scanf</code>, etc.</p>
+<p>The standard library already declares the common C functions, so most programs
+import them instead: <code>&lt;io&gt;</code> has <code>printf</code>, <code>puts</code> and the rest of C stdio, <code>&lt;mem&gt;</code> the
+memory and string functions (<code>memcpy</code>, <code>strlen</code>, <code>strcmp</code>, <code>strstr</code>, ...), <code>&lt;math&gt;</code>
+the libm ones (<code>sqrt</code>, <code>pow</code>, ...) and <code>&lt;process&gt;</code> <code>process_exit</code>. Declare an <code>extern</code>
+yourself for anything else.</p>
 <p><code>extern</code> also declares a <strong>global variable</strong> defined in another translation unit.
 Drop the parentheses and end with a semicolon; the variable resolves at link time,
 so Eskiu can read and write state shared with a C library:</p>
@@ -640,7 +645,7 @@ int is_odd(int n) {
 <hr>
 <h2 id="structs">Structs</h2>
 <h3 id="defining-and-using">Defining and using</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 struct Point {
     float x;
@@ -662,7 +667,7 @@ field twice or giving too many values is an error.</p>
 <h3 id="methods-with-self">Methods with self</h3>
 <p>Methods are defined inside the struct body and receive a pointer to the instance
 as <code>self</code>:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 struct Rect {
     float w;
@@ -690,7 +695,7 @@ as the first argument.</p>
 parameter is the receiver. To call it on a <code>const</code> value, declare the receiver
 <code>const T* self</code>; a method with a plain <code>*T self</code> may change the value, so calling
 it on a <code>const</code> is an error:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 struct P { int x; }
 int  P_get(const P* self) { return self.x; }
@@ -721,7 +726,7 @@ enum Status { Ok = 0, Err = 2, Pending }    // 0, 2, 3
 let c: Color = Green;            // c == 1
 </code></pre>
 <p>When one or more variants carry a <strong>payload</strong>, the enum becomes an algebraic data type, a tagged union. Variants are constructed by name and destructured with <code>match</code>:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 enum Shape {
     Circle(float),
@@ -754,7 +759,7 @@ int main() {
 }
 </code></pre>
 <p>Instantiate by supplying concrete types:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 struct Pair&lt;A, B&gt; {
     A first;
@@ -770,7 +775,7 @@ int main() {
 <p>The compiler performs lazy monomorphic instantiation: <code>Pair&lt;int, float&gt;</code> becomes
 <code>%Pair_int_float</code> in IR.</p>
 <h3 id="template-functions">Template functions</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 T max&lt;T&gt;(T a, T b) {
     if (a &gt; b) { return a; }
@@ -789,7 +794,7 @@ int main() {
 <p><code>&lt;result&gt;</code> provides an error-as-value type ready to use:</p>
 <pre><code class="language-eskiu">import &lt;result&gt;;
 
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 Result&lt;int, string&gt; divide(int a, int b) {
     if (b == 0) {
@@ -830,7 +835,7 @@ methods satisfies the interface. No <code>implements</code> keyword is needed.</
 }
 </code></pre>
 <h3 id="implementing-structurally">Implementing structurally</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 interface Drawable {
     void draw();
@@ -898,7 +903,7 @@ let p: Point = Point { x: 1.0, y: 2.0 };
 <code>free(ptr)</code> releases it. Both come from the <code>&lt;mem&gt;</code> stdlib (they are ordinary
 generic functions, not keywords):</p>
 <pre><code class="language-eskiu">import &lt;mem&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let buf: *int = alloc&lt;int&gt;(8);
@@ -915,7 +920,7 @@ int main() {
 </code></pre>
 <p>Output: <code>0 1 4 9 16 25 36 49</code></p>
 <h3 id="null-checks">Null checks</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     let p: *int = null;
@@ -955,7 +960,7 @@ import &quot;utils.esk&quot;;   // local file, relative to the current file
   utils.esk
 </code></pre>
 <p><code>utils.esk</code>:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 void greet(string name) {
     printf(&quot;Hello, %s!\n&quot;, name);
@@ -1013,7 +1018,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;string&gt;</code></td>
-<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code>; <code>find</code>, <code>contains</code>, <code>replace</code>, <code>replace_all</code>, <code>split_str</code>, <code>lines</code>, <code>join</code>, <code>lower</code>, <code>upper</code>, <code>repeat</code>, <code>pad_left</code>, <code>pad_right</code>, <code>to_double</code>, <code>parse_double</code>, <code>from_double</code>, <code>appendf</code>; <code>str_join</code>, <code>str_format</code></td>
+<td><code>String</code>: <code>init</code>, <code>from</code>, <code>append</code>, <code>concat</code>, <code>cstr</code>, <code>len</code>, <code>free</code>, <code>starts_with</code>, <code>ends_with</code>, <code>trim</code>, <code>split</code>, <code>next_token</code>; <code>find</code>, <code>contains</code>, <code>replace</code>, <code>replace_all</code>, <code>split_str</code>, <code>lines</code>, <code>join</code>, <code>lower</code>, <code>upper</code>, <code>repeat</code>, <code>pad_left</code>, <code>pad_right</code>, <code>to_double</code>, <code>parse_double</code>, <code>from_double</code>, <code>appendf</code>; <code>List_join</code>, <code>String_format</code></td>
 </tr>
 <tr>
 <td><code>&lt;ctype&gt;</code></td>
@@ -1097,7 +1102,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;hash&gt;</code></td>
-<td>SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), <code>hex_encode</code>/<code>hex_decode</code>, <code>hash_equal</code></td>
+<td>SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), <code>hash_hex_encode</code>/<code>hash_hex_decode</code>, <code>hash_equal</code></td>
 </tr>
 <tr>
 <td><code>&lt;multipart&gt;</code></td>
@@ -1117,11 +1122,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;sort&gt;</code></td>
-<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>bsearch&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function; <code>List_sort_by</code> sorts a <code>List&lt;T&gt;</code></td>
+<td>generic in-place heapsort <code>sort&lt;T&gt;</code> + <code>sort_search&lt;T&gt;</code> over a <code>*T</code> array, via a <code>cmp(&amp;x, &amp;y)</code> function; <code>List_sort_by</code> sorts a <code>List&lt;T&gt;</code></td>
 </tr>
 <tr>
 <td><code>&lt;url&gt;</code></td>
-<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, form-query lookup <code>url_query_get</code>; <code>url_parse</code> into a <code>Url</code>, <code>url_resolve</code>, <code>url_query_add</code></td>
+<td>RFC 3986 percent-encoding: <code>url_encode</code>, <code>url_decode</code>, form-query lookup <code>url_query_get</code>; <code>url_parse</code> into a <code>Url</code>, <code>Url_resolve</code>, <code>url_query_add</code></td>
 </tr>
 <tr>
 <td><code>&lt;uuid&gt;</code></td>
@@ -1129,7 +1134,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;time&gt;</code></td>
-<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>); local time, <code>time_format</code>/<code>time_parse</code> (strftime-style), <code>duration_format</code>, <code>Stopwatch</code></td>
+<td><code>time_now_ms</code>, <code>time_now_s</code>, <code>time_monotonic_ms</code>, <code>time_sleep_ms</code>; UTC civil calendar (<code>DateTime</code>, <code>time_to_utc</code>/<code>DateTime_to_epoch</code>, <code>DateTime_format_iso</code>); local time, <code>time_format</code>/<code>time_parse</code> (strftime-style), <code>time_format_duration</code>, <code>Stopwatch</code></td>
 </tr>
 <tr>
 <td><code>&lt;env&gt;</code></td>
@@ -1141,11 +1146,11 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;args&gt;</code></td>
-<td>command-line parsing: <code>ArgParser</code>, <code>args_flag</code>, <code>args_option</code>, <code>args_option_int</code>, <code>args_argument</code>, generated <code>--help</code>, <code>ArgParser_parse_or_exit</code>, <code>args_get</code>/<code>args_get_int</code>/<code>args_get_flag</code>/<code>args_count</code></td>
+<td>command-line parsing: <code>ArgParser</code>, <code>ArgParser_flag</code>, <code>ArgParser_option</code>, <code>ArgParser_option_int</code>, <code>ArgParser_argument</code>, generated <code>--help</code>, <code>ArgParser_parse_or_exit</code>, <code>ArgParser_get</code>/<code>ArgParser_get_int</code>/<code>ArgParser_get_flag</code>/<code>ArgParser_count</code></td>
 </tr>
 <tr>
 <td><code>&lt;term&gt;</code></td>
-<td>ANSI styles and colors (<code>TERM_BOLD \| TERM_RED</code>, <code>term_fg256</code>, <code>term_rgb</code>), <code>term_style</code>, <code>term_println</code>, <code>term_is_tty</code>, <code>term_width</code>; honors <code>NO_COLOR</code>/<code>FORCE_COLOR</code></td>
+<td>ANSI styles and colors (<code>TERM_BOLD \| TERM_RED</code>, <code>term_fg256</code>, <code>term_fg_rgb</code>), <code>term_style</code>, <code>term_println</code>, <code>term_is_tty</code>, <code>term_width</code>; honors <code>NO_COLOR</code>/<code>FORCE_COLOR</code></td>
 </tr>
 <tr>
 <td><code>&lt;log&gt;</code></td>
@@ -1169,7 +1174,7 @@ import &lt;math&gt;;
 </tr>
 <tr>
 <td><code>&lt;future&gt;</code></td>
-<td>the <code>async</code>/<code>await</code> runtime: <code>Future&lt;T&gt;</code>, <code>future_poll</code>/<code>complete</code>/<code>drop</code>, <code>spawn</code>/<code>select2</code>/<code>join2</code></td>
+<td>the <code>async</code>/<code>await</code> runtime: <code>Future&lt;T&gt;</code>, <code>Future_poll</code>/<code>complete</code>/<code>drop</code>, <code>spawn</code>/<code>select2</code>/<code>join2</code></td>
 </tr>
 <tr>
 <td><code>&lt;executor&gt;</code></td>
@@ -1206,7 +1211,7 @@ simplest: individual frees are no-ops; one <code>free</code> of the backing buff
 everything.</p>
 <pre><code class="language-eskiu">import &lt;mem&gt;;
 import &lt;alloc&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     *uint8 backing = alloc&lt;uint8&gt;(4096);
@@ -1221,7 +1226,7 @@ int main() {
 <p><strong><code>&lt;json&gt;</code>: build and parse.</strong> The builder inserts separators automatically;
 <code>json_parse</code> returns a <code>*JsonValue</code> tree.</p>
 <pre><code class="language-eskiu">import &lt;json&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let j: Json;  Json_init(&amp;j);
@@ -1252,7 +1257,7 @@ int main() { http_serve(8080, 4, handle); return 0; }   // 4 worker threads
 response arrived (any status), or a negative error code; <code>fetch_last_error()</code> says
 what went wrong. Free the response with <code>Response_free</code> either way.</p>
 <pre><code class="language-eskiu">import &lt;fetch&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let r: Response;
@@ -1300,10 +1305,10 @@ struct Count { String path; int lines; }
 int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&amp;p, &quot;count_lines&quot;, &quot;Count the lines of the .esk files under DIR.&quot;);
-    args_argument(&amp;p, &quot;dir&quot;, &quot;where to look&quot;, ARGS_REQUIRED);
+    ArgParser_argument(&amp;p, &quot;dir&quot;, &quot;where to look&quot;, ARGS_REQUIRED);
     ArgParser_parse_or_exit(&amp;p, argc, argv);
 
-    let pattern: String;  pattern.from(args_get(&amp;p, &quot;dir&quot;));
+    let pattern: String;  pattern.from(ArgParser_get(&amp;p, &quot;dir&quot;));
     pattern.append(&quot;/**/*.esk&quot;);
     let files: List&lt;String&gt;;  List_init&lt;String&gt;(&amp;files, 16);
     fs_glob(pattern.cstr(), &amp;files);
@@ -1338,7 +1343,7 @@ let g: fn(int, int)-&gt;bool;
 </code></pre>
 <p><code>fn</code> names a <em>type</em> only. It is not how you define a function (Eskiu has no <code>fn name(...)</code> form): functions are defined C-style, return type first, as in <code>int add(int a, int b) { ... }</code>.</p>
 <h3 id="writing-a-lambda">Writing a lambda</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     let double_it: fn(int)-&gt;int = int(int x) { return x * 2; };
@@ -1347,7 +1352,7 @@ int main() {
 }
 </code></pre>
 <h3 id="passing-lambdas-as-arguments">Passing lambdas as arguments</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int apply(fn(int)-&gt;int f, int x) {
     return f(x);
@@ -1362,7 +1367,7 @@ int main() {
 </code></pre>
 <h3 id="closures-capturing-from-the-enclosing-scope">Closures: capturing from the enclosing scope</h3>
 <p>A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (<code>x = 1</code>, <code>x++</code> inside the body is a compile error) or call a method on it that takes a plain <code>*T self</code> (only a <code>const T* self</code> method); to share state, write through a pointer or use a global or a <code>static</code> local.</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     int base = 10;
@@ -1373,7 +1378,7 @@ int main() {
 }
 </code></pre>
 <p>Closures can be passed to higher-order functions exactly like plain lambdas: the <code>fn(T)-&gt;R</code> type is the same in both cases.</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int apply(fn(int)-&gt;int f, int x) { return f(x); }
 
@@ -1389,7 +1394,7 @@ int main() {
 <h2 id="threads">Threads</h2>
 <p><code>thread_create</code> and <code>thread_join</code> are language keywords. Pass any <code>fn()-&gt;void</code> value, including a closure, to spawn a thread.</p>
 <h3 id="basic-usage">Basic usage</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     *void t = thread_create(void() { printf(&quot;hello from thread\n&quot;); });
@@ -1398,7 +1403,7 @@ int main() {
 }
 </code></pre>
 <h3 id="capturing-outer-state">Capturing outer state</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     int id = 42;
@@ -1416,7 +1421,7 @@ int main() {
 <h2 id="exception-handling">Exception Handling</h2>
 <p>Use <code>try</code>, <code>catch</code>, <code>finally</code>, and <code>throw</code> for structured exception handling.</p>
 <h3 id="basic-trycatch">Basic try/catch</h3>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int divide(int a, int b) {
     if (b == 0) {
@@ -1440,7 +1445,7 @@ int main() {
 <p>The <code>finally</code> block always executes, whether or not an exception was raised, and
 also when the <code>try</code> body or a <code>catch</code> handler leaves early with <code>return</code>, <code>break</code> or
 <code>continue</code>:</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 int main() {
     try {
@@ -1650,7 +1655,7 @@ int x = s[9];                    // under --safe: aborts here; without it: reads
 <hr>
 <h2 id="sizeof">sizeof</h2>
 <p><code>sizeof(T)</code> is a compile-time constant expression that returns the size of a type in bytes as an <code>int64</code>. It works for any Eskiu type, including structs.</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 struct Grid {
     float x;
@@ -1669,7 +1674,7 @@ int main() {
 <hr>
 <h2 id="unions">Unions</h2>
 <p>A <code>union</code> is declared like a <code>struct</code>, but all fields share offset 0. The size of the union equals the size of its largest field, rounded up to the alignment of its most-aligned field, as in C. Reading a field reinterprets the stored bytes as that field's type.</p>
-<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+<pre><code class="language-eskiu">import &lt;io&gt;;
 
 union Value {
     int   i;
@@ -1689,7 +1694,7 @@ int main() {
 <h2 id="typed-pointer-arithmetic">Typed Pointer Arithmetic</h2>
 <p>Pointer arithmetic scales by the pointed-to type's size, matching C behaviour. Adding <code>1</code> to a <code>*int</code> advances 4 bytes; adding <code>1</code> to a <code>*Grid</code> advances <code>sizeof(Grid)</code> bytes.</p>
 <pre><code class="language-eskiu">import &lt;mem&gt;;
-extern int printf(string fmt, ...);
+import &lt;io&gt;;
 
 int main() {
     let buf: *int = alloc&lt;int&gt;(4);

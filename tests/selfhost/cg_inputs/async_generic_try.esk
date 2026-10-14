@@ -2,7 +2,7 @@
 // switch subject, and a match on a computed subject whose arms await, in both compilers.
 import <future>;
 extern int printf(string fmt, ...);
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 int boom(int v) { if (v < 0) { throw v; } return v; }
 async T pick<T>(T a, int v) {
     T r = a;
@@ -29,10 +29,10 @@ async int plain_match(int k) {
 }
 enum Opt { Some(int), None }
 int main() {
-    Future<int>* a = pick<int>(20, 1); printf("= %d\n", a.value); free_future<int>(a);
-    Future<int>* b = pick<int>(20, -4); printf("= %d\n", b.value); free_future<int>(b);
-    Future<double>* d = pick<double>(1.5, 2); printf("= %.1f\n", d.value); free_future<double>(d);
-    Future<int>* m = plain_match(5); printf("= %d\n", m.value); free_future<int>(m);
-    Future<int>* n = plain_match(0); printf("= %d\n", n.value); free_future<int>(n);
+    Future<int>* a = pick<int>(20, 1); printf("= %d\n", a.value); Future_free<int>(a);
+    Future<int>* b = pick<int>(20, -4); printf("= %d\n", b.value); Future_free<int>(b);
+    Future<double>* d = pick<double>(1.5, 2); printf("= %.1f\n", d.value); Future_free<double>(d);
+    Future<int>* m = plain_match(5); printf("= %d\n", m.value); Future_free<int>(m);
+    Future<int>* n = plain_match(0); printf("= %d\n", n.value); Future_free<int>(n);
     return 0;
 }

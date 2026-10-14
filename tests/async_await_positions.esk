@@ -8,7 +8,7 @@ import <future>;
 import <list>;
 extern int printf(string fmt, ...);
 
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 Future<int>* note(int v) { printf("await %d\n", v); return rdy<int>(v); }
 int log(int v) { printf("log %d\n", v); return v; }
 int idx_calls = 0;
@@ -86,13 +86,13 @@ async int positions() {
 int main() {
     List_init<int>(&g_list, 4);
     Future<int>* a = in_match(Circle(4));
-    printf("match circle: %d\n", a.value); free_future<int>(a);
+    printf("match circle: %d\n", a.value); Future_free<int>(a);
     Future<int>* b = in_match(Rect(5, 2));
-    printf("match rect: %d\n", b.value); free_future<int>(b);
+    printf("match rect: %d\n", b.value); Future_free<int>(b);
     Future<int>* c = in_match(Empty);
-    printf("match empty: %d\n", c.value); free_future<int>(c);
+    printf("match empty: %d\n", c.value); Future_free<int>(c);
     Future<int>* p = positions();
-    printf("positions: %d\n", p.value); free_future<int>(p);
+    printf("positions: %d\n", p.value); Future_free<int>(p);
     List_free<int>(&g_list);
     return 0;
 }

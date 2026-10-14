@@ -12,13 +12,13 @@ int main() {
     Future<int>* f = Chan_recv<int>(ch);
     Chan_free<int>(ch);
     printf("pending after free: state=%d\n", f.state);
-    future_drop((FutureHdr*)f);
+    Future_drop((FutureHdr*)f);
 
     Chan<int>* c2 = chan_new<int>(2);
     Chan_send<int>(c2, 5);
     Future<int>* g = Chan_recv<int>(c2);
     Chan_free<int>(c2);
     printf("buffered: state=%d value=%d\n", g.state, g.value);
-    free_future<int>(g);
+    Future_free<int>(g);
     return 0;
 }

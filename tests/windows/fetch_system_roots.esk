@@ -1,0 +1,30 @@
+// Windows only, needs the network (run by .github/workflows/windows.yml, not by
+// tests/run.sh): an https fetch with certificate verification on and no
+// ca_file succeeds, because <fetch_tls> trusts the Windows "ROOT" store.
+// Exit 0 = pass.
+import <fetch>;
+import <fetch_tls>;
+extern int printf(string fmt, ...);
+
+int check(string url) {
+    let o: FetchOptions;  FetchOptions_init(&o);
+    o.timeout_ms = 20000;
+    let r: Response;
+    const int rc = fetch_with(url, &o, &r);
+    if (rc != 0) {
+        printf("FAIL %s: %d (%s)\n", url, rc, fetch_last_error());
+    } else {
+        printf("ok   %s: %d\n", url, r.status);
+    }
+    Response_free(&r);
+    FetchOptions_free(&o);
+    return rc == 0 ? 0 : 1;
+}
+
+int main() {
+    if (fetch_tls_available() == 0) { printf("FAIL OpenSSL not found\n"); return 1; }
+    int fails = 0;
+    fails = fails + check("https://api.github.com/");
+    fails = fails + check("https://www.google.com/");
+    return fails == 0 ? 0 : 1;
+}

@@ -56,9 +56,14 @@ void clients(int port) {
     t0 = time_monotonic_ms();
     c = connect_retry(port);
     // A byte every 15 ms for 120 ms: all of it read before header_ms (150), which
-    // it must not extend (a per-read timeout would answer at about 270 ms).
+    // it must not extend (a per-read timeout would answer at about 270 ms). Each pause
+    // waits for the answer instead of sleeping, so a slow timer (macOS coalesces short
+    // sleeps) cannot delay reading a 408 that already arrived.
     net_send_str(c, "GET / HTTP/1.1\r\n");
-    for (i in 0..8) { usleep(15000); net_send_str(c, "X"); }
+    for (i in 0..8) {
+        if (net_wait_ready(c, 0, time_monotonic_ms() + 15) == 0) { break; }
+        net_send_str(c, "X");
+    }
     show2("trickled head", c, t0, 140, 250);
 
     t0 = time_monotonic_ms();
@@ -73,15 +78,19 @@ void clients(int port) {
 }
 
 void over_limit(int port) {
+    // Timed from before its connect, so a slow sleep below cannot eat into header_ms.
+    const int64 ta = time_monotonic_ms();
     int a = connect_retry(port);           // holds the only slot until header_ms
     usleep(20000);
-    int64 t0 = time_monotonic_ms();
     int b = connect_retry(port);           // past max_open: closed at once
+    // Timed from the established connection, so a connect retry on a busy runner does not
+    // count: the server must close it without waiting for the slot holder's header_ms.
+    const int64 tb = time_monotonic_ms();
     uint8[16] buf;
     const int64 n = net_recv(b, (*void)&buf[0], (int64)16);
-    printf("over max_open: recv=%lld (at once=%d)\n", n, time_monotonic_ms() - t0 < 60 ? 1 : 0);
+    printf("over max_open: recv=%lld (at once=%d)\n", n, time_monotonic_ms() - tb < 60 ? 1 : 0);
     net_close(b);
-    show("slot holder", a, t0, 40);
+    show("slot holder", a, ta, 140);
     int64 t1 = time_monotonic_ms();
     int c = connect_retry(port);
     net_send_str(c, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
@@ -101,9 +110,9 @@ void serve_async(int port, int n, escaping fn()->void cl) {
     const int fd = net_tcp_listen((uint16)port);
     Future<uint8>* f = http_serve_async_with(g_lp, fd, handle, n, g_lim);
     let t: *void = thread_create(cl);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t);
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     net_close(fd);
 }
 

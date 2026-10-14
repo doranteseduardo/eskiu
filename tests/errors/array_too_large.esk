@@ -1,0 +1,7 @@
+// EXPECT-ERROR: array is too large
+// Larger than any object (2^61-1 bytes with 64-bit pointers), as C rejects it.
+int main() {
+    int64[9223372036854775807] w;
+    w[0] = 1;
+    return (int)w[0];
+}

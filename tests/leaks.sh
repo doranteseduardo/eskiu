@@ -36,6 +36,7 @@ bad() { printf '  \033[31mFAIL\033[0m  %s — %s\n' "$1" "$2"; fail=$((fail+1));
 
 TESTS=(
     "async_closure_env.esk"
+    "closure_rebind_env.esk"
     "async_cancel.esk"
     "async_cancel_await_cleanup.esk"
     "async_finally_await.esk"

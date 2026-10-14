@@ -24,8 +24,6 @@ import <sort>;
 import <string>;
 import <process>;
 
-extern int strcmp(string a, string b);
-
 struct Entry {
     String name;      // file name inside the directory
     String folder;    // where it goes
@@ -46,18 +44,18 @@ int hash_file(string path, String* out) {
     let data: String;  data.init(4096);
     defer data.free();
     if (fs_read_text(path, &data) != 0) { return -1; }
-    sha256_hex((*uint8)data.data, data.len, out);
+    hash_sha256_hex((*uint8)data.data, data.len, out);
     return 0;
 }
 
 // "1.5 KiB"-style size into `out`.
 void human_size(int64 n, String* out) {
-    if (n < 1024) { str_format(out, "%lld B", n); return; }
+    if (n < 1024) { String_format(out, "%lld B", n); return; }
     const string[3] units = {"KiB", "MiB", "GiB"};
     double v = (double)n / 1024.0;
     int u = 0;
     while (v >= 1024.0 && u < 2) { v = v / 1024.0; u++; }
-    str_format(out, "%.1f %s", v, units[u]);
+    String_format(out, "%.1f %s", v, units[u]);
 }
 
 void report_fs_error(string what, string path) {
@@ -71,15 +69,15 @@ int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "organize", "Move the loose files of a directory into folders by extension or date.");
     defer ArgParser_free(&p);
-    args_flag(&p, "-n", "--dry-run", "only print what would happen");
-    args_option(&p, "-b", "--by", "ext|date", "ext", "group by file extension or by modification month");
-    args_option(&p, "-r", "--report", "FILE", null, "write a CSV report of every file");
-    args_argument(&p, "dir", "the directory to organize", ARGS_REQUIRED);
+    ArgParser_flag(&p, "-n", "--dry-run", "only print what would happen");
+    ArgParser_option(&p, "-b", "--by", "ext|date", "ext", "group by file extension or by modification month");
+    ArgParser_option(&p, "-r", "--report", "FILE", null, "write a CSV report of every file");
+    ArgParser_argument(&p, "dir", "the directory to organize", ARGS_REQUIRED);
     ArgParser_parse_or_exit(&p, argc, argv);
 
-    string dir = args_get(&p, "dir");
-    string by = args_get(&p, "by");
-    const bool dry_run = args_get_flag(&p, "dry-run") == 1;
+    string dir = ArgParser_get(&p, "dir");
+    string by = ArgParser_get(&p, "by");
+    const bool dry_run = ArgParser_get_flag(&p, "dry-run") == 1;
     if (strcmp(by, "ext") != 0 && strcmp(by, "date") != 0) {
         log_error("--by takes ext or date, not '%s'", by);
         return 2;
@@ -175,7 +173,7 @@ int main(int argc, string* argv) {
             continue;
         }
         if (strcmp(e.action, "error") == 0) { continue; }
-        str_format(&line, "%-10s  %s -> %s/", verb, e.name.cstr(), e.folder.cstr());
+        String_format(&line, "%-10s  %s -> %s/", verb, e.name.cstr(), e.folder.cstr());
         if (strcmp(e.action, "duplicate") == 0) { line.append("  (duplicate)"); }
         println(line.cstr());
         if (dry_run) { continue; }
@@ -208,17 +206,17 @@ int main(int argc, string* argv) {
         println("nothing to organize");
     } else {
         println("");
-        str_format(&line, "%-12s %6s %10s", "folder", "files", "size");
+        String_format(&line, "%-12s %6s %10s", "folder", "files", "size");
         println(line.cstr());
     }
     for (i in 0..folders.size) {
         human_size(folders.data[i].bytes, &size);
-        str_format(&line, "%-12s %6d %10s", folders.data[i].name, folders.data[i].files, size.cstr());
+        String_format(&line, "%-12s %6d %10s", folders.data[i].name, folders.data[i].files, size.cstr());
         println(line.cstr());
     }
 
     // 5. The CSV report.
-    string report = args_get(&p, "report");
+    string report = ArgParser_get(&p, "report");
     if (report != null) {
         let csv: String;  csv.init(256);
         let row: List<string>;  List_init<string>(&row, 6);
@@ -228,7 +226,7 @@ int main(int argc, string* argv) {
         for (i in 0..entries.size) {
             *Entry e = &entries.data[i];
             let bytes: String;  bytes.init(16);
-            str_format(&bytes, "%lld", e.size);
+            String_format(&bytes, "%lld", e.size);
             row.clear();
             row.push(e.name.cstr());  row.push(e.folder.cstr());  row.push(bytes.cstr());
             row.push(e.modified.cstr());  row.push(e.hash.cstr());  row.push(e.action);

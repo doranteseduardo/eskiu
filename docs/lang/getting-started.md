@@ -3,7 +3,7 @@
 A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.
 
-All code blocks in this document compile and run with **Eskiu v0.10.0**.
+All code blocks in this document compile and run with **Eskiu v0.10.1**.
 
 ---
 
@@ -52,7 +52,7 @@ cmake --build build -j$(nproc)
 
 ```bash
 ./build/eskiuc --version
-# Eskiu 0.10.0 (LLVM 22.1.6)   (exact LLVM version depends on your install)
+# Eskiu 0.10.1 (LLVM 22.1.6)   (exact LLVM version depends on your install)
 ```
 
 Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
@@ -64,7 +64,7 @@ Add `./build` to your `PATH` so you can type `eskiuc` from any directory.
 Create `hello.esk`:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int add(int a, int b) {
     return a + b;
@@ -117,7 +117,7 @@ script is:
 
 ```eskiu
 #!/usr/bin/env -S eskiuc run
-extern int printf(string fmt, ...);
+import <io>;
 int main() { printf("hello\n"); return 0; }
 ```
 
@@ -327,7 +327,7 @@ int copy = *ptr;      // dereference → 42
 
 ```eskiu
 import <mem>;     // alloc<T> / free
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let buf: *uint8 = alloc<uint8>(4);
@@ -357,7 +357,7 @@ uint8 b = (uint8)255;
 ### if / else
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int x = 7;
@@ -377,7 +377,7 @@ Output: `medium`
 ### while
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int i = 1;
@@ -394,7 +394,7 @@ int main() {
 The loop variable can be declared directly in the `for` header:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     for (int i = 0; i < 5; i += 1) {
@@ -407,7 +407,7 @@ int main() {
 ### break and continue
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     for (int i = 0; i < 10; i += 1) {
@@ -424,7 +424,7 @@ Output: `0 1 2 4 5` (one per line).
 ### switch / case
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int day = 3;
@@ -457,7 +457,7 @@ Output: `Wednesday`
 Return type comes first, followed by the name and parameter list:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int square(int n) {
     return n * n;
@@ -488,6 +488,12 @@ extern double sqrt(double x);
 ```
 
 The `...` marks a variadic function, required for `printf`, `scanf`, etc.
+
+The standard library already declares the common C functions, so most programs
+import them instead: `<io>` has `printf`, `puts` and the rest of C stdio, `<mem>` the
+memory and string functions (`memcpy`, `strlen`, `strcmp`, `strstr`, ...), `<math>`
+the libm ones (`sqrt`, `pow`, ...) and `<process>` `process_exit`. Declare an `extern`
+yourself for anything else.
 
 `extern` also declares a **global variable** defined in another translation unit.
 Drop the parentheses and end with a semicolon; the variable resolves at link time,
@@ -527,7 +533,7 @@ int is_odd(int n) {
 ### Defining and using
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 struct Point {
     float x;
@@ -554,7 +560,7 @@ Methods are defined inside the struct body and receive a pointer to the instance
 as `self`:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 struct Rect {
     float w;
@@ -586,7 +592,7 @@ parameter is the receiver. To call it on a `const` value, declare the receiver
 it on a `const` is an error:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 struct P { int x; }
 int  P_get(const P* self) { return self.x; }
@@ -630,7 +636,7 @@ let c: Color = Green;            // c == 1
 When one or more variants carry a **payload**, the enum becomes an algebraic data type, a tagged union. Variants are constructed by name and destructured with `match`:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 enum Shape {
     Circle(float),
@@ -673,7 +679,7 @@ struct Pair<A, B> {
 Instantiate by supplying concrete types:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 struct Pair<A, B> {
     A first;
@@ -693,7 +699,7 @@ The compiler performs lazy monomorphic instantiation: `Pair<int, float>` becomes
 ### Template functions
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 T max<T>(T a, T b) {
     if (a > b) { return a; }
@@ -717,7 +723,7 @@ The return type is `T`: the function returns the same type it is instantiated wi
 ```eskiu
 import <result>;
 
-extern int printf(string fmt, ...);
+import <io>;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) {
@@ -772,7 +778,7 @@ interface Drawable {
 ### Implementing structurally
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 interface Drawable {
     void draw();
@@ -862,7 +868,7 @@ generic functions, not keywords):
 
 ```eskiu
 import <mem>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let buf: *int = alloc<int>(8);
@@ -883,7 +889,7 @@ Output: `0 1 4 9 16 25 36 49`
 ### Null checks
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let p: *int = null;
@@ -942,7 +948,7 @@ project/
 `utils.esk`:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 void greet(string name) {
     printf("Hello, %s!\n", name);
@@ -992,7 +998,7 @@ Available modules:
 | `<list>`     | `List<T>`: `List_init`, `push`, `get`, `len`, `free`; `map`, `filter`, `reduce`, `find`, `any`, `all`, `contains`, `index_of`, `reverse`, `slice`, `unique`, `clear`, `pop`, `insert` |
 | `<map>`      | `Map<V>`: string-keyed hash map (`Map_init`/`_at`/`_get`/`_free`); `HashMap<K,V>`: keyed on any type via `hash`/`eq` function pointers; both with `has`, `get_or`, `len`, `remove`, `keys`, `values`, `each`; `Set<T>`: hash set (`add`/`has`/`remove`/`len`/`each`/`items`) |
 | `<bytes>`    | `Bytes`: growable, binary-safe byte buffer (`_init`/`_push`/`_append`/`_slice`/`_eq`/`_from_str`, plus base64 round-trip) |
-| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `str_join`, `str_format` |
+| `<string>`   | `String`: `init`, `from`, `append`, `concat`, `cstr`, `len`, `free`, `starts_with`, `ends_with`, `trim`, `split`, `next_token`; `find`, `contains`, `replace`, `replace_all`, `split_str`, `lines`, `join`, `lower`, `upper`, `repeat`, `pad_left`, `pad_right`, `to_double`, `parse_double`, `from_double`, `appendf`; `List_join`, `String_format` |
 | `<ctype>`    | ASCII character classes: `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`, `is_ident_start`, `is_ident_cont` |
 | `<math>`     | `sqrt`, `fabs`, `pow`, `floor`, `ceil`, `abs`         |
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`; `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin` |
@@ -1013,25 +1019,25 @@ Available modules:
 | `<json>`     | `Json` builder + `json_parse` → `JsonValue` tree; build and edit with `JsonValue_object`/`_array`/`_set`/`_push`/`_remove`, print with `JsonValue_stringify`/`_pretty`, paths with `json_get` |
 | `<csv>`      | RFC 4180 CSV: `csv_parse` into a `CsvTable` (`CsvTable_get(t, row, "column")`), `csv_write_row` |
 | `<dotenv>`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` |
-| `<hash>`     | SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), `hex_encode`/`hex_decode`, `hash_equal` |
+| `<hash>`     | SHA-256, SHA-1, MD5, HMAC-SHA256 (streaming and one-shot), `hash_hex_encode`/`hash_hex_decode`, `hash_equal` |
 | `<multipart>`| extract a named part from a `multipart/form-data` body: `multipart_boundary`, `multipart_part` |
 | `<base64>`   | `base64_encode` / `base64_decode` over byte buffers |
 | `<random>`   | seedable PRNG (xoshiro256\*\*): `Rng_seed`, `Rng_next`, `Rng_below`, `Rng_range`, `Rng_double`, `Rng_bool`, `Rng_fill` |
 | `<regex>`    | linear-time regex (Thompson NFA) over UTF-8: `regex_match`, `regex_compile`/`Regex_search` with capture groups (`Match_group`), `\d \w \s`, `\p{L}` Unicode classes, `* + ? {m,n}`, `|`, `( )`, `(?:)`, `(?i)`, `^ $`, `\b \B`, `\Q..\E` (RE2 syntax, as Go's regexp) |
-| `<sort>`     | generic in-place heapsort `sort<T>` + `bsearch<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
-| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, form-query lookup `url_query_get`; `url_parse` into a `Url`, `url_resolve`, `url_query_add` |
+| `<sort>`     | generic in-place heapsort `sort<T>` + `sort_search<T>` over a `*T` array, via a `cmp(&x, &y)` function; `List_sort_by` sorts a `List<T>` |
+| `<url>`      | RFC 3986 percent-encoding: `url_encode`, `url_decode`, form-query lookup `url_query_get`; `url_parse` into a `Url`, `Url_resolve`, `url_query_add` |
 | `<uuid>`     | RFC 4122 v4 UUIDs: `uuid_v4(&rng, &out)` (built on `<random>`) |
-| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `duration_format`, `Stopwatch` |
+| `<time>`     | `time_now_ms`, `time_now_s`, `time_monotonic_ms`, `time_sleep_ms`; UTC civil calendar (`DateTime`, `time_to_utc`/`DateTime_to_epoch`, `DateTime_format_iso`); local time, `time_format`/`time_parse` (strftime-style), `time_format_duration`, `Stopwatch` |
 | `<env>`      | `env_get`, `env_has`, `env_get_or`, `env_get_int`, `env_set`, `env_unset`, `env_list` |
 | `<process>`  | `process_run` (capture output, stdin text, cwd, env, timeout), `sh`, `sh_with`, `process_spawn` + `Process_write_stdin`/`_read`/`_wait`/`_kill`, `process_exit`, `process_pid` |
-| `<args>`     | command-line parsing: `ArgParser`, `args_flag`, `args_option`, `args_option_int`, `args_argument`, generated `--help`, `ArgParser_parse_or_exit`, `args_get`/`args_get_int`/`args_get_flag`/`args_count` |
-| `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
+| `<args>`     | command-line parsing: `ArgParser`, `ArgParser_flag`, `ArgParser_option`, `ArgParser_option_int`, `ArgParser_argument`, generated `--help`, `ArgParser_parse_or_exit`, `ArgParser_get`/`ArgParser_get_int`/`ArgParser_get_flag`/`ArgParser_count` |
+| `<term>`     | ANSI styles and colors (`TERM_BOLD \| TERM_RED`, `term_fg256`, `term_fg_rgb`), `term_style`, `term_println`, `term_is_tty`, `term_width`; honors `NO_COLOR`/`FORCE_COLOR` |
 | `<log>`      | `log_info`/`log_warn`/`log_error`/`log_debug`/`log_trace` (printf-style), `LOG_LEVEL` or `log_set_level`, timestamps, `log_set_file` |
 | `<path>`     | `path_join`, `path_basename`, `path_dirname`, `path_extension`, `path_is_absolute` |
 | `<threading>`| `Mutex`, `Cond`, `Sem` over pthread (pairs with `thread_create`/`thread_join`) |
 | `<eventloop>`| readiness reactor over kqueue/epoll: `el_new`/`EventLoop_add_read`/`EventLoop_run`/`EventLoop_stop`/`EventLoop_add_timer` |
 | `<atomic>`   | atomic `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` |
-| `<future>`   | the `async`/`await` runtime: `Future<T>`, `future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
+| `<future>`   | the `async`/`await` runtime: `Future<T>`, `Future_poll`/`complete`/`drop`, `spawn`/`select2`/`join2` |
 | `<executor>` | `Executor`: event loop + thread-safe ready-queue + self-pipe wakeup |
 | `<net_async>`| async leaf futures: `net_read_async`, `net_accept_async` |
 | `<timer>`    | `timer_after(lp, ms)`: a `*Future<int>` that completes after a delay (timeouts) |
@@ -1058,7 +1064,7 @@ everything.
 ```eskiu
 import <mem>;
 import <alloc>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     *uint8 backing = alloc<uint8>(4096);
@@ -1076,7 +1082,7 @@ int main() {
 
 ```eskiu
 import <json>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let j: Json;  Json_init(&j);
@@ -1114,7 +1120,7 @@ what went wrong. Free the response with `Response_free` either way.
 
 ```eskiu
 import <fetch>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let r: Response;
@@ -1170,10 +1176,10 @@ struct Count { String path; int lines; }
 int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "count_lines", "Count the lines of the .esk files under DIR.");
-    args_argument(&p, "dir", "where to look", ARGS_REQUIRED);
+    ArgParser_argument(&p, "dir", "where to look", ARGS_REQUIRED);
     ArgParser_parse_or_exit(&p, argc, argv);
 
-    let pattern: String;  pattern.from(args_get(&p, "dir"));
+    let pattern: String;  pattern.from(ArgParser_get(&p, "dir"));
     pattern.append("/**/*.esk");
     let files: List<String>;  List_init<String>(&files, 16);
     fs_glob(pattern.cstr(), &files);
@@ -1220,7 +1226,7 @@ let g: fn(int, int)->bool;
 ### Writing a lambda
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let double_it: fn(int)->int = int(int x) { return x * 2; };
@@ -1232,7 +1238,7 @@ int main() {
 ### Passing lambdas as arguments
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int apply(fn(int)->int f, int x) {
     return f(x);
@@ -1251,7 +1257,7 @@ int main() {
 A lambda can reference variables declared in the surrounding scope. Those variables are captured by value at the point the lambda is created. The lambda holds its own copy, so it may not assign one (`x = 1`, `x++` inside the body is a compile error) or call a method on it that takes a plain `*T self` (only a `const T* self` method); to share state, write through a pointer or use a global or a `static` local.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int base = 10;
@@ -1265,7 +1271,7 @@ int main() {
 Closures can be passed to higher-order functions exactly like plain lambdas: the `fn(T)->R` type is the same in both cases.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int apply(fn(int)->int f, int x) { return f(x); }
 
@@ -1288,7 +1294,7 @@ Under the hood, `fn(T)->R` is a fat pointer `{fn_ptr, env_ptr}`. Non-capturing l
 ### Basic usage
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     *void t = thread_create(void() { printf("hello from thread\n"); });
@@ -1300,7 +1306,7 @@ int main() {
 ### Capturing outer state
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     int id = 42;
@@ -1327,7 +1333,7 @@ Use `try`, `catch`, `finally`, and `throw` for structured exception handling.
 ### Basic try/catch
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int divide(int a, int b) {
     if (b == 0) {
@@ -1356,7 +1362,7 @@ also when the `try` body or a `catch` handler leaves early with `return`, `break
 `continue`:
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     try {
@@ -1583,7 +1589,7 @@ int x = s[9];                    // under --safe: aborts here; without it: reads
 `sizeof(T)` is a compile-time constant expression that returns the size of a type in bytes as an `int64`. It works for any Eskiu type, including structs.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 struct Grid {
     float x;
@@ -1608,7 +1614,7 @@ int main() {
 A `union` is declared like a `struct`, but all fields share offset 0. The size of the union equals the size of its largest field, rounded up to the alignment of its most-aligned field, as in C. Reading a field reinterprets the stored bytes as that field's type.
 
 ```eskiu
-extern int printf(string fmt, ...);
+import <io>;
 
 union Value {
     int   i;
@@ -1633,7 +1639,7 @@ Pointer arithmetic scales by the pointed-to type's size, matching C behaviour. A
 
 ```eskiu
 import <mem>;
-extern int printf(string fmt, ...);
+import <io>;
 
 int main() {
     let buf: *int = alloc<int>(4);

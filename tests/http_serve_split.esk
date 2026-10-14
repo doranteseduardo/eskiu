@@ -87,9 +87,9 @@ int main() {
     g_lp = el_new(256);
     Future<uint8>* f = http_serve_async(g_lp, fd, handle, 5);
     let t: *void = thread_create(async_clients);
-    if (future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
+    if (Future_poll<uint8>(f, void() { EventLoop_stop(g_lp); }) == 0) { EventLoop_run(g_lp); }
     thread_join(t);
-    free_future<uint8>(f);
+    Future_free<uint8>(f);
     EventLoop_free(g_lp);
     net_close(fd);
     return 0;

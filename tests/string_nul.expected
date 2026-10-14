@@ -1,0 +1,3 @@
+concat len=6
+self concat len=12 byte6=120
+parts=2 first len=5 second len=1

@@ -1431,7 +1431,7 @@ void AsyncTransform::run(Program* program) {
                     ExprPtr callE = aw->operand; rewrite(callE, vars);
                     states[cur].push_back(assign(fr(awf), callE));
                     int next = newState();
-                    ExprPtr poll = std::make_shared<TemplateCallExpr>("future_poll",
+                    ExprPtr poll = std::make_shared<TemplateCallExpr>("Future_poll",
                         std::vector<std::string>{Tp},
                         std::vector<ExprPtr>{ fr(awf), resumeWaker(resumeN, next, "*" + frameT, tps) });
                     std::vector<BlockItem> pk;
@@ -1449,7 +1449,7 @@ void AsyncTransform::run(Program* program) {
                     states[next].push_back(assign(fr(vd->name), std::make_shared<MemberExpr>(fr(awf), "value")));
                     states[next].push_back(exprStmt(std::make_shared<FreeClosureExpr>(
                         std::make_shared<MemberExpr>(fr(awf), "waker"))));
-                    states[next].push_back(exprStmt(std::make_shared<TemplateCallExpr>("free_future",
+                    states[next].push_back(exprStmt(std::make_shared<TemplateCallExpr>("Future_free",
                         std::vector<std::string>{Tp}, std::vector<ExprPtr>{ fr(awf) })));
                     return next;
                 }
@@ -1735,8 +1735,8 @@ void AsyncTransform::run(Program* program) {
         // ── Cancellation: dropped while parked at an await, the future runs the defers
         //    and finally blocks pending there once, from states of their own (the on_drop
         //    closure resumes into them). A cleanup that awaits runs detached: on_drop marks
-        //    the frame DETACHED (4), so future_drop leaves the frame alone, and the last
-        //    cleanup state frees it (or, when it ends inside future_drop, lets that free it).
+        //    the frame DETACHED (4), so Future_drop leaves the frame alone, and the last
+        //    cleanup state frees it (or, when it ends inside Future_drop, lets that free it).
         struct DropState { int parked, cleanup; bool detached; };
         std::vector<DropState> dropStates;
         auto nullOf = [](const std::string& t) { return std::make_shared<CastExpr>(t, intlit(0)); };
@@ -1979,7 +1979,7 @@ void AsyncTransform::run(Program* program) {
         ctor.push_back(assign(fr(frn.awaiting), std::make_shared<CastExpr>("*FutureHdr", intlit(0))));
         ctor.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "state"), intlit(0)));
         // ret is raw-allocated (not via future_new); init waker to a no-op so
-        // free_future/future_drop can free_closure it safely.
+        // Future_free/Future_drop can free_closure it safely.
         ctor.push_back(assign(std::make_shared<MemberExpr>(fr(frn.ret), "waker"),
             std::make_shared<LambdaExpr>(
                 std::vector<std::pair<std::string,std::string>>{}, "void",
@@ -1989,7 +1989,7 @@ void AsyncTransform::run(Program* program) {
         {
             std::vector<BlockItem> cascade;
             cascade.push_back(exprStmt(std::make_shared<CallExpr>(
-                ident("future_drop"), std::vector<ExprPtr>{ fr(frn.awaiting) })));
+                ident("Future_drop"), std::vector<ExprPtr>{ fr(frn.awaiting) })));
             std::vector<BlockItem> dropBody;
             dropBody.push_back(std::make_shared<IfStmt>(
                 binop(fr(frn.awaiting), "!=", std::make_shared<CastExpr>("*FutureHdr", intlit(0))),
@@ -2010,7 +2010,7 @@ void AsyncTransform::run(Program* program) {
                     std::make_shared<BlockStmt>(go), cleanup);
             }
             if (cleanup) dropBody.push_back(cleanup);
-            // NOTE: do not free the frame here — future_drop frees it (== free &ret)
+            // NOTE: do not free the frame here — Future_drop frees it (== free &ret)
             // after this on_drop returns, and frees this closure's env too.
             auto dropLam = std::make_shared<LambdaExpr>(
                 std::vector<std::pair<std::string,std::string>>{}, "void",

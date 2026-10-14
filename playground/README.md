@@ -29,7 +29,7 @@ The build context is **this directory** (`playground/`):
 
 ```bash
 docker build -t eskiu-playground .
-docker build --build-arg ESKIU_VERSION=0.9.3 -t eskiu-playground .   # a specific release
+docker build --build-arg ESKIU_VERSION=0.10.0 -t eskiu-playground .   # a specific release
 ```
 
 ## Run on the VPS

@@ -5,7 +5,7 @@ extern int printf(string fmt, ...);
 
 enum Ev { Data(int), Stop }
 
-Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); future_complete<T>(f, v); return f; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 int may(int x) { if (x > 1) { throw x; } return x; }
 
 async int on_ev(Ev e) {
@@ -29,14 +29,14 @@ async int guarded(int e) {
 
 int main() {
     Future<int>* a = on_ev(Data(20));
-    future_poll<int>(a, void() {});
+    Future_poll<int>(a, void() {});
     Future<int>* b = on_ev(Stop);
-    future_poll<int>(b, void() {});
+    Future_poll<int>(b, void() {});
     Future<int>* c = guarded(1);
-    future_poll<int>(c, void() {});
+    Future_poll<int>(c, void() {});
     Future<int>* d = guarded(5);
-    future_poll<int>(d, void() {});
+    Future_poll<int>(d, void() {});
     printf("%d %d %d %d\n", a.value, b.value, c.value, d.value);
-    free_future<int>(a); free_future<int>(b); free_future<int>(c); free_future<int>(d);
+    Future_free<int>(a); Future_free<int>(b); Future_free<int>(c); Future_free<int>(d);
     return 0;
 }

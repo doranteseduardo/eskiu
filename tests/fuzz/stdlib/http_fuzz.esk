@@ -1,5 +1,5 @@
 // Fuzz target: <http> request parsing. The raw bytes go through HttpRequest_parse +
-// HttpRequest_header (the String request), http_parse_head + HttpReq_header (the
+// HttpRequest_header (the String request), HttpReq_parse_head + HttpReq_header (the
 // binary-safe request), and, for inputs that fit a socket buffer, the full
 // http_recv path over a socketpair (Content-Length handling, body reads).
 import "harness.esk";
@@ -33,11 +33,11 @@ void fuzz_one(*uint8 data, int len, string s) {
     http_lookups_req(&req);
     HttpRequest_free(&req);
 
-    int hend = http_idx_header_end(data, len);
+    int hend = _http_idx_header_end(data, len);
     if (hend > len) { fuzz_fail("header end past the input"); }
     if (hend < 0) { hend = len; }
     let r: HttpReq; HttpReq_init(&r);
-    http_parse_head(&r, data, hend);
+    HttpReq_parse_head(&r, data, hend);
     http_lookups(&r);
     HttpReq_free(&r);
 

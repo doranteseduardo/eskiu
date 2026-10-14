@@ -15,7 +15,7 @@ import <future>;
 import <timer>;
 import <net_async>;
 import <eventloop>;
-extern int   printf(string fmt, ...);
+import <io>;
 extern int   pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
 
@@ -30,8 +30,8 @@ async int read_timeout(EventLoop* lp, int fd, int64 ms) {
     Future<int>* rd = net_read_async(lp, fd, &ba[0], (int64)64);
     Future<int>* to = timer_after(lp, ms);
     int w = await select2(rd, to);
-    if (w == 0) { int n = rd.value;  free_future<int>(rd);  return n; }   // data won
-    free_future<int>(to);  return -1;                                     // timer won
+    if (w == 0) { int n = rd.value;  Future_free<int>(rd);  return n; }   // data won
+    Future_free<int>(to);  return -1;                                     // timer won
 }
 
 // Wait for BOTH reads to finish, then return the total bytes. join2 resumes once
@@ -41,7 +41,7 @@ async int read_both(EventLoop* lp, int fa, int fb) {
     Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
     await join2(ra, rb);
     int total = ra.value + rb.value;
-    free_future<int>(ra);  free_future<int>(rb);
+    Future_free<int>(ra);  Future_free<int>(rb);
     return total;
 }
 
@@ -55,8 +55,8 @@ async void background(EventLoop* lp, int fd) {
 
 // Drive one int-returning future to completion on the loop and return its value.
 int run(Future<int>* f) {
-    if (future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
-    int v = f.value;  free_future<int>(f);  return v;
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    int v = f.value;  Future_free<int>(f);  return v;
 }
 
 int main() {

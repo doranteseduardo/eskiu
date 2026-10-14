@@ -1,1 +1,2 @@
 rc=-11 tls=0 (https is not available: the program was built with ESKIU_FETCH_NO_TLS)
+redirect: rc=-11 (https is not available: the program was built with ESKIU_FETCH_NO_TLS)

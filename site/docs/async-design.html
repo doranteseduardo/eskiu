@@ -140,10 +140,10 @@ a:hover { color: var(--ink); }
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.0</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.1</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.10.0</a>
+        <a class="btn-install" href="../index.html#install">Install 0.10.1</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -272,7 +272,7 @@ if (CAS(&amp;F.state, PENDING -&gt; WAITING)) {
     frame.awaiting = (FutureHdr*)F; return;  // parked; executor will resume us
 }
 // CAS failed -&gt; F is already READY (completer beat us): take the value inline
-let x: T = F.value;  frame.awaiting = null;  free_future(F);
+let x: T = F.value;  frame.awaiting = null;  Future_free(F);
 // ...continue with x...
 </code></pre>
 <h3 id="32-complete-producer-any-thread">3.2 Complete (producer, any thread)</h3>
@@ -283,24 +283,24 @@ if (old == WAITING) F.waker();               // awaiter parked -&gt; schedule it
 // old == PENDING: awaiter not parked yet; it sees READY in its CAS and takes value inline
 // old == CANCELLED: dropped first -&gt; producer releases &lt;result&gt; and frees (§3.4 arbitration)
 </code></pre>
-<p><strong>Where the continuation runs.</strong> <code>future_complete</code> calls the waker on the
+<p><strong>Where the continuation runs.</strong> <code>Future_complete</code> calls the waker on the
 completing thread, and the waker the transform generates resumes the coroutine
 directly (<code>fr.st = N; __f_resume(fr);</code>). Thread affinity is the executor's job: a
 producer that completes a future on another thread hands the resume to the
 awaiter's executor with <code>Executor_schedule</code>, which queues it and wakes that
 executor, so the continuation runs on the executor's own thread (§6).</p>
-<h3 id="33-drop-cancel-any-thread-future_dropfuturehdrf">3.3 Drop / cancel (any thread): <code>future_drop((FutureHdr*)F)</code></h3>
+<h3 id="33-drop-cancel-any-thread-future_dropfuturehdrf">3.3 Drop / cancel (any thread): <code>Future_drop((FutureHdr*)F)</code></h3>
 <pre><code>old = SWAP(&amp;F.state, CANCELLED);
-if (old == READY) { free_future(F); }        // completed already: just free memory
+if (old == READY) { Future_free(F); }        // completed already: just free memory
 else { F.on_drop(); }                        // PENDING/WAITING: release + cascade + free
 </code></pre>
 <ul>
 <li>A <strong>leaf</strong> future's <code>on_drop</code> deregisters its fd/timer from the loop, frees itself.</li>
-<li>A <strong>coroutine</strong> future's <code>on_drop</code> cascades: <code>if (frame.awaiting) future_drop(frame.awaiting);</code>,
+<li>A <strong>coroutine</strong> future's <code>on_drop</code> cascades: <code>if (frame.awaiting) Future_drop(frame.awaiting);</code>,
   runs the <code>defer</code>/<code>finally</code> code pending at the await it is parked at (§7), and the
   frame is freed. The coroutine does not continue past the await. When that cleanup
   awaits, <code>on_drop</code> first sets <code>state</code> to <code>DETACHED</code> (4) and the frame outlives
-  <code>future_drop</code> (§7.1).</li>
+  <code>Future_drop</code> (§7.1).</li>
 </ul>
 <h3 id="34-arbitration-the-one-invariant">3.4 Arbitration (the one invariant)</h3>
 <blockquote>
@@ -355,11 +355,11 @@ case 0:
   f.waker_of_g = &lt;closure capturing f: &quot;f.st=1; __fetch_len_resume(f)&quot;&gt;;
   // park via §3.1 against g; if g already ready, fall through with g.value
   ... if parked: f.awaiting=(FutureHdr*)g; f.st=1; return;
-  f.fd = g.value; f.awaiting=null; free_future(g);
+  f.fd = g.value; f.awaiting=null; Future_free(g);
 case 1:
   Future&lt;int&gt;* h = net_read_async(f.lp, f.fd, f.buf, 64);
   ... (same park/fast-path against h, resume label 2) ...
-  int n = h.value; f.awaiting=null; free_future(h);
+  int n = h.value; f.awaiting=null; Future_free(h);
   // return n: complete our own future (§3.2), then the awaiter's waker frees f
   f.ret.value = n; f.ret.on_drop = &lt;just-free f&gt;;
   old = SWAP(&amp;f.ret.state, READY); if (old==WAITING) f.ret.waker();
@@ -529,12 +529,12 @@ resume on the right thread.</p>
 <h2 id="7-memory-and-cancellation-one-invariant">7. Memory and cancellation: one invariant</h2>
 <blockquote>
 <p><strong>Every future is finalized exactly once</strong>: <em>awaited to completion</em> (the awaiter
-frees it), or <em>dropped</em> (<code>future_drop</code> frees it via <code>on_drop</code>). The atomic swap to
+frees it), or <em>dropped</em> (<code>Future_drop</code> frees it via <code>on_drop</code>). The atomic swap to
 a terminal state picks the single winner (§3.4); the other path only frees.</p>
 </blockquote>
 <p>One allocation per async call (frame + embedded return future), one per leaf future.
 A future created but never awaited, handed to a combinator or <code>spawn</code>, or dropped
-leaks: the caller owns it and must release it (<code>future_drop</code>, or <code>spawn</code> for a
+leaks: the caller owns it and must release it (<code>Future_drop</code>, or <code>spawn</code> for a
 detached task). The transform does not insert an implicit drop.</p>
 <p><strong>Closure locals.</strong> Every local is a frame field, so a lambda bound to a local gets a heap
 env: the closure must survive a suspension. The frame owns that env when the local is only
@@ -569,21 +569,21 @@ cancellation). The cleanup then runs <strong>detached</strong>: the dropper's re
 nobody reads the result, so the frame becomes a task that owns itself until the cleanup
 ends. The hand-off uses three more values of <code>state</code>, reached only on this path and only
 by a coroutine future, so leaf futures and the four-state handshake are unchanged:</p>
-<pre><code>on_drop:        future_drop(awaiting); atomic_store(&amp;ret.state, DETACHED /*4*/);
+<pre><code>on_drop:        Future_drop(awaiting); atomic_store(&amp;ret.state, DETACHED /*4*/);
                 st = &lt;cleanup&gt;; resume();            // may park on the cleanup's own awaits
-future_drop:    ... f.on_drop(); free_closure(waker); free_closure(on_drop);
+Future_drop:    ... f.on_drop(); free_closure(waker); free_closure(on_drop);
                 if (CAS(&amp;f.state, DETACHED -&gt; ORPHANED /*5*/)) return;   // the cleanup owns f
                 free(f);
-cleanup end:    if (CAS(&amp;ret.state, DETACHED -&gt; CLEANED /*6*/)) return;  // still inside future_drop
+cleanup end:    if (CAS(&amp;ret.state, DETACHED -&gt; CLEANED /*6*/)) return;  // still inside Future_drop
                 free(frame);                          // ORPHANED: the frame frees itself
 </code></pre>
 <p>The awaited future is dropped first (the cascade), then the cleanup starts. A cleanup
-whose awaits are all ready finishes inside <code>future_drop</code> (<code>CLEANED</code>) and is freed there
-as before; one that suspends is freed by its last state. <code>future_drop</code> returns at once
+whose awaits are all ready finishes inside <code>Future_drop</code> (<code>CLEANED</code>) and is freed there
+as before; one that suspends is freed by its last state. <code>Future_drop</code> returns at once
 for a state of 4 or more, so dropping the future again while its cleanup runs is a no-op.
 A coroutine's own normal path never runs after a drop, so no completion can follow it.
 An exception that escapes a detached cleanup propagates to whatever resumed it (the event
-loop, or the <code>future_drop</code> caller before the first suspension), the same as one escaping
+loop, or the <code>Future_drop</code> caller before the first suspension), the same as one escaping
 a task given to <code>spawn</code>. The cleanup's awaits record no drop sites of their own: nobody
 holds the future any more.</p>
 <hr>
@@ -598,12 +598,12 @@ holds the future any more.</p>
 <li>Calling an <code>async</code> function without <code>await</code> yields <code>Future&lt;T&gt;*</code> (start now, await later,
   or hand to a combinator or <code>spawn</code>). The caller owns a future it neither awaits nor
   hands off and must drop it (§7).</li>
-<li><code>future_drop(f)</code> is the explicit cancel entry.</li>
-<li>At the top level a future is driven by hand: <code>future_poll(f, waker)</code> installs a
+<li><code>Future_drop(f)</code> is the explicit cancel entry.</li>
+<li>At the top level a future is driven by hand: <code>Future_poll(f, waker)</code> installs a
   waker that calls <code>EventLoop_stop</code>, <code>EventLoop_run(lp)</code> runs the loop until then (skip it when
-  <code>future_poll</code> returns 1, the future is already ready), and the caller reads
-  <code>f.value</code> and releases <code>f</code> with <code>free_future_polled</code>, which also frees the waker it
-  passed (<code>free_future</code> leaves the waker alone, since an <code>await</code> frees its own). There
+  <code>Future_poll</code> returns 1, the future is already ready), and the caller reads
+  <code>f.value</code> and releases <code>f</code> with <code>Future_free_polled</code>, which also frees the waker it
+  passed (<code>Future_free</code> leaves the waker alone, since an <code>await</code> frees its own). There
   is no <code>future_block</code> helper.</li>
 </ul>
 <hr>
@@ -613,8 +613,8 @@ holds the future any more.</p>
 <li><strong>Atomic intrinsics</strong> (<code>&lt;atomic&gt;</code>): <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_cas</code>/
   <code>atomic_swap</code> with acquire/release, lowering to LLVM atomics. The lock-free
   primitives the §3 handshake stands on; <code>&lt;threading&gt;</code> uses them too.</li>
-<li><strong><code>stdlib/future.esk</code></strong>: <code>Future&lt;T&gt;</code> + <code>FutureHdr</code> + <code>free_future</code> /
-  <code>future_drop</code>, implementing the §3 atomic protocol. The runtime model is
+<li><strong><code>stdlib/future.esk</code></strong>: <code>Future&lt;T&gt;</code> + <code>FutureHdr</code> + <code>Future_free</code> /
+  <code>Future_drop</code>, implementing the §3 atomic protocol. The runtime model is
   validated by a hand-written coroutine over this contract that drives a real
   non-blocking socket read via <code>&lt;eventloop&gt;</code>, is cleanly cancelled, and resumes on
   a different thread than it completed on (cross-thread completion: a worker thread

@@ -21,8 +21,9 @@
 //   KEY=                        empty value
 // A name starts with a letter or `_` and continues with letters, digits, `_`,
 // `.` or `-`. A later assignment of the same name wins. CRLF line endings are
-// accepted. Anything else (no `=`, a bad name, an unterminated quote, text after
-// a closing quote) is an error with its line number.
+// accepted (inside a quoted value one reads as "\n"). Anything else (no `=`, a
+// bad name, an unterminated quote, text after a closing quote) is an error with
+// its line number.
 
 import <env>;
 import <map>;
@@ -120,6 +121,7 @@ int _dotenv_parse_buf(*char p, int64 n, Map<string>* m) {
                 char c = p[i];
                 if (c == q) { i++; break; }
                 if (c == '\n') { line++; }
+                if (c == '\r' && i + 1 < n && p[i + 1] == '\n') { i++; continue; }   // a CRLF line end inside quotes is "\n"
                 if (c == '\\' && q == '"' && i + 1 < n) {
                     const char e = p[i + 1];
                     i += 2;

@@ -19,12 +19,12 @@ import <path>;
 
 // "12.3K"-style size into `out`.
 void human_size(int64 n, String* out) {
-    if (n < 1024) { str_format(out, "%lldB", n); return; }
+    if (n < 1024) { String_format(out, "%lldB", n); return; }
     const string[4] units = {"K", "M", "G", "T"};
     double v = (double)n / 1024.0;
     int u = 0;
     while (v >= 1024.0 && u < 3) { v = v / 1024.0; u++; }
-    str_format(out, "%.1f%s", v, units[u]);
+    String_format(out, "%.1f%s", v, units[u]);
 }
 
 int list_dir(ArgParser* p, string dir) {
@@ -38,9 +38,9 @@ int list_dir(ArgParser* p, string dir) {
         return 1;
     }
     log_debug("%s: %d entries", dir, names.size);
-    const bool all = args_get_flag(p, "all") == 1;
-    const bool long_fmt = args_get_flag(p, "long") == 1;
-    const int64 min_size = (int64)args_get_int(p, "min-size");
+    const bool all = ArgParser_get_flag(p, "all") == 1;
+    const bool long_fmt = ArgParser_get_flag(p, "long") == 1;
+    const int64 min_size = (int64)ArgParser_get_int(p, "min-size");
     let path: String;  path.init(64);
     let line: String;  line.init(128);
     let cell: String;  cell.init(32);
@@ -82,32 +82,32 @@ int main(int argc, string* argv) {
     let p: ArgParser;
     ArgParser_init(&p, "dir_list", "List the entries of each directory (default: the current one).");
     defer ArgParser_free(&p);
-    args_flag(&p, "-a", "--all", "include entries starting with '.'");
-    args_flag(&p, "-l", "--long", "show sizes and modification times");
-    args_flag(&p, "-v", "--verbose", "log progress to stderr");
-    args_option_int(&p, "-m", "--min-size", "BYTES", 0, "skip files smaller than BYTES");
-    args_argument(&p, "dirs", "directories to list", ARGS_MANY);
+    ArgParser_flag(&p, "-a", "--all", "include entries starting with '.'");
+    ArgParser_flag(&p, "-l", "--long", "show sizes and modification times");
+    ArgParser_flag(&p, "-v", "--verbose", "log progress to stderr");
+    ArgParser_option_int(&p, "-m", "--min-size", "BYTES", 0, "skip files smaller than BYTES");
+    ArgParser_argument(&p, "dirs", "directories to list", ARGS_MANY);
     ArgParser_parse_or_exit(&p, argc, argv);
 
-    if (args_get_flag(&p, "verbose") == 1) { log_set_level(LOG_DEBUG); }
+    if (ArgParser_get_flag(&p, "verbose") == 1) { log_set_level(LOG_DEBUG); }
     let sw: Stopwatch;
     sw.start();
     int rc = 0;
-    const int n = args_count(&p, "dirs");
+    const int n = ArgParser_count(&p, "dirs");
     if (n == 0) { rc = list_dir(&p, "."); }
     for (i in 0..n) {
         if (n > 1) {
             if (i > 0) { println(""); }
             let head: String;  head.init(32);
-            term_style(&head, args_get_at(&p, "dirs", i), TERM_UNDERLINE);
+            term_style(&head, ArgParser_get_at(&p, "dirs", i), TERM_UNDERLINE);
             head.push(':');
             println(head.cstr());
             head.free();
         }
-        if (list_dir(&p, args_get_at(&p, "dirs", i)) != 0) { rc = 1; }
+        if (list_dir(&p, ArgParser_get_at(&p, "dirs", i)) != 0) { rc = 1; }
     }
     let took: String;  took.init(16);
-    duration_format(sw.elapsed_ms(), &took);
+    time_format_duration(sw.elapsed_ms(), &took);
     log_debug("done in %s", took.cstr());
     took.free();
     return rc;

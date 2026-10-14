@@ -1084,6 +1084,11 @@ void TypeChecker::visit(VarDecl* node) {
     // Record definition location
     if (node->line > 0 && !inInstance)
         definitionLocations[node->name] = {node->line, node->col, diagFile()};
+    // A `fn(...)` local declared without a value can still be a lambda local: lambdas
+    // assigned to it later (`f = <lambda>`) are bound to it.
+    if (!node->initializer && scopes.size() > 1 && !node->isStatic && !inInstance &&
+        ty::Type::parse(node->type).isFn())
+        lambdaLocals.insert(node->name);
     if (node->initializer) {
         // Reconcile a lambda initializer's return type with a declared fn(...)->R
         // target BEFORE checking its body. A mismatched lambda header (e.g. an

@@ -34,7 +34,7 @@ declare ptr @memchr(ptr, i32, i64)
 
 declare i32 @printf(ptr, ...)
 
-define void @spawn_hdr(ptr %f) {
+define void @_spawn_hdr(ptr %f) {
 entry:
   %__lambda0.fat = alloca { ptr, ptr }, align 8
   %reap = alloca { ptr, ptr }, align 8
@@ -82,7 +82,7 @@ merge:                                            ; preds = %entry
   ret void
 }
 
-define ptr @select2_hdr(ptr %a, ptr %b) {
+define ptr @_select2_hdr(ptr %a, ptr %b) {
 entry:
   %__lambda4.fat = alloca { ptr, ptr }, align 8
   %onB = alloca { ptr, ptr }, align 8
@@ -151,7 +151,7 @@ then:                                             ; preds = %entry
   %clos.env10 = extractvalue { ptr, ptr } %22, 1
   call void @free(ptr %clos.env10)
   %23 = load ptr, ptr %b2, align 8
-  call void @future_drop(ptr %23)
+  call void @Future_drop(ptr %23)
   %24 = load ptr, ptr %sel, align 8
   call void @future_complete_int(ptr %24, i32 0)
   %25 = load ptr, ptr %sel, align 8
@@ -179,7 +179,7 @@ then14:                                           ; preds = %merge
   %clos.env16 = extractvalue { ptr, ptr } %36, 1
   call void @free(ptr %clos.env16)
   %37 = load ptr, ptr %a1, align 8
-  call void @future_drop(ptr %37)
+  call void @Future_drop(ptr %37)
   %38 = load ptr, ptr %sel, align 8
   call void @future_complete_int(ptr %38, i32 1)
   %39 = load ptr, ptr %sel, align 8
@@ -190,7 +190,7 @@ merge15:                                          ; preds = %merge
   ret ptr %40
 }
 
-define ptr @join2_hdr(ptr %a, ptr %b) {
+define ptr @_join2_hdr(ptr %a, ptr %b) {
 entry:
   %__lambda6.fat = alloca { ptr, ptr }, align 8
   %onB = alloca { ptr, ptr }, align 8
@@ -313,7 +313,7 @@ merge17:                                          ; preds = %then16, %merge14
   ret ptr %48
 }
 
-define void @future_drop(ptr %f) {
+define void @Future_drop(ptr %f) {
 entry:
   %old = alloca i32, align 4
   %f1 = alloca ptr, align 8
@@ -656,7 +656,7 @@ entry:
   %waker1 = load { ptr, ptr }, ptr %waker, align 8
   store { ptr, ptr } %waker1, ptr %self, align 8
   %1 = load ptr, ptr %b, align 8
-  call void @future_drop(ptr %1)
+  call void @Future_drop(ptr %1)
   %2 = load ptr, ptr %sel, align 8
   call void @future_complete_int(ptr %2, i32 0)
   %3 = load { ptr, ptr }, ptr %self, align 8
@@ -734,7 +734,7 @@ entry:
   %waker1 = load { ptr, ptr }, ptr %waker, align 8
   store { ptr, ptr } %waker1, ptr %self, align 8
   %1 = load ptr, ptr %a, align 8
-  call void @future_drop(ptr %1)
+  call void @Future_drop(ptr %1)
   %2 = load ptr, ptr %sel, align 8
   call void @future_complete_int(ptr %2, i32 1)
   %3 = load { ptr, ptr }, ptr %self, align 8
@@ -926,7 +926,7 @@ then:                                             ; preds = %entry
   %2 = load ptr, ptr %fr, align 8
   %awaiting2 = getelementptr inbounds nuw %__one_frame, ptr %2, i32 0, i32 2
   %awaiting3 = load ptr, ptr %awaiting2, align 8
-  call void @future_drop(ptr %awaiting3)
+  call void @Future_drop(ptr %awaiting3)
   br label %merge
 
 merge:                                            ; preds = %then, %entry
