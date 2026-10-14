@@ -1,4 +1,4 @@
-// Eskiu IntelliJ plugin: wraps the TextMate grammar as an installable plugin.
+// Eskiu IntelliJ plugin: the TextMate grammar plus the Eskiu language server through LSP4IJ.
 // Build: ./gradlew buildPlugin  -> build/distributions/eskiu-intellij-<version>.zip
 //
 // Uses the IntelliJ Platform Gradle Plugin (2.x) and JDK 17+. It builds against 2024.1,
@@ -26,6 +26,8 @@ dependencies {
         )
         // Contribute our bundle to the platform's built-in TextMate engine.
         bundledPlugin(providers.gradleProperty("platformBundledPlugins").get())
+        // The LSP client the language server runs in.
+        plugin("com.redhat.devtools.lsp4ij", providers.gradleProperty("lsp4ijVersion").get())
     }
 }
 
@@ -39,10 +41,16 @@ intellijPlatform {
     buildSearchableOptions = false
 }
 
-// TextMate reads a bundle from disk, so ship it as files in the plugin directory.
+// TextMate reads a bundle from disk, so ship it as files in the plugin directory, and
+// the language server (`editor/vscode/server.js`, with the package.json it reads its
+// version from) next to it.
 tasks.prepareSandbox {
     from(layout.projectDirectory.dir("src/main/resources/bundles")) {
         into(intellijPlatform.projectName.map { "$it/bundles" })
+    }
+    from(layout.projectDirectory.dir("../../vscode")) {
+        include("server.js", "package.json")
+        into(intellijPlatform.projectName.map { "$it/server" })
     }
 }
 

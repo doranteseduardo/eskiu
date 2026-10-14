@@ -2,7 +2,8 @@
 
 Syntax highlighting for `.esk` files in IntelliJ IDEA (and other JetBrains IDEs:
 CLion, GoLand, PyCharm, RustRover, …) by **reusing the same TextMate grammar that
-powers the VS Code extension**, so the two never drift apart.
+powers the VS Code extension**, so the two never drift apart, and with the plugin
+(Option B) the language features of the Eskiu language server.
 
 JetBrains IDEs ship with a built-in TextMate engine, so no custom lexer/parser is
 needed: the grammar at `bundle/Syntaxes/eskiu.tmLanguage.json` (a copy of the
@@ -60,10 +61,23 @@ gains or loses syntax. Refresh both with:
 make -C editor sync-grammar     # or: cp editor/vscode/syntaxes/eskiu.tmLanguage.json editor/intellij/bundle/Syntaxes/
 ```
 
-## Scope: highlighting only
+## Language features (Option B)
 
-This integration gives **syntax highlighting + `.esk` file association**. It does not
-provide completion, go-to-definition, or inline error checking (the VS Code extension
-gets live `eskiuc --test-typechecker` diagnostics via its language server). A full
-JetBrains language plugin (Kotlin lexer/parser/PSI + an external annotator calling
-`eskiuc`) would add those, a larger, separate effort.
+The plugin also runs the Eskiu language server through
+[LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) (Red Hat's LSP client,
+installed from the Marketplace as a dependency). It bundles `editor/vscode/server.js`,
+the same server Neovim or Helix use, which calls the compiler's editor modes:
+
+- errors as you type (`--test-typechecker`);
+- completion: after `x.` the fields of `x`'s struct and the `Type_method` functions dot
+  syntax reaches, elsewhere the names in scope and the keywords (`--complete-at`);
+- hover with the type of a variable or field and the signature of a function or method
+  (`--hover-at`), and signature help while writing a call;
+- go to definition for variables, functions, methods (also from a dot-call) and fields
+  (`--definition-at`);
+- the Structure view (`--symbols`) and Reformat Code (`eskiuc fmt`).
+
+The server needs Node.js. It looks for `node` on the IDE's PATH, then in Homebrew, fnm,
+nvm and Volta installs, and for `eskiuc` in `build22/` or `build/` of the project, then
+`~/.eskiu/bin`, then PATH. Set either path in **Settings | Tools | Eskiu** when it is not
+found. Option A (the bundle alone) gives highlighting only.

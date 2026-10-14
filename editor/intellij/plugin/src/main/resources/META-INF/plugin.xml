@@ -4,16 +4,35 @@
   <vendor url="https://reactvision.xyz">ReactVision</vendor>
 
   <description><![CDATA[
-    Syntax highlighting for the Eskiu systems programming language (<code>.esk</code>),
-    powered by the same TextMate grammar as the VS Code extension.
+    Support for the Eskiu systems programming language (<code>.esk</code>): syntax
+    highlighting from the same TextMate grammar as the VS Code extension, and through
+    the Eskiu language server (LSP4IJ) errors as you type, completion (fields and
+    <code>Type_method</code> functions after <code>x.</code>), hover with types and
+    signatures, signature help, go to definition, the structure view and formatting.
+    The server runs on Node.js and calls <code>eskiuc</code>; set their paths in
+    Settings | Tools | Eskiu when they are not found.
   ]]></description>
 
-  <!-- TextMate support is provided by the bundled platform plugin. -->
   <depends>com.intellij.modules.platform</depends>
+  <!-- TextMate support is provided by the bundled platform plugin. -->
   <depends>org.jetbrains.plugins.textmate</depends>
+  <!-- The LSP client (Red Hat LSP4IJ, from the Marketplace). -->
+  <depends>com.redhat.devtools.lsp4ij</depends>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.textmate">
     <!-- Contribute the bundled grammar so it registers on install (no manual import). -->
     <bundleProvider implementation="xyz.reactvision.eskiu.EskiuBundleProvider"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+    <server id="eskiu" name="Eskiu" factoryClass="xyz.reactvision.eskiu.EskiuLanguageServerFactory">
+      <description><![CDATA[The Eskiu language server (eskiuc's editor modes).]]></description>
+    </server>
+    <fileNamePatternMapping patterns="*.esk" serverId="eskiu" languageId="eskiu"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <applicationConfigurable parentId="tools" id="xyz.reactvision.eskiu.settings"
+                             instance="xyz.reactvision.eskiu.EskiuConfigurable" displayName="Eskiu"/>
   </extensions>
 </idea-plugin>
