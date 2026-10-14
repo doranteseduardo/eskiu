@@ -925,6 +925,8 @@ void TypeChecker::visit(CallExpr* node) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
             calledFns.insert(mangled);           // -Wall: `x.m()` references `Type_m`
+            noteDeprecatedUse(mangled, member->memberLine > 0 ? member->memberLine : node->line,
+                              member->memberLine > 0 ? member->memberCol : node->col);
             recordMemberTooling(member, signatureText(mangled), mangled);
             // Dot syntax passes the receiver's address, so the function's first parameter
             // must be a pointer to the receiver's type (`*P self` or `const P* self`).
@@ -1039,11 +1041,15 @@ void TypeChecker::visit(CallExpr* node) {
         }
         // On a non-struct receiver the error is the undefined method (as the self-host
         // reports it), not also a member access.
+        // The same holds on a struct with no such field: the error is the method.
         std::string memberErr = "cannot access member '" + member->member + "' on non-struct type";
+        std::string fieldErr = "has no member '" + member->member + "'";
         for (size_t k = errsBeforeMember; k < errors.size();)
-            if (errors[k].find(memberErr) != std::string::npos) errors.erase(errors.begin() + (long)k);
+            if (errors[k].find(memberErr) != std::string::npos || errors[k].find(fieldErr) != std::string::npos)
+                errors.erase(errors.begin() + (long)k);
             else ++k;
-        errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
+        errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'" +
+                     didYouMean(member->member, 'm', getExpressionType(member->base.get())));
         expressionTypes[node] = "unknown";
         return;
     }
@@ -1059,6 +1065,7 @@ void TypeChecker::visit(CallExpr* node) {
             return;
         }
         calledFns.insert(funcName);  // -Wall: mark referenced
+        noteDeprecatedUse(funcName, identExpr->line, identExpr->col);
         // Record use-site for go-to-definition
         if (inPrimaryFile()) useLocations[{identExpr->line, identExpr->col}] = funcName;
     } else {
@@ -1173,7 +1180,7 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = "unknown";
             return;
         }
-        errorAt(node->callee.get(), "undefined function '" + funcName + "'");
+        errorAt(node->callee.get(), "undefined function '" + funcName + "'" + didYouMean(funcName, 'v'));
         expressionTypes[node] = "unknown";
         return;
     }
@@ -1278,6 +1285,8 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return false;
     FunctionDecl* fd = ft->second;
     calledFns.insert(fnName);
+    noteDeprecatedUse(fnName, member->memberLine > 0 ? member->memberLine : node->line,
+                      member->memberLine > 0 ? member->memberCol : node->col);
     recordMemberTooling(member, signatureText(fnName), fnName);
     for (auto& a : node->args) a->accept(this);
 
@@ -1553,7 +1562,8 @@ void TypeChecker::visit(MemberExpr* node) {
         }
 
         // Member not found in struct
-        errorAt(node,"struct '" + structName + "' has no member '" + node->member + "'");
+        errorAt(node,"struct '" + structName + "' has no member '" + node->member + "'" +
+                     didYouMean(node->member, 'm', baseType));
         expressionTypes[node] = "unknown";
     } else if (baseType == "unknown") {
         // Base type is unknown, can't validate member access
@@ -1658,7 +1668,10 @@ void TypeChecker::visit(IdentExpr* node) {
         return;
     }
     // -Wall: a function referenced as a value counts as used.
-    if (functionSignatures.count(node->name)) calledFns.insert(node->name);
+    if (functionSignatures.count(node->name)) {
+        calledFns.insert(node->name);
+        noteDeprecatedUse(node->name, node->line, node->col);
+    }
 
     // Escape soundness: a watched closure param referenced anywhere other than
     // as the immediate callee of a call escapes (see visit(FunctionDecl)).
@@ -1705,7 +1718,7 @@ void TypeChecker::visit(IdentExpr* node) {
                       "' needs explicit type arguments, as in " + node->name + "<int>()");
         expressionTypes[node] = "unknown";
     } else if (type.empty()) {
-        errorAt(node,"undefined variable '" + node->name + "'");
+        errorAt(node,"undefined variable '" + node->name + "'" + didYouMean(node->name, 'v'));
         expressionTypes[node] = "unknown";
     } else if (type[0] == '?' && narrowedNonNull.count(narrowKey(node->name))) {
         expressionTypes[node] = type.substr(1);   // proven non-null here: a plain `*T`
@@ -1926,6 +1939,7 @@ void TypeChecker::visit(ThreadCreateExpr* node) {
 }
 
 void TypeChecker::visit(TemplateCallExpr* node) {
+    noteDeprecatedUse(node->templateName, node->line, node->col);
     // The callee may assign any global: a global's narrowing ends after the call.
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     // Variadic access: va_arg<T>(ap) yields the next argument as T.

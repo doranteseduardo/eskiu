@@ -105,6 +105,12 @@ public:
 
     // -Wall: emit lint-style warnings (unused vars/params/functions, etc.)
     bool warnAll = false;
+    // A use of a `deprecated` function warns unless -Wno-deprecated.
+    bool warnDeprecated = true;
+    std::map<std::string, std::string> deprecatedFuncs;   // name -> message
+    // Uses already reported: the checker runs again after the async lowering.
+    static std::set<std::string>& deprecatedWarned() { static std::set<std::string> s; return s; }
+    void noteDeprecatedUse(const std::string& fn, int line, int col);
     bool warnExtra = false;   // -Wextra: signed/unsigned comparison mismatches, etc.
 
     // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
@@ -159,6 +165,9 @@ private:
                              const DefLocation* def = nullptr);
     void completeMembers(const std::string& recvType);
     void completeScope();
+    // " (did you mean 'x'?)" for the closest candidate within edit distance 2, else "".
+    // kind: 'v' a variable or function, 't' a type, or the receiver type of a member.
+    std::string didYouMean(const std::string& name, char kind, const std::string& recvType = "");
 
     // Symbol table: maps name -> type
     struct Symbol {

@@ -85,6 +85,7 @@ bool TypeChecker::check(Program* program) {
         if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
             auto& known = fnDecls[funcDecl->name];
             if (!known.first || funcDecl->body) known = {funcDecl, ""};
+            if (!funcDecl->deprecatedMsg.empty()) deprecatedFuncs[funcDecl->name] = funcDecl->deprecatedMsg;
             if (!funcDecl->typeParams.empty()) {
                 // A generic prototype (`T f<T>(T x);`) never replaces its definition.
                 FunctionDecl*& slot = funcTemplateDecls[funcDecl->name];
@@ -992,6 +993,50 @@ void TypeChecker::completeMembers(const std::string& recvType) {
         }
 }
 
+std::string TypeChecker::didYouMean(const std::string& name, char kind, const std::string& recvType) {
+    if (name.size() < 2 || name == kCompleteSentinel) return "";
+    std::vector<std::string> cands;
+    if (kind == 't') {
+        static const char* prims[] = {"int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
+                                      "uint32", "uint64", "float", "double", "bool", "char", "string", "void"};
+        for (const char* p : prims) cands.push_back(p);
+        for (const auto& [n, s] : structs) if (!templateInstanceArgs.count(n)) cands.push_back(n);
+        for (const auto& [n, s] : templateDecls) cands.push_back(n);
+        for (const auto& [n, s] : interfaceDecls) cands.push_back(n);
+        for (const auto& [n, s] : enumDecls) cands.push_back(n);
+        for (const auto& [n, s] : typeAliases) cands.push_back(n);
+    } else {
+        auto saved = std::move(completions);
+        completions.clear();
+        if (kind == 'm') completeMembers(recvType); else completeScope();
+        for (const auto& c : completions)
+            if (kind == 'm' || c.kind != "struct") cands.push_back(c.name);
+        completions = std::move(saved);
+    }
+    auto lower = [](std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+    std::string ln = lower(name);
+    size_t limit = name.size() <= 3 ? 1 : 2;
+    std::string best;
+    size_t bestD = limit + 1;
+    for (const auto& c : cands) {
+        if (c == name || c.empty() || c[0] == '_') continue;
+        std::string lc = lower(c);
+        if (lc.size() > ln.size() + limit || ln.size() > lc.size() + limit) continue;
+        std::vector<size_t> prev(lc.size() + 1), cur(lc.size() + 1);
+        for (size_t j = 0; j <= lc.size(); ++j) prev[j] = j;
+        for (size_t i = 1; i <= ln.size(); ++i) {
+            cur[0] = i;
+            for (size_t j = 1; j <= lc.size(); ++j)
+                cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ln[i - 1] == lc[j - 1] ? 0 : 1)});
+            std::swap(prev, cur);
+        }
+        size_t d = prev[lc.size()];
+        if (lc == ln) d = 0;
+        if (d < bestD || (d == bestD && c < best)) { bestD = d; best = c; }
+    }
+    return bestD <= limit ? " (did you mean '" + best + "'?)" : "";
+}
+
 // The names visible at an identifier: variables in scope (innermost first), then the
 // program's functions, types, enum members and constants.
 void TypeChecker::completeScope() {
@@ -1041,6 +1086,15 @@ void TypeChecker::warning(int line, int col, const std::string& message) {
     std::stringstream ss;
     ss << diagFile() << ":" << line << ":" << col << ": warning: " << userSpelling(message);
     std::cerr << ss.str() << "\n";
+}
+
+void TypeChecker::noteDeprecatedUse(const std::string& fn, int line, int col) {
+    if (!warnDeprecated || line <= 0) return;
+    auto it = deprecatedFuncs.find(fn);
+    if (it == deprecatedFuncs.end()) return;
+    if (!deprecatedWarned().insert(diagFile() + ":" + std::to_string(line) + ":" + std::to_string(col)).second) return;
+    std::string msg = it->second == " " ? "" : ": " + it->second;
+    warning(line, col, "'" + fn + "' is deprecated" + msg);
 }
 
 void TypeChecker::warnAssignInCondition(Expr* cond) {

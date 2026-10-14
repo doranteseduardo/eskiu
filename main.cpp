@@ -98,6 +98,10 @@ static llvm::cl::opt<bool> Safe("safe",
     llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"),
     llvm::cl::cat(EskiuCat));
 
+static llvm::cl::opt<bool> WnoDeprecated("Wno-deprecated",
+    llvm::cl::desc("Do not warn when a deprecated function is used"),
+    llvm::cl::cat(EskiuCat));
+
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
                    "and functions, assignment used as a condition, and locals "
@@ -227,6 +231,7 @@ static int testTypeChecker(const std::string& filename) {
         TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = filename;
         typeChecker.warnAll = Wall;
+        typeChecker.warnDeprecated = !WnoDeprecated;
         typeChecker.warnExtra = Wextra;
         bool success = typeChecker.check(program.get());
 
@@ -258,7 +263,7 @@ static int testCodegen(const std::string& filename) {
     try {
         // Type-check first: the async transform relies on resolved await types,
         // and codegen on the type checker's struct/enum registration.
-        TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+        TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = !WnoDeprecated;
         tc.sourceFile = filename;
         if (!tc.check(program.get())) {
             std::cerr << "Type checking failed!" << std::endl;
@@ -266,7 +271,7 @@ static int testCodegen(const std::string& filename) {
         }
         AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap(), &tc.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = filename;
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.sourceFile = filename;
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;
@@ -437,7 +442,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
             tc.sourceFile = std::string(InputFilename);
             bool ok = tc.check(program.get());
             std::string type = tc.getTypeAtPosition(line, col);
@@ -468,7 +473,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
             tc.sourceFile = std::string(InputFilename);
             bool ok = tc.check(program.get());
             std::string loc = tc.getDefinitionAt(line, col);
@@ -519,7 +524,7 @@ static int compilerMain(int argc, char** argv) {
                                    nullptr, nullptr, &spliced);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
             for (const auto& c : tc.completions)
@@ -600,6 +605,7 @@ static int compilerMain(int argc, char** argv) {
         TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = std::string(InputFilename);
         typeChecker.warnAll = Wall;
+        typeChecker.warnDeprecated = !WnoDeprecated;
         typeChecker.warnExtra = Wextra;
         if (!typeChecker.check(program.get())) {
             return 1;
@@ -607,7 +613,7 @@ static int compilerMain(int argc, char** argv) {
 
         AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap(), &typeChecker.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = std::string(InputFilename);
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.sourceFile = std::string(InputFilename);
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;

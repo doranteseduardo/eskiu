@@ -413,7 +413,8 @@ int esk_main(int argc, string* argv) {
         else if (cg_streq(a, "--ubsan") == 1) { san = 2; }
         else if (cg_streq(a, "--safe") == 1) { safe = 1; }
         else if (cg_streq(a, "-Wall") == 1 || cg_streq(a, "-Wextra") == 1
-              || cg_streq(a, "--Wall") == 1 || cg_streq(a, "--Wextra") == 1) { }   // lint warnings: C++ only
+              || cg_streq(a, "--Wall") == 1 || cg_streq(a, "--Wextra") == 1
+              || cg_streq(a, "-Wno-deprecated") == 1 || cg_streq(a, "--Wno-deprecated") == 1) { }   // warnings: C++ only
         else if (cg_streq(a, "--version") == 1
                 || cg_streq(a, "--test-lexer") == 1
                 || cg_streq(a, "--test-parser") == 1
