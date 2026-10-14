@@ -577,7 +577,7 @@ def main():
     if not args.no_differential and not clang:
         print("note: clang not found — running without the O0/O2 differential oracle")
 
-    seeds = [open(p).read() for p in glob.glob(str(TESTS / "*.esk"))]
+    seeds = [open(p).read() for p in sorted(glob.glob(str(TESTS / "*.esk")))]   # sorted: same order on every OS
     FINDINGS.mkdir(exist_ok=True)
     findings = 0
 

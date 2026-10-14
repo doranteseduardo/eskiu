@@ -76,6 +76,15 @@ jobs:
       - name: Fuzz (stdlib, asan)
         run: CC=clang-22 python3 tests/fuzz/stdlib_fuzz.py --inputs 1500 --seed 1
 
+      # The inputs a fuzz step flagged, to reproduce a finding locally.
+      - name: Fuzz findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: tests/fuzz/findings/
+          if-no-files-found: ignore
+
       # -O0 vs -O2 behavioral differential over the whole corpus: a program must
       # behave identically with and without the middle-end optimizer. Catches
       # optimization-path miscompiles (bad IR attributes, type/ABI mismatches, UB)
