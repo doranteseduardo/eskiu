@@ -301,7 +301,8 @@ std::string findPackageRoot(const std::string& start) {
     std::error_code ec;
     fs::path p = fs::absolute(start, ec);
     if (ec) return "";
-    p = p.lexically_normal();
+    p = fs::weakly_canonical(p, ec);
+    if (ec) return "";
     while (true) {
         if (fs::is_regular_file(p / "eskiu.toml", ec)) {
             std::string s = p.generic_string();
