@@ -1,0 +1,51 @@
+// Large arrays with a short `{...}` initializer: the zero tail is not built one
+// element at a time (bulk zero for a local, `{given, [rest x T] zeroinitializer}`
+// for a constant), so compile time and memory stay small.
+import <io>;
+
+struct Big {
+    int tag;
+    int64[1000] vals;
+}
+
+int[2000] g1 = {1, 2};
+int[40][2000] g2 = {{1}, {0, 5}};
+Big gb = Big{tag: 7, vals: {9, 8}};
+
+extern int[2000] ge;
+int use_ge() { return ge[1999] + ge[0]; }
+int[2000] ge = {4};
+
+// Never called: its 200 MB frame is only compiled.
+int never() {
+    int[50000000] huge = {1, 2, 3};
+    return huge[2];
+}
+
+int sum(int* p, int n) {
+    int s = 0;
+    for (i in 0..n) { s = s + p[i]; }
+    return s;
+}
+
+int stat() {
+    static int[3000] st = {6};
+    st[2999] = st[2999] + 1;
+    return st[0] + st[2999];
+}
+
+int main(int argc, string* argv) {
+    int[100000] a = {1, 2, 3};
+    a[99999] = a[99999] + 10;
+    printf("local: %d %d %d\n", a[1], sum(&a[0], 100000), a[50000]);
+    int[300][300] m = {{1}, {2, 3}};
+    printf("2d: %d %d %d\n", m[0][0] + m[1][1], m[299][299], sum(&m[0][0], 90000));
+    Big b = Big{tag: 3, vals: {5}};
+    printf("struct: %d %d %d\n", b.tag, (int)b.vals[0], (int)b.vals[999]);
+    printf("globals: %d %d %d %d\n", g1[1] + g1[1999], g2[1][1] + g2[39][1999], sum(&g2[0][0], 80000), (int)gb.vals[1] + gb.tag);
+    printf("extern: %d\n", use_ge());
+    stat();
+    printf("static: %d\n", stat());
+    if (argc > 5) { printf("%d\n", never()); }
+    return 0;
+}
