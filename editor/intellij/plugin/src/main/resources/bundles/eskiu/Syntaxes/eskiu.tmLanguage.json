@@ -266,6 +266,11 @@
           "match": "\\b(const|volatile|static|escaping|must_use|async)\\b"
         },
         {
+          "comment": "deprecated(\"use X\") before a declaration (a contextual word, not a keyword)",
+          "name": "storage.modifier.eskiu",
+          "match": "^\\s*deprecated(?=\\s*\\(\\s*\")"
+        },
+        {
           "name": "keyword.other.eskiu",
           "match": "\\b(sizeof|free_closure|asm|alloc_with|thread_create|thread_join|va_start|va_arg|va_end)\\b"
         }
