@@ -1,0 +1,20 @@
+// EXPECT-WARNING: deprecated_use.esk:15:13: warning: 'old_add' is deprecated: use add
+// EXPECT-WARNING: deprecated_use.esk:16:15: warning: 'Box_old_get' is deprecated: use Box_get
+// EXPECT-WARNING: deprecated_use.esk:17:13: warning: 'old_id' is deprecated: use id
+// EXPECT-WARNING: deprecated_use.esk:18:27: warning: 'old_add' is deprecated: use add
+// A use of a `deprecated("...")` function warns: a call, a dot-call, a generic call
+// and the function used as a value.
+struct Box { int v; }
+int add(int a, int b) { return a + b; }
+deprecated("use add") int old_add(int a, int b) { return add(a, b); }
+int Box_get(Box* self) { return self.v; }
+deprecated("use Box_get") int Box_old_get(Box* self) { return Box_get(self); }
+deprecated("use id") T old_id<T>(T x) { return x; }
+int main() {
+    Box b = Box{v: 2};
+    int s = old_add(1, 2);
+    s = s + b.old_get();
+    s = s + old_id<int>(4);
+    fn(int, int)->int f = old_add;
+    return s + f(0, 0) == 9 ? 0 : 1;
+}
