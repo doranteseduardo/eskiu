@@ -1,0 +1,18 @@
+let ok = 1;
+oops +;
+ok
+undefined_name + 1
+ok + 1
+int bad() { return "text"; }
+ok + 2
+throw 5;
+ok + 3
+throw "boom";
+int risky(int n) { if (n > 2) { throw n; } return n; }
+risky(1)
+risky(7)
+int guarded(int n) { try { return risky(n); } catch (int e) { return -e; } }
+guarded(9)
+await later()
+:nope
+ok + 4

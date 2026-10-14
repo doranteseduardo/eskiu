@@ -1,0 +1,15 @@
+error: <repl>:1:7: Expected expression, got SEMICOLON
+1
+error: <repl>:1:1: undefined variable 'undefined_name'
+2
+error: <repl>:1:13: return type mismatch: expected int, got string (cannot convert 'string' to 'int')
+3
+error: uncaught exception: int 5
+4
+error: uncaught exception: string "boom"
+1
+error: uncaught exception: int 7
+-9
+error: <repl>: `await` is not available at the prompt (no executor drives the future); run async code with `eskiuc run`
+error: unknown command ':nope' (try :help)
+5

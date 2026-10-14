@@ -1,0 +1,19 @@
+import <io>;
+let x = 40;
+x + 2
+int y = x * 2;
+y
+x = 7;
+x
+x++;
+x
+let x = 100;
+x
+let name = "eskiu";
+name
+let total = 0;
+for (i in 1..5) { total += i; }
+total
+if (total > 5) { printf("big %d\n", total); }
+printf("printf's result is not printed\n");
+:type total

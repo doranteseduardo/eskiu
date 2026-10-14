@@ -1,0 +1,12 @@
+:load lib.esk
+lib_double(21)
+Pair{1, 2}
+let kept = 5;
+:reset
+kept
+lib_double(1)
+let after = 1;
+after
+:load missing.esk
+:quit
+after

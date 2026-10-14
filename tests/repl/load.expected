@@ -1,0 +1,6 @@
+42
+Pair{first: 1, second: 2}
+error: <repl>:1:1: undefined variable 'kept'
+error: <repl>:1:1: undefined function 'lib_double'
+1
+error: cannot open 'missing.esk'
