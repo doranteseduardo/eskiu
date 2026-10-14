@@ -249,6 +249,19 @@ if [[ -z "$SANITIZE" ]]; then
     done < <(ESKIUC="$ESKIUC" bash "$here/scripts/check.sh" 2>&1)
 fi
 
+# The package manager (tests/pkg/check.sh): new/add/build/run/test/fetch against local
+# git repositories, package imports in both compilers. Skipped without git.
+if [[ -z "$SANITIZE" ]]; then
+    echo "Packages:"
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*)   ok "pkg/${line#ok }" ;;
+            "FAIL "*) rest="${line#FAIL }"; bad "pkg/${rest%%:*}" "${rest#*: }" ;;
+            *)        echo "  $line" ;;
+        esac
+    done < <(ESKIUC="$ESKIUC" bash "$here/pkg/check.sh" 2>&1)
+fi
+
 # $CC may carry arguments; a $CC that does not exist warns and falls back.
 if CC="$CC -O0" "$ESKIUC" "$args_esk" -o "$work/cc_args" >/dev/null 2>&1 && [[ -x "$work/cc_args" ]]; then
     ok "cli/cc-with-args"
