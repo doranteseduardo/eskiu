@@ -2,8 +2,7 @@ package xyz.reactvision.eskiu
 
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
-import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.project.Project
 import com.redhat.devtools.lsp4ij.LanguageServerFactory
 import com.redhat.devtools.lsp4ij.server.OSProcessStreamConnectionProvider
@@ -22,8 +21,9 @@ class EskiuLanguageServerFactory : LanguageServerFactory {
 
 class EskiuServer(project: Project) : OSProcessStreamConnectionProvider() {
     init {
-        val plugin = PluginManagerCore.getPlugin(PluginId.getId("xyz.reactvision.eskiu"))
-        val server = plugin?.pluginPath?.resolve("server/server.js")?.toString() ?: "server.js"
+        // The plugin directory holds lib/<our jar> and server/server.js.
+        val jar = PathManager.getJarPathForClass(EskiuServer::class.java)
+        val server = jar?.let { File(it).parentFile?.parentFile?.resolve("server/server.js")?.path } ?: "server.js"
         val cmd = GeneralCommandLine(findNode(), server)
         project.basePath?.let { cmd.withWorkDirectory(it) }
         findCompiler(project)?.let { cmd.withEnvironment("ESKIUC", it) }

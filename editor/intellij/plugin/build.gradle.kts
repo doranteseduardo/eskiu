@@ -39,6 +39,13 @@ intellijPlatform {
         }
     }
     buildSearchableOptions = false
+    // `./gradlew verifyPlugin -PverifyIde=/path/to/IDE.app` checks the plugin against an
+    // installed IDE (binary compatibility with its platform and LSP4IJ).
+    pluginVerification {
+        ides {
+            providers.gradleProperty("verifyIde").orNull?.let { local(file(it)) }
+        }
+    }
 }
 
 // TextMate reads a bundle from disk, so ship it as files in the plugin directory, and

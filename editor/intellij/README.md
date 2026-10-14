@@ -44,6 +44,13 @@ cd editor/intellij/plugin
 
 Install the resulting zip via **Settings → Plugins → ⚙ → Install Plugin from Disk…**.
 
+To check the plugin against an IDE you have installed (binary compatibility with its
+platform and with LSP4IJ), run the JetBrains plugin verifier on it:
+
+```bash
+./gradlew verifyPlugin -PverifyIde="/Applications/Android Studio.app"
+```
+
 > The Gradle project builds against IntelliJ 2024.1, the first platform with the
 > `TextMateBundleProvider` API, and sets no upper bound, so the zip installs in any
 > JetBrains IDE from 2024.1 on. Building needs a JDK 17+; the Gradle wrapper fetches
