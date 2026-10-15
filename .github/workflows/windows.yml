@@ -189,15 +189,19 @@ jobs:
         run: |
           # The tests/repl transcripts, fed to `eskiuc repl` on stdin (CRs dropped on
           # both sides, as a Windows program writes them in text mode).
+          set +e
           mkdir -p winbin
           fail=0
           for in_file in tests/repl/*.in; do
             name=$(basename "$in_file" .in)
             (cd tests/repl && ../../build/eskiuc.exe repl < "$name.in" > "../../winbin/repl_$name.out" 2>&1)
-            if diff <(tr -d '\r' < "tests/repl/$name.expected") <(tr -d '\r' < "winbin/repl_$name.out"); then
+            code=$?
+            tr -d '\r' < "tests/repl/$name.expected" > "winbin/repl_$name.want"
+            tr -d '\r' < "winbin/repl_$name.out" > "winbin/repl_$name.got"
+            if [ $code -eq 0 ] && diff "winbin/repl_$name.want" "winbin/repl_$name.got" > "winbin/repl_$name.diff"; then
               echo "ok repl/$name"
             else
-              echo "FAIL repl/$name"; fail=1
+              echo "FAIL repl/$name (exit $code)"; head -20 "winbin/repl_$name.diff" 2>/dev/null; fail=1
             fi
           done
           exit $fail
