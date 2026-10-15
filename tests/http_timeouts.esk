@@ -83,11 +83,16 @@ void over_limit(int port) {
     int a = connect_retry(port);           // holds the only slot until header_ms
     usleep(20000);
     int b = connect_retry(port);           // past max_open: closed at once
-    // The server must close it without waiting for the slot holder: before the holder's
-    // header_ms (150 ms from ta, when the slot would free up) on any runner, however slow.
+    // The server must close it without waiting for the slot holder: when b sees its close,
+    // a is still open (a short read on a times out instead of seeing the end). An order,
+    // not a time, so a slow runner cannot fail it.
     uint8[16] buf;
     const int64 n = net_recv(b, (*void)&buf[0], (int64)16);
-    printf("over max_open: recv=%lld (at once=%d)\n", n, time_monotonic_ms() - ta < 140 ? 1 : 0);
+    net_set_recv_timeout(a, 1);
+    const int64 na = net_recv(a, (*void)&buf[0], (int64)16);
+    const int a_open = na < 0 && net_would_block() == 1 ? 1 : 0;
+    net_set_recv_timeout(a, 0);
+    printf("over max_open: recv=%lld (at once=%d)\n", n, a_open);
     net_close(b);
     show("slot holder", a, ta, 140);
     int64 t1 = time_monotonic_ms();
