@@ -336,6 +336,98 @@ int callGuarded(void (*fn)()) {
 
 // Bracket depth of `text` outside string/char literals and comments: the reader keeps
 // reading lines while it is positive.
+// Whether `text` is an unfinished input: it parses neither as top-level declarations
+// nor as statements, and the parse fails at its very end (as Python's REPL decides).
+// `1 +`, `int sq(int n)`, `do { ... }` without its `while`: wait for more lines. An
+// error before the end means the input is complete and wrong: it is sent so the
+// diagnostic shows.
+bool incompleteInput(const std::string& text) {
+    // A preprocessor conditional still open (`#ifdef X` without its `#endif`).
+    {
+        static const std::regex open(R"(^\s*#\s*(if|ifdef|ifndef)\b)"), close(R"(^\s*#\s*endif\b)");
+        int depth = 0;
+        std::istringstream in(text);
+        for (std::string l; std::getline(in, l);) {
+            if (std::regex_search(l, open)) ++depth;
+            else if (std::regex_search(l, close)) --depth;
+        }
+        if (depth > 0) return true;
+    }
+    // A trailing `?` or `:` starts the arms of a `?:` (or labels the loop on the next
+    // line); postfix `?` propagation has no function to return from at the prompt.
+    std::string t = text;
+    while (!t.empty() && std::isspace((unsigned char)t.back())) t.pop_back();
+    if (!t.empty() && (t.back() == '?' || (t.back() == ':' && (t.size() < 2 || t[t.size() - 2] != ':'))))
+        return true;
+    auto probe = [](const std::string& src, int& errLine, int& errCol, int& eofLine, int& eofCol) {
+        std::map<std::string, Macro> macros;
+        std::streambuf* errBuf = std::cerr.rdbuf();
+        std::ostringstream lexQuiet;
+        std::cerr.rdbuf(lexQuiet.rdbuf());
+        struct Restore { std::streambuf* b; ~Restore() { std::cerr.rdbuf(b); } } restore{errBuf};
+        Lexer lexer(src, &macros, "<probe>", nullptr);
+        std::vector<Token> toks;
+        Token t = lexer.next_token();
+        for (; t.type != TokenType::EOF_TOKEN; t = lexer.next_token()) toks.push_back(t);
+        if (lexer.hadError) return true;   // a lexical error is reported on submit
+        eofLine = t.line; eofCol = t.column;
+        // Imports are resolved on submit; the probe only checks the syntax around them.
+        std::vector<Token> kept;
+        for (size_t i = 0; i < toks.size(); ++i) {
+            if (toks[i].type == TokenType::IMPORT) {
+                while (i < toks.size() && toks[i].type != TokenType::SEMICOLON) ++i;
+                continue;
+            }
+            kept.push_back(toks[i]);
+        }
+        kept.push_back(t);
+        Parser parser(kept);
+        parser.filename = "<probe>";
+        Parser::firstErrorLine() = 0;
+        std::streambuf* saved = std::cerr.rdbuf();
+        std::ostringstream quiet;
+        std::cerr.rdbuf(quiet.rdbuf());
+        bool ok = false;
+        try { ok = parser.parse() != nullptr; } catch (...) { ok = false; }
+        std::cerr.rdbuf(saved);
+        errLine = Parser::firstErrorLine();
+        errCol = Parser::firstErrorCol();
+        return ok;
+    };
+    int el = 0, ec = 0, fl = 0, fc = 0;
+    if (probe(text, el, ec, fl, fc)) return false;
+    bool declAtEnd = el > fl || (el == fl && ec >= fc);
+    // As statements: the body of a function, as typed and with a `;` after it, so a
+    // bare final expression (`x`, the usual REPL input) is complete too.
+    int lines = (int)std::count(text.begin(), text.end(), '\n') + 1;
+    if (probe("void __probe() {\n" + text + "\n}", el, ec, fl, fc)) return false;
+    bool stmtAtEnd = el >= lines + 2;
+    if (probe("void __probe() {\n" + text + "\n;}", el, ec, fl, fc)) return false;
+    stmtAtEnd = stmtAtEnd && el >= lines + 2;
+    return declAtEnd || stmtAtEnd;
+}
+
+// An operator a line cannot start with (`? 10`, `: 20`, `.len`, `&& b`): it continues an
+// expression of the line before, which already ran. Returns it, or "".
+std::string danglingOperator(const std::string& t) {
+    static const char* ops[] = {"&&", "||", "==", "!=", "<=", ">=", "->", "<<", ">>",
+                                "?", ".", "<", ">", "|", "^", "%", "="};
+    if (t.empty()) return "";
+    if (t[0] == ':') return (t.size() == 1 || !std::isalpha((unsigned char)t[1])) ? ":" : "";
+    if (t[0] == '/' && t.size() > 1 && (t[1] == '/' || t[1] == '*')) return "";
+    if (t[0] == '/') return "/";
+    for (const char* op : ops)
+        if (t.compare(0, std::strlen(op), op) == 0) return op;
+    return "";
+}
+
+// The first word of `text` (`if`, `try`, ...), after blanks and comments.
+std::string firstWord(const std::string& text) {
+    static const std::regex lead(R"(^(?:\s|//[^\n]*\n|/\*[\s\S]*?\*/)*([A-Za-z_]\w*))");
+    std::smatch m;
+    return std::regex_search(text, m, lead) ? m[1].str() : "";
+}
+
 // A header whose body starts on the next line (`int sq(int n)`, `for (i in 0..3)`,
 // `struct P`, `} else`), as written in the style that puts `{` on its own line: the
 // reader waits for the body instead of sending an incomplete input.
@@ -352,19 +444,35 @@ bool awaitsBody(const std::string& text) {
     static const std::regex typeHead(R"(^(packed\s+)?(struct|union|enum|interface)\s+\w+(\s*<[^>]*>)?$)");
     static const std::regex fnHead(
         R"(^(?!(await|return|throw|defer|errdefer|case|else|sizeof|free_closure|thread_join)\b)((async|must_use|static|extern|deprecated\("[^"]*"\))\s+)*[\w*<>\[\],?. ]*[\w*>\]?]\s+\*?\w+\s*(<[^>]*>)?\s*\([^;{}]*\)$)");
+    // A lambda whose body comes next: `= int(int v)`, `= void()`, `= *Node(*Node a, int k)`
+    // (parameters with names, or none after a type keyword), which a call never has.
+    static const std::regex lambdaHead(
+        R"(=\s*(([\w*<>\[\]?]+\s*\(\s*[A-Za-z_*][\w*<>\[\]?]*\s+[A-Za-z_]\w*\s*(,\s*[A-Za-z_*][\w*<>\[\]?]*\s+[A-Za-z_]\w*\s*)*\))|((\*+\w+|int\w*|uint\w*|float|double|bool|char|string|void)\s*\(\s*\)))\s*$)");
     return std::regex_match(last, control) || std::regex_match(last, bare) ||
-           std::regex_match(last, typeHead) || std::regex_match(last, fnHead);
+           std::regex_match(last, typeHead) || std::regex_match(last, fnHead) ||
+           std::regex_search(last, lambdaHead);
 }
 
-// A complete `if` whose block just closed: an `else` may follow on the next line.
+// A complete `if` or `try`: an `else`, `catch` or `finally` may follow on the next line,
+// so it is held for one line (a blank line, or any other line, runs it).
 bool ifAwaitsElse(const std::string& text) {
-    static const std::regex ifThen(R"(^\s*if\s*\([\s\S]*\}\s*$)");
-    return std::regex_match(text, ifThen);
+    std::string w = firstWord(text);
+    return w == "if" || w == "try";
+}
+
+// Whether `line` continues a held `if`/`try` (`else`, `catch`, `finally`).
+bool continuesHeld(const std::string& line) {
+    std::string w = firstWord(line);
+    if (w.empty()) {
+        size_t b = line.find_first_not_of(" \t");
+        return b != std::string::npos && line[b] == '}' && firstWord(line.substr(b + 1)) == "else";
+    }
+    return w == "else" || w == "catch" || w == "finally";
 }
 
 int bracketDepth(const std::string& text) {
     int depth = 0;
-    bool block = false;
+    bool block = false, str = false;
     for (size_t i = 0; i < text.size(); ++i) {
         char c = text[i];
         char n = i + 1 < text.size() ? text[i + 1] : 0;
@@ -374,15 +482,18 @@ int bracketDepth(const std::string& text) {
         }
         if (c == '/' && n == '/') { while (i < text.size() && text[i] != '\n') ++i; continue; }
         if (c == '/' && n == '*') { block = true; ++i; continue; }
+        // A string literal may span lines (a char literal may not): one still open at
+        // the end keeps the input going.
         if (c == '"' || c == '\'') {
-            for (++i; i < text.size() && text[i] != c && text[i] != '\n'; ++i)
+            for (++i; i < text.size() && text[i] != c && (c == '"' || text[i] != '\n'); ++i)
                 if (text[i] == '\\') ++i;
+            if (c == '"' && i >= text.size()) str = true;
             continue;
         }
         if (c == '(' || c == '{' || c == '[') ++depth;
         else if (c == ')' || c == '}' || c == ']') --depth;
     }
-    return block ? std::max(depth, 1) : depth;
+    return block || str ? std::max(depth, 1) : depth;
 }
 
 std::string trim(const std::string& s) {
@@ -1202,9 +1313,9 @@ void Repl::loadCommand(const std::string& path) {
 const char* kHelp =
     "Enter declarations (functions, structs, enums, imports), statements or an\n"
     "expression; an expression's value is printed. `let x = expr;` declares a session\n"
-    "variable. The input continues on the next line while a bracket is open, after a\n"
-    "header whose `{` comes next (`int f(int n)`, `for (...)`) and after an `if` block\n"
-    "(an `else` may follow). A blank line sends what is pending.\n"
+    "variable. An unfinished input continues on the next line (an open bracket or string,\n"
+    "a trailing operator, a header such as `int f(int n)` whose `{` comes next); an `if`\n"
+    "or `try` waits one line for `else`/`catch`. A blank line sends what is pending.\n"
     "  :type EXPR   print the type of EXPR without running it\n"
     "  :load FILE   add the declarations of FILE\n"
     "  :reset       forget every declaration and variable\n"
@@ -1241,11 +1352,18 @@ int Repl::run(const std::vector<std::string>& files) {
         }
         // An `if` held for a possible `else`: anything else on this line runs it first.
         if (!pending.empty() && bracketDepth(pending) <= 0 && ifAwaitsElse(pending) &&
-            !trim(line).empty() && trim(line).rfind("else", 0) != 0)
+            !awaitsBody(pending) && !incompleteInput(pending) &&
+            !trim(line).empty() && !continuesHeld(line))
             submit();
         if (pending.empty()) {
             std::string t = trim(line);
             if (t.empty()) continue;
+            if (std::string op = danglingOperator(t); !op.empty()) {
+                std::cerr << "error: a line cannot start with '" << op << "': the line before already ran."
+                          << " To continue an expression, end the line with the operator (x > 3 ?)"
+                          << std::endl;
+                continue;
+            }
             if (t[0] == ':') {
                 size_t sp = t.find_first_of(" \t");
                 std::string cmd = t.substr(0, sp);
@@ -1261,12 +1379,15 @@ int Repl::run(const std::vector<std::string>& files) {
             }
         }
         // A blank line sends what is pending as it is (a way out of a continuation).
-        if (!pending.empty() && trim(line).empty()) {
+        // A blank line inside an open bracket is part of the input.
+        if (!pending.empty() && trim(line).empty() && bracketDepth(pending) <= 0) {
             submit();
             continue;
         }
         pending += line + "\n";
-        if (bracketDepth(pending) > 0 || awaitsBody(pending) || ifAwaitsElse(pending)) continue;
+        if (bracketDepth(pending) > 0 || awaitsBody(pending) || incompleteInput(pending) ||
+            ifAwaitsElse(pending))
+            continue;
         std::string input = pending;
         pending.clear();
         if (trim(input).empty()) continue;

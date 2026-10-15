@@ -157,7 +157,10 @@ Point{x: 3, y: 4}
 expression. Declaring a function or variable again replaces it for later inputs. An input
 that does not parse or type-check prints the error and changes nothing; an uncaught
 exception is reported and the session goes on. Input continues on the next line (prompt
-`...`) while brackets are open. `:type EXPR` prints a type without running anything,
+`...`) while it is unfinished, in any brace style: an open bracket or string, a line that
+ends with an operator, or a header such as `int sq(int n)` whose `{` comes next; an `if`
+or `try` block waits one line for its `else` or `catch`, and a blank line sends what is
+pending. `:type EXPR` prints a type without running anything,
 `:load FILE` adds a file's declarations, `:reset` starts over and `:quit` (or Ctrl-D) leaves.
 The prompt does not take `await`; run async code with `eskiuc run`.
 
