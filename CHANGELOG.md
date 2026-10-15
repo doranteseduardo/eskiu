@@ -46,10 +46,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `deprecated("use NEW")` before a function declaration: each use of the function (a call,
   a dot-call, a generic call or the function as a value) prints `warning: 'f' is
   deprecated: use NEW`, except inside an imported module. `-Wno-deprecated` silences it.
-  `deprecated` is not a keyword, so a name `deprecated` keeps working. The self-hosted
-  compiler accepts it without warning.
+  `deprecated` is not a keyword, so a name `deprecated` keeps working. Both compilers
+  warn at the same positions.
 - Errors for an unknown variable, function, type, field or method suggest the closest name
-  in scope: `undefined variable 'totl' (did you mean 'total'?)`.
+  in scope: `undefined variable 'totl' (did you mean 'total'?)`, in both compilers. The
+  self-hosted compiler now reports a call to an unknown name as `undefined function`, as
+  the C++ one does.
 - `docs/lang/stability.md`: what can change between releases and how a rename is
   deprecated first. `docs/lang/migration.md`: every removed name with its replacement.
 - `examples/scripts/todo.esk`: a to-do list in a JSON file (`<args>`, `<fs>`, `<json>`,
