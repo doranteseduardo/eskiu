@@ -174,8 +174,10 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   one again replaces it; <code>let x = expr;</code> declares a session variable with the type of
   <code>expr</code>. An input with a parse or type error is discarded, and an uncaught exception is
   reported without ending the session. Brackets left open continue the input on the next
-  line. Commands: <code>:type</code>, <code>:load</code>, <code>:reset</code>, <code>:help</code>, <code>:quit</code>. <code>await</code> is not accepted
-  at the prompt, and <code>eskiuc-esk</code> has no REPL.</li>
+  line. Commands: <code>:type</code>, <code>:load</code>, <code>:reset</code>, <code>:help</code>, <code>:quit</code>. <code>await</code> works at the
+  prompt (<code>await f()</code>, <code>let v = await f();</code>): the input runs on an event loop the session
+  keeps, <code>repl_loop()</code>, and a future that can no longer complete is reported instead of
+  hanging. <code>eskiuc-esk</code> has no REPL.</li>
 <li>A minimal package manager. A package is a directory with an <code>eskiu.toml</code> manifest
   (<code>[package]</code> name, version, main; <code>[deps]</code> with <code>{ git = "URL", rev = "REV" }</code> or
   <code>{ path = "DIR" }</code>). <code>eskiuc new</code>, <code>add</code>, <code>build</code>, <code>run</code>, <code>test</code> and <code>fetch</code> create a

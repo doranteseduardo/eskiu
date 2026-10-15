@@ -162,7 +162,20 @@ ends with an operator, or a header such as `int sq(int n)` whose `{` comes next;
 or `try` block waits one line for its `else` or `catch`, and a blank line sends what is
 pending. `:type EXPR` prints a type without running anything,
 `:load FILE` adds a file's declarations, `:reset` starts over and `:quit` (or Ctrl-D) leaves.
-The prompt does not take `await`; run async code with `eskiuc run`.
+
+The prompt also takes `await`. The input runs on an event loop the session keeps, which
+`repl_loop()` returns, so a timer or an async read can be registered on it:
+
+```
+> import <timer>;
+> async int twice(int x) { await timer_after(repl_loop(), 10); return x * 2; }
+> await twice(21)
+42
+> let v = await twice(5);
+```
+
+When the awaited future cannot complete (nothing left on the loop could wake it), the REPL
+prints `error: the awaited future did not complete` instead of waiting forever.
 
 ### Peek at the generated IR
 

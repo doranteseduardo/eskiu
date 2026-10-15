@@ -17,8 +17,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   one again replaces it; `let x = expr;` declares a session variable with the type of
   `expr`. An input with a parse or type error is discarded, and an uncaught exception is
   reported without ending the session. Brackets left open continue the input on the next
-  line. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` is not accepted
-  at the prompt, and `eskiuc-esk` has no REPL.
+  line. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` works at the
+  prompt (`await f()`, `let v = await f();`): the input runs on an event loop the session
+  keeps, `repl_loop()`, and a future that can no longer complete is reported instead of
+  hanging. `eskiuc-esk` has no REPL.
 - A minimal package manager. A package is a directory with an `eskiu.toml` manifest
   (`[package]` name, version, main; `[deps]` with `{ git = "URL", rev = "REV" }` or
   `{ path = "DIR" }`). `eskiuc new`, `add`, `build`, `run`, `test` and `fetch` create a

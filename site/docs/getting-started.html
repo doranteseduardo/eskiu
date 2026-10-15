@@ -297,8 +297,17 @@ exception is reported and the session goes on. Input continues on the next line 
 ends with an operator, or a header such as <code>int sq(int n)</code> whose <code>{</code> comes next; an <code>if</code>
 or <code>try</code> block waits one line for its <code>else</code> or <code>catch</code>, and a blank line sends what is
 pending. <code>:type EXPR</code> prints a type without running anything,
-<code>:load FILE</code> adds a file's declarations, <code>:reset</code> starts over and <code>:quit</code> (or Ctrl-D) leaves.
-The prompt does not take <code>await</code>; run async code with <code>eskiuc run</code>.</p>
+<code>:load FILE</code> adds a file's declarations, <code>:reset</code> starts over and <code>:quit</code> (or Ctrl-D) leaves.</p>
+<p>The prompt also takes <code>await</code>. The input runs on an event loop the session keeps, which
+<code>repl_loop()</code> returns, so a timer or an async read can be registered on it:</p>
+<pre><code>&gt; import &lt;timer&gt;;
+&gt; async int twice(int x) { await timer_after(repl_loop(), 10); return x * 2; }
+&gt; await twice(21)
+42
+&gt; let v = await twice(5);
+</code></pre>
+<p>When the awaited future cannot complete (nothing left on the loop could wake it), the REPL
+prints <code>error: the awaited future did not complete</code> instead of waiting forever.</p>
 <h3 id="peek-at-the-generated-ir">Peek at the generated IR</h3>
 <p>Before producing an object file you can ask the compiler to print the LLVM IR it
 would emit:</p>
