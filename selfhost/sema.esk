@@ -112,12 +112,17 @@ struct Sema {
     // Globals declared after the top-level declaration being checked: C declares a global
     // at its definition, so an earlier initializer or function body cannot name it.
     List<string> late_globals;
+    int no_depr;            // -Wno-deprecated: no warning at a use of a `deprecated` function
+    int cur_import;         // the top-level declaration being checked comes from an import
+    List<string> depr_seen; // "file:line:col" of each deprecation warning already printed
 }
 
 // Mutually-recursive walk.
 void sema_expr(Sema* s, *ExprNode e);
 void sema_stmt(Sema* s, *StmtNode st);
 *DeclNode sema_find_fndecl(Sema* s, string name);   // used by sema_infer_type before its definition
+string sema_did_you_mean(Sema* s, string name, int kind, string recv);
+void sema_note_depr(Sema* s, string fname, int line, int col);
 
 // Substring [a, b) of s (b exclusive), heap-allocated and NUL-terminated.
 string sema_sub_str(string s, int a, int b) {
@@ -1194,7 +1199,8 @@ void sema_check_decl_type(Sema* s, string t) {
     }
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
-        dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(t)));
+        string utn = sema_base_name(sema_struct_of_type(t));
+        dprintf(2, "error: %s:%d:%d: unknown type '%s'%s\n", s.filename, s.line, s.col, utn, sema_did_you_mean(s, utn, 1, t));
         return;
     }
     string b = sema_base_name(sema_struct_of_type(sema_strip_nullable(sema_strip_const(t))));
@@ -4605,17 +4611,221 @@ void sema_check_va_list_arg(Sema* s, string what, *ExprNode e) {
     }
 }
 
+// ── "did you mean" hints (mirrors TypeChecker::didYouMean) ──
+// The suffix ` (did you mean 'x'?)` for an unknown name: the closest candidate by
+// case-insensitive edit distance, at most 1 for a name of up to 3 characters and 2
+// beyond; a tie goes to the smallest name. `kind` 0 = a variable or function (what is in
+// scope, the functions, the enum members), 1 = a type, 2 = a member of a value of type
+// `recv` (fields, dot-callable functions, interface methods); for a type, `recv` is the
+// spelling the name came from.
+string sema_lower(string a) {
+    int n = sema_slen(a);
+    *uint8 b = alloc<uint8>(n + 1);
+    int i = 0;
+    while (i < n) {
+        int c = (int)a[i];
+        if (c >= 65 && c <= 90) { c = c + 32; }
+        b[i] = (uint8)c;
+        i = i + 1;
+    }
+    b[n] = 0;
+    return (string)b;
+}
+
+int sema_edit_distance(string a, string b) {
+    int la = sema_slen(a); int lb = sema_slen(b);
+    *int prev = alloc<int>(lb + 1);
+    *int cur = alloc<int>(lb + 1);
+    int j = 0;
+    while (j <= lb) { prev[j] = j; j = j + 1; }
+    int i = 1;
+    while (i <= la) {
+        cur[0] = i;
+        j = 1;
+        while (j <= lb) {
+            int best = prev[j] + 1;
+            if (cur[j - 1] + 1 < best) { best = cur[j - 1] + 1; }
+            int sub = prev[j - 1];
+            if (a[i - 1] != b[j - 1]) { sub = sub + 1; }
+            if (sub < best) { best = sub; }
+            cur[j] = best;
+            j = j + 1;
+        }
+        *int t = prev; prev = cur; cur = t;
+        i = i + 1;
+    }
+    int d = prev[lb];
+    free((*void)prev); free((*void)cur);
+    return d;
+}
+
+int sema_starts_with(string t, string pre) {
+    int i = 0;
+    while (pre[i] != 0) { if (t[i] != pre[i]) { return 0; } i = i + 1; }
+    return 1;
+}
+
+// `t` without its pointer stars, spaces and a leading `const`.
+string sema_dym_bare(string t0) {
+    string t = sema_strip_const(t0);
+    while ((int)t[0] == 42 || (int)t[0] == 32) { t = sema_sub_str(t, 1, sema_slen(t)); }
+    while (sema_slen(t) > 0 && ((int)t[sema_slen(t) - 1] == 42 || (int)t[sema_slen(t) - 1] == 32)) {
+        t = sema_sub_str(t, 0, sema_slen(t) - 1);
+    }
+    return sema_strip_const(t);
+}
+
+// The member names a value of type `recv` offers (C++ completeMembers): its fields and
+// inline methods, the `T_m` functions whose first parameter points to T, on an instance
+// of a generic G the generic `G_m` functions, and an interface's methods.
+void sema_dym_members(Sema* s, string recv, List<string>* out) {
+    string t = sema_dealias(s, sema_strip_nullable(sema_strip_const(recv)));
+    if (sema_has_star(t) == 0 && sema_slice_elem(t)[0] != 0) { List_push<string>(out, "len"); return; }
+    string ibt = sema_dym_bare(t);
+    string sn = sema_struct_of_type(ibt);
+    int gen = sema_has_lt(ibt);
+    string nb = sn;
+    if (gen == 1) { nb = sema_flat_name(ibt); }
+    *DeclNode sd = sema_find_tdecl(s, sn);
+    if (sd != null && (sd.kind == DK_STRUCT || sd.kind == DK_UNION || sd.kind == DK_INTERFACE)) {
+        if (sd.kind != DK_INTERFACE) {
+            int fi = 0;
+            while (fi < List_len<Param>(&sd.params)) { List_push<string>(out, List_get<Param>(&sd.params, fi).name); fi = fi + 1; }
+        }
+        int mi = 0;
+        while (mi < List_len<*DeclNode>(&sd.methods)) { List_push<string>(out, List_get<*DeclNode>(&sd.methods, mi).name); mi = mi + 1; }
+    }
+    string pre = sema_cat(nb, "_");
+    string gpre = sema_cat(sn, "_");
+    int i = 0;
+    while (i < List_len<*DeclNode>(&s.fndecls)) {
+        *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
+        i = i + 1;
+        if (List_len<Param>(&d.params) == 0) { continue; }
+        if (List_len<TypeParam>(&d.type_params) > 0) {
+            if (gen == 1 && sema_starts_with(d.name, gpre) == 1 && sema_slen(d.name) > sema_slen(gpre)) {
+                List_push<string>(out, sema_sub_str(d.name, sema_slen(gpre), sema_slen(d.name)));
+            }
+            continue;
+        }
+        if (sema_starts_with(d.name, pre) == 0 || sema_slen(d.name) == sema_slen(pre)) { continue; }
+        string p0 = sema_dealias(s, List_get<Param>(&d.params, 0).ty);
+        if (sema_has_star(p0) == 0) { continue; }
+        string pe = sema_dym_bare(sema_dealias(s, sema_dym_bare(p0)));
+        string own = sema_struct_of_type(pe);
+        if (sema_has_lt(pe) == 1) { own = sema_flat_name(pe); }
+        if (sema_streq(own, nb) == 1) { List_push<string>(out, sema_sub_str(d.name, sema_slen(pre), sema_slen(d.name))); }
+    }
+}
+
+// An enum named as a type or value candidate: a non-generic sum type (the C++ enumDecls;
+// a classic enum or a generic one is not among them).
+int sema_dym_enum(*DeclNode d) {
+    return (int)(List_len<TypeParam>(&d.type_params) == 0 && sema_is_plain_enum_decl(d) == 0);
+}
+
+string sema_did_you_mean(Sema* s, string name, int kind, string recv) {
+    int n = sema_slen(name);
+    if (n < 2) { return ""; }
+    if (kind == 1 && sema_has_lt(recv) == 1) { return ""; }   // the C++ names `G<A>` whole: no candidate is that close
+    List<string> c; List_init<string>(&c, 64);
+    if (kind == 1) {
+        List_push<string>(&c, "int"); List_push<string>(&c, "int8"); List_push<string>(&c, "int16");
+        List_push<string>(&c, "int32"); List_push<string>(&c, "int64"); List_push<string>(&c, "uint");
+        List_push<string>(&c, "uint8"); List_push<string>(&c, "uint16"); List_push<string>(&c, "uint32");
+        List_push<string>(&c, "uint64"); List_push<string>(&c, "float"); List_push<string>(&c, "double");
+        List_push<string>(&c, "bool"); List_push<string>(&c, "char"); List_push<string>(&c, "string");
+        List_push<string>(&c, "void");
+        int ti = 0;
+        while (ti < List_len<*DeclNode>(&s.tdecls)) {
+            *DeclNode td = List_get<*DeclNode>(&s.tdecls, ti);
+            if (td.kind != DK_ENUM || sema_dym_enum(td) == 1) { List_push<string>(&c, td.name); }
+            ti = ti + 1;
+        }
+    } else if (kind == 0) {
+        int si = 0;
+        while (si < List_len<Sym>(&s.syms)) {
+            Sym y = List_get<Sym>(&s.syms, si);
+            si = si + 1;
+            if (y.depth == 0 && sema_find_fn(s, y.name) < 0) {
+                // a global defined later is not in scope yet
+                if (sema_in_list(&s.late_globals, y.name) == 1) { continue; }
+                // a generic enum's variant is not a value by itself
+                *DeclNode ve = sema_variant_enum(s, y.name);
+                if (ve != null && List_len<TypeParam>(&ve.type_params) > 0) { continue; }
+            }
+            List_push<string>(&c, y.name);
+        }
+        int di = 0;
+        while (di < List_len<*DeclNode>(&s.tdecls)) {
+            *DeclNode td = List_get<*DeclNode>(&s.tdecls, di);
+            di = di + 1;
+            if (td.kind == DK_INTERFACE || td.kind == DK_TYPEALIAS || (td.kind == DK_ENUM && sema_dym_enum(td) == 1)) {
+                List_push<string>(&c, td.name);
+            }
+            if (td.kind == DK_STRUCT && List_len<TypeParam>(&td.type_params) == 0) {   // inline methods are `S_m`
+                int mi = 0;
+                while (mi < List_len<*DeclNode>(&td.methods)) {
+                    List_push<string>(&c, sema_cat(sema_cat(td.name, "_"), List_get<*DeclNode>(&td.methods, mi).name));
+                    mi = mi + 1;
+                }
+            }
+        }
+    } else {
+        sema_dym_members(s, recv, &c);
+    }
+    int limit = 2;
+    if (n <= 3) { limit = 1; }
+    string ln = sema_lower(name);
+    string best = "";
+    int bestd = limit + 1;
+    int i = 0;
+    while (i < List_len<string>(&c)) {
+        string cand = List_get<string>(&c, i);
+        i = i + 1;
+        if (cand == null) { continue; }
+        if (cand[0] == 0 || (int)cand[0] == 95 || sema_streq(cand, name) == 1) { continue; }
+        int m = sema_slen(cand);
+        if (m > n + limit || n > m + limit) { continue; }
+        int d = sema_edit_distance(ln, sema_lower(cand));
+        if (d < bestd || (d == bestd && strcmp(cand, best) < 0)) { bestd = d; best = cand; }
+    }
+    if (bestd > limit) { return ""; }
+    return sema_cat(sema_cat(" (did you mean '", best), "'?)");
+}
+
+// A use of a function declared `deprecated("msg")` warns at its position, once per
+// position, outside imported code and generic instances (TypeChecker::noteDeprecatedUse).
+void sema_note_depr(Sema* s, string fname, int line, int col) {
+    if (s.no_depr == 1 || line <= 0 || s.in_inst == 1 || s.cur_import == 1 || fname == null) { return; }
+    string msg = null;
+    int i = 0;
+    while (i < List_len<*DeclNode>(&s.fndecls)) {
+        *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
+        if (d.depr_msg != null && d.depr_msg[0] != 0 && sema_streq(d.name, fname) == 1) { msg = d.depr_msg; }
+        i = i + 1;
+    }
+    if (msg == null) { return; }
+    string key = sema_cat(sema_cat(sema_cat(sema_cat(s.filename, ":"), sema_i64_text((int64)line)), ":"), sema_i64_text((int64)col));
+    if (sema_in_list(&s.depr_seen, key) == 1) { return; }
+    List_push<string>(&s.depr_seen, key);
+    string tail = "";
+    if (sema_streq(msg, " ") == 0) { tail = sema_cat(": ", msg); }
+    dprintf(2, "%s:%d:%d: warning: '%s' is deprecated%s\n", s.filename, line, col, fname, tail);
+}
+
 void sema_expr_k(Sema* s, *ExprNode e) {
     if (e == null) { return; }
     int k = e.kind;
     if (k == EK_IDENT) {
+        if (sema_find_fn(s, e.sval) >= 0) { sema_note_depr(s, e.sval, e.line, e.col); }
         // va_start/va_end are variadic-access builtins with no declaration (va_arg<T> is a
         // template call). Treat them as defined, matching the C++ checker.
         if ((sema_lookup(s, e.sval) == 0
              || (sema_local_bound(s, e.sval) == 0 && sema_in_list(&s.late_globals, e.sval) == 1))
             && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: undefined variable '%s'\n", s.filename, s.line, s.col, e.sval);
+            dprintf(2, "error: %s:%d:%d: undefined variable '%s'%s\n", s.filename, s.line, s.col, e.sval, sema_did_you_mean(s, e.sval, 0, ""));
         } else if (sema_sym_depth(s, e.sval) <= 0) {
             // A generic enum's variant does not name its type arguments by itself (they
             // are not inferred from the target type): `None<int>()` (mirrors the C++).
@@ -4665,7 +4875,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_lookup(s, e.sval) == 0 && szd != null && List_len<TypeParam>(&szd.type_params) > 0
             && sema_in_list(&s.tparams, e.sval) == 0) {
             s.had_error = 1;                // a generic type has no size until instantiated
-            dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, e.sval);
+            dprintf(2, "error: %s:%d:%d: unknown type '%s'%s\n", s.filename, s.line, s.col, e.sval, sema_did_you_mean(s, e.sval, 1, ""));
         }
         // A variable: a typed symbol, not a function, an enum member, or a later global.
         int szvar = 0;
@@ -4673,7 +4883,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             || (sema_lookup_type(s, e.sval)[0] != 0 && sema_in_list(&s.late_globals, e.sval) == 0))) { szvar = 1; }
         if (szvar == 0 && sema_known_type(s, e.sval) == 0) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
+            string utn = sema_base_name(sema_struct_of_type(e.sval));
+            dprintf(2, "error: %s:%d:%d: unknown type '%s'%s\n", s.filename, s.line, s.col, utn, sema_did_you_mean(s, utn, 1, e.sval));
         }
         if (sema_lookup(s, e.sval) == 0 && sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, e.sval))) == 1) {
             s.had_error = 1;
@@ -4887,7 +5098,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (sema_is_struct(s, sn) == 1 && (sema_has_member(s, sema_cat(sema_cat(sn, "."), m.sval)) == 0
                                                    || sema_field_type(s, sn, m.sval) == null)) {
                     s.had_error = 1;               // (a method is only called, never a value)
-                    dprintf(2, "error: %s:%d:%d: struct '%s' has no member '%s'\n", s.filename, s.line, s.col, sn, m.sval);
+                    dprintf(2, "error: %s:%d:%d: struct '%s' has no member '%s'%s\n", s.filename, s.line, s.col, sn, m.sval, sema_did_you_mean(s, m.sval, 2, bt));
                 }
             }
             bt = sema_dealias(s, sema_member_type(s, bt, m.sval));
@@ -5083,7 +5294,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         // The element type needs a size: a known, non-void type.
         if (sema_known_type(s, e.sval) == 0) {
             s.had_error = 1;
-            dprintf(2, "error: %s:%d:%d: unknown type '%s'\n", s.filename, s.line, s.col, sema_base_name(sema_struct_of_type(e.sval)));
+            string utn = sema_base_name(sema_struct_of_type(e.sval));
+            dprintf(2, "error: %s:%d:%d: unknown type '%s'%s\n", s.filename, s.line, s.col, utn, sema_did_you_mean(s, utn, 1, e.sval));
         } else if (sema_is_void_value(sema_resolve_scalar(s, sema_isub(s, e.sval))) == 1) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: alloc_with of 'void': a void element has no size\n", s.filename, s.line, s.col);
@@ -5296,6 +5508,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 string iflat = sema_flat_name(ibt);
                 if (sema_streq(iflat, sn) == 0) { ffn = sema_find_fndecl(s, sema_cat(sema_cat(iflat, "_"), mem.sval)); }
             }
+            if (ffn != null && inline_m == 0) {
+                int dln = mem.mline; int dcl = mem.mcol;
+                if (dln <= 0) { dln = e.line; dcl = e.col; }
+                sema_note_depr(s, ffn.name, dln, dcl);
+            }
             // Arguments against the method's parameters (self excluded), with the same
             // count + assignability rules as a bare call (mirrors the C++ method path).
             string mwhat = sema_cat(sema_cat("method '", mem.sval), "'");
@@ -5353,7 +5570,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
             if (inline_m == 0 && ffn == null && (is_field == 0 || nonfn_field == 1)) {
                 s.had_error = 1;
-                dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, sn);
+                dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'%s\n", s.filename, s.line, s.col, mem.sval, sn, sema_did_you_mean(s, mem.sval, 2, bt));
             }
             if (is_field == 1 && sd != null) {                // a field holding a fn pointer: o.cb(args)
                 int fi = 0; int nf = List_len<Param>(&sd.params);
@@ -5399,14 +5616,19 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         string rbc = sema_canon(s, bt);
         if (ifc == null && sema_judgeable(s, rbc) == 1 && sema_is_struct(s, sn) == 0) {
             int served = 0;
-            if (sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mem.sval)) != null) { served = 1; }
+            if (sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), mem.sval)) != null) {
+                served = 1;
+                int dln = mem.mline; int dcl = mem.mcol;
+                if (dln <= 0) { dln = e.line; dcl = e.col; }
+                sema_note_depr(s, sema_cat(sema_cat(sn, "_"), mem.sval), dln, dcl);
+            }
             if (s.in_inst == 1 && sema_is_scalar_prim(rbc) == 1) {
                 *DeclNode pf = sema_find_fndecl(s, mem.sval);
                 if (pf != null && List_len<Param>(&pf.params) > 0) { served = 1; }
             }
             if (served == 0) {
                 s.had_error = 1;
-                dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'\n", s.filename, s.line, s.col, mem.sval, bt);
+                dprintf(2, "error: %s:%d:%d: undefined method '%s' on type '%s'%s\n", s.filename, s.line, s.col, mem.sval, bt, sema_did_you_mean(s, mem.sval, 2, bt));
             }
         }
         int i = 0;
@@ -5548,7 +5770,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             } else if (vt[0] == 0 && sema_local_bound(s, e.a.sval) == 0 && sema_find_fndecl(s, e.a.sval) == null
                        && sema_plain_member(s, e.a.sval) == 1) {
                 s.had_error = 1;                   // a classic enum member is a constant
-                dprintf(2, "error: %s:%d:%d: undefined function '%s'\n", s.filename, e.a.line, e.a.col, e.a.sval);
+                dprintf(2, "error: %s:%d:%d: undefined function '%s'%s\n", s.filename, e.a.line, e.a.col, e.a.sval, sema_did_you_mean(s, e.a.sval, 0, ""));
             }
         } else if (e.a != null && e.a.kind != EK_IDENT) {
             string ct = sema_infer_type(s, e.a);
@@ -5557,7 +5779,16 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         string prev = s.callee_ctx;        // mark the callee so a watched param here is OK
         if (e.a != null && e.a.kind == EK_IDENT) { s.callee_ctx = e.a.sval; }
         else { s.callee_ctx = ""; }
-        sema_expr(s, e.a);                 // callee (functions live in the global scope)
+        if (e.a != null && e.a.kind == EK_IDENT && sema_streq(e.a.sval, "va_start") == 0 && sema_streq(e.a.sval, "va_end") == 0
+            && (sema_lookup(s, e.a.sval) == 0
+                || (sema_local_bound(s, e.a.sval) == 0 && sema_in_list(&s.late_globals, e.a.sval) == 1))) {
+            s.had_error = 1;               // an unbound callee names no function (mirrors the C++)
+            dprintf(2, "error: %s:%d:%d: undefined function '%s'%s\n", s.filename, e.a.line, e.a.col, e.a.sval,
+                   sema_did_you_mean(s, e.a.sval, 0, ""));
+        } else {
+            if (e.a != null && e.a.kind == EK_IDENT) { sema_note_depr(s, e.a.sval, e.a.line, e.a.col); }
+            sema_expr(s, e.a);             // callee (functions live in the global scope)
+        }
         s.callee_ctx = prev;
         // A watched (non-escaping) closure param passed straight to a non-escaping param
         // of an Eskiu function does not escape: the callee may only call it (mirrors the
@@ -5637,6 +5868,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_TEMPLATECALL) {        // Name<args>(...) — check bounded-generic constraints
+        sema_note_depr(s, sema_base_name(e.sval), e.line, e.col);
         *DeclNode fd = sema_find_fndecl(s, sema_base_name(e.sval));
         string tbase = sema_base_name(e.sval);
         if (fd == null && sema_streq(tbase, "va_arg") == 1) {
@@ -6904,6 +7136,7 @@ void sema_arm_binds(string label, List<string>* out) {
 // Diagnostics inside `d` name the file it was parsed from (the primary input if unknown).
 void sema_enter_decl(Sema* s, *DeclNode d, string primary) {
     s.filename = primary;
+    s.cur_import = d.from_import;
     if (d.file != null) { if (d.file[0] != 0) { s.filename = d.file; } }
 }
 
