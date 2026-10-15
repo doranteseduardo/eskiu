@@ -305,6 +305,8 @@ struct ExprNode {
     int sm_epoch;
     int line;              // source position for diagnostics (0 = unknown, e.g. a synthesized node)
     int col;
+    int mline;             // EK_MEMBER: position of the member name (line/col are the '.')
+    int mcol;
 }
 
 struct StmtNode {
@@ -364,6 +366,8 @@ struct DeclNode {
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
     string operator_sym;           // `operator <op>(...)`: the op ("+","[]","u-"); "" = normal fn
     string file;                   // top-level decl: the source file it came from (diagnostics)
+    string depr_msg;               // function: `deprecated("msg")` message (" " when empty; null = not deprecated)
+    int from_import;               // top-level decl parsed from an `import`ed file (not linted)
     int line;                      // source position for diagnostics (0 = unknown)
     int col;
 }

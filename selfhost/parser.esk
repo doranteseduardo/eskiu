@@ -1278,6 +1278,7 @@ int lambda_ahead(Parser* p) {
             if (m.type <= UINT64) { p_adv(p); } else { m = p_expect_ident(p, "Expected member name"); }
             *ExprNode mb = p_pos(ast_new_expr(), dt);
             mb.kind = EK_MEMBER; mb.a = e; mb.sval = tok_text(p.src, m);
+            mb.mline = m.line; mb.mcol = m.col;
             e = mb;
         } else if (t == QUESTION && ternary_colon_ahead(p) == 0) {
             // Postfix propagation `expr?` — only when this `?` doesn't open a ternary.
@@ -2616,12 +2617,19 @@ void parse_unnamed_bitfield(Parser* p, *DeclNode d, string ty) {
     if (t == INTRINSIC) { p_adv(p); return parse_proto(p, DK_INTRINSIC); }
     if (t == ASYNC) { p_adv(p); d = parse_function(p); d.is_async = 1; return d; }   // async fn
     if (t == MUST_USE) { p_adv(p); d = parse_function(p); d.is_mustuse = 1; return d; }   // must_use fn
-    // `deprecated("use X") T f(...)`: accepted and ignored (the warning is C++ only, like -Wall).
+    // `deprecated("use X") T f(...)`: sema warns at each use of f.
     if (t == IDENT && p_peek_k(p, 1).type == LPAREN && p_peek_k(p, 2).type == STRING_LIT && p_peek_k(p, 3).type == RPAREN) {
         Token dt = p_peek(p);
         if (lexeme_eq(p.src, dt.start, dt.len, "deprecated") == 1) {
-            p_adv(p); p_adv(p); p_adv(p); p_adv(p);
-            return parse_decl_top(p);
+            p_adv(p); p_adv(p);
+            int dml = 0;
+            string dmsg = tok_str_value(p.src, p_adv(p), &dml);
+            p_adv(p);
+            *DeclNode dd = parse_decl_top(p);
+            if (dd.kind != DK_FUNCTION) { p_report(p, dt, "'deprecated' applies to a function"); }
+            if (dmsg[0] == 0) { dmsg = " "; }
+            dd.depr_msg = dmsg;
+            return dd;
         }
     }
     if (t == STRUCT) { p_adv(p); d = parse_struct(p); register_type(p, d.name); return d; }
@@ -2695,7 +2703,12 @@ void do_import(Parser* p, *Program prog) {
     g_lex_file = full;
     p_init(&sub, ppsrc, plen);
     sub.basedir = str_dir(full);
+    int first = List_len<*DeclNode>(&prog.decls);
     parse_into(&sub, prog);
+    while (first < List_len<*DeclNode>(&prog.decls)) {   // library code: not linted
+        List_get<*DeclNode>(&prog.decls, first).from_import = 1;
+        first = first + 1;
+    }
 }
 
 // Parse top-level items from `p` into an existing program (used both for the entry
