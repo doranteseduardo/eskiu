@@ -10,11 +10,6 @@ int total = 0;
 for (i in 0..3) { total = total + await twice(i); }
 total
 repl_loop() == repl_loop()
-async int boom(int x) { await timer_after(repl_loop(), 5); throw x; return 0; }
-await boom(7)
-async int early(int x) { if (x > 0) { throw "early"; } await timer_after(repl_loop(), 5); return x; }
-await early(1)
-await early(0)
 async int never() { Future<int>* f = future_new<int>(); return await f; }
 await never()
 await twice(4)

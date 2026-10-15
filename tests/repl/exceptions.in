@@ -1,0 +1,36 @@
+// Exceptions in the REPL (not run on Windows, where the REPL refuses them).
+let ok = 1;
+throw 5;
+ok + 3
+throw "boom";
+int risky(int n) { if (n > 2) { throw n; } return n; }
+risky(1)
+risky(7)
+int guarded(int n) { try { return risky(n); } catch (int e) { return -e; } }
+guarded(9)
+import <timer>;
+import <eventloop>;
+async int boom(int x) { await timer_after(repl_loop(), 5); throw x; return 0; }
+await boom(7)
+async int early(int x) { if (x > 0) { throw "early"; } await timer_after(repl_loop(), 5); return x; }
+await early(1)
+await early(0)
+// try_catch_split
+int r = 0;
+try {
+  throw 6;
+}
+catch (int e) {
+  r = e;
+}
+r
+// try_finally_split
+int r = 0;
+try {
+  r = 1;
+}
+finally {
+  r = r + 10;
+}
+r
+ok + 4

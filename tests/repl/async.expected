@@ -4,8 +4,5 @@ int
 6
 6
 true
-error: uncaught exception: int 7
-error: uncaught exception: string "early"
-0
 error: the awaited future did not complete
 8

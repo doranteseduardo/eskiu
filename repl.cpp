@@ -1268,6 +1268,26 @@ bool Repl::inferLets(Plan& plan, const std::vector<std::pair<int, int>>& letPos)
 
 // Run one input. `forced` picks the reading (a :load file is declarations).
 bool Repl::handleInput(const std::string& text, const std::string& file, Mode* forced) {
+#ifdef _WIN32
+    // The JIT does not register Windows (SEH) unwind tables for the code it loads, so an
+    // exception thrown in REPL code cannot be caught and would end the process: such
+    // inputs are refused before they are compiled.
+    bool usesExceptions = false;
+    {
+        std::map<std::string, Macro> macros;
+        CerrCapture cap;
+        Lexer lexer(text, &macros, file, nullptr);
+        for (Token t = lexer.next_token(); t.type != TokenType::EOF_TOKEN; t = lexer.next_token())
+            if (t.type == TokenType::THROW || t.type == TokenType::TRY || t.type == TokenType::CATCH ||
+                t.type == TokenType::FINALLY)
+                usesExceptions = true;
+    }
+    if (usesExceptions) {
+        std::cerr << "error: the REPL on Windows does not run code that throws or catches"
+                  << " exceptions yet; run it with `eskiuc run`" << std::endl;
+        return false;
+    }
+#endif
     Plan plan;
     plan.text = text;
     plan.file = file;
