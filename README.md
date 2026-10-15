@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://eskiu-lang.org">eskiu-lang.org</a> &nbsp;&middot;&nbsp;
   <a href="docs/lang/getting-started.md">Documentation</a> &nbsp;&middot;&nbsp;
-  <a href="QUICKSTART.md">Quickstart</a> &nbsp;&middot;&nbsp;
+  <a href="https://eskiu-lang.org/quickstart.html">Quickstart</a> &nbsp;&middot;&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
@@ -151,7 +151,7 @@ cmake -S . -B build && cmake --build build
 
 | | |
 |---|---|
-| [Quickstart](QUICKSTART.md) | Install and run your first programs |
+| [Quickstart](https://eskiu-lang.org/quickstart.html) | Install and run your first programs |
 | [Tutorial](docs/lang/getting-started.md) | The language, step by step |
 | [The Book of Eskiu](https://eskiu-lang.org/the-book-of-eskiu.html) | A longer guide, from basics to async and C interop |
 | [Language reference](docs/lang/spec.md) | Every construct and the standard library |
