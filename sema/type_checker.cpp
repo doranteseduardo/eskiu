@@ -993,7 +993,9 @@ void TypeChecker::completeMembers(const std::string& recvType) {
         }
 }
 
-std::string TypeChecker::didYouMean(const std::string& name, char kind, const std::string& recvType) {
+std::string TypeChecker::didYouMean(const std::string& name0, char kind, const std::string& recvType) {
+    // A generic type is matched by its name without the arguments (`Opy<int>` -> `Opt`).
+    std::string name = kind == 't' ? name0.substr(0, name0.find('<')) : name0;
     if (name.size() < 2 || name == kCompleteSentinel) return "";
     std::vector<std::string> cands;
     if (kind == 't') {
@@ -1004,6 +1006,8 @@ std::string TypeChecker::didYouMean(const std::string& name, char kind, const st
         for (const auto& [n, s] : templateDecls) cands.push_back(n);
         for (const auto& [n, s] : interfaceDecls) cands.push_back(n);
         for (const auto& [n, s] : enumDecls) cands.push_back(n);
+        for (const auto& n : enumTypes) cands.push_back(n);          // classic enums
+        for (const auto& [n, s] : genericEnumDecls) cands.push_back(n);
         for (const auto& [n, s] : typeAliases) cands.push_back(n);
     } else {
         auto saved = std::move(completions);
@@ -1022,16 +1026,23 @@ std::string TypeChecker::didYouMean(const std::string& name, char kind, const st
         if (c == name || c.empty() || c[0] == '_') continue;
         std::string lc = lower(c);
         if (lc.size() > ln.size() + limit || ln.size() > lc.size() + limit) continue;
-        std::vector<size_t> prev(lc.size() + 1), cur(lc.size() + 1);
+        // Optimal string alignment: an adjacent transposition (`cuont`) is one change.
+        std::vector<size_t> prev2(lc.size() + 1), prev(lc.size() + 1), cur(lc.size() + 1);
         for (size_t j = 0; j <= lc.size(); ++j) prev[j] = j;
         for (size_t i = 1; i <= ln.size(); ++i) {
             cur[0] = i;
-            for (size_t j = 1; j <= lc.size(); ++j)
+            for (size_t j = 1; j <= lc.size(); ++j) {
                 cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ln[i - 1] == lc[j - 1] ? 0 : 1)});
+                if (i > 1 && j > 1 && ln[i - 1] == lc[j - 2] && ln[i - 2] == lc[j - 1])
+                    cur[j] = std::min(cur[j], prev2[j - 2] + 1);
+            }
+            std::swap(prev2, prev);
             std::swap(prev, cur);
         }
         size_t d = prev[lc.size()];
         if (lc == ln) d = 0;
+        // Two changes need six letters: `List` is not a near miss of `int`.
+        if (d >= 2 && d * 3 > std::max(lc.size(), ln.size())) continue;
         if (d < bestD || (d == bestD && c < best)) { bestD = d; best = c; }
     }
     return bestD <= limit ? " (did you mean '" + best + "'?)" : "";

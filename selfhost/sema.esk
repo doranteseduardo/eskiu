@@ -1179,6 +1179,27 @@ void sema_check_inst_bitfields(Sema* s, *DeclNode d, List<string>* targs) {
     }
 }
 
+// The spelling of an unknown type as the C++ checker names it: without pointer stars,
+// array suffixes, `?` and `const`, but with its type arguments (`Opy<int>`).
+string sema_unknown_spelling(string t0) {
+    string t = sema_strip_nullable(sema_strip_const(t0));
+    int b = 0; int e = sema_slen(t);
+    while (b < e && (int)t[b] == 42) { b = b + 1; }                        // '*'
+    int changed = 1;
+    while (changed == 1) {
+        changed = 0;
+        while (e > b && (int)t[e - 1] == 42) { e = e - 1; changed = 1; }    // trailing '*'
+        if (e > b && (int)t[e - 1] == 93) {                                   // ']'
+            int k = e - 1;
+            while (k > b && (int)t[k] != 91) { k = k - 1; }
+            e = k; changed = 1;
+        }
+    }
+    string r = sema_sub_str(t, b, e);
+    if (sema_starts_with(r, "struct:") == 1) { r = sema_sub_str(r, 7, sema_slen(r)); }
+    return r;
+}
+
 void sema_check_decl_type(Sema* s, string t) {
     if (t == null || t[0] == 0 || sema_streq(t, "...") == 1 || sema_is_fn_type(t) == 1) { return; }
     if ((int)t[0] == 63 && sema_known_type(s, t) == 1 && sema_c_ptr(sema_canon(s, t)) == 0) {   // `?` marks a pointer only
@@ -1200,7 +1221,8 @@ void sema_check_decl_type(Sema* s, string t) {
     if (sema_known_type(s, t) == 0) {
         s.had_error = 1;
         string utn = sema_base_name(sema_struct_of_type(t));
-        dprintf(2, "error: %s:%d:%d: unknown type '%s'%s\n", s.filename, s.line, s.col, utn, sema_did_you_mean(s, utn, 1, t));
+        dprintf(2, "error: %s:%d:%d: unknown type '%s'%s\n", s.filename, s.line, s.col, sema_unknown_spelling(t),
+                sema_did_you_mean(s, utn, 1, t));
         return;
     }
     string b = sema_base_name(sema_struct_of_type(sema_strip_nullable(sema_strip_const(t))));
@@ -4632,8 +4654,11 @@ string sema_lower(string a) {
     return (string)b;
 }
 
+// Edit distance with adjacent transpositions (optimal string alignment): `cuont` is one
+// change from `count` (mirrors the C++ didYouMean).
 int sema_edit_distance(string a, string b) {
     int la = sema_slen(a); int lb = sema_slen(b);
+    *int prev2 = alloc<int>(lb + 1);
     *int prev = alloc<int>(lb + 1);
     *int cur = alloc<int>(lb + 1);
     int j = 0;
@@ -4648,14 +4673,17 @@ int sema_edit_distance(string a, string b) {
             int sub = prev[j - 1];
             if (a[i - 1] != b[j - 1]) { sub = sub + 1; }
             if (sub < best) { best = sub; }
+            if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] && prev2[j - 2] + 1 < best) {
+                best = prev2[j - 2] + 1;
+            }
             cur[j] = best;
             j = j + 1;
         }
-        *int t = prev; prev = cur; cur = t;
+        *int t = prev2; prev2 = prev; prev = cur; cur = t;
         i = i + 1;
     }
     int d = prev[lb];
-    free((*void)prev); free((*void)cur);
+    free((*void)prev2); free((*void)prev); free((*void)cur);
     return d;
 }
 
@@ -4727,7 +4755,6 @@ int sema_dym_enum(*DeclNode d) {
 string sema_did_you_mean(Sema* s, string name, int kind, string recv) {
     int n = sema_slen(name);
     if (n < 2) { return ""; }
-    if (kind == 1 && sema_has_lt(recv) == 1) { return ""; }   // the C++ names `G<A>` whole: no candidate is that close
     List<string> c; List_init<string>(&c, 64);
     if (kind == 1) {
         List_push<string>(&c, "int"); List_push<string>(&c, "int8"); List_push<string>(&c, "int16");
@@ -4739,7 +4766,7 @@ string sema_did_you_mean(Sema* s, string name, int kind, string recv) {
         int ti = 0;
         while (ti < List_len<*DeclNode>(&s.tdecls)) {
             *DeclNode td = List_get<*DeclNode>(&s.tdecls, ti);
-            if (td.kind != DK_ENUM || sema_dym_enum(td) == 1) { List_push<string>(&c, td.name); }
+            List_push<string>(&c, td.name);          // every declared type, enums of any kind included
             ti = ti + 1;
         }
     } else if (kind == 0) {
@@ -4788,6 +4815,8 @@ string sema_did_you_mean(Sema* s, string name, int kind, string recv) {
         int m = sema_slen(cand);
         if (m > n + limit || n > m + limit) { continue; }
         int d = sema_edit_distance(ln, sema_lower(cand));
+        int longer = m; if (n > longer) { longer = n; }
+        if (d >= 2 && d * 3 > longer) { continue; }   // two changes need 6 letters (as C++)
         if (d < bestd || (d == bestd && strcmp(cand, best) < 0)) { bestd = d; best = cand; }
     }
     if (bestd > limit) { return ""; }
