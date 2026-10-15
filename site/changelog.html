@@ -163,9 +163,21 @@ details.cl-full[open] { padding-bottom: 8px; }</style>
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>.
 Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</code>).</p>
 <hr>
-<h2 id="unreleased">[Unreleased]</h2>
+<h2 id="0110-2026-10-14">[0.11.0] - 2026-10-14</h2>
+<ul>
+<li><code>eskiuc repl</code>: try code line by line, with values printed by type, <code>await</code>, and
+  multi-line input in any brace style.</li>
+<li>A minimal package manager: <code>eskiu.toml</code>, <code>eskiuc new</code>/<code>add</code>/<code>build</code>/<code>run</code>/<code>test</code>, git and
+  path dependencies pinned in <code>eskiu.lock</code>, and <code>import &lt;pkg/module&gt;;</code>.</li>
+<li>Editor support from the compiler itself: completion, signatures, go to definition for
+  methods and fields, an outline and quick fixes, in VS Code-based editors (extension
+  0.11.0) and JetBrains IDEs (through LSP4IJ).</li>
+<li><code>deprecated("use NEW")</code> warnings and "did you mean" suggestions in both compilers.</li>
+<li>A written stability policy and a migration guide. The deprecated names of 0.9.2 and
+  0.10.1 are removed.</li>
+</ul>
 <details class="cl-full">
-<summary>Details</summary>
+<summary>Full details</summary>
 <h3 id="added">Added</h3>
 <ul>
 <li><code>eskiuc repl</code>: an interactive session over the LLVM ORC JIT. A bare expression prints
@@ -173,8 +185,11 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   <code>List&lt;T&gt;</code>); functions, types and imports stay available to later inputs, and declaring
   one again replaces it; <code>let x = expr;</code> declares a session variable with the type of
   <code>expr</code>. An input with a parse or type error is discarded, and an uncaught exception is
-  reported without ending the session. Brackets left open continue the input on the next
-  line. Commands: <code>:type</code>, <code>:load</code>, <code>:reset</code>, <code>:help</code>, <code>:quit</code>. <code>await</code> works at the
+  reported without ending the session. An unfinished input continues on the next line, in
+  any brace style: an open bracket, string, comment or <code>#if</code>, a trailing operator, a header
+  whose <code>{</code> comes next, or an input that parses only up to its end (<code>do { }</code> before its
+  <code>while</code>); an <code>if</code> or <code>try</code> waits one line for <code>else</code>, <code>catch</code> or <code>finally</code>, and a blank
+  line sends what is pending. Commands: <code>:type</code>, <code>:load</code>, <code>:reset</code>, <code>:help</code>, <code>:quit</code>. <code>await</code> works at the
   prompt (<code>await f()</code>, <code>let v = await f();</code>): the input runs on an event loop the session
   keeps, <code>repl_loop()</code>, and a future that can no longer complete is reported instead of
   hanging. <code>eskiuc-esk</code> has no REPL.</li>
@@ -186,7 +201,8 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   resolved too, and <code>eskiu.lock</code> pins every commit. <code>import &lt;pkg/module&gt;;</code> and
   <code>import &lt;pkg&gt;;</code> load a dependency's modules in both compilers; inside a package an import
   that names no stdlib module and no dependency is <code>unknown package 'x' (not in eskiu.toml)</code>.
-  No registry and no version solving. <code>eskiuc run file.esk</code> keeps compiling that file.</li>
+  No registry and no version solving. A path dependency is stored relative to the lock, so
+  a committed lock works on another machine. <code>eskiuc run file.esk</code> keeps compiling that file.</li>
 <li>Editor tooling in <code>eskiuc</code>: <code>--hover-at</code> shows a function's signature at its declaration,
   at a call and at a dot-call (<code>s.replace_all</code> shows <code>int64 String_replace_all(String*
   self, string from, string to)</code>) and a field's type, and spells generic instances as
@@ -203,10 +219,12 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <li><code>deprecated("use NEW")</code> before a function declaration: each use of the function (a call,
   a dot-call, a generic call or the function as a value) prints <code>warning: 'f' is
   deprecated: use NEW</code>, except inside an imported module. <code>-Wno-deprecated</code> silences it.
-  <code>deprecated</code> is not a keyword, so a name <code>deprecated</code> keeps working. The self-hosted
-  compiler accepts it without warning.</li>
+  <code>deprecated</code> is not a keyword, so a name <code>deprecated</code> keeps working. Both compilers
+  warn at the same positions.</li>
 <li>Errors for an unknown variable, function, type, field or method suggest the closest name
-  in scope: <code>undefined variable 'totl' (did you mean 'total'?)</code>.</li>
+  in scope: <code>undefined variable 'totl' (did you mean 'total'?)</code>, in both compilers. The
+  self-hosted compiler now reports a call to an unknown name as <code>undefined function</code>, as
+  the C++ one does.</li>
 <li><code>docs/lang/stability.md</code>: what can change between releases and how a rename is
   deprecated first. <code>docs/lang/migration.md</code>: every removed name with its replacement.</li>
 <li><code>examples/scripts/todo.esk</code>: a to-do list in a JSON file (<code>&lt;args&gt;</code>, <code>&lt;fs&gt;</code>, <code>&lt;json&gt;</code>,
@@ -222,17 +240,28 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 </ul>
 <h3 id="changed">Changed</h3>
 <ul>
+<li>The docs live in one tree used by the site: <code>docs/lang/</code> (now with the glossary, the
+  migration guide and the stability policy) and <code>docs/dev/</code> (now with the C++ API and the
+  roadmap). <code>QUICKSTART.md</code> is gone; the quickstart is the site page.</li>
+<li>CI: the Windows job runs the REPL transcripts and the package manager checks, and a new
+  <code>editors.yml</code> packages the VS Code extension and the IntelliJ plugin on each tag, and
+  publishes them to Open VSX, the Visual Studio Marketplace and the JetBrains Marketplace
+  when their tokens are set.</li>
 <li>The changelog page on the site shows each release's highlights and keeps the full entry
   collapsed; <code>CHANGELOG.md</code> gives each release a <code>Highlights</code> section and keeps the date
   only on the latest release.</li>
 </ul>
 <h3 id="fixed">Fixed</h3>
 <ul>
+<li>The self-hosted compiler names an unknown generic type with its arguments
+  (<code>unknown type 'Opy&lt;int&gt;'</code>), as the C++ one does.</li>
+<li><code>tests/http_timeouts.esk</code> times the over-limit connection against the slot holder's
+  deadline, so a slow runner no longer fails it.</li>
 <li>A dot-call to a method a struct does not have reported "has no member" and "undefined
   method" for the same call; it reports the method only, as the self-hosted compiler does.</li>
 </ul>
 </details>
-<h2 id="0101-2026-10-14">[0.10.1] - 2026-10-14</h2>
+<h2 id="0101">[0.10.1]</h2>
 <ul>
 <li>Security fixes for the 0.10 modules: <code>fs_remove_all</code> and <code>fs_walk</code> cannot be redirected by a swapped symbolic link and have no path length limit, <code>fs_copy</code> keeps the copy private until it is complete, HTTPS reports a truncated response as an error, and header injection is blocked.</li>
 <li><code>fetch_async</code> resolves host names on a thread, so DNS no longer blocks the event loop.</li>
@@ -3192,7 +3221,7 @@ thread_join(t);
 </ul>
 </details>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#unreleased">[Unreleased]</a><a href="#0101-2026-10-14">[0.10.1] - 2026-10-14</a><a href="#0100">[0.10.0]</a><a href="#093">[0.9.3]</a><a href="#092">[0.9.2]</a><a href="#091">[0.9.1]</a><a href="#090">[0.9.0]</a><a href="#080">[0.8.0]</a><a href="#070">[0.7.0]</a><a href="#062">[0.6.2]</a><a href="#061">[0.6.1]</a><a href="#060">[0.6.0]</a><a href="#050">[0.5.0]</a><a href="#040">[0.4.0]</a><a href="#031">[0.3.1]</a><a href="#030">[0.3.0]</a><a href="#025">[0.2.5]</a><a href="#024">[0.2.4]</a><a href="#023">[0.2.3]</a><a href="#022">[0.2.2]</a><a href="#021">[0.2.1]</a><a href="#020">[0.2.0]</a><a href="#010">[0.1.0]</a><a href="#systems-milestone">Systems milestone</a><a href="#0014-alpha">[0.0.14-alpha]</a><a href="#0013-alpha">[0.0.13-alpha]</a><a href="#0012-alpha">[0.0.12-alpha]</a><a href="#0011-alpha">[0.0.11-alpha]</a><a href="#0010-alpha">[0.0.10-alpha]</a><a href="#009-alpha">[0.0.9-alpha]</a><a href="#008-alpha">[0.0.8-alpha]</a><a href="#007-alpha">[0.0.7-alpha]</a><a href="#006-alpha">[0.0.6-alpha]</a><a href="#005-alpha">[0.0.5-alpha]</a><a href="#004-alpha">[0.0.4-alpha]</a><a href="#003-alpha">[0.0.3-alpha]</a><a href="#002-alpha">[0.0.2-alpha]</a><a href="#001-alpha">[0.0.1-alpha]</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#0110-2026-10-14">[0.11.0] - 2026-10-14</a><a href="#0101">[0.10.1]</a><a href="#0100">[0.10.0]</a><a href="#093">[0.9.3]</a><a href="#092">[0.9.2]</a><a href="#091">[0.9.1]</a><a href="#090">[0.9.0]</a><a href="#080">[0.8.0]</a><a href="#070">[0.7.0]</a><a href="#062">[0.6.2]</a><a href="#061">[0.6.1]</a><a href="#060">[0.6.0]</a><a href="#050">[0.5.0]</a><a href="#040">[0.4.0]</a><a href="#031">[0.3.1]</a><a href="#030">[0.3.0]</a><a href="#025">[0.2.5]</a><a href="#024">[0.2.4]</a><a href="#023">[0.2.3]</a><a href="#022">[0.2.2]</a><a href="#021">[0.2.1]</a><a href="#020">[0.2.0]</a><a href="#010">[0.1.0]</a><a href="#systems-milestone">Systems milestone</a><a href="#0014-alpha">[0.0.14-alpha]</a><a href="#0013-alpha">[0.0.13-alpha]</a><a href="#0012-alpha">[0.0.12-alpha]</a><a href="#0011-alpha">[0.0.11-alpha]</a><a href="#0010-alpha">[0.0.10-alpha]</a><a href="#009-alpha">[0.0.9-alpha]</a><a href="#008-alpha">[0.0.8-alpha]</a><a href="#007-alpha">[0.0.7-alpha]</a><a href="#006-alpha">[0.0.6-alpha]</a><a href="#005-alpha">[0.0.5-alpha]</a><a href="#004-alpha">[0.0.4-alpha]</a><a href="#003-alpha">[0.0.3-alpha]</a><a href="#002-alpha">[0.0.2-alpha]</a><a href="#001-alpha">[0.0.1-alpha]</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

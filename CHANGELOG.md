@@ -8,7 +8,19 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [Unreleased]
+## [0.11.0] - 2026-10-14
+
+### Highlights
+- `eskiuc repl`: try code line by line, with values printed by type, `await`, and
+  multi-line input in any brace style.
+- A minimal package manager: `eskiu.toml`, `eskiuc new`/`add`/`build`/`run`/`test`, git and
+  path dependencies pinned in `eskiu.lock`, and `import <pkg/module>;`.
+- Editor support from the compiler itself: completion, signatures, go to definition for
+  methods and fields, an outline and quick fixes, in VS Code-based editors (extension
+  0.11.0) and JetBrains IDEs (through LSP4IJ).
+- `deprecated("use NEW")` warnings and "did you mean" suggestions in both compilers.
+- A written stability policy and a migration guide. The deprecated names of 0.9.2 and
+  0.10.1 are removed.
 
 ### Added
 - `eskiuc repl`: an interactive session over the LLVM ORC JIT. A bare expression prints
@@ -16,8 +28,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `List<T>`); functions, types and imports stay available to later inputs, and declaring
   one again replaces it; `let x = expr;` declares a session variable with the type of
   `expr`. An input with a parse or type error is discarded, and an uncaught exception is
-  reported without ending the session. Brackets left open continue the input on the next
-  line. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` works at the
+  reported without ending the session. An unfinished input continues on the next line, in
+  any brace style: an open bracket, string, comment or `#if`, a trailing operator, a header
+  whose `{` comes next, or an input that parses only up to its end (`do { }` before its
+  `while`); an `if` or `try` waits one line for `else`, `catch` or `finally`, and a blank
+  line sends what is pending. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` works at the
   prompt (`await f()`, `let v = await f();`): the input runs on an event loop the session
   keeps, `repl_loop()`, and a future that can no longer complete is reported instead of
   hanging. `eskiuc-esk` has no REPL.
@@ -29,7 +44,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   resolved too, and `eskiu.lock` pins every commit. `import <pkg/module>;` and
   `import <pkg>;` load a dependency's modules in both compilers; inside a package an import
   that names no stdlib module and no dependency is `unknown package 'x' (not in eskiu.toml)`.
-  No registry and no version solving. `eskiuc run file.esk` keeps compiling that file.
+  No registry and no version solving. A path dependency is stored relative to the lock, so
+  a committed lock works on another machine. `eskiuc run file.esk` keeps compiling that file.
 - Editor tooling in `eskiuc`: `--hover-at` shows a function's signature at its declaration,
   at a call and at a dot-call (`s.replace_all` shows `int64 String_replace_all(String*
   self, string from, string to)`) and a field's type, and spells generic instances as
@@ -65,15 +81,26 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `docs/lang/migration.md` maps each to its new name.
 
 ### Changed
+- The docs live in one tree used by the site: `docs/lang/` (now with the glossary, the
+  migration guide and the stability policy) and `docs/dev/` (now with the C++ API and the
+  roadmap). `QUICKSTART.md` is gone; the quickstart is the site page.
+- CI: the Windows job runs the REPL transcripts and the package manager checks, and a new
+  `editors.yml` packages the VS Code extension and the IntelliJ plugin on each tag, and
+  publishes them to Open VSX, the Visual Studio Marketplace and the JetBrains Marketplace
+  when their tokens are set.
 - The changelog page on the site shows each release's highlights and keeps the full entry
   collapsed; `CHANGELOG.md` gives each release a `Highlights` section and keeps the date
   only on the latest release.
 
 ### Fixed
+- The self-hosted compiler names an unknown generic type with its arguments
+  (`unknown type 'Opy<int>'`), as the C++ one does.
+- `tests/http_timeouts.esk` times the over-limit connection against the slot holder's
+  deadline, so a slow runner no longer fails it.
 - A dot-call to a method a struct does not have reported "has no member" and "undefined
   method" for the same call; it reports the method only, as the self-hosted compiler does.
 
-## [0.10.1] - 2026-10-14
+## [0.10.1]
 
 ### Highlights
 - Security fixes for the 0.10 modules: `fs_remove_all` and `fs_walk` cannot be redirected by a swapped symbolic link and have no path length limit, `fs_copy` keeps the copy private until it is complete, HTTPS reports a truncated response as an error, and header injection is blocked.
