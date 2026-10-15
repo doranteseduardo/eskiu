@@ -303,7 +303,7 @@ A table of function pointers, one per method of an interface, shared by all valu
 
 ---
 
-- [architecture.md](dev/architecture.md): Compiler architecture and pass pipeline
-- [spec.md](lang/spec.md): Full language specification
-- [design.md](dev/design.md): Rationale for key design choices
-- [phases.md](dev/phases.md): Roadmap
+- [architecture.md](../dev/architecture.md): Compiler architecture and pass pipeline
+- [spec.md](spec.md): Full language specification
+- [design.md](../dev/design.md): Rationale for key design choices
+- [roadmap.md](../dev/roadmap.md): Roadmap

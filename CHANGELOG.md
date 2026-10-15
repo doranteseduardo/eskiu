@@ -49,7 +49,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - Errors for an unknown variable, function, type, field or method suggest the closest name
   in scope: `undefined variable 'totl' (did you mean 'total'?)`.
 - `docs/lang/stability.md`: what can change between releases and how a rename is
-  deprecated first. `MIGRATION.md`: every removed name with its replacement.
+  deprecated first. `docs/lang/migration.md`: every removed name with its replacement.
 - `examples/scripts/todo.esk`: a to-do list in a JSON file (`<args>`, `<fs>`, `<json>`,
   `<term>`), checked by `tests/scripts/check.sh`.
 
@@ -57,8 +57,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - The deprecated stdlib wrappers for the names renamed in 0.9.2 and 0.10.1 (`rng_*`,
   `regex_search`, `heap_*`, `el_*`, `executor_*`, `chan_*`, `hpack_*`, `h2_*`, `args_*`,
   `opt_*`, `future_poll`, `free_future`, `sha256`, `hex_encode`, `str_join`, `str_format`,
-  `sleep_ms`, `term_rgb`, `url_resolve`, `String_is_space` and the rest). `MIGRATION.md`
-  maps each to its new name.
+  `sleep_ms`, `term_rgb`, `url_resolve`, `String_is_space` and the rest).
+  `docs/lang/migration.md` maps each to its new name.
 
 ### Changed
 - The changelog page on the site shows each release's highlights and keeps the full entry

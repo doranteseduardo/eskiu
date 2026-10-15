@@ -121,7 +121,7 @@ area 1 = 6.00
 
 Eskiu is pre-1.0. The language is stable enough for real work. What can change between
 releases, and how a renamed function is deprecated before it goes, is written down in
-[docs/lang/stability.md](docs/lang/stability.md); [MIGRATION.md](MIGRATION.md) maps every
+[docs/lang/stability.md](docs/lang/stability.md); [docs/lang/migration.md](docs/lang/migration.md) maps every
 removed name to its replacement.
 
 ## Install
@@ -157,7 +157,7 @@ cmake -S . -B build && cmake --build build
 | [Language reference](docs/lang/spec.md) | Every construct and the standard library |
 | [Examples](examples/) | Small programs, from hello world to an HTTP/2 server |
 | [Stability](docs/lang/stability.md) | What can change between releases |
-| [Migration](MIGRATION.md) | Renamed and removed names, old to new |
+| [Migration](docs/lang/migration.md) | Renamed and removed names, old to new |
 | [Compiler internals](docs/dev/index.md) | Architecture, ABI notes and design decisions |
 | [Changelog](CHANGELOG.md) | Every release and what changed |
 

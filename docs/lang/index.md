@@ -18,8 +18,9 @@ suggestions, and a written stability policy. The full history is in the
 | [spec.md](spec.md) | Complete language reference | You need exact syntax or semantics |
 | [grammar.md](grammar.md) | Formal EBNF grammar | You need the precise concrete syntax |
 | [build.md](build.md) | Build the compiler from source on macOS, Linux and Windows | You need to set up a dev environment |
+| [migration.md](migration.md) | Removed and renamed names, old to new | You update code written for an older release |
 | [stability.md](stability.md) | What can change between releases, and how renames are deprecated | You maintain code across Eskiu versions |
-| [../GLOSSARY.md](../GLOSSARY.md) | Terminology definitions | You encounter an unfamiliar term |
+| [glossary.md](glossary.md) | Terminology definitions | You encounter an unfamiliar term |
 
 ---
 

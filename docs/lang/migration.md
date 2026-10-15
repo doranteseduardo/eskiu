@@ -6,7 +6,7 @@ compiled as thin wrappers over the new names; now a program that uses one gets a
 with the same arguments unless noted. A function whose first parameter is the module's
 struct can also be called with dot syntax: `rng.next()` is `Rng_next(&rng)`.
 
-From 0.11 on, a rename follows `docs/lang/stability.md`: the old name stays for one minor
+From 0.11 on, a rename follows [stability.md](stability.md): the old name stays for one minor
 release, marked `deprecated("use NEW")`, so each use prints a warning that names the
 replacement.
 

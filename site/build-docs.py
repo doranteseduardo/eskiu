@@ -3,8 +3,7 @@
 Generate the site's docs pages from the Markdown sources in docs/.
 
 The repo is private, so the public can't read the docs on GitHub. This renders
-the language docs (docs/lang/*, docs/API.md, docs/GLOSSARY.md) and the
-contributor docs (docs/dev/*, minus phases.md) into self-contained, styled HTML
+the language docs (docs/lang/*) and the contributor docs (docs/dev/*) into self-contained, styled HTML
 under site/docs/, in the same Editorial look as the homepage (site/index.html).
 
 Usage:  python3 site/build-docs.py        (run from anywhere)
@@ -30,8 +29,10 @@ PAGES = [
     ("docs/lang/grammar.md",         "grammar.html",         "Grammar",              "lang"),
     ("docs/lang/build.md",           "build.html",           "Building & tooling",   "lang"),
     ("docs/lang/stability.md",       "stability.html",       "Stability",            "lang"),
-    ("docs/API.md",                  "api.html",             "Compiler C++ API",     "dev"),
-    ("docs/GLOSSARY.md",             "glossary.html",        "Glossary",             "lang"),
+    ("docs/dev/api.md",              "api.html",             "Compiler C++ API",     "dev"),
+    ("docs/lang/glossary.md",        "glossary.html",        "Glossary",             "lang"),
+    ("docs/lang/migration.md",       "migration.html",       "Migration",            "lang"),
+    ("docs/dev/roadmap.md",          "roadmap.html",         "Roadmap",              "dev"),
     ("docs/dev/index.md",            "internals.html",       "Compiler internals",   "dev"),
     ("docs/dev/architecture.md",     "architecture.html",    "Architecture",         "dev"),
     ("docs/dev/design.md",           "design.html",          "Design",               "dev"),
@@ -55,6 +56,7 @@ NAV_LANG = [
     ("grammar.html", "Grammar"),
     ("build.html", "Tooling"),
     ("stability.html", "Stability"),
+    ("migration.html", "Migration"),
     ("glossary.html", "Glossary"),
     ("internals.html", "Internals →"),
 ]
@@ -70,10 +72,11 @@ NAV_DEV = [
     ("api.html", "C++ API"),
     ("debugging.html", "Debugging"),
     ("contributing.html", "Contributing"),
+    ("roadmap.html", "Roadmap"),
 ]
 NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 
-# un-ported docs (e.g. dev/phases.md) fall back to the GitHub source
+# un-ported docs fall back to the GitHub source
 GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
