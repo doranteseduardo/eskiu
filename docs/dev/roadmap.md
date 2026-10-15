@@ -1,7 +1,8 @@
 # Roadmap
 
 Where Eskiu stands and what comes next. Per-release detail is in
-[`CHANGELOG.md`](../../CHANGELOG.md); open defects are under its "Known issues" heading.
+[`CHANGELOG.md`](../../CHANGELOG.md), and what can change between releases is in
+[stability.md](../lang/stability.md).
 
 ## Goal
 
@@ -15,6 +16,10 @@ complete. The second is to make the types that high-throughput services work wit
 first-class in the language without giving up general systems use.
 
 ## Where it is today
+
+- **Tooling.** `eskiuc run` for scripts, `eskiuc repl` for trying code, `eskiuc new` /
+  `add` / `build` / `test` for packages, `eskiuc fmt`, and editor support in VS Code-based
+  editors and JetBrains IDEs through the same compiler modes.
 
 - **Language.** C-style syntax and C integer semantics, structs with methods, structural
   interfaces, monomorphized generics with constraints, sum types with exhaustive `match`,
@@ -49,10 +54,13 @@ first-class in the language without giving up general systems use.
 | 0.8 | Windows parity, operator overloading |
 | 0.9 | Labeled `break`/`continue`, two correctness campaigns (0.9.1 and 0.9.2), and 0.9.3 with a reviewed set of docs and fixes it turned up |
 | 0.10 | A standard library for scripts: fetch (HTTP and HTTPS), files, processes, DNS, strings and collections, JSON, CSV, dotenv, hashes, args, terminal, logging, dates |
+| 0.11 | Stability and tooling: a REPL, a minimal package manager, editor support (completion, signatures, quick fixes) in VS Code and JetBrains IDEs, `deprecated` warnings, "did you mean" suggestions, a written stability policy |
 
 ## Next: 1.0
 
-- **Package manager.** Dependency resolution, a registry, and build integration.
+- **Packages beyond git.** 0.11 resolves git and path dependencies pinned in `eskiu.lock`.
+  A registry and version ranges would let packages depend on "1.2 or later" instead of a
+  commit.
 - **Shipping the self-hosted compiler.** It already matches the C++ one. Making it the
   released binary needs either object emission without clang or accepting clang as a
   runtime requirement.

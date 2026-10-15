@@ -218,6 +218,23 @@ if [[ $code -eq 3 && "$out" == $'[a]\n[b c]' ]]; then ok "run/args"; else bad "r
 "$ESKIUC" run "$args_esk" crash >/dev/null 2>&1; code=$?
 if [[ $code -eq 139 ]]; then ok "run/signal"; else bad "run/signal" "exit $code (expected 139)"; fi
 
+# ---- eskiuc repl -------------------------------------------------------------
+# tests/repl/NAME.in is fed to `eskiuc repl` on stdin (no prompts: not a TTY), from
+# tests/repl so `:load` finds its files; stdout and stderr must match NAME.expected.
+# Not under a sanitizer: the REPL JIT-compiles without one.
+if [[ -z "$SANITIZE" ]]; then
+    echo "REPL:"
+    for in_file in "$here"/repl/*.in; do
+        name="$(basename "$in_file" .in)"
+        (cd "$here/repl" && "$ESKIUC" repl <"$in_file" >"$work/repl_out" 2>&1)
+        if diff -q "$work/repl_out" "$here/repl/$name.expected" >/dev/null 2>&1; then
+            ok "repl/$name"
+        else
+            bad "repl/$name" "transcript differs: $(diff "$here/repl/$name.expected" "$work/repl_out" | head -4 | tr '\n' ' ')"
+        fi
+    done
+fi
+
 # The example scripts in examples/scripts/, run through their shebang line against a
 # local fake API and a temporary directory tree (tests/scripts/check.sh). Not under a
 # sanitizer: they run through `eskiuc run`, which builds without one.
@@ -230,6 +247,19 @@ if [[ -z "$SANITIZE" ]]; then
             *)        echo "$line" ;;
         esac
     done < <(ESKIUC="$ESKIUC" bash "$here/scripts/check.sh" 2>&1)
+fi
+
+# The package manager (tests/pkg/check.sh): new/add/build/run/test/fetch against local
+# git repositories, package imports in both compilers. Skipped without git.
+if [[ -z "$SANITIZE" ]]; then
+    echo "Packages:"
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*)   ok "pkg/${line#ok }" ;;
+            "FAIL "*) rest="${line#FAIL }"; bad "pkg/${rest%%:*}" "${rest#*: }" ;;
+            *)        echo "  $line" ;;
+        esac
+    done < <(ESKIUC="$ESKIUC" bash "$here/pkg/check.sh" 2>&1)
 fi
 
 # $CC may carry arguments; a $CC that does not exist warns and falls back.
@@ -494,7 +524,35 @@ for esk in "$here"/lsp/*.esk; do
             bad "$name hover $q" "expected '$want', got '$got'"
         fi
     done < <(grep '^// HOVER ' "$esk" | sed 's#^// HOVER ##')
+
+    # `// COMPLETE L:C NAME...`: --complete-at L:C must offer every NAME.
+    while read -r q names; do
+        got="$("$ESKIUC" "$esk" --complete-at "$q" 2>/dev/null | cut -f2)"
+        missing=""
+        for n in $names; do grep -qx -- "$n" <<<"$got" || missing="$missing $n"; done
+        if [[ -z "$missing" ]]; then
+            ok "$name complete $q"
+        else
+            bad "$name complete $q" "missing:$missing"
+        fi
+    done < <(grep '^// COMPLETE ' "$esk" | sed 's#^// COMPLETE ##')
 done
+
+# --symbols lists the file's declarations (an editor outline), fields and inline
+# methods under their struct.
+got_syms="$("$ESKIUC" "$here/lsp/members.esk" --symbols 2>/dev/null | cut -f1-4 | tr '\t' ' ')"
+want_syms="struct Point 23:8 
+field x 24:9 Point
+field y 25:9 Point
+method sum 26:9 Point
+function Point_dist 29:5 
+function add 31:5 
+function main 33:5 "
+if [[ "$got_syms" == "$want_syms" ]]; then
+    ok "lsp/symbols"
+else
+    bad "lsp/symbols" "got '$got_syms'"
+fi
 
 # LSP error handling: parse error, semantic error, and missing symbol
 echo "LSP diagnostics:"

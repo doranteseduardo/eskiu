@@ -417,23 +417,3 @@ void EventLoop_free(EventLoop* lp) {
     _el_backend_free(lp.backend);    // close the kqueue / epoll descriptor
     free((*void)lp);
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use EventLoop_add_timer
-int el_add_timer(EventLoop* lp, int64 deadline, escaping fn()->void on_fire) { return EventLoop_add_timer(lp, deadline, on_fire); }
-// deprecated: use EventLoop_del_timer
-void el_del_timer(EventLoop* lp, int id) { EventLoop_del_timer(lp, id); }
-// deprecated: use EventLoop_add_read
-void el_add_read(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) { EventLoop_add_read(lp, fd, cb); }
-// deprecated: use EventLoop_add_write
-void el_add_write(EventLoop* lp, int fd, escaping fn(EventLoop*, int)->void cb) { EventLoop_add_write(lp, fd, cb); }
-// deprecated: use EventLoop_del
-void el_del(EventLoop* lp, int fd) { EventLoop_del(lp, fd); }
-// deprecated: use EventLoop_del_free
-void el_del_free(EventLoop* lp, int fd) { EventLoop_del_free(lp, fd); }
-// deprecated: use EventLoop_stop
-void el_stop(EventLoop* lp) { EventLoop_stop(lp); }
-// deprecated: use EventLoop_run
-void el_run(EventLoop* lp) { EventLoop_run(lp); }
-// deprecated: use EventLoop_free
-void el_free(EventLoop* lp) { EventLoop_free(lp); }

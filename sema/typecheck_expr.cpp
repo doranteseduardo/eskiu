@@ -925,6 +925,9 @@ void TypeChecker::visit(CallExpr* node) {
             const auto& sig = mit->second;
             const auto& paramTypes = sig.second; // first param is "self"
             calledFns.insert(mangled);           // -Wall: `x.m()` references `Type_m`
+            noteDeprecatedUse(mangled, member->memberLine > 0 ? member->memberLine : node->line,
+                              member->memberLine > 0 ? member->memberCol : node->col);
+            recordMemberTooling(member, signatureText(mangled), mangled);
             // Dot syntax passes the receiver's address, so the function's first parameter
             // must be a pointer to the receiver's type (`*P self` or `const P* self`).
             if (paramTypes.empty() || !tyq::isPtr(paramTypes[0]) ||
@@ -987,6 +990,11 @@ void TypeChecker::visit(CallExpr* node) {
             if (ifaceIt != interfaceDecls.end()) {
                 for (const auto& sig : ifaceIt->second->methods) {
                     if (sig.name == member->member) {
+                        std::string d = sig.returnType + " " + sig.name + "(";
+                        for (size_t i = 0; i < sig.params.size(); ++i)
+                            d += (i ? ", " : "") + sig.params[i].first +
+                                 (sig.params[i].second.empty() ? "" : " " + sig.params[i].second);
+                        recordMemberTooling(member, d + ")", "", nullptr);
                         for (auto& arg : node->args) arg->accept(this);
                         std::vector<std::string> pts;
                         for (const auto& p : sig.params) pts.push_back(p.first);
@@ -1033,11 +1041,15 @@ void TypeChecker::visit(CallExpr* node) {
         }
         // On a non-struct receiver the error is the undefined method (as the self-host
         // reports it), not also a member access.
+        // The same holds on a struct with no such field: the error is the method.
         std::string memberErr = "cannot access member '" + member->member + "' on non-struct type";
+        std::string fieldErr = "has no member '" + member->member + "'";
         for (size_t k = errsBeforeMember; k < errors.size();)
-            if (errors[k].find(memberErr) != std::string::npos) errors.erase(errors.begin() + (long)k);
+            if (errors[k].find(memberErr) != std::string::npos || errors[k].find(fieldErr) != std::string::npos)
+                errors.erase(errors.begin() + (long)k);
             else ++k;
-        errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'");
+        errorAt(node,"undefined method '" + member->member + "' on type '" + baseType + "'" +
+                     didYouMean(member->member, 'm', getExpressionType(member->base.get())));
         expressionTypes[node] = "unknown";
         return;
     }
@@ -1046,7 +1058,14 @@ void TypeChecker::visit(CallExpr* node) {
     std::string funcName;
     if (auto identExpr = dynamic_cast<IdentExpr*>(node->callee.get())) {
         funcName = identExpr->name;
+        if (funcName == kCompleteSentinel) {               // --complete-at on a callee
+            identExpr->accept(this);
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = "unknown";
+            return;
+        }
         calledFns.insert(funcName);  // -Wall: mark referenced
+        noteDeprecatedUse(funcName, identExpr->line, identExpr->col);
         // Record use-site for go-to-definition
         if (inPrimaryFile()) useLocations[{identExpr->line, identExpr->col}] = funcName;
     } else {
@@ -1161,7 +1180,7 @@ void TypeChecker::visit(CallExpr* node) {
             expressionTypes[node] = "unknown";
             return;
         }
-        errorAt(node->callee.get(), "undefined function '" + funcName + "'");
+        errorAt(node->callee.get(), "undefined function '" + funcName + "'" + didYouMean(funcName, 'v'));
         expressionTypes[node] = "unknown";
         return;
     }
@@ -1266,6 +1285,9 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return false;
     FunctionDecl* fd = ft->second;
     calledFns.insert(fnName);
+    noteDeprecatedUse(fnName, member->memberLine > 0 ? member->memberLine : node->line,
+                      member->memberLine > 0 ? member->memberCol : node->col);
+    recordMemberTooling(member, signatureText(fnName), fnName);
     for (auto& a : node->args) a->accept(this);
 
     const std::string& selfT = fd->params[0].first;
@@ -1487,6 +1509,11 @@ void TypeChecker::visit(MemberExpr* node) {
     // Through an alias (`type PSq = *Sq`, `type IS = int[]`) the member is the target's.
     baseType = dealiasOperand(baseType);
     if (!baseType.empty() && baseType[0] == '?') baseType = baseType.substr(1);
+    if (node->member == kCompleteSentinel) {           // --complete-at after `recv.`
+        if (!completionDone) { completeMembers(baseType); completionDone = true; }
+        expressionTypes[node] = "unknown";
+        return;
+    }
 
     // Slice `.len` → int64 (the fat pointer's length field).
     if (node->member == "len" && ty::Type::parse(baseType).kind == ty::Type::Kind::Slice) {
@@ -1519,6 +1546,12 @@ void TypeChecker::visit(MemberExpr* node) {
         const auto& structInfo = it->second;
         for (const auto& field : structInfo.fields) {
             if (field.name == node->member) {
+                std::string owner = structName;
+                if (auto ti = templateInstanceArgs.find(structName); ti != templateInstanceArgs.end())
+                    owner = ti->second.first;
+                auto fl = fieldLocations.find(owner + "." + field.name);
+                recordMemberTooling(node, field.type, "",
+                                    fl != fieldLocations.end() && fl->second.line > 0 ? &fl->second : nullptr);
                 // Found the member, return its type (a narrow bitfield reads as `int`, C)
                 expressionTypes[node] = field.type;
                 if (field.bitWidth > 0 &&
@@ -1529,7 +1562,8 @@ void TypeChecker::visit(MemberExpr* node) {
         }
 
         // Member not found in struct
-        errorAt(node,"struct '" + structName + "' has no member '" + node->member + "'");
+        errorAt(node,"struct '" + structName + "' has no member '" + node->member + "'" +
+                     didYouMean(node->member, 'm', baseType));
         expressionTypes[node] = "unknown";
     } else if (baseType == "unknown") {
         // Base type is unknown, can't validate member access
@@ -1628,8 +1662,16 @@ void TypeChecker::visit(LiteralExpr* node) {
 }
 
 void TypeChecker::visit(IdentExpr* node) {
+    if (node->name == kCompleteSentinel) {             // --complete-at
+        if (!completionDone) { completeScope(); completionDone = true; }
+        expressionTypes[node] = "unknown";
+        return;
+    }
     // -Wall: a function referenced as a value counts as used.
-    if (functionSignatures.count(node->name)) calledFns.insert(node->name);
+    if (functionSignatures.count(node->name)) {
+        calledFns.insert(node->name);
+        noteDeprecatedUse(node->name, node->line, node->col);
+    }
 
     // Escape soundness: a watched closure param referenced anywhere other than
     // as the immediate callee of a call escapes (see visit(FunctionDecl)).
@@ -1676,7 +1718,7 @@ void TypeChecker::visit(IdentExpr* node) {
                       "' needs explicit type arguments, as in " + node->name + "<int>()");
         expressionTypes[node] = "unknown";
     } else if (type.empty()) {
-        errorAt(node,"undefined variable '" + node->name + "'");
+        errorAt(node,"undefined variable '" + node->name + "'" + didYouMean(node->name, 'v'));
         expressionTypes[node] = "unknown";
     } else if (type[0] == '?' && narrowedNonNull.count(narrowKey(node->name))) {
         expressionTypes[node] = type.substr(1);   // proven non-null here: a plain `*T`
@@ -1897,6 +1939,7 @@ void TypeChecker::visit(ThreadCreateExpr* node) {
 }
 
 void TypeChecker::visit(TemplateCallExpr* node) {
+    noteDeprecatedUse(node->templateName, node->line, node->col);
     // The callee may assign any global: a global's narrowing ends after the call.
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
     // Variadic access: va_arg<T>(ap) yields the next argument as T.

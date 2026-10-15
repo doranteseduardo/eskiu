@@ -1,0 +1,14 @@
+1 + 2
+7 / 2
+7.0 / 2.0
+1.0 / 3.0
+(float)0.1
+true && false
+'c'
+"two\tparts"
+null
+5000000000
+(uint8)250
+-3
+:type 1 + 2.5
+:type "s"

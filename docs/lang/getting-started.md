@@ -129,6 +129,54 @@ chmod +x hello.esk
 For an optimized build, pass `-O2` (or `-O1`/`-O3`), which runs the LLVM middle-end before
 code generation. The default is `-O0`, which emits naive IR straight to the backend.
 
+### Try it in the REPL
+
+`eskiuc repl` starts an interactive session. Each input is compiled with LLVM's JIT and
+run at once. A bare expression prints its value, and declarations (functions, structs,
+enums, imports) stay available to later inputs:
+
+```
+$ eskiuc repl
+> 1 + 2
+3
+> int sq(int n) { return n * n; }
+> let x = sq(7);
+> x + 1
+50
+> struct Point { int x; int y; }
+> Point{3, 4}
+Point{x: 3, y: 4}
+> import <list>;
+> let xs = List<int>{};
+> xs.push(5);
+> xs
+[5]
+```
+
+`let x = expr;` at the prompt declares a session variable, and its type comes from the
+expression. Declaring a function or variable again replaces it for later inputs. An input
+that does not parse or type-check prints the error and changes nothing; an uncaught
+exception is reported and the session goes on. Input continues on the next line (prompt
+`...`) while it is unfinished, in any brace style: an open bracket or string, a line that
+ends with an operator, or a header such as `int sq(int n)` whose `{` comes next; an `if`
+or `try` block waits one line for its `else` or `catch`, and a blank line sends what is
+pending. `:type EXPR` prints a type without running anything,
+`:load FILE` adds a file's declarations, `:reset` starts over and `:quit` (or Ctrl-D) leaves.
+
+The prompt also takes `await`. The input runs on an event loop the session keeps, which
+`repl_loop()` returns, so a timer or an async read can be registered on it:
+
+```
+> import <timer>;
+> async int twice(int x) { await timer_after(repl_loop(), 10); return x * 2; }
+> await twice(21)
+42
+> let v = await twice(5);
+```
+
+When the awaited future cannot complete (nothing left on the loop could wake it), the REPL
+prints `error: the awaited future did not complete` instead of waiting forever.
+
 ### Peek at the generated IR
 
 Before producing an object file you can ask the compiler to print the LLVM IR it
@@ -605,6 +653,14 @@ int main() {
     return 0;
 }
 ```
+
+Eskiu has no namespaces and no `Type::method` or `Type.method` syntax: a function
+belongs to a type through its name. `Type_method` is the function's real name and the
+symbol C code links against (there is no name mangling), so `nm`, a debugger and a
+stack trace show it as written. Call it with dot syntax on a value
+(`s.replace_all("-", "+")`) and by its full name when you need the function itself, to
+pass it as a value or to call it from C. Editors offer these functions after `x.`
+(see `editor/vscode`).
 
 ### Fixed-size array fields
 
@@ -1204,6 +1260,81 @@ int main(int argc, string* argv) {
 into folders, with duplicates found by SHA-256 and a CSV report). Chapter 25 of
 [The Book of Eskiu](https://eskiu-lang.org/the-book-of-eskiu.html#chapter-25) walks
 through every module with a runnable example.
+
+---
+
+## Packages
+
+A package is a directory with an `eskiu.toml` manifest. `eskiuc new` creates one:
+
+```bash
+eskiuc new myapp
+cd myapp
+eskiuc run
+```
+
+```
+myapp/
+  eskiu.toml
+  src/main.esk
+  .gitignore
+```
+
+The manifest names the package and lists its dependencies:
+
+```toml
+[package]
+name = "myapp"
+version = "0.1.0"
+main = "src/main.esk"      # optional, this is the default
+
+[deps]
+jsonx = { git = "https://github.com/x/jsonx", rev = "v1.2.0" }   # a tag, branch or commit
+util  = { path = "../util" }
+```
+
+`eskiuc add` edits the manifest for you and fetches the dependency:
+
+```bash
+eskiuc add jsonx --git https://github.com/x/jsonx --rev v1.2.0
+eskiuc add util --path ../util
+```
+
+A git dependency is cloned with the `git` command into `~/.eskiu/pkgs/NAME/COMMIT`
+(`$ESKIU_HOME/pkgs` when `ESKIU_HOME` is set). Without `--rev` it follows the remote's
+default branch. A path dependency is used where it is. A dependency is a directory of
+`.esk` files; when it has its own `eskiu.toml`, its dependencies are fetched too. Two
+packages that need the same dependency at different commits are an error that names both.
+
+The resolved commits go to `eskiu.lock`, which you commit next to `eskiu.toml`. Later
+builds use the locked commits and run no git command when the checkouts are already
+there. `eskiuc fetch` resolves every rev again and updates the lock.
+
+Import a module of a dependency by the package name and the module's file name:
+
+```eskiu
+import <jsonx/parse>;   // parse.esk, or src/parse.esk, in the jsonx package
+import <util>;          // util.esk, src/util.esk or lib.esk in the util package
+import <myapp/helper>;  // the package's own src/helper.esk
+```
+
+A stdlib module keeps its name: `import <io>;` is always the stdlib one. An import that
+names neither a stdlib module nor a package in the lock is an error:
+`unknown package 'x' (not in eskiu.toml)`.
+
+The package commands:
+
+```bash
+eskiuc build [-o out] [flags]   # compile src/main.esk to build/NAME
+eskiuc run [args]               # build, then run with args
+eskiuc test                     # compile and run every tests/*.esk, pass = exit code 0
+eskiuc fetch                    # re-resolve the dependencies, rewrite eskiu.lock
+```
+
+`eskiuc run file.esk` still compiles and runs that one file, inside a package or not, and
+compiling any file of a package (`eskiuc src/tool.esk -o tool`) resolves package imports
+from the lock. The self-hosted `eskiuc-esk` reads the lock the same way; the package
+commands themselves are in the C++ `eskiuc` only.
 
 ---
 

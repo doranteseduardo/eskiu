@@ -73,12 +73,19 @@ bool TypeChecker::check(Program* program) {
             info.name = unionDecl->name;
             info.isUnion = true;
             info.packAlign = unionDecl->packAlign;
-            for (const auto& f : unionDecl->fields) info.fields.push_back({f.type, f.name});
+            for (const auto& f : unionDecl->fields) {
+                info.fields.push_back(f);
+                fieldLocations[unionDecl->name + "." + f.name] =
+                    {f.line, f.col, unionDecl->sourceFile.empty() ? sourceFile : unionDecl->sourceFile};
+            }
             info.pads = unionDecl->pads;
             structs[unionDecl->name] = info;
             continue;
         }
         if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
+            auto& known = fnDecls[funcDecl->name];
+            if (!known.first || funcDecl->body) known = {funcDecl, ""};
+            if (!funcDecl->deprecatedMsg.empty()) deprecatedFuncs[funcDecl->name] = funcDecl->deprecatedMsg;
             if (!funcDecl->typeParams.empty()) {
                 // A generic prototype (`T f<T>(T x);`) never replaces its definition.
                 FunctionDecl*& slot = funcTemplateDecls[funcDecl->name];
@@ -90,6 +97,14 @@ bool TypeChecker::check(Program* program) {
             }
         }
         if (auto structDecl = dynamic_cast<StructDecl*>(decl.get())) {
+            std::string sfile = structDecl->sourceFile.empty() ? sourceFile : structDecl->sourceFile;
+            for (const auto& f : structDecl->fields)
+                fieldLocations[structDecl->name + "." + f.name] = {f.line, f.col, sfile};
+            for (const auto& method : structDecl->methods)
+                if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
+                    fnDecls[structDecl->name + "_" + func->name] = {func, "*" + structDecl->name};
+                    methodLocations[structDecl->name + "_" + func->name] = {func->line, func->col, sfile};
+                }
             if (!structDecl->typeParams.empty()) {
                 templateDecls[structDecl->name] = structDecl;
                 continue;
@@ -632,6 +647,8 @@ static int hoverSpanWidth(const Expr* e) {
     return 1;
 }
 
+static std::string userSpelling(const std::string& msg);   // below, with the diagnostics
+
 std::string TypeChecker::getTypeAtPosition(int line, int col) const {
     // Return a type only when the cursor is within an expression's token span —
     // never for keywords, type annotations, operators, or whitespace. Among the
@@ -645,14 +662,25 @@ std::string TypeChecker::getTypeAtPosition(int line, int col) const {
         if (col < node->col || col >= node->col + width) continue;
         if (width < bestWidth) { bestWidth = width; bestType = type; }
     }
-    // Declared names (variables, parameters) at their declaration site.
+    // Declared names (variables, parameters) at their declaration site, and member
+    // names (`x.field`, `x.method`).
+    // They win over an expression there (a dot-call's receiver argument shares its spot).
     for (const auto& s : hoverSyms) {
         if (s.type.empty() || s.line != line || s.col <= 0) continue;
         int width = std::max(1, s.width);
         if (col < s.col || col >= s.col + width) continue;
-        if (width < bestWidth) { bestWidth = width; bestType = s.type; }
+        return displayType(s.type);
     }
-    return bestType;
+    // A function's name, where it is used or declared: its signature.
+    auto isFn = [&](const std::string& n) { return fnDecls.count(n) || functionSignatures.count(n); };
+    for (const auto& [pos, name] : useLocations)
+        if (pos.first == line && col >= pos.second && col < pos.second + (int)name.size() && isFn(name))
+            return signatureText(name);
+    for (const auto& [name, loc] : definitionLocations)
+        if (loc.file == sourceFile && loc.line == line && col >= loc.col &&
+            col < loc.col + (int)name.size() && isFn(name) && bestType.empty())
+            return signatureText(name);
+    return displayType(bestType);
 }
 
 std::string TypeChecker::getDefinitionAt(int line, int col) const {
@@ -665,7 +693,14 @@ std::string TypeChecker::getDefinitionAt(int line, int col) const {
         if (pos.first == line && col >= pos.second && col < pos.second + use.width)
             return fmtLoc(use.def);
     }
-    // 2. A use of a global (function, enum member, global variable) spanning it.
+    // 2. A member name resolved to a function (`x.method`).
+    for (const auto& [pos, use] : memberUses) {
+        if (pos.first != line || col < pos.second || col >= pos.second + use.first) continue;
+        if (auto ml = methodLocations.find(use.second); ml != methodLocations.end()) return fmtLoc(ml->second);
+        auto defit = definitionLocations.find(use.second);
+        if (defit != definitionLocations.end()) return fmtLoc(defit->second);
+    }
+    // 3. A use of a global (function, enum member, global variable) spanning it.
     for (const auto& [pos, name] : useLocations) {
         if (pos.first != line || col < pos.second || col >= pos.second + (int)name.size()) continue;
         auto defit = definitionLocations.find(name);
@@ -840,6 +875,204 @@ static std::string userSpelling(const std::string& msg) {
     return out;
 }
 
+std::string TypeChecker::displayType(const std::string& t0) const {
+    std::string t = userSpelling(t0), out;
+    for (size_t i = 0; i < t.size();) {
+        if (std::isalpha((unsigned char)t[i]) || t[i] == '_') {
+            size_t j = i;
+            while (j < t.size() && (std::isalnum((unsigned char)t[j]) || t[j] == '_')) ++j;
+            std::string word = t.substr(i, j - i);
+            auto ti = templateInstanceArgs.find(word);
+            if (ti != templateInstanceArgs.end() && word != ti->second.first) {
+                out += ti->second.first + "<";
+                for (size_t k = 0; k < ti->second.second.size(); ++k)
+                    out += (k ? ", " : "") + displayType(ti->second.second[k]);
+                out += ">";
+            } else {
+                out += word;
+            }
+            i = j;
+        } else {
+            out += t[i++];
+        }
+    }
+    return out;
+}
+
+std::string TypeChecker::signatureText(const std::string& fn) const {
+    std::string s;
+    if (auto it = fnDecls.find(fn); it != fnDecls.end()) {
+        const FunctionDecl* fd = it->second.first;
+        if (fd->isAsync) s += "async ";
+        s += fd->returnType + " " + fn;
+        if (!fd->typeParams.empty()) {
+            s += "<";
+            for (size_t i = 0; i < fd->typeParams.size(); ++i) s += (i ? ", " : "") + fd->typeParams[i];
+            s += ">";
+        }
+        s += "(";
+        bool first = true;
+        if (!it->second.second.empty()) { s += it->second.second + " self"; first = false; }
+        for (const auto& [type, name] : fd->params) {
+            if (!first) s += ", ";
+            first = false;
+            s += type == "..." || name.empty() ? type : type + " " + name;
+        }
+        return userSpelling(s + ")");
+    }
+    auto sig = functionSignatures.find(fn);
+    if (sig == functionSignatures.end()) return "";
+    s = sig->second.first + " " + fn + "(";
+    for (size_t i = 0; i < sig->second.second.size(); ++i) s += (i ? ", " : "") + sig->second.second[i];
+    return userSpelling(s + ")");
+}
+
+void TypeChecker::recordMemberTooling(MemberExpr* m, const std::string& hover, const std::string& fnName,
+                                      const DefLocation* def) {
+    if (!inPrimaryFile() || m->memberLine <= 0) return;
+    int width = (int)m->member.size();
+    if (!hover.empty()) hoverSyms.push_back({m->memberLine, m->memberCol, width, hover});
+    if (def) useDefs[{m->memberLine, m->memberCol}] = {width, *def};
+    else if (!fnName.empty()) memberUses[{m->memberLine, m->memberCol}] = {width, fnName};
+}
+
+// The members `recv.` can be followed by: the fields of its struct, the functions that
+// dot syntax reaches (`T_m` whose first parameter points to T, a generic `G_m` on an
+// instance of G) and an interface's methods. `_`-prefixed (internal) names are left out.
+void TypeChecker::completeMembers(const std::string& recvType) {
+    std::string t = recvType;
+    if (t.rfind("const ", 0) == 0) t = t.substr(6);
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    t = dealiasOperand(t);
+    if (ty::Type::parse(t).kind == ty::Type::Kind::Slice) {
+        completions.push_back({"field", "len", "int64"});
+        return;
+    }
+    std::string nb = ty::Type::parse(t).nominalName();
+    if (typeAliases.count(nb)) nb = ty::Type::parse(normalizeType(nb)).nominalName();
+    ty::Type rt = ty::Type::parse(tyq::strip(t));
+    while (rt.isPointer() && rt.pointee) { ty::Type inner = *rt.pointee; rt = inner; }
+    if (rt.isTemplate()) nb = ty::Type::parse(normalizeType(rt.str())).nominalName();
+    if (nb.rfind("struct:", 0) == 0) nb = nb.substr(7);
+    std::set<std::string> seen;
+    auto add = [&](const std::string& kind, const std::string& name, const std::string& detail) {
+        if (name.empty() || name[0] == '_' || !seen.insert(name).second) return;
+        completions.push_back({kind, name, displayType(detail)});
+    };
+    if (auto si = structs.find(nb); si != structs.end())
+        for (const auto& f : si->second.fields)
+            if (!f.unnamed) add("field", f.name, f.type);
+    std::string prefix = nb + "_";
+    for (auto it = functionSignatures.lower_bound(prefix);
+         it != functionSignatures.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it) {
+        const auto& pts = it->second.second;
+        if (pts.empty() || !tyq::isPtr(pts[0])) continue;
+        if (ty::Type::parse(normalizeType(tyq::strip(tyq::pointee(pts[0])))).nominalName() != nb &&
+            tyq::strip(tyq::pointee(pts[0])) != nb) continue;
+        add("method", it->first.substr(prefix.size()), signatureText(it->first));
+    }
+    if (auto ti = templateInstanceArgs.find(nb); ti != templateInstanceArgs.end()) {
+        std::string gp = ti->second.first + "_";
+        for (auto it = funcTemplateDecls.lower_bound(gp);
+             it != funcTemplateDecls.end() && it->first.compare(0, gp.size(), gp) == 0; ++it)
+            if (!it->second->params.empty())
+                add("method", it->first.substr(gp.size()), signatureText(it->first));
+        if (auto td = templateDecls.find(ti->second.first); td != templateDecls.end()) {
+            for (const auto& f : td->second->fields) add("field", f.name, f.type);
+            for (const auto& m : td->second->methods)
+                if (auto fd = dynamic_cast<FunctionDecl*>(m.get()))
+                    add("method", fd->name, signatureText(ti->second.first + "_" + fd->name));
+        }
+    }
+    if (auto ii = interfaceDecls.find(nb); ii != interfaceDecls.end())
+        for (const auto& m : ii->second->methods) {
+            std::string d = m.returnType + " " + m.name + "(";
+            for (size_t i = 0; i < m.params.size(); ++i)
+                d += (i ? ", " : "") + m.params[i].first + (m.params[i].second.empty() ? "" : " " + m.params[i].second);
+            add("method", m.name, d + ")");
+        }
+}
+
+std::string TypeChecker::didYouMean(const std::string& name0, char kind, const std::string& recvType) {
+    // A generic type is matched by its name without the arguments (`Opy<int>` -> `Opt`).
+    std::string name = kind == 't' ? name0.substr(0, name0.find('<')) : name0;
+    if (name.size() < 2 || name == kCompleteSentinel) return "";
+    std::vector<std::string> cands;
+    if (kind == 't') {
+        static const char* prims[] = {"int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
+                                      "uint32", "uint64", "float", "double", "bool", "char", "string", "void"};
+        for (const char* p : prims) cands.push_back(p);
+        for (const auto& [n, s] : structs) if (!templateInstanceArgs.count(n)) cands.push_back(n);
+        for (const auto& [n, s] : templateDecls) cands.push_back(n);
+        for (const auto& [n, s] : interfaceDecls) cands.push_back(n);
+        for (const auto& [n, s] : enumDecls) cands.push_back(n);
+        for (const auto& n : enumTypes) cands.push_back(n);          // classic enums
+        for (const auto& [n, s] : genericEnumDecls) cands.push_back(n);
+        for (const auto& [n, s] : typeAliases) cands.push_back(n);
+    } else {
+        auto saved = std::move(completions);
+        completions.clear();
+        if (kind == 'm') completeMembers(recvType); else completeScope();
+        for (const auto& c : completions)
+            if (kind == 'm' || c.kind != "struct") cands.push_back(c.name);
+        completions = std::move(saved);
+    }
+    auto lower = [](std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+    std::string ln = lower(name);
+    size_t limit = name.size() <= 3 ? 1 : 2;
+    std::string best;
+    size_t bestD = limit + 1;
+    for (const auto& c : cands) {
+        if (c == name || c.empty() || c[0] == '_') continue;
+        std::string lc = lower(c);
+        if (lc.size() > ln.size() + limit || ln.size() > lc.size() + limit) continue;
+        // Optimal string alignment: an adjacent transposition (`cuont`) is one change.
+        std::vector<size_t> prev2(lc.size() + 1), prev(lc.size() + 1), cur(lc.size() + 1);
+        for (size_t j = 0; j <= lc.size(); ++j) prev[j] = j;
+        for (size_t i = 1; i <= ln.size(); ++i) {
+            cur[0] = i;
+            for (size_t j = 1; j <= lc.size(); ++j) {
+                cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ln[i - 1] == lc[j - 1] ? 0 : 1)});
+                if (i > 1 && j > 1 && ln[i - 1] == lc[j - 2] && ln[i - 2] == lc[j - 1])
+                    cur[j] = std::min(cur[j], prev2[j - 2] + 1);
+            }
+            std::swap(prev2, prev);
+            std::swap(prev, cur);
+        }
+        size_t d = prev[lc.size()];
+        if (lc == ln) d = 0;
+        // Two changes need six letters: `List` is not a near miss of `int`.
+        if (d >= 2 && d * 3 > std::max(lc.size(), ln.size())) continue;
+        if (d < bestD || (d == bestD && c < best)) { bestD = d; best = c; }
+    }
+    return bestD <= limit ? " (did you mean '" + best + "'?)" : "";
+}
+
+// The names visible at an identifier: variables in scope (innermost first), then the
+// program's functions, types, enum members and constants.
+void TypeChecker::completeScope() {
+    std::set<std::string> seen;
+    auto add = [&](const std::string& kind, const std::string& name, const std::string& detail) {
+        if (name.empty() || name[0] == '_' || name == kCompleteSentinel || !seen.insert(name).second) return;
+        completions.push_back({kind, name, displayType(detail)});
+    };
+    for (size_t i = scopes.size(); i-- > 0;)
+        for (const auto& [name, sym] : scopes[i])
+            if (i > 0 || (!structs.count(name) && !templateDecls.count(name) && !interfaceDecls.count(name) &&
+                          !enumDecls.count(name) && !typeAliases.count(name)))
+                add(i == 0 ? "global" : "variable", name, sym.type);
+    for (const auto& [name, sig] : functionSignatures) add("function", name, signatureText(name));
+    for (const auto& [name, fd] : funcTemplateDecls) add("function", name, signatureText(name));
+    for (const auto& [name, si] : structs)
+        if (!templateInstanceArgs.count(name)) add("struct", name, si.isUnion ? "union " + name : "struct " + name);
+    for (const auto& [name, td] : templateDecls) add("struct", name, "struct " + name);
+    for (const auto& [name, id] : interfaceDecls) add("interface", name, "interface " + name);
+    for (const auto& [name, ed] : enumDecls) add("enum", name, "enum " + name);
+    for (const auto& [name, target] : typeAliases) add("type", name, "type " + name + " = " + target);
+    for (const auto& [name, v] : enumConstants) add("enummember", name, std::to_string(v));
+    for (const auto& [name, v] : adtVariants) add("enummember", name, v.first);
+}
+
 // Error reporting
 void TypeChecker::error(int line, int col, const std::string& message) {
     hasErrors = true;
@@ -864,6 +1097,15 @@ void TypeChecker::warning(int line, int col, const std::string& message) {
     std::stringstream ss;
     ss << diagFile() << ":" << line << ":" << col << ": warning: " << userSpelling(message);
     std::cerr << ss.str() << "\n";
+}
+
+void TypeChecker::noteDeprecatedUse(const std::string& fn, int line, int col) {
+    if (!warnDeprecated || line <= 0) return;
+    auto it = deprecatedFuncs.find(fn);
+    if (it == deprecatedFuncs.end()) return;
+    if (!deprecatedWarned().insert(diagFile() + ":" + std::to_string(line) + ":" + std::to_string(col)).second) return;
+    std::string msg = it->second == " " ? "" : ": " + it->second;
+    warning(line, col, "'" + fn + "' is deprecated" + msg);
 }
 
 void TypeChecker::warnAssignInCondition(Expr* cond) {

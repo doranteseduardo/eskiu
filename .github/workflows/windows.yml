@@ -30,6 +30,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-openssl
             diffutils
+            git
 
       - name: Configure
         run: |
@@ -81,7 +82,7 @@ jobs:
               xs[0] = 7;
               let m: Mutex;  Mutex_init(&m);  Mutex_lock(&m);  Mutex_unlock(&m);  Mutex_destroy(&m);
               int64 t0 = time_monotonic_ms();
-              sleep_ms(1);
+              time_sleep_ms(1);
               int elapsed_ok = 0;
               if (time_monotonic_ms() - t0 >= 0) { elapsed_ok = 1; }
               printf("ok %d %d\n", xs[0], elapsed_ok);
@@ -142,7 +143,7 @@ jobs:
               EventLoop* lp = el_new(64);
               net_set_nonblocking(s);
               Future<int>* f = net_read_async(lp, s, &g_buf[0], (int64)64);
-              future_poll<int>(f, void() { free_future<int>(f); EventLoop_stop(lp); });
+              Future_poll<int>(f, void() { Future_free<int>(f); EventLoop_stop(lp); });
               EventLoop_run(lp);
               printf("read %c%c%c\n", (char)g_buf[0], (char)g_buf[1], (char)g_buf[4]);
               EventLoop_free(lp);
@@ -182,6 +183,40 @@ jobs:
       - name: Example scripts
         if: ${{ !cancelled() }}
         run: ESKIUC="$PWD/build/eskiuc.exe" tests/scripts/check.sh
+
+      - name: REPL sessions
+        if: ${{ !cancelled() }}
+        run: |
+          # The tests/repl transcripts, fed to `eskiuc repl` on stdin (CRs dropped on
+          # both sides, as a Windows program writes them in text mode).
+          set +e
+          mkdir -p winbin
+          fail=0
+          for in_file in tests/repl/*.in; do
+            name=$(basename "$in_file" .in)
+            # The REPL refuses exceptions on Windows (no SEH tables for JIT code): checked below.
+            [ "$name" = exceptions ] && continue
+            (cd tests/repl && ../../build/eskiuc.exe repl < "$name.in" > "../../winbin/repl_$name.out" 2>&1)
+            code=$?
+            tr -d '\r' < "tests/repl/$name.expected" > "winbin/repl_$name.want"
+            tr -d '\r' < "winbin/repl_$name.out" > "winbin/repl_$name.got"
+            if [ $code -eq 0 ] && diff "winbin/repl_$name.want" "winbin/repl_$name.got" > "winbin/repl_$name.diff"; then
+              echo "ok repl/$name"
+            else
+              echo "FAIL repl/$name (exit $code)"; head -20 "winbin/repl_$name.diff" 2>/dev/null; fail=1
+            fi
+          done
+          out=$(printf 'throw 1;\n1 + 1\n' | ./build/eskiuc.exe repl 2>&1 | tr -d '\r')
+          if [ "$out" = "$(printf 'error: the REPL on Windows does not run code that throws or catches exceptions yet; run it with `eskiuc run`\n2')" ]; then
+            echo "ok repl/exceptions-refused"
+          else
+            echo "FAIL repl/exceptions-refused: $out"; fail=1
+          fi
+          exit $fail
+
+      - name: Package manager
+        if: ${{ !cancelled() }}
+        run: ESKIUC="$PWD/build/eskiuc.exe" tests/pkg/check.sh
 
       - name: Package
         run: |

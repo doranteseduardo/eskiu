@@ -1,0 +1,7 @@
+// Loaded by load.in with `:load lib.esk`.
+int lib_double(int v) { return v * 2; }
+
+struct Pair {
+    int first;
+    int second;
+}

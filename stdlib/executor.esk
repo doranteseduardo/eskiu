@@ -164,13 +164,3 @@ void Executor_free(Executor* ex) {
     ex.lp.free();                    // the executor owns its event loop
     free((*void)ex);
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use Executor_schedule
-void executor_schedule(Executor* ex, escaping fn()->void w) { Executor_schedule(ex, w); }
-// deprecated: use Executor_run
-void executor_run(Executor* ex) { Executor_run(ex); }
-// deprecated: use Executor_stop
-void executor_stop(Executor* ex) { Executor_stop(ex); }
-// deprecated: use Executor_free
-void executor_free(Executor* ex) { Executor_free(ex); }

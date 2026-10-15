@@ -550,17 +550,3 @@ int hpack_encode_header(*uint8 buf, int off, *uint8 name, int nlen, *uint8 value
     off = _hpack_emit_str(buf, off, name, nlen);
     return _hpack_emit_str(buf, off, value, vlen);
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use HpackHuff_build
-void hpack_huff_build(HpackHuff* h) { HpackHuff_build(h); }
-// deprecated: use HpackHuff_free
-void hpack_huff_free(HpackHuff* h) { HpackHuff_free(h); }
-// deprecated: use HpackDecoder_init
-void hpack_decoder_init(HpackDecoder* d, int64 max_size) { HpackDecoder_init(d, max_size); }
-// deprecated: use HpackDecoder_free
-void hpack_decoder_free(HpackDecoder* d) { HpackDecoder_free(d); }
-// Deprecated (0.10.1): use HpackHuff_decode.
-int hpack_huff_decode(HpackHuff* h, *uint8 src, int srclen, *uint8 dst, int dstcap) { return HpackHuff_decode(h, src, srclen, dst, dstcap); }
-// Deprecated (0.10.1): use HpackDecoder_decode.
-int hpack_decode(HpackDecoder* d, *uint8 buf, int len, HpackHeader* out, int max) { return HpackDecoder_decode(d, buf, len, out, max); }

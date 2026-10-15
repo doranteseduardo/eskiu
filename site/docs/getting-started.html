@@ -135,15 +135,18 @@ a:hover { color: var(--ink); }
   .foot-in { flex-direction: row; align-items: center; gap: 12px 32px; padding-block: 36px; }
   .foot .brand { font-size: 22px; }
   .foot-links { display: flex; gap: 26px; margin-left: auto; }
-}</style>
+}
+details.cl-full { margin: 4px 0 28px; border: 1px solid var(--rule); border-radius: 12px; padding: 0 16px; }
+details.cl-full > summary { cursor: pointer; padding: 10px 0; font-family: var(--mono); font-size: 13px; color: var(--purple); }
+details.cl-full[open] { padding-bottom: 8px; }</style>
 </head>
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.11.0</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.10.1</a>
+        <a class="btn-install" href="../index.html#install">Install 0.11.0</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -152,9 +155,9 @@ a:hover { color: var(--ink); }
     <nav class="drawer" id="drawer" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
   </header>
   <div class="bar layout has-toc">
-    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></aside>
+    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="stability.html">Stability</a><a href="migration.html">Migration</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a><a href="roadmap.html">Roadmap</a></nav></aside>
     <main class="content">
-      <details class="side-m"><summary>Language · Getting started</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
+      <details class="side-m"><summary>Language · Getting started</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="stability.html">Stability</a><a href="migration.html">Migration</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a><a href="roadmap.html">Roadmap</a></nav></div></details>
 <h1 id="getting-started-with-eskiu">Getting Started with Eskiu</h1>
 <p>A hands-on introduction to the Eskiu language. You will go from zero to writing
 and inspecting real compiled programs in about 30 minutes.</p>
@@ -266,6 +269,45 @@ int main() { printf(&quot;hello\n&quot;); return 0; }
 </code></pre>
 <p>For an optimized build, pass <code>-O2</code> (or <code>-O1</code>/<code>-O3</code>), which runs the LLVM middle-end before
 code generation. The default is <code>-O0</code>, which emits naive IR straight to the backend.</p>
+<h3 id="try-it-in-the-repl">Try it in the REPL</h3>
+<p><code>eskiuc repl</code> starts an interactive session. Each input is compiled with LLVM's JIT and
+run at once. A bare expression prints its value, and declarations (functions, structs,
+enums, imports) stay available to later inputs:</p>
+<pre><code>$ eskiuc repl
+&gt; 1 + 2
+3
+&gt; int sq(int n) { return n * n; }
+&gt; let x = sq(7);
+&gt; x + 1
+50
+&gt; struct Point { int x; int y; }
+&gt; Point{3, 4}
+Point{x: 3, y: 4}
+&gt; import &lt;list&gt;;
+&gt; let xs = List&lt;int&gt;{};
+&gt; xs.push(5);
+&gt; xs
+[5]
+</code></pre>
+<p><code>let x = expr;</code> at the prompt declares a session variable, and its type comes from the
+expression. Declaring a function or variable again replaces it for later inputs. An input
+that does not parse or type-check prints the error and changes nothing; an uncaught
+exception is reported and the session goes on. Input continues on the next line (prompt
+<code>...</code>) while it is unfinished, in any brace style: an open bracket or string, a line that
+ends with an operator, or a header such as <code>int sq(int n)</code> whose <code>{</code> comes next; an <code>if</code>
+or <code>try</code> block waits one line for its <code>else</code> or <code>catch</code>, and a blank line sends what is
+pending. <code>:type EXPR</code> prints a type without running anything,
+<code>:load FILE</code> adds a file's declarations, <code>:reset</code> starts over and <code>:quit</code> (or Ctrl-D) leaves.</p>
+<p>The prompt also takes <code>await</code>. The input runs on an event loop the session keeps, which
+<code>repl_loop()</code> returns, so a timer or an async read can be registered on it:</p>
+<pre><code>&gt; import &lt;timer&gt;;
+&gt; async int twice(int x) { await timer_after(repl_loop(), 10); return x * 2; }
+&gt; await twice(21)
+42
+&gt; let v = await twice(5);
+</code></pre>
+<p>When the awaited future cannot complete (nothing left on the loop could wake it), the REPL
+prints <code>error: the awaited future did not complete</code> instead of waiting forever.</p>
 <h3 id="peek-at-the-generated-ir">Peek at the generated IR</h3>
 <p>Before producing an object file you can ask the compiler to print the LLVM IR it
 would emit:</p>
@@ -708,6 +750,13 @@ int main() {
     return 0;
 }
 </code></pre>
+<p>Eskiu has no namespaces and no <code>Type::method</code> or <code>Type.method</code> syntax: a function
+belongs to a type through its name. <code>Type_method</code> is the function's real name and the
+symbol C code links against (there is no name mangling), so <code>nm</code>, a debugger and a
+stack trace show it as written. Call it with dot syntax on a value
+(<code>s.replace_all("-", "+")</code>) and by its full name when you need the function itself, to
+pass it as a value or to call it from C. Editors offer these functions after <code>x.</code>
+(see <code>editor/vscode</code>).</p>
 <h3 id="fixed-size-array-fields">Fixed-size array fields</h3>
 <p>A struct field can be a fixed-size array:</p>
 <pre><code class="language-eskiu">struct Packet {
@@ -1333,6 +1382,58 @@ into folders, with duplicates found by SHA-256 and a CSV report). Chapter 25 of
 <a href="https://eskiu-lang.org/the-book-of-eskiu.html#chapter-25">The Book of Eskiu</a> walks
 through every module with a runnable example.</p>
 <hr>
+<h2 id="packages">Packages</h2>
+<p>A package is a directory with an <code>eskiu.toml</code> manifest. <code>eskiuc new</code> creates one:</p>
+<pre><code class="language-bash">eskiuc new myapp
+cd myapp
+eskiuc run
+</code></pre>
+<pre><code>myapp/
+  eskiu.toml
+  src/main.esk
+  .gitignore
+</code></pre>
+<p>The manifest names the package and lists its dependencies:</p>
+<pre><code class="language-toml">[package]
+name = &quot;myapp&quot;
+version = &quot;0.1.0&quot;
+main = &quot;src/main.esk&quot;      # optional, this is the default
+
+[deps]
+jsonx = { git = &quot;https://github.com/x/jsonx&quot;, rev = &quot;v1.2.0&quot; }   # a tag, branch or commit
+util  = { path = &quot;../util&quot; }
+</code></pre>
+<p><code>eskiuc add</code> edits the manifest for you and fetches the dependency:</p>
+<pre><code class="language-bash">eskiuc add jsonx --git https://github.com/x/jsonx --rev v1.2.0
+eskiuc add util --path ../util
+</code></pre>
+<p>A git dependency is cloned with the <code>git</code> command into <code>~/.eskiu/pkgs/NAME/COMMIT</code>
+(<code>$ESKIU_HOME/pkgs</code> when <code>ESKIU_HOME</code> is set). Without <code>--rev</code> it follows the remote's
+default branch. A path dependency is used where it is. A dependency is a directory of
+<code>.esk</code> files; when it has its own <code>eskiu.toml</code>, its dependencies are fetched too. Two
+packages that need the same dependency at different commits are an error that names both.</p>
+<p>The resolved commits go to <code>eskiu.lock</code>, which you commit next to <code>eskiu.toml</code>. Later
+builds use the locked commits and run no git command when the checkouts are already
+there. <code>eskiuc fetch</code> resolves every rev again and updates the lock.</p>
+<p>Import a module of a dependency by the package name and the module's file name:</p>
+<pre><code class="language-eskiu">import &lt;jsonx/parse&gt;;   // parse.esk, or src/parse.esk, in the jsonx package
+import &lt;util&gt;;          // util.esk, src/util.esk or lib.esk in the util package
+import &lt;myapp/helper&gt;;  // the package's own src/helper.esk
+</code></pre>
+<p>A stdlib module keeps its name: <code>import &lt;io&gt;;</code> is always the stdlib one. An import that
+names neither a stdlib module nor a package in the lock is an error:
+<code>unknown package 'x' (not in eskiu.toml)</code>.</p>
+<p>The package commands:</p>
+<pre><code class="language-bash">eskiuc build [-o out] [flags]   # compile src/main.esk to build/NAME
+eskiuc run [args]               # build, then run with args
+eskiuc test                     # compile and run every tests/*.esk, pass = exit code 0
+eskiuc fetch                    # re-resolve the dependencies, rewrite eskiu.lock
+</code></pre>
+<p><code>eskiuc run file.esk</code> still compiles and runs that one file, inside a package or not, and
+compiling any file of a package (<code>eskiuc src/tool.esk -o tool</code>) resolves package imports
+from the lock. The self-hosted <code>eskiuc-esk</code> reads the lock the same way; the package
+commands themselves are in the C++ <code>eskiuc</code> only.</p>
+<hr>
 <h2 id="lambdas">Lambdas</h2>
 <p>Eskiu supports anonymous functions (lambdas) as first-class values. The syntax
 mirrors a regular function declaration without a name.</p>
@@ -1722,7 +1823,7 @@ them, as in C: with <code>let q: *int = buf + 3;</code>, <code>q - buf</code> is
 <li>Contributing guide: <a href="contributing.html">contributing.md</a></li>
 </ul>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#installation">Installation</a><a href="#your-first-program">Your First Program</a><a href="#variables-and-types">Variables and Types</a><a href="#operators">Operators</a><a href="#control-flow">Control Flow</a><a href="#functions">Functions</a><a href="#structs">Structs</a><a href="#enums-and-match">Enums and match</a><a href="#templates">Templates</a><a href="#interfaces">Interfaces</a><a href="#memory">Memory</a><a href="#multi-file-projects">Multi-file Projects</a><a href="#lambdas">Lambdas</a><a href="#threads">Threads</a><a href="#exception-handling">Exception Handling</a><a href="#ide-tooling-vs-code">IDE Tooling (VS Code)</a><a href="#using-the-test-modes">Using the Test Modes</a><a href="#inline-assembly-and-volatile">Inline Assembly and volatile</a><a href="#sizeof">sizeof</a><a href="#unions">Unions</a><a href="#typed-pointer-arithmetic">Typed Pointer Arithmetic</a><a href="#whats-next">What&#x27;s Next</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#installation">Installation</a><a href="#your-first-program">Your First Program</a><a href="#variables-and-types">Variables and Types</a><a href="#operators">Operators</a><a href="#control-flow">Control Flow</a><a href="#functions">Functions</a><a href="#structs">Structs</a><a href="#enums-and-match">Enums and match</a><a href="#templates">Templates</a><a href="#interfaces">Interfaces</a><a href="#memory">Memory</a><a href="#multi-file-projects">Multi-file Projects</a><a href="#packages">Packages</a><a href="#lambdas">Lambdas</a><a href="#threads">Threads</a><a href="#exception-handling">Exception Handling</a><a href="#ide-tooling-vs-code">IDE Tooling (VS Code)</a><a href="#using-the-test-modes">Using the Test Modes</a><a href="#inline-assembly-and-volatile">Inline Assembly and volatile</a><a href="#sizeof">sizeof</a><a href="#unions">Unions</a><a href="#typed-pointer-arithmetic">Typed Pointer Arithmetic</a><a href="#whats-next">What&#x27;s Next</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

@@ -399,7 +399,3 @@ void url_query_add(String* url, string key, string value) {
     url.append(frag.cstr());
     frag.free();
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use Url_resolve.
-int url_resolve(Url* base, string ref, Url* out) { return Url_resolve(base, ref, out); }

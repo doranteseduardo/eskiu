@@ -1,0 +1,18 @@
+import <list>;
+import <string>;
+let xs = List<int>{};
+xs.push(10);
+xs.push(20);
+xs.push(30);
+xs
+xs.len()
+List<int>{}
+let words = List<string>{};
+words.push("a");
+words.push("b");
+words
+String s;
+s.from("abc");
+s.append("def");
+s
+s.len

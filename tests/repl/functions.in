@@ -1,0 +1,21 @@
+int sq(int n) { return n * n; }
+sq(9)
+int add(int a,
+        int b) {
+    return a + b;
+}
+add(2, 3)
+int sq(int n) { return n * n * n; }
+sq(2)
+let factor = 3;
+int scaled(int v) { return v * factor; }
+scaled(2)
+let factor = 10;
+scaled(2)
+T pick<T>(bool first, T a, T b) { return first ? a : b; }
+pick(true, 1, 2)
+pick(false, "a", "b")
+let triple = int(int v) { return v * 3; };
+triple(5)
+:type sq
+:type triple

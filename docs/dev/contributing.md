@@ -75,4 +75,4 @@ Every fix comes with a regression test. CI also runs:
 ## Proposals
 
 Open an issue before a new language feature or a design change; scoped fixes can go
-straight to a pull request. The roadmap is in [phases.md](phases.md).
+straight to a pull request. The roadmap is in [roadmap.md](roadmap.md).

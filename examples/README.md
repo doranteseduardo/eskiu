@@ -61,12 +61,14 @@ from another (e.g. `curl localhost:PORT` or `nc localhost PORT`).
 
 The files in [scripts/](scripts) are complete tools that start with
 `#!/usr/bin/env -S eskiuc run`, so with `eskiuc` on your `PATH` they run directly
-(`./examples/scripts/repo_stats.esk llvm/llvm-project`). `tests/scripts/check.sh`
-runs both in the test suite, without network access.
+(`./examples/scripts/repo_stats.esk llvm/llvm-project`), and `eskiuc run` runs them
+without the shebang (`eskiuc run examples/scripts/todo.esk add buy milk`).
+`tests/scripts/check.sh` runs all of them in the test suite, without network access.
 
 | Script | What it does | stdlib |
 |--------|--------------|--------|
 | [repo_stats.esk](scripts/repo_stats.esk) | fetch a GitHub repository and its languages from the REST API and print a colored summary, or JSON with `--json`; `--api-url`, `--timeout`, `--top`, `GITHUB_TOKEN` | `<args>` `<fetch>` `<json>` `<term>` `<log>` `<list>` `<sort>` `<string>` |
+| [todo.esk](scripts/todo.esk) | a to-do list kept in a JSON file: `add`, `list`, `done N`, `rm N`, `clear`, `--file`; done items in color on a terminal | `<args>` `<fs>` `<json>` `<term>` `<list>` `<string>` |
 | [organize.esk](scripts/organize.esk) | sort the loose files of a directory into folders by extension or month, send content duplicates (SHA-256) to `duplicates/`, `--dry-run`, a summary table and a `--report` CSV | `<args>` `<fs>` `<hash>` `<time>` `<csv>` `<process>` `<log>` `<map>` |
 
 ---

@@ -558,27 +558,3 @@ void H2Conn_send_goaway(H2Conn* c, int error_code) {
     free((*void)b);
     c.goaway_sent = 1;
 }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use H2Conn_init
-void h2_conn_init(H2Conn* c, int fd) { H2Conn_init(c, fd); }
-// deprecated: use H2Stream_init
-void h2_stream_init(H2Stream* s, int id, int init_send, int init_recv) { H2Stream_init(s, id, init_send, init_recv); }
-// deprecated: use H2Conn_can_send
-int h2_can_send(H2Conn* c, H2Stream* s, int len) { return H2Conn_can_send(c, s, len); }
-// Deprecated (0.10.1): use H2Settings_defaults.
-void h2_settings_defaults(H2Settings* s) { H2Settings_defaults(s); }
-// Deprecated (0.10.1): use H2Settings_apply.
-int h2_apply_settings(H2Settings* s, *uint8 payload, int len) { return H2Settings_apply(s, payload, len); }
-// Deprecated (0.10.1): use H2Stream_on_recv.
-void h2_stream_on_recv(H2Stream* s, int type, int flags) { H2Stream_on_recv(s, type, flags); }
-// Deprecated (0.10.1): use H2Stream_on_send.
-void h2_stream_on_send(H2Stream* s, int type, int flags) { H2Stream_on_send(s, type, flags); }
-// Deprecated (0.10.1): use H2Conn_account_sent.
-void h2_account_sent(H2Conn* c, H2Stream* s, int len) { H2Conn_account_sent(c, s, len); }
-// Deprecated (0.10.1): use H2Conn_account_recv.
-void h2_account_recv(H2Conn* c, H2Stream* s, int len) { H2Conn_account_recv(c, s, len); }
-// Deprecated (0.10.1): use H2Conn_grant_window.
-void h2_grant_window(H2Conn* c, H2Stream* s, int increment) { H2Conn_grant_window(c, s, increment); }
-// Deprecated (0.10.1): use H2Conn_send_goaway.
-void h2_send_goaway(H2Conn* c, int error_code) { H2Conn_send_goaway(c, error_code); }

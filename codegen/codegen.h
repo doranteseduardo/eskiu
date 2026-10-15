@@ -96,6 +96,30 @@ public:
     // Emit native object file
     bool emitObjectFile(const std::string& filename);
 
+    // `eskiuc repl`: how a value of an Eskiu type is laid out in memory, so the REPL can
+    // print it after the JIT ran the input (repl.cpp). Built from the module's types while
+    // the module is still here.
+    struct ReplLayout {
+        enum Kind { Int, UInt, Bool, Char, Float, Double, CStr, Ptr, Struct, Enum, Variant,
+                    List, Str, Array, Slice, Opaque };
+        struct Field { std::string name; uint64_t offset = 0; std::shared_ptr<ReplLayout> layout; };
+        struct Alt { std::string name; std::vector<Field> payload; };
+        Kind kind = Opaque;
+        std::string name;                      // the type as written (for Opaque)
+        unsigned size = 0;                     // bytes of a scalar
+        std::vector<Field> fields;             // Struct
+        std::map<long long, std::string> enumNames;   // Enum
+        std::map<long long, Alt> alts;         // Variant, by tag
+        uint64_t dataOff = 0, lenOff = 0;      // List / Str / Slice
+        unsigned lenSize = 0;
+        uint64_t count = 0;                    // Array
+        uint64_t stride = 0;                   // List / Array / Slice element size
+        std::shared_ptr<ReplLayout> elem;      // List / Array / Slice element
+    };
+    std::shared_ptr<ReplLayout> replLayout(const std::string& type, int depth = 0);
+    // Hand the module and its context over (to the JIT). The CodeGen is spent afterwards.
+    std::unique_ptr<llvm::Module> takeModule(std::unique_ptr<llvm::LLVMContext>& ctx);
+
 private:
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;

@@ -135,15 +135,18 @@ a:hover { color: var(--ink); }
   .foot-in { flex-direction: row; align-items: center; gap: 12px 32px; padding-block: 36px; }
   .foot .brand { font-size: 22px; }
   .foot-links { display: flex; gap: 26px; margin-left: auto; }
-}</style>
+}
+details.cl-full { margin: 4px 0 28px; border: 1px solid var(--rule); border-radius: 12px; padding: 0 16px; }
+details.cl-full > summary { cursor: pointer; padding: 10px 0; font-family: var(--mono); font-size: 13px; color: var(--purple); }
+details.cl-full[open] { padding-bottom: 8px; }</style>
 </head>
 <body>
   <header class="top">
     <div class="bar top-in">
-      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.10.1</span></a>
+      <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.11.0</span></a>
       <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
       <div class="top-right">
-        <a class="btn-install" href="../index.html#install">Install 0.10.1</a>
+        <a class="btn-install" href="../index.html#install">Install 0.11.0</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
         </button>
@@ -152,9 +155,9 @@ a:hover { color: var(--ink); }
     <nav class="drawer" id="drawer" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
   </header>
   <div class="bar layout has-toc">
-    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html" aria-current="page">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></aside>
+    <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html" aria-current="page">Tooling</a><a href="stability.html">Stability</a><a href="migration.html">Migration</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a><a href="roadmap.html">Roadmap</a></nav></aside>
     <main class="content">
-      <details class="side-m"><summary>Language · Building &amp; tooling</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html" aria-current="page">Tooling</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a></nav></div></details>
+      <details class="side-m"><summary>Language · Building &amp; tooling</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html" aria-current="page">Tooling</a><a href="stability.html">Stability</a><a href="migration.html">Migration</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a><a href="roadmap.html">Roadmap</a></nav></div></details>
 <h1 id="building-eskiu-from-source">Building Eskiu from Source</h1>
 <h2 id="requirements">Requirements</h2>
 <div class="tablewrap"><table>
@@ -370,6 +373,58 @@ entry:
 <li>On Alpine, <code>llvm22-dev</code> is the correct package name; <code>llvm22</code> alone does not ship the <code>.a</code> archives.</li>
 </ol>
 <hr>
+<h2 id="package-commands">Package Commands</h2>
+<p><code>eskiuc</code> also manages packages: a directory with an <code>eskiu.toml</code> manifest, its
+dependencies pinned in <code>eskiu.lock</code>. Fetching git dependencies needs the <code>git</code> command on
+<code>PATH</code>. See "Packages" in the <a href="getting-started.html#packages">getting started guide</a> for the
+manifest format.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eskiuc new NAME</code></td>
+<td>Create <code>NAME/eskiu.toml</code>, <code>NAME/src/main.esk</code> (hello world) and <code>NAME/.gitignore</code>.</td>
+</tr>
+<tr>
+<td><code>eskiuc add NAME --git URL [--rev REV]</code></td>
+<td>Add a git dependency to <code>eskiu.toml</code>, fetch it and update the lock. <code>REV</code> is a tag, branch or commit (default: the remote's default branch).</td>
+</tr>
+<tr>
+<td><code>eskiuc add NAME --path DIR</code></td>
+<td>Add a local dependency, used in place.</td>
+</tr>
+<tr>
+<td><code>eskiuc build [-o OUT] [FLAGS]</code></td>
+<td>Fetch what the lock names and is missing, then compile the package's main file to <code>build/NAME</code> (or <code>OUT</code>). Other flags go to the compiler.</td>
+</tr>
+<tr>
+<td><code>eskiuc run [ARGS]</code></td>
+<td>Build, then run the program with <code>ARGS</code>. With a <code>.esk</code> file named, <code>eskiuc run file.esk</code> compiles that file as before.</td>
+</tr>
+<tr>
+<td><code>eskiuc test</code></td>
+<td>Compile and run each <code>tests/*.esk</code> of the package; a test passes when it exits with 0.</td>
+</tr>
+<tr>
+<td><code>eskiuc fetch</code></td>
+<td>Resolve every dependency again (fetching the git mirrors) and rewrite <code>eskiu.lock</code>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Git packages live in <code>~/.eskiu/pkgs/NAME/COMMIT</code>; set <code>ESKIU_HOME</code> to move that tree
+(<code>$ESKIU_HOME/pkgs</code>). The lock is plain text, one tab-separated line per package, sorted
+by name:</p>
+<pre><code>jsonx   git    https://github.com/x/jsonx   v1.2.0   &lt;full commit hash&gt;
+myapp   root   .
+util    path   /home/me/util
+</code></pre>
+<p>The <code>root</code> line is the package itself, so <code>import &lt;myapp/helper&gt;;</code> finds its own
+<code>src/helper.esk</code>. Both compilers read this file to resolve package imports.</p>
 <h2 id="running-tests">Running Tests</h2>
 <p>The automated suite is driven by <code>tests/run.sh</code>, which compiles, links, and runs every
 <code>tests/*.esk</code> case (matching stdout against <code>*.expected</code>, smoke-running the rest, and
@@ -457,7 +512,7 @@ Type checking failed!
 done
 </code></pre>
     </main>
-    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#requirements">Requirements</a><a href="#macos">macOS</a><a href="#linux-ubuntu-debian">Linux (Ubuntu / Debian)</a><a href="#linux-alpine">Linux (Alpine)</a><a href="#windows-msys2">Windows (MSYS2)</a><a href="#build-options">Build Options</a><a href="#verify-the-build">Verify the Build</a><a href="#troubleshooting">Troubleshooting</a><a href="#running-tests">Running Tests</a></nav>
+    <nav class="toc" aria-label="On this page"><span class="grp">On this page</span><a href="#requirements">Requirements</a><a href="#macos">macOS</a><a href="#linux-ubuntu-debian">Linux (Ubuntu / Debian)</a><a href="#linux-alpine">Linux (Alpine)</a><a href="#windows-msys2">Windows (MSYS2)</a><a href="#build-options">Build Options</a><a href="#verify-the-build">Verify the Build</a><a href="#troubleshooting">Troubleshooting</a><a href="#package-commands">Package Commands</a><a href="#running-tests">Running Tests</a></nav>
   </div>
   <footer class="foot">
     <div class="bar foot-in">

@@ -28,6 +28,8 @@
 #include "sema/async_transform.h"
 #include "codegen/codegen.h"
 #include "main_support.h"
+#include "repl.h"
+#include "pkg.h"
 
 // Command line options. All of them live in one category so `--help` lists only
 // Eskiu's options (not the ~200 LLVM internals linked in with the backend).
@@ -38,7 +40,8 @@ static const char* OVERVIEW =
     "  eskiuc file.esk [more.esk ...] -o prog   compile and link an executable\n"
     "  eskiuc file.esk -c -o file.o             compile to an object file\n"
     "  eskiuc run [flags] file.esk [--] [args]  compile to a temp executable and run it\n"
-    "  eskiuc fmt [--check] file.esk ...        reindent files in place\n";
+    "  eskiuc fmt [--check] file.esk ...        reindent files in place\n"
+    "  eskiuc repl [file.esk ...]               interactive session (JIT)\n";
 static llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional,
                                                  llvm::cl::desc("<input .esk file>"),
     llvm::cl::cat(EskiuCat));
@@ -98,6 +101,10 @@ static llvm::cl::opt<bool> Safe("safe",
     llvm::cl::desc("Insert runtime safety checks (slice bounds); traps on violation"),
     llvm::cl::cat(EskiuCat));
 
+static llvm::cl::opt<bool> WnoDeprecated("Wno-deprecated",
+    llvm::cl::desc("Do not warn when a deprecated function is used"),
+    llvm::cl::cat(EskiuCat));
+
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
                    "and functions, assignment used as a condition, and locals "
@@ -116,6 +123,15 @@ static llvm::cl::opt<std::string> HoverAt("hover-at",
 static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::desc("Print the definition location of the symbol at LINE:COL"),
     llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
+
+static llvm::cl::opt<std::string> CompleteAt("complete-at",
+    llvm::cl::desc("Print the completions at LINE:COL, one per line: kind, name, detail (tab-separated)"),
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
+
+static llvm::cl::opt<bool> Symbols("symbols",
+    llvm::cl::desc("Print the input's declarations, one per line: kind, name, LINE:COL, container, detail"),
     llvm::cl::cat(EskiuCat));
 
 static llvm::cl::opt<bool> CompileOnly("c",
@@ -155,7 +171,7 @@ static llvm::cl::opt<unsigned> OptLevel("O", llvm::cl::Prefix,
     llvm::cl::init(0),
     llvm::cl::cat(EskiuCat));
 
-const char* VERSION = "0.10.1";
+const char* VERSION = "0.11.0";
 
 // `eskiuc run`: set when argv[1] == "run". The program is compiled to a
 // temporary executable, run with g_runArgs, then deleted (see main()).
@@ -218,6 +234,7 @@ static int testTypeChecker(const std::string& filename) {
         TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = filename;
         typeChecker.warnAll = Wall;
+        typeChecker.warnDeprecated = !WnoDeprecated;
         typeChecker.warnExtra = Wextra;
         bool success = typeChecker.check(program.get());
 
@@ -249,7 +266,7 @@ static int testCodegen(const std::string& filename) {
     try {
         // Type-check first: the async transform relies on resolved await types,
         // and codegen on the type checker's struct/enum registration.
-        TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+        TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = !WnoDeprecated;
         tc.sourceFile = filename;
         if (!tc.check(program.get())) {
             std::cerr << "Type checking failed!" << std::endl;
@@ -257,7 +274,7 @@ static int testCodegen(const std::string& filename) {
         }
         AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap(), &tc.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = filename;
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.sourceFile = filename;
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;
@@ -323,6 +340,9 @@ static int compilerMain(int argc, char** argv) {
            << LLVM_VERSION_MINOR << "." << LLVM_VERSION_PATCH << ")\n";
     });
 
+    // Package commands (new, add, build, fetch, test, and run inside a package): pkg.cpp.
+    if (int rc = 0; pkgCommand(argc, argv, rc)) return rc;
+
     // `eskiuc fmt [--check] file.esk …` — reformat files in place. Handled before
     // option parsing; it does not use the compiler pipeline.
     if (argc >= 2 && std::string(argv[1]) == "fmt") {
@@ -334,6 +354,14 @@ static int compilerMain(int argc, char** argv) {
             else files.push_back(a);
         }
         return runFmt(files, check);
+    }
+
+    // `eskiuc repl [file.esk ...]`: the interactive session (repl.cpp). The files are
+    // loaded first, as with `:load`.
+    if (argc >= 2 && std::string(argv[1]) == "repl") {
+        std::vector<std::string> files;
+        for (int i = 2; i < argc; ++i) files.push_back(argv[i]);
+        return runRepl(files);
     }
 
     // `eskiuc run script.esk [args...]` — compile to a temporary executable, run
@@ -348,7 +376,7 @@ static int compilerMain(int argc, char** argv) {
         static const std::set<std::string> valueOpts = {
             "-o", "-target", "--target", "-mcpu", "--mcpu", "-mattr", "--mattr",
             "-reloc", "--reloc", "-link-arg", "--link-arg", "-hover-at", "--hover-at",
-            "-definition-at", "--definition-at", "-l", "-L",
+            "-definition-at", "--definition-at", "-complete-at", "--complete-at", "-l", "-L",
         };
         std::vector<char*> clArgv = { argv[0] };
         bool gotScript = false;
@@ -428,7 +456,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
             tc.sourceFile = std::string(InputFilename);
             bool ok = tc.check(program.get());
             std::string type = tc.getTypeAtPosition(line, col);
@@ -459,7 +487,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple);
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
             tc.sourceFile = std::string(InputFilename);
             bool ok = tc.check(program.get());
             std::string loc = tc.getDefinitionAt(line, col);
@@ -477,6 +505,134 @@ static int compilerMain(int argc, char** argv) {
             std::cerr << "error: unknown internal error during definition\n";
             std::cout << "(internal error)\n";
             return 1;
+        }
+        return 0;
+    }
+
+    // Handle --complete-at LINE:COL: the identifier being typed at the cursor (or the
+    // member after `recv.`) is replaced by TypeChecker::kCompleteSentinel, which
+    // collects the candidates when the type checker reaches it.
+    if (!CompleteAt.empty()) {
+        int line = 0, col = 0;
+        if (sscanf(CompleteAt.c_str(), "%d:%d", &line, &col) != 2) {
+            std::cerr << "error: --complete-at expects LINE:COL format\n"; return 1;
+        }
+        std::string src = readFile(InputFilename);
+        size_t ls = 0;
+        for (int l = 1; l < line && ls != std::string::npos; ++l) {
+            ls = src.find('\n', ls);
+            if (ls != std::string::npos) ++ls;
+        }
+        if (ls == std::string::npos) ls = src.size();
+        size_t le = src.find('\n', ls);
+        if (le == std::string::npos) le = src.size();
+        size_t at = std::min(le, ls + (size_t)std::max(0, col - 1));
+        auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+        size_t p = at, q = at;
+        while (p > ls && isId(src[p - 1])) --p;
+        while (q < le && isId(src[q])) ++q;
+        bool restBlank = src.find_first_not_of(" \t\r", q) >= le;
+        std::string spliced = src.substr(0, p) + TypeChecker::kCompleteSentinel +
+                              (restBlank ? ";" : "") + src.substr(q);
+        // A syntax error elsewhere in the file (the user is mid-edit): blank the broken
+        // line and try again. An error at the first token of a line blames the line
+        // before it (an unfinished statement is reported at the next token). A line that
+        // opens or closes a block is kept, and so is the cursor's line.
+        std::shared_ptr<Program> program;
+        std::streambuf* errBuf = std::cerr.rdbuf();
+        std::ostringstream quiet;
+        auto lineSpan = [&](int ln, size_t& b, size_t& e) {
+            b = 0;
+            for (int l = 1; l < ln && b != std::string::npos; ++l) {
+                b = spliced.find('\n', b);
+                if (b != std::string::npos) ++b;
+            }
+            if (b == std::string::npos) return false;
+            e = spliced.find('\n', b);
+            if (e == std::string::npos) e = spliced.size();
+            return true;
+        };
+        for (int attempt = 0; attempt < 8 && !program; ++attempt) {
+            Parser::firstErrorLine() = 0;
+            std::cerr.rdbuf(quiet.rdbuf());
+            program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding,
+                                  nullptr, nullptr, &spliced);
+            std::cerr.rdbuf(errBuf);
+            if (program) break;
+            int bad = Parser::firstErrorLine();
+            if (bad <= 0 || Parser::canonicalPath(Parser::firstErrorFile()) !=
+                                Parser::canonicalPath(std::string(InputFilename))) break;
+            size_t b = 0, e = 0;
+            if (!lineSpan(bad, b, e)) break;
+            size_t first = spliced.find_first_not_of(" \t", b);
+            if (first == std::string::npos || first >= e || (int)(first - b) + 1 >= Parser::firstErrorCol()) {
+                do {
+                    --bad;
+                } while (bad > 0 && lineSpan(bad, b, e) &&
+                         spliced.find_first_not_of(" \t\r", b) >= e);
+            }
+            if (bad <= 0 || bad == line || !lineSpan(bad, b, e)) break;
+            if (spliced.substr(b, e - b).find_first_of("{}") != std::string::npos) break;
+            spliced.replace(b, e - b, std::string(e - b, ' '));
+        }
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
+        try {
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
+            tc.sourceFile = std::string(InputFilename);
+            tc.check(program.get());
+            for (const auto& c : tc.completions)
+                std::cout << c.kind << "\t" << c.name << "\t" << c.detail << "\n";
+        } catch (const std::exception& e) {
+            std::cerr << "error: internal error during completion: " << e.what() << "\n";
+            return 1;
+        }
+        return 0;
+    }
+
+    // Handle --symbols: the declarations of the input file (an editor's outline).
+    if (Symbols) {
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
+        std::string self = Parser::canonicalPath(std::string(InputFilename));
+        auto mine = [&](const Decl* d) {
+            return !d->fromImport && (d->sourceFile.empty() || Parser::canonicalPath(d->sourceFile) == self);
+        };
+        auto pos = [](int l, int c) { return std::to_string(l) + ":" + std::to_string(c); };
+        auto sig = [](const FunctionDecl* f, const std::string& name) {
+            std::string s = f->returnType + " " + name + "(";
+            for (size_t i = 0; i < f->params.size(); ++i)
+                s += (i ? ", " : "") + f->params[i].first +
+                     (f->params[i].second.empty() ? "" : " " + f->params[i].second);
+            return s + ")";
+        };
+        auto emit = [](const std::string& kind, const std::string& name, const std::string& at,
+                       const std::string& container, const std::string& detail) {
+            std::cout << kind << "\t" << name << "\t" << at << "\t" << container << "\t" << detail << "\n";
+        };
+        for (const auto& d : program->declarations) {
+            if (!mine(d.get())) continue;
+            if (auto* f = dynamic_cast<FunctionDecl*>(d.get())) {
+                emit("function", f->name, pos(f->line, f->col), "", sig(f, f->name));
+            } else if (auto* s = dynamic_cast<StructDecl*>(d.get())) {
+                emit("struct", s->name, pos(s->line, s->col), "", "struct " + s->name);
+                for (const auto& fl : s->fields)
+                    emit("field", fl.name, pos(fl.line, fl.col), s->name, fl.type);
+                for (const auto& m : s->methods)
+                    if (auto* f = dynamic_cast<FunctionDecl*>(m.get()))
+                        emit("method", f->name, pos(f->line, f->col), s->name, sig(f, f->name));
+            } else if (auto* u = dynamic_cast<UnionDecl*>(d.get())) {
+                emit("struct", u->name, pos(u->line, u->col), "", "union " + u->name);
+                for (const auto& fl : u->fields)
+                    emit("field", fl.name, pos(fl.line, fl.col), u->name, fl.type);
+            } else if (auto* e = dynamic_cast<EnumDecl*>(d.get())) {
+                emit("enum", e->name, pos(e->line, e->col), "", "enum " + e->name);
+            } else if (auto* i = dynamic_cast<InterfaceDecl*>(d.get())) {
+                emit("interface", i->name, pos(i->line, i->col), "", "interface " + i->name);
+            } else if (auto* a = dynamic_cast<TypeAliasDecl*>(d.get())) {
+                emit("type", a->name, pos(a->line, a->col), "", "type " + a->name + " = " + a->aliased);
+            } else if (auto* v = dynamic_cast<VarDecl*>(d.get())) {
+                emit(v->isConst ? "constant" : "variable", v->name, pos(v->line, v->col), "", v->type);
+            }
         }
         return 0;
     }
@@ -502,6 +658,7 @@ static int compilerMain(int argc, char** argv) {
         TypeChecker typeChecker; typeChecker.targetTriple = std::string(TargetTriple);
         typeChecker.sourceFile = std::string(InputFilename);
         typeChecker.warnAll = Wall;
+        typeChecker.warnDeprecated = !WnoDeprecated;
         typeChecker.warnExtra = Wextra;
         if (!typeChecker.check(program.get())) {
             return 1;
@@ -509,7 +666,7 @@ static int compilerMain(int argc, char** argv) {
 
         AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap(), &typeChecker.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.sourceFile = std::string(InputFilename);
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.sourceFile = std::string(InputFilename);
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;

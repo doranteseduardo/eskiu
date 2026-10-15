@@ -79,13 +79,3 @@ void  Heap_free(Heap* self, *void p)        { self.ff.free(p); }   // null is a 
 
 // Return all the heap's pages to the OS. Frees everything at once.
 void Heap_destroy(Heap* self) { _sys_unpages(self.base, self.size); }
-
-// ── Deprecated names (kept so 0.9.1 code compiles; removed in a later release) ──
-// deprecated: use Heap_init
-bool heap_init(Heap* self, int64 size) { return Heap_init(self, size); }
-// deprecated: use Heap_alloc
-*void heap_alloc(Heap* self, int64 nbytes) { return Heap_alloc(self, nbytes); }
-// deprecated: use Heap_free
-void heap_free(Heap* self, *void p) { Heap_free(self, p); }
-// deprecated: use Heap_destroy
-void heap_destroy(Heap* self) { Heap_destroy(self); }

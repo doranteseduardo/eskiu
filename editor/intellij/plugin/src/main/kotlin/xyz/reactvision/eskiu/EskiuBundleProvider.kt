@@ -1,7 +1,7 @@
 package xyz.reactvision.eskiu
 
-import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.application.PathManager
+import java.nio.file.Path
 import org.jetbrains.plugins.textmate.api.TextMateBundleProvider
 
 /**
@@ -14,8 +14,9 @@ import org.jetbrains.plugins.textmate.api.TextMateBundleProvider
  */
 class EskiuBundleProvider : TextMateBundleProvider {
     override fun getBundles(): List<TextMateBundleProvider.PluginBundle> {
-        val plugin = PluginManagerCore.getPlugin(PluginId.getId("xyz.reactvision.eskiu"))
-            ?: return emptyList()
-        return listOf(TextMateBundleProvider.PluginBundle("Eskiu", plugin.pluginPath.resolve("bundles/eskiu")))
+        // The plugin directory holds lib/<our jar> and bundles/eskiu.
+        val jar = PathManager.getJarPathForClass(EskiuBundleProvider::class.java) ?: return emptyList()
+        val dir = Path.of(jar).parent?.parent ?: return emptyList()
+        return listOf(TextMateBundleProvider.PluginBundle("Eskiu", dir.resolve("bundles/eskiu")))
     }
 }

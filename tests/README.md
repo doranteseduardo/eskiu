@@ -203,7 +203,6 @@ when you add a test.
 | `chan_recv_drop` | A parked Chan_recv dropped by select2 (the timeout pattern) must unpark: the next Chan_send buffers its value instead of completing the freed future. |
 | `compound_assign_once` | `lv op= v` evaluates the lvalue `lv` exactly once (C semantics), even when it has side effects: an index call, a post-increment, or a call returning a pointer. |
 | `defer_unbraced` | A statement body that is not a block (an unbraced if/else/loop body, a switch case, a match arm) is its own scope: a `defer` in it runs when that body ends,... |
-| `deprecated_names` | The pre-0.9.2 stdlib names (renamed to the Type_method convention) still compile and behave as thin wrappers over the new names. |
 | `dup_struct_decl` | The same struct declared twice (as when two inputs of a multi-file build share a header-style declaration): the duplicate is merged, not emitted a second time. |
 | `env_get_int` | env_get_int returns the fallback for a set but non-numeric (or out-of-range) value, as documented, instead of atoi's 0. |
 | `eventloop_edges` | el_new(0) grows its fd table instead of looping forever, replacing an fd's registration from outside its callback frees the old env, and EventLoop_free frees still-registered fds' envs. |

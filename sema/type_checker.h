@@ -105,6 +105,12 @@ public:
 
     // -Wall: emit lint-style warnings (unused vars/params/functions, etc.)
     bool warnAll = false;
+    // A use of a `deprecated` function warns unless -Wno-deprecated.
+    bool warnDeprecated = true;
+    std::map<std::string, std::string> deprecatedFuncs;   // name -> message
+    // Uses already reported: the checker runs again after the async lowering.
+    static std::set<std::string>& deprecatedWarned() { static std::set<std::string> s; return s; }
+    void noteDeprecatedUse(const std::string& fn, int line, int col);
     bool warnExtra = false;   // -Wextra: signed/unsigned comparison mismatches, etc.
 
     // --- LSP / tooling interface (consumed by --hover-at / --definition-at) ---
@@ -133,8 +139,36 @@ public:
     // name → its type, even though the name is not an expression node.
     struct HoverSym { int line; int col; int width; std::string type; };
     std::vector<HoverSym> hoverSyms;
+    // A function's signature as hover and completion show it: `ret name(T a, U b)`.
+    std::string signatureText(const std::string& fn) const;
+    // A type as the user writes it: no `struct:` tags, generic instances as `List<int>`.
+    std::string displayType(const std::string& t) const;
+    // Every function declaration by its (mangled) name, with the implicit `self` type of
+    // an inline struct method ("" otherwise), for signatureText.
+    std::map<std::string, std::pair<const FunctionDecl*, std::string>> fnDecls;
+    // Struct field definitions, keyed "Struct.field".
+    std::map<std::string, DefLocation> fieldLocations;
+    // Inline struct methods by mangled name (`Point_sum`): where the method is written.
+    std::map<std::string, DefLocation> methodLocations;
+    // A member name (`x.m`) resolved to a function: (line,col) → {width, function name},
+    // looked up in definitionLocations when queried (the function may be checked later).
+    std::map<std::pair<int,int>, std::pair<int, std::string>> memberUses;
+    // --complete-at: an identifier or member named kCompleteSentinel (spliced in at the
+    // cursor by the driver) collects the candidates visible there.
+    static constexpr const char* kCompleteSentinel = "__eskiu_complete__";
+    struct Completion { std::string kind, name, detail; };
+    std::vector<Completion> completions;
+    bool completionDone = false;
 
 private:
+    void recordMemberTooling(MemberExpr* m, const std::string& hover, const std::string& fnName,
+                             const DefLocation* def = nullptr);
+    void completeMembers(const std::string& recvType);
+    void completeScope();
+    // " (did you mean 'x'?)" for the closest candidate within edit distance 2, else "".
+    // kind: 'v' a variable or function, 't' a type, or the receiver type of a member.
+    std::string didYouMean(const std::string& name, char kind, const std::string& recvType = "");
+
     // Symbol table: maps name -> type
     struct Symbol {
         std::string type;

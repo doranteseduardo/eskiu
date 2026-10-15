@@ -1,0 +1,19 @@
+// Completion while the file has syntax errors elsewhere: the broken lines are left
+// out and the rest still type-checks.
+// COMPLETE 14:7 x y
+// COMPLETE 17:6 p total s
+import <string>;
+struct Point { int x; int y; }
+int helper(int k) {
+    return k +
+}
+int main() {
+    int total = 0;
+    Point p = Point{x: 1, y: 2};
+    let s: String; String_from(&s, "a");
+    p.
+    int a = (1 + ;
+    total = total + 1;
+    to
+    return 0;
+}

@@ -2,8 +2,11 @@
 /**
  * server.js — Eskiu Language Server
  *
- * Minimal LSP server that runs eskiuc --test-typechecker on each file
- * change and converts the output to VS Code diagnostics.
+ * LSP server over the compiler's editor modes: diagnostics (--test-typechecker),
+ * hover (--hover-at), go to definition (--definition-at), completion (--complete-at),
+ * signature help (the callee's --hover-at), document symbols (--symbols),
+ * formatting (eskiuc fmt) and a quick fix for "did you mean" errors. For editors that speak LSP: Neovim, Helix, Zed, and
+ * JetBrains IDEs through the Eskiu IntelliJ plugin (LSP4IJ).
  *
  * Protocol: JSON-RPC over stdin/stdout (standard LSP transport).
  *
@@ -48,7 +51,10 @@ function send(obj) {
 // ── Message handler ───────────────────────────────────────────────────────────
 
 // Path to eskiuc: $ESKIUC, else build22/build walking upwards or next to this file, else PATH
+let compilerOverride = '';   // initializationOptions.compilerPath
+
 function findEskiuc(hintPath) {
+    if (compilerOverride) return compilerOverride;
     if (process.env.ESKIUC) {
         try { fs.accessSync(process.env.ESKIUC, fs.constants.X_OK); return process.env.ESKIUC; } catch {}
     }
@@ -77,6 +83,9 @@ function findEskiuc(hintPath) {
     for (const c of candidates) {
         try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
     }
+    // The installer's location (an editor opened from the Dock lacks the shell PATH).
+    const installed = path.join(require('os').homedir(), '.eskiu', 'bin', 'eskiuc');
+    try { fs.accessSync(installed, fs.constants.X_OK); return installed; } catch {}
     return 'eskiuc'; // rely on PATH
 }
 
@@ -183,6 +192,208 @@ function validate(uri, filePath, content) {
     );
 }
 
+// ── Requests over the compiler's editor modes ─────────────────────────────────
+
+const docs = new Map();   // uri → current text
+
+function run(args, cwd, timeout) {
+    return new Promise((resolve) => {
+        execFile(findEskiuc(cwd && path.join(cwd, 'x.esk')), args, { timeout, cwd },
+            (err, stdout) => resolve(stdout || ''));
+    });
+}
+
+// Run `eskiuc <file> args` on the document's current text: an unsaved buffer goes
+// through a hidden sibling file, so its relative imports resolve. `onFile` gets the
+// path that was checked.
+async function onText(uri, args, timeout = 8000) {
+    const orig = uriToPath(uri);
+    const text = docs.get(uri);
+    let onDisk = null;
+    try { onDisk = fs.readFileSync(orig, 'utf8'); } catch {}
+    if (text == null || text === onDisk) return { out: await run([orig, ...args], path.dirname(orig), timeout), file: orig };
+    const tmp = path.join(path.dirname(orig), `.${path.basename(orig)}.${process.pid}.${Date.now()}.eskiu-check.esk`);
+    try {
+        fs.writeFileSync(tmp, text);
+        return { out: await run([tmp, ...args], path.dirname(orig), timeout), file: tmp };
+    } catch {
+        return { out: '', file: tmp };
+    } finally {
+        fs.rm(tmp, { force: true }, () => {});
+    }
+}
+
+const at = (pos) => `${pos.line + 1}:${pos.character + 1}`;
+const lastLine = (out) => (out.trim().split('\n').pop() || '').trim();
+
+const COMPLETION_KINDS = { field: 5, method: 2, function: 3, variable: 6, global: 6, struct: 22,
+                           interface: 8, enum: 13, enummember: 20, type: 25 };
+const SYMBOL_KINDS = { function: 12, method: 6, struct: 23, field: 8, enum: 10, interface: 11,
+                       type: 26, variable: 13, constant: 14 };
+const KEYWORDS = [
+    'if', 'else', 'for', 'in', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue',
+    'return', 'match', 'struct', 'union', 'enum', 'interface', 'type', 'let', 'const', 'static',
+    'volatile', 'extern', 'intrinsic', 'import', 'async', 'await', 'try', 'catch', 'finally',
+    'throw', 'defer', 'errdefer', 'sizeof', 'null', 'true', 'false', 'fn', 'operator', 'packed',
+    'escaping', 'must_use', 'alloc_with', 'free_closure', 'thread_create', 'thread_join',
+    'int', 'int8', 'int16', 'int32', 'int64', 'uint', 'uint8', 'uint16', 'uint32', 'uint64',
+    'float', 'double', 'bool', 'char', 'string', 'void',
+];
+
+// The call around `pos` in `text`: the callee name's position, the argument index and
+// whether it is a dot-call (scanning back over balanced brackets and strings).
+function enclosingCall(text, pos) {
+    const lines = text.split('\n');
+    let off = 0;
+    for (let i = 0; i < pos.line && i < lines.length; i++) off += lines[i].length + 1;
+    off += pos.character;
+    let depth = 0, commas = 0, inStr = false;
+    for (let i = off - 1; i >= 0 && i > off - 4000; i--) {
+        const c = text[i];
+        if (inStr) { if (c === '"' && text[i - 1] !== '\\') inStr = false; continue; }
+        if (c === '"') { inStr = true; continue; }
+        if (c === ')' || c === ']' || c === '}') depth++;
+        else if (c === '[' || c === '{') { if (depth === 0) return null; depth--; }
+        else if (c === '(') {
+            if (depth > 0) { depth--; continue; }
+            let j = i;
+            while (j > 0 && /\s/.test(text[j - 1])) j--;
+            let k = j;
+            while (k > 0 && /[A-Za-z0-9_]/.test(text[k - 1])) k--;
+            if (k === j) return null;
+            const before = text.slice(0, k).split('\n');
+            return { pos: { line: before.length - 1, character: before[before.length - 1].length },
+                     active: commas, dot: text[k - 1] === '.' };
+        } else if (c === ',' && depth === 0) commas++;
+        else if (c === ';' && depth === 0) return null;
+    }
+    return null;
+}
+
+const REQUESTS = {
+    'textDocument/hover': async (p) => {
+        const { out } = await onText(p.textDocument.uri, ['--hover-at', at(p.position)], 5000);
+        const t = lastLine(out);
+        if (!t || t.startsWith('(') || t.startsWith('error:')) return null;
+        return { contents: { kind: 'markdown', value: '```eskiu\n' + t + '\n```' } };
+    },
+    'textDocument/definition': async (p) => {
+        const { out, file } = await onText(p.textDocument.uri, ['--definition-at', at(p.position)], 5000);
+        const m = out.trim().match(/^(.+):(\d+):(\d+)$/m);
+        if (!m) return null;
+        const target = path.resolve(m[1]) === path.resolve(file) ? p.textDocument.uri
+            : 'file://' + path.resolve(m[1]).split('/').map(encodeURIComponent).join('/');
+        const pos = { line: parseInt(m[2], 10) - 1, character: parseInt(m[3], 10) - 1 };
+        return { uri: target, range: { start: pos, end: pos } };
+    },
+    'textDocument/completion': async (p) => {
+        const text = docs.get(p.textDocument.uri) || '';
+        const line = text.split('\n')[p.position.line] || '';
+        const before = line.slice(0, p.position.character);
+        if (/^\s*(\/\/|#)/.test(before) || before.split('"').length % 2 === 0) return [];
+        const member = /\.\s*[A-Za-z_0-9]*$/.test(before);
+        const { out } = await onText(p.textDocument.uri, ['--complete-at', at(p.position)]);
+        const items = [];
+        for (const row of out.split('\n')) {
+            const [kind, name, detail] = row.split('\t');
+            if (!name || !COMPLETION_KINDS[kind]) continue;
+            items.push({ label: name, kind: COMPLETION_KINDS[kind], detail: detail || '',
+                         sortText: (kind === 'variable' ? '0' : kind === 'field' ? '1' : kind === 'method' ? '2' : '5') + name });
+        }
+        if (!member) for (const k of KEYWORDS) items.push({ label: k, kind: 14, sortText: '9' + k });
+        return { isIncomplete: false, items };
+    },
+    'textDocument/signatureHelp': async (p) => {
+        const call = enclosingCall(docs.get(p.textDocument.uri) || '', p.position);
+        if (!call) return null;
+        const { out } = await onText(p.textDocument.uri, ['--hover-at', at(call.pos)], 5000);
+        const sig = lastLine(out);
+        const open = sig.indexOf('(');
+        if (open < 0 || !sig.endsWith(')') || sig.startsWith('fn(')) return null;
+        const params = [];
+        let depth = 0, cur = '';
+        for (const c of sig.slice(open + 1, -1)) {
+            if ('(<['.includes(c)) depth++;
+            if (')>]'.includes(c)) depth--;
+            if (c === ',' && depth === 0) { params.push(cur.trim()); cur = ''; } else cur += c;
+        }
+        if (cur.trim()) params.push(cur.trim());
+        const shown = call.dot && params.length && /\bself$/.test(params[0]) ? params.slice(1) : params;
+        const variadic = shown.length && shown[shown.length - 1] === '...';
+        return { signatures: [{ label: sig, parameters: shown.map((x) => ({ label: x })) }],
+                 activeSignature: 0,
+                 activeParameter: variadic ? Math.min(call.active, shown.length - 1) : call.active };
+    },
+    'textDocument/documentSymbol': async (p) => {
+        const { out } = await onText(p.textDocument.uri, ['--symbols']);
+        const lines = (docs.get(p.textDocument.uri) || '').split('\n');
+        const top = [];
+        const structs = new Map();
+        for (const row of out.split('\n')) {
+            const [kind, name, pos, container, detail] = row.split('\t');
+            if (!name || !SYMBOL_KINDS[kind] || !pos) continue;
+            const [l, c] = pos.split(':').map((n) => Math.max(0, parseInt(n, 10) - 1));
+            const end = { line: l, character: (lines[l] || '').length };
+            const sym = { name, detail: detail || '', kind: SYMBOL_KINDS[kind],
+                          range: { start: { line: l, character: c }, end },
+                          selectionRange: { start: { line: l, character: c },
+                                            end: { line: l, character: c + name.length } },
+                          children: [] };
+            const parent = container && structs.get(container);
+            if (parent) {
+                parent.children.push(sym);
+                if (parent.range.end.line < l) parent.range.end = end;
+            } else {
+                top.push(sym);
+                if (kind === 'struct') structs.set(name, sym);
+            }
+        }
+        return top;
+    },
+    // "undefined variable 'totl' (did you mean 'total'?)": replace the name on the
+    // diagnostic's line nearest to its column.
+    'textDocument/codeAction': async (p) => {
+        const lines = (docs.get(p.textDocument.uri) || '').split('\n');
+        const actions = [];
+        for (const d of (p.context && p.context.diagnostics) || []) {
+            const m = (d.message || '').match(/(?:variable|function|method|member|type) '([^']+)'[^]*\(did you mean '([^']+)'\?\)/);
+            if (!m) continue;
+            const [, wrong, right] = m;
+            const ln = d.range.start.line;
+            const text = lines[ln] || '';
+            const re = new RegExp('\\b' + wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+            let best = -1, hit;
+            while ((hit = re.exec(text)) !== null) {
+                if (best < 0 || Math.abs(hit.index - d.range.start.character) < Math.abs(best - d.range.start.character)) best = hit.index;
+            }
+            if (best < 0) continue;
+            actions.push({ title: `Change to '${right}'`, kind: 'quickfix', diagnostics: [d], isPreferred: true,
+                           edit: { changes: { [p.textDocument.uri]: [{
+                               range: { start: { line: ln, character: best }, end: { line: ln, character: best + wrong.length } },
+                               newText: right }] } } });
+        }
+        return actions;
+    },
+    'textDocument/formatting': async (p) => {
+        const text = docs.get(p.textDocument.uri);
+        if (text == null) return [];
+        const tmp = path.join(require('os').tmpdir(), `eskiu-fmt-${process.pid}-${Date.now()}.esk`);
+        try {
+            fs.writeFileSync(tmp, text);
+            await run(['fmt', tmp], undefined, 10000);
+            const formatted = fs.readFileSync(tmp, 'utf8');
+            if (formatted === text) return [];
+            const lines = text.split('\n');
+            return [{ range: { start: { line: 0, character: 0 },
+                               end: { line: lines.length, character: 0 } }, newText: formatted }];
+        } catch {
+            return [];
+        } finally {
+            fs.rm(tmp, { force: true }, () => {});
+        }
+    },
+};
+
 // URI → filesystem path
 function uriToPath(uri) {
     return decodeURIComponent(uri.replace(/^file:\/\//, ''));
@@ -192,11 +403,18 @@ function handleMessage(msg) {
     const { id, method, params } = msg;
 
     if (method === 'initialize') {
+        const opts = (params && params.initializationOptions) || {};
+        if (typeof opts.compilerPath === 'string') compilerOverride = opts.compilerPath.trim();
         send({ jsonrpc: '2.0', id, result: {
             capabilities: {
                 textDocumentSync: 1,          // full: every change carries the whole text
-                diagnosticProvider: { interFileDependencies: false,
-                                      workspaceDiagnostics: false },
+                hoverProvider: true,
+                definitionProvider: true,
+                completionProvider: { triggerCharacters: ['.'] },
+                signatureHelpProvider: { triggerCharacters: ['(', ','] },
+                documentSymbolProvider: true,
+                documentFormattingProvider: true,
+                codeActionProvider: { codeActionKinds: ['quickfix'] },
             },
             serverInfo: { name: 'eskiu-lsp', version: VERSION },
         }});
@@ -210,6 +428,7 @@ function handleMessage(msg) {
 
     if (method === 'textDocument/didOpen') {
         const { uri, text } = params.textDocument;
+        docs.set(uri, text);
         if (uri.endsWith('.esk')) validate(uri, uriToPath(uri), text);
         return;
     }
@@ -226,6 +445,7 @@ function handleMessage(msg) {
         if (!uri || !uri.endsWith('.esk')) return;
         const content = contentChanges?.[contentChanges.length - 1]?.text;
         if (content == null) return;
+        docs.set(uri, content);
 
         const orig = uriToPath(uri);
         const compiler = findEskiuc(orig);
@@ -269,6 +489,21 @@ function handleMessage(msg) {
                        params: { uri, diagnostics } });
             }
         );
+        return;
+    }
+
+    if (method === 'textDocument/didClose') {
+        docs.delete(params.textDocument.uri);
+        send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
+               params: { uri: params.textDocument.uri, diagnostics: [] } });
+        return;
+    }
+
+    const handler = REQUESTS[method];
+    if (handler && id !== undefined) {
+        handler(params).then(
+            (result) => send({ jsonrpc: '2.0', id, result: result === undefined ? null : result }),
+            () => send({ jsonrpc: '2.0', id, result: null }));
         return;
     }
 

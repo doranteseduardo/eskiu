@@ -1,0 +1,15 @@
+import <timer>;
+import <eventloop>;
+async int twice(int x) { await timer_after(repl_loop(), 10); return x * 2; }
+await twice(21)
+let v = await twice(5);
+v + 1
+:type await twice(1)
+await twice(1) + await twice(2)
+int total = 0;
+for (i in 0..3) { total = total + await twice(i); }
+total
+repl_loop() == repl_loop()
+async int never() { Future<int>* f = future_new<int>(); return await f; }
+await never()
+await twice(4)

@@ -263,6 +263,36 @@ If you see undefined symbols from LLVM:
 
 ---
 
+## Package Commands
+
+`eskiuc` also manages packages: a directory with an `eskiu.toml` manifest, its
+dependencies pinned in `eskiu.lock`. Fetching git dependencies needs the `git` command on
+`PATH`. See "Packages" in the [getting started guide](getting-started.md#packages) for the
+manifest format.
+
+| Command | What it does |
+|---|---|
+| `eskiuc new NAME` | Create `NAME/eskiu.toml`, `NAME/src/main.esk` (hello world) and `NAME/.gitignore`. |
+| `eskiuc add NAME --git URL [--rev REV]` | Add a git dependency to `eskiu.toml`, fetch it and update the lock. `REV` is a tag, branch or commit (default: the remote's default branch). |
+| `eskiuc add NAME --path DIR` | Add a local dependency, used in place. |
+| `eskiuc build [-o OUT] [FLAGS]` | Fetch what the lock names and is missing, then compile the package's main file to `build/NAME` (or `OUT`). Other flags go to the compiler. |
+| `eskiuc run [ARGS]` | Build, then run the program with `ARGS`. With a `.esk` file named, `eskiuc run file.esk` compiles that file as before. |
+| `eskiuc test` | Compile and run each `tests/*.esk` of the package; a test passes when it exits with 0. |
+| `eskiuc fetch` | Resolve every dependency again (fetching the git mirrors) and rewrite `eskiu.lock`. |
+
+Git packages live in `~/.eskiu/pkgs/NAME/COMMIT`; set `ESKIU_HOME` to move that tree
+(`$ESKIU_HOME/pkgs`). The lock is plain text, one tab-separated line per package, sorted
+by name:
+
+```
+jsonx   git    https://github.com/x/jsonx   v1.2.0   <full commit hash>
+myapp   root   .
+util    path   /home/me/util
+```
+
+The `root` line is the package itself, so `import <myapp/helper>;` finds its own
+`src/helper.esk`. Both compilers read this file to resolve package imports.
+
 ## Running Tests
 
 The automated suite is driven by `tests/run.sh`, which compiles, links, and runs every

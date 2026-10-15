@@ -1,0 +1,33 @@
+import <io>;
+int total = 0;
+for (i in 1..4)
+{
+    total = total + i;
+}
+total
+int sq(int n)
+{
+    return n * n;
+}
+sq(
+  5
+)
+struct P
+{
+    int a;
+}
+P{a: 3}
+if (total > 5)
+{
+    printf("big\n");
+}
+else
+{
+    printf("small\n");
+}
+if (total > 100) { printf("huge\n"); }
+total + 1
+int broken(int n)
+
+sq(3)
+if (total > 1) { printf("last\n"); }

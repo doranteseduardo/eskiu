@@ -1,0 +1,7 @@
+// EXPECT-ERROR: 5:12: unknown type 'Pointt' (did you mean 'Point'?)
+// A misspelled type names the closest declared one.
+struct Point { int x; int y; }
+int main() {
+    Pointt p;
+    return 0;
+}

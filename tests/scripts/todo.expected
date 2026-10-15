@@ -1,0 +1,32 @@
+$ todo list (empty)
+nothing to do
+exit 0
+$ todo add buy milk
+  1 [ ] buy milk
+exit 0
+$ todo add review the release notes
+  1 [ ] buy milk
+  2 [ ] review the release notes
+exit 0
+$ todo done 1
+  1 [x] buy milk
+  2 [ ] review the release notes
+exit 0
+$ todo rm 5
+stderr: no item 5
+exit 1
+$ todo clear
+  1 [ ] review the release notes
+exit 0
+[
+  {
+    "text": "review the release notes",
+    "done": false
+  }
+]
+$ todo --file other.json add x
+  1 [ ] x
+exit 0
+$ todo bogus
+stderr: unknown command bogus
+exit 2

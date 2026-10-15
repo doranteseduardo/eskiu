@@ -388,12 +388,11 @@ ExprPtr Parser::parsePostfix() {
             expr = withPos(std::make_shared<IndexExpr>(expr, index, highIndex), idxTok);
         } else if (match(TokenType::DOT)) {
             Token dotTok = tokens[current - 1];
-            std::string member;
-            if (static_cast<int>(peek().type) <= static_cast<int>(TokenType::UINT64))
-                member = advance().value;
-            else
-                member = consume(TokenType::IDENT, "Expected member name").value;
-            expr = withPos(std::make_shared<MemberExpr>(expr, member), dotTok);
+            Token memTok = static_cast<int>(peek().type) <= static_cast<int>(TokenType::UINT64)
+                ? advance() : consume(TokenType::IDENT, "Expected member name");
+            auto mem = withPos(std::make_shared<MemberExpr>(expr, memTok.value), dotTok);
+            mem->memberLine = memTok.line; mem->memberCol = memTok.column;
+            expr = mem;
         } else if (check(TokenType::QUESTION) && !ternaryColonAhead()) {
             // Postfix Result-propagation `expr?` — but only when this `?` does not open
             // a ternary (no same-level `:` ahead); the ternary is handled lower down.

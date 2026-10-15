@@ -8,7 +8,110 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.10.1] - 2026-10-14
+## [0.11.0] - 2026-10-14
+
+### Highlights
+- `eskiuc repl`: try code line by line, with values printed by type, `await`, and
+  multi-line input in any brace style.
+- A minimal package manager: `eskiu.toml`, `eskiuc new`/`add`/`build`/`run`/`test`, git and
+  path dependencies pinned in `eskiu.lock`, and `import <pkg/module>;`.
+- Editor support from the compiler itself: completion, signatures, go to definition for
+  methods and fields, an outline and quick fixes, in VS Code-based editors (extension
+  0.11.0) and JetBrains IDEs (through LSP4IJ).
+- `deprecated("use NEW")` warnings and "did you mean" suggestions in both compilers.
+- A written stability policy and a migration guide. The deprecated names of 0.9.2 and
+  0.10.1 are removed.
+
+### Added
+- `eskiuc repl`: an interactive session over the LLVM ORC JIT. A bare expression prints
+  its value by type (numbers, strings, structs field by field, enums, arrays, `String`,
+  `List<T>`); functions, types and imports stay available to later inputs, and declaring
+  one again replaces it; `let x = expr;` declares a session variable with the type of
+  `expr`. An input with a parse or type error is discarded, and an uncaught exception is
+  reported without ending the session. An unfinished input continues on the next line, in
+  any brace style: an open bracket, string, comment or `#if`, a trailing operator, a header
+  whose `{` comes next, or an input that parses only up to its end (`do { }` before its
+  `while`); an `if` or `try` waits one line for `else`, `catch` or `finally`, and a blank
+  line sends what is pending. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` works at the
+  prompt (`await f()`, `let v = await f();`): the input runs on an event loop the session
+  keeps, `repl_loop()`, and a future that can no longer complete is reported instead of
+  hanging. On Windows the REPL refuses inputs that throw or catch, since the JIT does not
+  register the unwind tables Windows exceptions need. `eskiuc-esk` has no REPL.
+- A minimal package manager. A package is a directory with an `eskiu.toml` manifest
+  (`[package]` name, version, main; `[deps]` with `{ git = "URL", rev = "REV" }` or
+  `{ path = "DIR" }`). `eskiuc new`, `add`, `build`, `run`, `test` and `fetch` create a
+  package, add dependencies, and build, run and test it. Git dependencies are fetched with
+  the `git` command into `~/.eskiu/pkgs` (`ESKIU_HOME`), dependencies of dependencies are
+  resolved too, and `eskiu.lock` pins every commit. `import <pkg/module>;` and
+  `import <pkg>;` load a dependency's modules in both compilers; inside a package an import
+  that names no stdlib module and no dependency is `unknown package 'x' (not in eskiu.toml)`.
+  No registry and no version solving. A path dependency is stored relative to the lock, so
+  a committed lock works on another machine. `eskiuc run file.esk` keeps compiling that file.
+- Editor tooling in `eskiuc`: `--hover-at` shows a function's signature at its declaration,
+  at a call and at a dot-call (`s.replace_all` shows `int64 String_replace_all(String*
+  self, string from, string to)`) and a field's type, and spells generic instances as
+  `List<int>`; `--definition-at` also resolves a method from a dot-call (inline methods
+  included) and a struct field; `--complete-at LINE:COL` lists the fields and the
+  dot-callable `Type_method` functions after `x.`, or the names in scope; `--symbols`
+  lists a file's declarations.
+- VS Code extension 0.11.0 (also Antigravity, Cursor, VSCodium): completion, signature
+  help and the outline, hover with signatures. `server.js` serves the same features as
+  an LSP server (Neovim, Helix, Zed).
+- IntelliJ plugin: the language server through LSP4IJ (errors, completion, hover,
+  signature help, go to definition, structure view, formatting), with the `eskiuc` and
+  Node.js paths in Settings | Tools | Eskiu.
+- `deprecated("use NEW")` before a function declaration: each use of the function (a call,
+  a dot-call, a generic call or the function as a value) prints `warning: 'f' is
+  deprecated: use NEW`, except inside an imported module. `-Wno-deprecated` silences it.
+  `deprecated` is not a keyword, so a name `deprecated` keeps working. Both compilers
+  warn at the same positions.
+- Errors for an unknown variable, function, type, field or method suggest the closest name
+  in scope: `undefined variable 'totl' (did you mean 'total'?)`, in both compilers. The
+  self-hosted compiler now reports a call to an unknown name as `undefined function`, as
+  the C++ one does.
+- `docs/lang/stability.md`: what can change between releases and how a rename is
+  deprecated first. `docs/lang/migration.md`: every removed name with its replacement.
+- `examples/scripts/todo.esk`: a to-do list in a JSON file (`<args>`, `<fs>`, `<json>`,
+  `<term>`), checked by `tests/scripts/check.sh`.
+
+### Removed
+- The deprecated stdlib wrappers for the names renamed in 0.9.2 and 0.10.1 (`rng_*`,
+  `regex_search`, `heap_*`, `el_*`, `executor_*`, `chan_*`, `hpack_*`, `h2_*`, `args_*`,
+  `opt_*`, `future_poll`, `free_future`, `sha256`, `hex_encode`, `str_join`, `str_format`,
+  `sleep_ms`, `term_rgb`, `url_resolve`, `String_is_space` and the rest).
+  `docs/lang/migration.md` maps each to its new name.
+
+### Changed
+- The docs live in one tree used by the site: `docs/lang/` (now with the glossary, the
+  migration guide and the stability policy) and `docs/dev/` (now with the C++ API and the
+  roadmap). `QUICKSTART.md` is gone; the quickstart is the site page.
+- CI: the Windows job runs the REPL transcripts and the package manager checks, and a new
+  `editors.yml` packages the VS Code extension and the IntelliJ plugin on each tag, and
+  publishes them to Open VSX, the Visual Studio Marketplace and the JetBrains Marketplace
+  when their tokens are set.
+- The changelog page on the site shows each release's highlights and keeps the full entry
+  collapsed; `CHANGELOG.md` gives each release a `Highlights` section and keeps the date
+  only on the latest release.
+
+### Fixed
+- The self-hosted compiler names an unknown generic type with its arguments
+  (`unknown type 'Opy<int>'`), as the C++ one does.
+- `tests/http_timeouts.esk` checks that the over-limit connection is closed while the slot
+  holder is still open (an order, not a time), so a slow runner no longer fails it.
+- A dot-call to a method a struct does not have reported "has no member" and "undefined
+  method" for the same call; it reports the method only, as the self-hosted compiler does.
+
+## [0.10.1]
+
+### Highlights
+- Security fixes for the 0.10 modules: `fs_remove_all` and `fs_walk` cannot be redirected by a swapped symbolic link and have no path length limit, `fs_copy` keeps the copy private until it is complete, HTTPS reports a truncated response as an error, and header injection is blocked.
+- `fetch_async` resolves host names on a thread, so DNS no longer blocks the event loop.
+- `<process>`: a closed pipe no longer kills the program from another thread, and a command that exits in time is not reported as timed out when a background child keeps its output open.
+- The whole stdlib runs on Windows, including the executor, HTTPS with the system certificate store and long paths.
+- Stdlib names follow one convention (`Type_method`, module prefixes, `_` for internals); the old names still compile as deprecated wrappers. `<mem>` declares `strcmp`, `strncmp`, `strchr` and `strstr`.
+- Large array initializers compile fast and in little memory, and an array larger than any object is an error.
+
+- CI adds macOS, leak checking and a long fuzz workflow.
 
 ### Added
 - `<mem>` declares the C string functions `strcmp`, `strncmp`, `strchr` and `strstr` next to
@@ -182,7 +285,15 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.10.0] - 2026-10-11
+## [0.10.0]
+### Highlights
+- A scripting standard library: `<fetch>` (HTTP and HTTPS, blocking and async), `<fs>` (files, directories, walk, glob, temp files), `<process>`, `<env>`, `<dns>`, `<url>`.
+- Data modules: JSON builders and stringify, `<csv>`, `<dotenv>`, `<hash>` (SHA-256, SHA-1, MD5, HMAC).
+- Command-line tools: `<args>`, `<term>` colors, `<log>`, console input and output in `<io>`, time formatting and parsing.
+- String, list and map helpers (replace, split, join, map, filter, reduce, keys, `Set`).
+- Example scripts that run with `#!/usr/bin/env -S eskiuc run`, and a book chapter on scripting.
+
+- VS Code extension 0.1.0.
 
 ### Added
 
@@ -302,7 +413,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
-## [0.9.3] - 2026-10-02
+## [0.9.3]
+### Highlights
+- Every document reviewed against the compiler.
+- GCC-style x86 register constraints in inline assembly.
+- `await` works in every position of a generic async function.
+
+- Diagnostics name types as you write them (no internal `struct:` tags).
 
 ### Added
 - **`await` inside `finally` and `defer`** in an async function. The cleanup suspends and
@@ -395,7 +512,15 @@ These issues were open in 0.9.2 and resolved in 0.9.3 (see [0.9.3] Fixed):
 - The self-hosted compiler generates code for deeply nested binary expressions
   (`a + (a + (...))`, thousands of levels) in time quadratic in their depth.
 
-## [0.9.2] - 2026-09-29
+## [0.9.2]
+### Highlights
+- About 500 latent bugs fixed in both compilers, each with a regression test, found by a full audit, three fuzzers and eight blind review rounds.
+- The language follows C where it should: integer promotions and conversions, constant global initializers, `sizeof`, octal literals, struct literal checks.
+- Interfaces are first-class values; `const T* self` receivers; flow-sensitive `?*T` narrowing.
+- `await` anywhere in an expression, inline assembly outputs, the 32-bit x86 C ABI, `#pragma pack(N)` for nested types.
+- `#pragma link` and implied libraries: no more `-lm`, `-lc++` or `-lpthread` on the command line.
+- The HTTP servers are hardened (framing, limits, timeouts), and the regex engine follows RE2 over UTF-8.
+
 A full-project audit (codegen, type checker, self-host parity, stdlib, front end, driver
 and docs) found about a hundred latent bugs that the existing corpus did not reach. All
 are fixed lockstep in the C++ and self-hosted compilers unless noted, each with a
@@ -1394,7 +1519,10 @@ input. What was still open at the time was resolved in 0.9.3 (see [0.9.3] Resolv
 - An inline asm operand naming a local or parameter of an `async` function reads and writes its frame field (the async lowering left the name, an internal error in the C++ compiler and invalid IR in the self-host). Test `asm_async_locals`.
 - A method call on a non-struct value (`x.foo()` with `x` an `int`) reports one error, `undefined method 'foo' on type 'int'`, at the same line and column in both compilers (the C++ checker also reported a member-access error before it).
 
-## [0.9.1] - 2026-09-09
+## [0.9.1]
+### Highlights
+- 19 latent bugs fixed in both compilers: constant initializer folding, signed and unsigned rules, `switch` cleanup, bitfields through pointers, float exponents, `--safe` slice bounds, async `await` typing.
+
 ### Fixed
 A correctness campaign (a multi-front bug hunt) closed a set of latent miscompiles and
 type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unless noted.
@@ -1421,7 +1549,11 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   condition or a larger expression) is a clean compile error instead of a crash or silent
   miscompile.
 
-## [0.9.0] - 2026-09-08
+## [0.9.0]
+### Highlights
+- Labeled `break` and `continue` (`outer: for (...)` then `break outer`).
+- Global and `static` array initializers keep their values (they were zero-filled).
+
 ### Added
 - **Labeled `break` and `continue`.** A loop can be named with a leading label
   (`outer: for (...) { ... }`), and `break outer` / `continue outer` act on that loop
@@ -1441,7 +1573,12 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   initializer (`float[3] = {(float)0.485, …}`, which also emit the correct LLVM f32
   constant form). Fixed in both compilers. Locals were unaffected.
 
-## [0.8.0] - 2026-08-21
+## [0.8.0]
+### Highlights
+- Windows x86-64: the full standard library and both networking stacks, sync and async, run natively.
+- Operator overloading for every operator.
+- `match` on classic enums checks that every member is covered.
+
 ### Fixed
 - **The release binaries are self-contained.** `eskiuc` picked up z3 and zstd as dynamic
   libraries from the build machine (versioned `/opt/homebrew/...` paths on macOS; `libz3.so`,
@@ -1512,6 +1649,12 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   whose raw heap is not already zero (Linux), while working on those whose is (macOS).
 
 ## [0.7.0]
+
+### Highlights
+- 32-bit ARM backend with `--mcpu`, `--mattr` and `--reloc`; hard-float ARM objects link into Nintendo 3DS programs.
+- Windows x86-64 object output.
+- `extern` declares C global variables.
+
 ### Added
 - **`extern` variables.** `extern <type> <name>;` declares a global defined in another
   translation unit (a C global), emitting an external-linkage declaration with no
@@ -1553,6 +1696,11 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 ---
 
 ## [0.6.2]
+
+### Highlights
+- Async and CI hardening: the event loop initializes every timer callback, `escaping` survives the async lowering, and interface calls convert their arguments.
+- `--target` sets the platform macro for cross builds.
+
 ### Added
 - **Cross-compilation targets the right platform.** The `--target` triple now drives the
   predefined platform macro (`__APPLE__` / `__linux__`), so `eskiuc --target x86_64-linux-gnu`
@@ -1584,6 +1732,11 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 ---
 
 ## [0.6.1]
+
+### Highlights
+- String and char escapes fixed and unified (`\0` is NUL).
+- Documentation corrections from an audit.
+
 ### Added
 - **`\xNN` hex escape** in string and character literals: one or two hex digits decode
   to a raw byte, so byte-precise strings are possible (e.g. `"\xC3\x91"` is `Ñ` in UTF-8,
@@ -1618,6 +1771,11 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
   spec section and a `--safe` flag row, and corrected glossary token-type names.
 
 ## [0.6.0]
+
+### Highlights
+- Memory safety in the Zig style: `defer` and `errdefer`, slices `T[]`, `must_use`, `--safe` bounds checks and the checked nullable pointer `?*T`.
+- New modules: `<random>`, `<regex>`, `<sort>`, `<url>`, `<uuid>` and a UTC calendar in `<time>`.
+
 ### Added
 - **`<sort>` stdlib module.** Generic in-place `sort<T>(a, n, cmp)` (heapsort, a
   guaranteed O(n log n) worst case) and `bsearch<T>(a, n, key, cmp)` over a `*T` array,
@@ -1681,6 +1839,10 @@ type-rule gaps. All are fixed lockstep in the C++ and self-hosted compilers unle
 ---
 
 ## [0.5.0]
+
+### Highlights
+- The rest of basic C: `do`/`while`, `++`/`--`, array initializers, `static` locals, multidimensional arrays and the ternary `?:`.
+
 Fills a set of basic C constructs the language was missing, so idiomatic C ports
 compile without workarounds. Each lands in lockstep across the C++ and self-hosted
 compilers and follows C semantics.
@@ -1715,6 +1877,11 @@ compilers and follows C semantics.
 ---
 
 ## [0.4.0]
+
+### Highlights
+- A correctness campaign: miscompiles and crashes fixed in both compilers.
+- Stricter types: float to integer needs a cast; out-of-range literals, division by a literal zero, uninitialized reads and missing returns are errors.
+
 A correctness and type-strictness release. A four-front bug hunt (behavioral
 differential, sema soundness, synthesized-default audit, feature edges) across the C++
 and self-hosted compilers found a batch of miscompiles, crashes, and soundness holes;
@@ -1828,6 +1995,11 @@ promotion track.
 ---
 
 ## [0.3.1]
+
+### Highlights
+- Optimization levels `-O0` to `-O3`.
+- Fixes for closures under optimization and for function type assignments.
+
 ### Fixed
 - **`*T[N]` now parses as an array of pointers, not a pointer to an array.** The
   type-string parser (`ty::Type::parse`) peeled a leading `*` before the trailing
@@ -1881,6 +2053,11 @@ promotion track.
 ---
 
 ## [0.3.0]
+
+### Highlights
+- The whole compiler is written again in Eskiu (`selfhost/`) and compiles itself to a fixpoint.
+- The self-hosted compiler matches the C++ one over the full test corpus, checked in CI.
+
 The self-hosting milestone: the whole compiler (lexer, preprocessor, parser, semantic
 analyzer, and code generator) is reimplemented in Eskiu (`selfhost/`), reaches a 3-stage
 bootstrap fixpoint, and the self-hosted codegen is **feature-complete against the C++
@@ -2087,6 +2264,12 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
 ---
 
 ## [0.2.5]
+
+### Highlights
+- The lexer and parser in Eskiu, the first self-hosting milestones.
+- `<ctype>` module.
+- A comment ending in `\` no longer swallows the next line.
+
 ### Added
 - **`<ctype>` stdlib module.** Pure-Eskiu ASCII character classification (no libc,
   freestanding-safe): `is_space`, `is_digit`, `is_hex`, `is_alpha`, `is_alnum`,
@@ -2131,6 +2314,10 @@ corpus** (a full feature sweep is clean). All parity/self-host/bootstrap gates a
 ---
 
 ## [0.2.4]
+
+### Highlights
+- The type checker is the single source of expression types for code generation, which fixed three miscompiles.
+
 Type unification: making the type checker the single resolver, so codegen stops
 re-deriving types independently (closing the two-evaluator risk). Internal
 soundness work; the only user-visible effect is three latent miscompiles it
@@ -2161,6 +2348,11 @@ surfaced and fixed.
 ---
 
 ## [0.2.3]
+
+### Highlights
+- Primitive types satisfy generic constraints through free functions.
+- A structured type representation inside the compiler.
+
 Completing bounded generics, plus a typed internal type representation that
 replaces ad-hoc type-string surgery: the foundation for keeping the compiler
 sound as it grows.
@@ -2196,6 +2388,11 @@ sound as it grows.
 ---
 
 ## [0.2.2]
+
+### Highlights
+- A generative fuzzer with an `-O0` versus `-O2` oracle, in CI.
+- Bounded generics: `<T: Iface>` and `<T: A + B>`.
+
 Exclusively hardening + traits, no new stdlib surface. The goal: make the
 compiler trustworthy and close the generics gap before the self-hosting arc.
 
@@ -2244,6 +2441,10 @@ compiler trustworthy and close the generics gap before the self-hosting arc.
 ---
 
 ## [0.2.1]
+
+### Highlights
+- Sanitizer builds in CI, `<bytes>` and `HashMap<K,V>`.
+
 Hardening and ergonomics, shaken out by building a real service (a QR-decoding HTTP
 API) on 0.2.0.
 
@@ -2260,6 +2461,11 @@ API) on 0.2.0.
 ---
 
 ## [0.2.0]
+
+### Highlights
+- `async`/`await`, sum types with `match`, and allocators.
+- HTTP/1.1, HTTP/2 with HPACK, and TLS with ALPN, plus an async networking standard library.
+
 Backend-services phase: async/await, the full HTTP/2 stack (framing, HPACK with
 Huffman, streams and flow control, a multiplexed server, and TLS/ALPN), sum types
 with `match`, and a broad async/networking standard library, built on the v0.1.0
@@ -2343,6 +2549,11 @@ systems foundation.
 ---
 
 ## [0.1.0]
+
+### Highlights
+- The first release: closures, threads, exceptions, enums, unions, bitfields, the preprocessor, interfaces and generics.
+
+- A bare-metal ARM64 kernel booting in QEMU without libc.
 
 Eskiu is a systems language built to replace the C + Go + C++ + Python stack that compute-intensive backend services typically require. C-style syntax, structural interfaces, monomorphic templates, and explicit memory, compiled to native via LLVM with no garbage collector and no runtime.
 

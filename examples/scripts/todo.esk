@@ -1,0 +1,196 @@
+#!/usr/bin/env -S eskiuc run
+// todo.esk: a to-do list kept in a JSON file.
+//
+//   ./todo.esk add buy milk          # add an item
+//   ./todo.esk list                  # show the list (done items are marked)
+//   ./todo.esk done 1                # mark item 1 as done
+//   ./todo.esk rm 2                  # remove item 2
+//   ./todo.esk clear                 # remove every done item
+//   ./todo.esk --file work.json add review the release notes
+//
+// The list lives in todo.json in the current directory unless --file names
+// another file. Exit codes: 0 ok, 1 a bad item number or an unreadable file,
+// 2 bad usage.
+
+import <args>;
+import <fs>;
+import <json>;
+import <term>;
+import <list>;
+import <string>;
+import <io>;
+
+struct Todo {
+    String text;
+    int done;
+}
+
+// Read the list from `path` into `items`; a missing file is an empty list.
+int load(string path, List<Todo>* items) {
+    if (fs_exists(path) == 0) { return 0; }
+    let src: String; String_init(&src, 256);
+    defer String_free(&src);
+    if (fs_read_text(path, &src) != 0) { return -1; }
+    *JsonValue doc = json_parse(src.cstr());
+    if (doc == null || JsonValue_kind(doc) != JArray) {
+        if (doc != null) { JsonValue_free(doc); }
+        return -1;
+    }
+    for (i in 0..JsonValue_len(doc)) {
+        *JsonValue it = JsonValue_at(doc, i);
+        *JsonValue text = JsonValue_get(it, "text");
+        *JsonValue done = JsonValue_get(it, "done");
+        if (text == null || done == null) { continue; }
+        let t: Todo;
+        String_from(&t.text, JsonValue_as_cstr(text));
+        t.done = JsonValue_as_bool(done);
+        items.push(t);
+    }
+    JsonValue_free(doc);
+    return 0;
+}
+
+int save(string path, List<Todo>* items) {
+    *JsonValue doc = JsonValue_array();
+    for (i in 0..items.len()) {
+        Todo t = items.get(i);
+        *JsonValue it = JsonValue_object();
+        JsonValue_set(it, "text", JsonValue_string(t.text.cstr()));
+        JsonValue_set(it, "done", JsonValue_bool(t.done));
+        JsonValue_push(doc, it);
+    }
+    let out: String; String_init(&out, 256);
+    JsonValue_pretty(doc, 2, &out);
+    out.append("\n");
+    int rc = fs_write_text(path, out.cstr());
+    String_free(&out);
+    JsonValue_free(doc);
+    return rc;
+}
+
+void show(List<Todo>* items) {
+    if (items.len() == 0) {
+        println("nothing to do");
+        return;
+    }
+    let line: String; String_init(&line, 64);
+    for (i in 0..items.len()) {
+        Todo t = items.get(i);
+        String_format(&line, "%3d ", i + 1);
+        print(line.cstr());
+        if (t.done == 1) {
+            term_print("[x] ", TERM_GREEN);
+            term_print(t.text.cstr(), TERM_DIM);
+        } else {
+            print("[ ] ");
+            print(t.text.cstr());
+        }
+        println("");
+    }
+    String_free(&line);
+}
+
+// The item number `s` (1-based) as an index into `items`, or -1.
+int item_index(string s, List<Todo>* items) {
+    let n: String; String_from(&n, s);
+    int k = n.to_int();
+    String_free(&n);
+    if (k < 1 || k > items.len()) {
+        print_err("no item ");
+        println_err(s);
+        return -1;
+    }
+    return k - 1;
+}
+
+int main(int argc, string* argv) {
+    let p: ArgParser;
+    ArgParser_init(&p, "todo", "Keep a to-do list in a JSON file.");
+    defer ArgParser_free(&p);
+    ArgParser_option(&p, "-f", "--file", "PATH", "todo.json", "the file that holds the list");
+    ArgParser_argument(&p, "command", "add, list, done, rm or clear", ARGS_REQUIRED);
+    ArgParser_argument(&p, "args", "the item text (add) or number (done, rm)", ARGS_MANY);
+    ArgParser_parse_or_exit(&p, argc, argv);
+
+    string path = ArgParser_get(&p, "file");
+    string cmd = ArgParser_get(&p, "command");
+    let rest: List<string>; List_init<string>(&rest, 4);
+    defer List_free<string>(&rest);
+    ArgParser_get_all(&p, "args", &rest);
+
+    let items: List<Todo>; List_init<Todo>(&items, 8);
+    if (load(path, &items) != 0) {
+        print_err("cannot read ");
+        println_err(path);
+        return 1;
+    }
+    int rc = 0;
+    bool changed = false;
+    if (strcmp(cmd, "list") == 0) {
+        show(&items);
+    } else if (strcmp(cmd, "add") == 0) {
+        if (rest.len() == 0) {
+            println_err("add: give the item text");
+            rc = 2;
+        } else {
+            let t: Todo;
+            String_init(&t.text, 32);
+            List_join<string>(&rest, " ", &t.text);
+            t.done = 0;
+            items.push(t);
+            changed = true;
+            show(&items);
+        }
+    } else if (strcmp(cmd, "done") == 0 || strcmp(cmd, "rm") == 0) {
+        if (rest.len() != 1) {
+            print_err(cmd);
+            println_err(": give one item number");
+            rc = 2;
+        } else {
+            int k = item_index(rest.get(0), &items);
+            if (k < 0) {
+                rc = 1;
+            } else if (strcmp(cmd, "done") == 0) {
+                Todo t = items.get(k);
+                t.done = 1;
+                items.set(k, t);
+                changed = true;
+                show(&items);
+            } else {
+                Todo t = items.get(k);
+                String_free(&t.text);
+                items.remove(k);
+                changed = true;
+                show(&items);
+            }
+        }
+    } else if (strcmp(cmd, "clear") == 0) {
+        int i = 0;
+        while (i < items.len()) {
+            Todo t = items.get(i);
+            if (t.done == 1) {
+                String_free(&t.text);
+                items.remove(i);
+                changed = true;
+            } else {
+                i = i + 1;
+            }
+        }
+        show(&items);
+    } else {
+        print_err("unknown command ");
+        println_err(cmd);
+        rc = 2;
+    }
+    if (changed && save(path, &items) != 0) {
+        print_err("cannot write ");
+        println_err(path);
+        rc = 1;
+    }
+    for (i in 0..items.len()) {
+        Todo t = items.get(i);
+        String_free(&t.text);
+    }
+    List_free<Todo>(&items);
+    return rc;
+}

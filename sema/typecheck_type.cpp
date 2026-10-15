@@ -262,8 +262,9 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
         // Look up struct in registry
         if (structs.find(structName) == structs.end()) {
             unknownTypes.insert(structName);
-            if (at) errorAt(at, "unknown type '" + structName + "'");
-            else errorAtCtx("unknown type '" + structName + "'");
+            std::string hint = didYouMean(structName, 't');
+            if (at) errorAt(at, "unknown type '" + structName + "'" + hint);
+            else errorAtCtx("unknown type '" + structName + "'" + hint);
         }
     } else if (!isPrimitiveType(baseType) && baseType != "va_list") {
         // Valid if it's a known struct, type alias, or enum type — anything else
@@ -274,8 +275,9 @@ void TypeChecker::validateStructType(const std::string& type, ASTNode* at) {
             adtEnums.find(baseType) == adtEnums.end() &&     // incl. generic enum instances
             interfaceDecls.find(baseType) == interfaceDecls.end()) {
             unknownTypes.insert(baseType);
-            if (at) errorAt(at, "unknown type '" + baseType + "'");
-            else errorAtCtx("unknown type '" + baseType + "'");
+            std::string hint = didYouMean(baseType, 't');
+            if (at) errorAt(at, "unknown type '" + baseType + "'" + hint);
+            else errorAtCtx("unknown type '" + baseType + "'" + hint);
         }
     }
 }

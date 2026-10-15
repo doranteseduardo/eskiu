@@ -134,4 +134,21 @@ run "organize --by size" "$script" --by size "$tree"
 run "organize (missing dir)" "$script" "$work/nope"
 compare organize
 
+# ---- todo: a list in a temporary directory ---------------------------------
+script="$root/examples/scripts/todo.esk"
+mkdir -p "$work/todo"
+(
+    cd "$work/todo" || exit 1
+    run "todo list (empty)" "$script" list
+    run "todo add buy milk" "$script" add buy milk
+    run "todo add review the release notes" "$script" add review the release notes
+    run "todo done 1" "$script" done 1
+    run "todo rm 5" "$script" rm 5
+    run "todo clear" "$script" clear
+    cat todo.json >> "$work/out"
+    run "todo --file other.json add x" "$script" --file other.json add x
+    run "todo bogus" "$script" bogus
+)
+compare todo
+
 exit "$fail"

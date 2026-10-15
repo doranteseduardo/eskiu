@@ -14,6 +14,17 @@
 // parser reaches the import. So a #define before `import "x.esk"` reaches x.esk, one
 // after it does not, and x.esk's own #defines reach the importer's later lines (C's
 // textual #include order).
+// Package imports: the dependencies listed in eskiu.lock, name -> package root
+// directory. `active` when the program being compiled belongs to a package (an
+// eskiu.toml in its directory or above), so an import naming no stdlib module and no
+// dependency is "unknown package". The driver fills it (pkgLoadRoots in pkg.cpp)
+// before parsing; resolveImport reads it.
+struct PackageRoots {
+    bool active = false;
+    std::map<std::string, std::string> roots;
+};
+extern PackageRoots packageRoots;
+
 struct ImportCache {
     std::string stdlibPath;
     std::map<std::string, Macro>* macros = nullptr;
@@ -35,6 +46,11 @@ public:
     // Set true when any declaration/import failed to parse. parse() returns
     // nullptr in that case so callers fail loudly instead of silently dropping code.
     bool hadError = false;
+    // The first syntax error of the run (file and line), for editor tooling that
+    // retries without the broken line (--complete-at).
+    static std::string& firstErrorFile() { static std::string f; return f; }
+    static int& firstErrorLine() { static int l = 0; return l; }
+    static int& firstErrorCol() { static int c = 0; return c; }
 
     // Directory of the current source file — used to resolve relative imports
     std::string basedir;
@@ -56,9 +72,13 @@ public:
     // the parser reaches it.
     ImportCache* importCache = nullptr;
     // Where an import resolves: `<name>` (no '/') is stdlib/name.esk under the stdlib
-    // root, a relative "path" is under `basedir`.
+    // root, a relative "path" is under `basedir`. `<pkg/module>` is module.esk in the
+    // root of dependency `pkg` (src/module.esk when that exists), and `<pkg>` alone, when
+    // no stdlib module has that name, is pkg.esk, src/pkg.esk or lib.esk there. `err`
+    // receives "unknown package" for a `<name...>` that names neither inside a package.
     static std::string resolveImport(const std::string& spec, bool isStdlib,
-                                     const std::string& basedir, const std::string& stdlibPath);
+                                     const std::string& basedir, const std::string& stdlibPath,
+                                     std::string* err = nullptr);
     // Shared across all sub-parsers (like importedFiles): type names declared in
     // ANY file, so a cast to a type stays a cast even when that type's defining
     // import was deduplicated via a different path. Without sharing, a file that

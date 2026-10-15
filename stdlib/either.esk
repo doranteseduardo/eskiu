@@ -48,13 +48,3 @@ bool Either_is_left<A, B>(Either<A, B>* e) {
         Right(b) -> return false;
     }
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use Option_is_some.
-bool opt_is_some<T>(Option<T>* o) { return Option_is_some<T>(o); }
-// Deprecated (0.10.1): use Option_is_none.
-bool opt_is_none<T>(Option<T>* o) { return Option_is_none<T>(o); }
-// Deprecated (0.10.1): use Option_unwrap_or.
-T opt_unwrap_or<T>(Option<T>* o, T dflt) { return Option_unwrap_or<T>(o, dflt); }
-// Deprecated (0.10.1): use Either_is_left.
-bool either_is_left<A, B>(Either<A, B>* e) { return Either_is_left<A, B>(e); }

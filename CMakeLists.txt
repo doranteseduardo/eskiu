@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(eskiuc VERSION 0.10.1 LANGUAGES C CXX)
+project(eskiuc VERSION 0.11.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,6 +21,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 set(SOURCES
     main.cpp
     main_support.cpp
+    repl.cpp
+    pkg.cpp
     lexer/lexer.cpp
     lexer/preprocessor.cpp
     parser/parser.cpp
@@ -46,6 +48,7 @@ set(SOURCES
     codegen/codegen_closure.cpp
     codegen/codegen_adt.cpp
     codegen/codegen_cabi.cpp
+    codegen/codegen_repl.cpp
 )
 
 add_executable(eskiuc ${SOURCES})
@@ -65,7 +68,7 @@ if(ESKIU_STATIC)
     endif()
     execute_process(
         COMMAND ${LLVM_TOOLS_BINARY_DIR}/llvm-config --link-static --libs
-                support core irreader nativecodegen ${STATIC_BACKENDS}
+                support core irreader nativecodegen orcjit ${STATIC_BACKENDS}
         OUTPUT_VARIABLE LLVM_STATIC_LIBS
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
@@ -81,7 +84,7 @@ else()
     # Dynamic LLVM — default for development (X86 available as dylib on all platforms)
     llvm_map_components_to_libnames(llvm_libs
         support core irreader
-        nativecodegen
+        nativecodegen orcjit
         aarch64codegen aarch64asmparser aarch64desc aarch64info
         x86codegen x86asmparser x86desc x86info
         armcodegen armasmparser armdesc arminfo)

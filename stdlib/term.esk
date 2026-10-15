@@ -335,7 +335,3 @@ int term_width() {
 #endif
     return 80;
 }
-
-// ── Deprecated names (kept so 0.10.0 code compiles; removed in a later release) ──
-// Deprecated (0.10.1): use term_fg_rgb.
-int64 term_rgb(int r, int g, int b) { return term_fg_rgb(r, g, b); }

@@ -3,9 +3,11 @@
  * extension.js: VS Code extension entry point for the Eskiu language.
  *
  * Every feature shells out to the compiler: diagnostics from `--test-typechecker`,
- * hover from `--hover-at`, go-to-definition from `--definition-at`, formatting from
- * `eskiuc fmt`, and the Run command from `eskiuc run`. An unsaved document is checked
- * through a hidden sibling file, so relative imports still resolve.
+ * hover (types and signatures) from `--hover-at`, go-to-definition from
+ * `--definition-at`, completion from `--complete-at`, the outline from `--symbols`,
+ * signature help from the callee's `--hover-at`, formatting from `eskiuc fmt`, and the
+ * Run command from `eskiuc run`. An unsaved document is checked through a hidden
+ * sibling file, so relative imports still resolve.
  */
 
 const vscode = require('vscode');
@@ -284,7 +286,11 @@ async function hover(document, position) {
     const lines = result.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean);
     const lastLine = lines[lines.length - 1] || '';
     if (!lastLine || lastLine.startsWith('(') || lastLine.startsWith('error:')) return null;
-    return new vscode.Hover(new vscode.MarkdownString(`\`\`\`eskiu\n${lastLine}\n\`\`\``));
+    const md = new vscode.MarkdownString().appendCodeblock(lastLine, 'eskiu');
+    // A `Type_method` reached by dot syntax: say how to call it.
+    const m = lastLine.match(/^\S.*?\b([A-Z][A-Za-z0-9]*)_([a-z_][A-Za-z0-9_]*)(<[^(]*>)?\(\s*(const\s+)?\*?\1\b[^,)]*\bself\b/);
+    if (m) md.appendMarkdown(`\n\nMethod of \`${m[1]}\`: call it as \`x.${m[2]}(...)\`.`);
+    return new vscode.Hover(md);
 }
 
 async function definition(document, position) {
@@ -301,6 +307,186 @@ async function definition(document, position) {
         : vscode.Uri.file(path.resolve(path.dirname(checked), file));
     return new vscode.Location(target, new vscode.Position(
         Math.max(0, parseInt(line, 10) - 1), Math.max(0, parseInt(col, 10) - 1)));
+}
+
+const KEYWORDS = [
+    'if', 'else', 'for', 'in', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue',
+    'return', 'match', 'struct', 'union', 'enum', 'interface', 'type', 'let', 'const', 'static',
+    'volatile', 'extern', 'intrinsic', 'import', 'async', 'await', 'try', 'catch', 'finally',
+    'throw', 'defer', 'errdefer', 'sizeof', 'null', 'true', 'false', 'fn', 'operator', 'packed',
+    'escaping', 'must_use', 'alloc_with', 'free_closure', 'thread_create', 'thread_join',
+    'int', 'int8', 'int16', 'int32', 'int64', 'uint', 'uint8', 'uint16', 'uint32', 'uint64',
+    'float', 'double', 'bool', 'char', 'string', 'void',
+];
+
+const COMPLETION_KINDS = {
+    field: vscode.CompletionItemKind.Field,
+    method: vscode.CompletionItemKind.Method,
+    function: vscode.CompletionItemKind.Function,
+    variable: vscode.CompletionItemKind.Variable,
+    global: vscode.CompletionItemKind.Variable,
+    struct: vscode.CompletionItemKind.Struct,
+    interface: vscode.CompletionItemKind.Interface,
+    enum: vscode.CompletionItemKind.Enum,
+    enummember: vscode.CompletionItemKind.EnumMember,
+    type: vscode.CompletionItemKind.TypeParameter,
+};
+
+// `--complete-at` replaces the identifier at the cursor (or the member after `recv.`)
+// and prints `kind<TAB>name<TAB>detail` per candidate.
+async function complete(document, position) {
+    const line = document.lineAt(position.line).text;
+    const before = line.slice(0, position.character);
+    if (/^\s*(\/\/|#)/.test(before) || (before.split('"').length % 2 === 0)) return [];
+    const member = /\.\s*[A-Za-z_0-9]*$/.test(before);
+    const at = `${position.line + 1}:${position.character + 1}`;
+    const extraFlags = getCompilerFlags();
+    const { result } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...extraFlags, '--complete-at', at], 8000, cwd, document.uri.fsPath), true);
+    const items = [];
+    for (const row of result.stdout.split('\n')) {
+        const [kind, name, detail] = row.split('\t');
+        if (!name || !COMPLETION_KINDS[kind]) continue;
+        const item = new vscode.CompletionItem(name, COMPLETION_KINDS[kind]);
+        item.detail = detail || '';
+        // Locals first, then members, then the rest of the program.
+        item.sortText = (kind === 'variable' ? '0' : kind === 'field' ? '1' : kind === 'method' ? '2' : '5') + name;
+        items.push(item);
+    }
+    if (!member) {
+        for (const k of KEYWORDS) {
+            const item = new vscode.CompletionItem(k, vscode.CompletionItemKind.Keyword);
+            item.sortText = '9' + k;
+            items.push(item);
+        }
+    }
+    return items;
+}
+
+// The call around the cursor: the callee's name position and the index of the
+// argument being written, found by scanning back over balanced brackets and strings.
+function enclosingCall(document, position) {
+    const text = document.getText(new vscode.Range(new vscode.Position(Math.max(0, position.line - 30), 0), position));
+    let depth = 0, commas = 0, inStr = false;
+    for (let i = text.length - 1; i >= 0; i--) {
+        const c = text[i];
+        if (inStr) { if (c === '"' && text[i - 1] !== '\\') inStr = false; continue; }
+        if (c === '"') { inStr = true; continue; }
+        if (c === ')' || c === ']' || c === '}') depth++;
+        else if (c === '[' || c === '{') { if (depth === 0) return null; depth--; }
+        else if (c === '(') {
+            if (depth > 0) { depth--; continue; }
+            let j = i;
+            while (j > 0 && /\s/.test(text[j - 1])) j--;
+            let k = j;
+            while (k > 0 && /[A-Za-z0-9_]/.test(text[k - 1])) k--;
+            if (k === j) return null;
+            const offset = document.offsetAt(new vscode.Position(Math.max(0, position.line - 30), 0)) + k;
+            return { pos: document.positionAt(offset), active: commas, dot: text[k - 1] === '.' };
+        } else if (c === ',' && depth === 0) commas++;
+        else if (c === ';' && depth === 0) return null;
+    }
+    return null;
+}
+
+async function signatureHelp(document, position) {
+    const call = enclosingCall(document, position);
+    if (!call) return null;
+    const at = `${call.pos.line + 1}:${call.pos.character + 1}`;
+    const extraFlags = getCompilerFlags();
+    const { result } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...extraFlags, '--hover-at', at], 5000, cwd, document.uri.fsPath), true);
+    const sig = (result.stdout.trim().split('\n').pop() || '').trim();
+    const open = sig.indexOf('(');
+    if (open < 0 || !sig.endsWith(')') || sig.startsWith('fn(')) return null;
+    // Split the parameter list at top-level commas (a `fn(A,B)->C` parameter has its own).
+    const params = [];
+    let depth = 0, cur = '';
+    for (const c of sig.slice(open + 1, -1)) {
+        if (c === '(' || c === '<' || c === '[') depth++;
+        if (c === ')' || c === '>' || c === ']') depth--;
+        if (c === ',' && depth === 0) { params.push(cur.trim()); cur = ''; } else cur += c;
+    }
+    if (cur.trim()) params.push(cur.trim());
+    // A dot-call passes the receiver as `self`: the first argument written is the second parameter.
+    const shown = call.dot && params.length && /\bself$/.test(params[0]) ? params.slice(1) : params;
+    const info = new vscode.SignatureInformation(sig);
+    info.parameters = shown.map((p) => new vscode.ParameterInformation(p));
+    const help = new vscode.SignatureHelp();
+    help.signatures = [info];
+    help.activeSignature = 0;
+    const variadic = shown.length && shown[shown.length - 1] === '...';
+    help.activeParameter = variadic ? Math.min(call.active, shown.length - 1) : call.active;
+    return help;
+}
+
+const SYMBOL_KINDS = {
+    function: vscode.SymbolKind.Function,
+    method: vscode.SymbolKind.Method,
+    struct: vscode.SymbolKind.Struct,
+    field: vscode.SymbolKind.Field,
+    enum: vscode.SymbolKind.Enum,
+    interface: vscode.SymbolKind.Interface,
+    type: vscode.SymbolKind.TypeParameter,
+    variable: vscode.SymbolKind.Variable,
+    constant: vscode.SymbolKind.Constant,
+};
+
+// The outline: `--symbols` prints `kind name LINE:COL container detail` per declaration;
+// fields and inline methods go under their struct.
+async function documentSymbols(document) {
+    const extraFlags = getCompilerFlags();
+    const { result } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...extraFlags, '--symbols'], 8000, cwd, document.uri.fsPath), true);
+    const top = [];
+    const byName = new Map();
+    for (const row of result.stdout.split('\n')) {
+        const [kind, name, at, container, detail] = row.split('\t');
+        if (!name || !SYMBOL_KINDS[kind] || !at) continue;
+        const [l, c] = at.split(':').map((n) => Math.max(0, parseInt(n, 10) - 1));
+        if (l >= document.lineCount) continue;
+        const start = new vscode.Position(l, c);
+        const full = new vscode.Range(start, document.lineAt(l).range.end);
+        const sel = new vscode.Range(start, start.translate(0, name.length));
+        const sym = new vscode.DocumentSymbol(name, detail || '', SYMBOL_KINDS[kind], full, sel);
+        const parent = container && byName.get(container);
+        if (parent) {
+            parent.children.push(sym);
+            if (parent.range.end.isBefore(full.end)) parent.range = new vscode.Range(parent.range.start, full.end);
+        } else {
+            top.push(sym);
+            if (kind === 'struct') byName.set(name, sym);
+        }
+    }
+    return top;
+}
+
+// "undefined variable 'totl' (did you mean 'total'?)": a quick fix that replaces the
+// misspelled name, found on the diagnostic's line nearest to its column.
+const MISSPELLED = /(?:variable|function|method|member|type) '([^']+)'[^]*\(did you mean '([^']+)'\?\)/;
+
+function quickFixes(document, range, context) {
+    const actions = [];
+    for (const d of context.diagnostics) {
+        if (d.source !== 'eskiuc') continue;
+        const m = d.message.match(MISSPELLED);
+        if (!m) continue;
+        const [, wrong, right] = m;
+        const line = document.lineAt(d.range.start.line).text;
+        const re = new RegExp(`\\b${wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+        let best = -1, hit;
+        while ((hit = re.exec(line)) !== null) {
+            if (best < 0 || Math.abs(hit.index - d.range.start.character) < Math.abs(best - d.range.start.character)) best = hit.index;
+        }
+        if (best < 0) continue;
+        const fix = new vscode.CodeAction(`Change to '${right}'`, vscode.CodeActionKind.QuickFix);
+        fix.edit = new vscode.WorkspaceEdit();
+        fix.edit.replace(document.uri, new vscode.Range(d.range.start.line, best, d.range.start.line, best + wrong.length), right);
+        fix.diagnostics = [d];
+        fix.isPreferred = true;
+        actions.push(fix);
+    }
+    return actions;
 }
 
 // `eskiuc fmt` rewrites a file in place, so format a temporary copy and replace the
@@ -368,6 +554,11 @@ function activate(context) {
         }),
         vscode.languages.registerHoverProvider('eskiu', { provideHover: hover }),
         vscode.languages.registerDefinitionProvider('eskiu', { provideDefinition: definition }),
+        vscode.languages.registerCompletionItemProvider('eskiu', { provideCompletionItems: complete }, '.'),
+        vscode.languages.registerSignatureHelpProvider('eskiu', { provideSignatureHelp: signatureHelp }, '(', ','),
+        vscode.languages.registerDocumentSymbolProvider('eskiu', { provideDocumentSymbols: documentSymbols }),
+        vscode.languages.registerCodeActionsProvider('eskiu', { provideCodeActions: quickFixes },
+            { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
         vscode.languages.registerDocumentFormattingEditProvider('eskiu', { provideDocumentFormattingEdits: format }),
         vscode.commands.registerCommand('eskiu.runFile', runFile),
     );
@@ -380,4 +571,4 @@ function deactivate() {
     if (diagnosticCollection) diagnosticCollection.dispose();
 }
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, _test: { complete, signatureHelp, documentSymbols, hover, quickFixes } };

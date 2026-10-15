@@ -1,8 +1,8 @@
 # Eskiu Language: VS Code Extension
 
 Eskiu support for Visual Studio Code and editors built on it (Cursor, Antigravity,
-VSCodium): syntax highlighting, errors as you type, hover types, go to definition,
-formatting and a Run command.
+VSCodium): syntax highlighting, errors as you type, completion, hover with types and
+signatures, signature help, go to definition, an outline, formatting and a Run command.
 
 ## Features
 
@@ -10,8 +10,24 @@ formatting and a Run command.
   and when a file is opened or saved; errors and `-Wall`-style warnings show as underlines.
   An unsaved file is checked through a hidden copy next to it
   (`.name.esk.<pid>.eskiu-check.esk`, removed right after), so relative imports resolve.
-- **Hover** shows the type of the name under the cursor (`--hover-at`).
-- **Go to definition** jumps to where a name is declared (`--definition-at`).
+- **Completion** (`--complete-at`): after `x.` it lists the fields of `x`'s struct and the
+  functions dot syntax reaches (`String_replace_all` is offered as `replace_all`, generic
+  ones such as `List_push` on a `List<int>` too); elsewhere it lists the variables in
+  scope, the program's functions, types and enum members, and the keywords. Internal
+  (`_`-prefixed) stdlib names are left out.
+- **Hover** (`--hover-at`) shows the type of a variable or field, and the signature of a
+  function at its declaration, at a call and at a dot-call (`s.replace_all` shows
+  `int64 String_replace_all(String* self, string from, string to)`).
+- **Signature help** shows the parameters of the call being written, with the current one
+  highlighted; a dot-call leaves out `self`.
+- **Go to definition** (`--definition-at`) jumps to where a variable, function, method
+  (also from a dot-call, inline methods included) or struct field is declared.
+- **Quick fix** for a misspelled name: an error such as `undefined variable 'totl' (did you
+  mean 'total'?)` offers "Change to 'total'" (Cmd/Ctrl+.). Uses of a `deprecated` function
+  show as warnings with the replacement.
+- **Outline** (`--symbols`): functions, structs with their fields and inline methods,
+  enums, interfaces, type aliases and globals, for the Outline view, breadcrumbs and
+  Go to Symbol (Cmd/Ctrl+Shift+O).
 - **Format Document** runs `eskiuc fmt` and is the default formatter for `.esk` files.
 - **Eskiu: Run File** (also the play button in the editor title) saves the file and runs
   `eskiuc run` in a terminal.
@@ -23,6 +39,15 @@ formatting and a Run command.
 | `eskiu.compilerPath` | `""` | Path to `eskiuc`. Empty uses `build/eskiuc` in a checkout of this repository, else `eskiuc` on `PATH`. Set it when the editor does not inherit your shell `PATH` (common for apps opened from the Dock). |
 | `eskiu.checkOnType` | `true` | Type-check while typing, not only on open and save. |
 | `eskiu.checkDelay` | `400` | Milliseconds after the last edit before checking. |
+
+## Publishing
+
+`.github/workflows/editors.yml` packages the extension and the IntelliJ plugin on each
+release tag and uploads them as artifacts. It publishes to a store only when that store's
+token is a repository secret: `OVSX_PAT` for Open VSX (VSCodium, Cursor, Antigravity),
+`VSCE_PAT` for the Visual Studio Marketplace, `JETBRAINS_TOKEN` for the JetBrains
+Marketplace. The `doranteseduardo` namespace must exist on Open VSX first
+(`npx ovsx create-namespace doranteseduardo -p TOKEN`).
 
 ## Install
 
@@ -81,10 +106,15 @@ To associate manually, add to VS Code `settings.json`:
 `extension.js` uses only the VS Code API (no npm packages) and shells out to the compiler
 for every feature, parsing its `file:line:col: message` output into diagnostics.
 
-`server.js` is a standalone JSON-RPC language server that publishes the same diagnostics,
-for editors that speak LSP natively (Neovim, Helix and others). It runs `$ESKIUC` when set,
-else the same lookup as the extension.
+`server.js` is a standalone language server (JSON-RPC over stdio, no npm packages) with
+the same features: diagnostics, hover, go to definition, completion, signature help,
+document symbols and formatting. It serves editors that speak LSP natively (Neovim, Helix,
+Zed) and JetBrains IDEs through the Eskiu IntelliJ plugin. It runs the compiler given as
+`initializationOptions.compilerPath`, else `$ESKIUC`, else the same lookup as the
+extension, then `~/.eskiu/bin/eskiuc`.
 
 ## Limitations
 
-Go-to-definition works for functions and variables, not yet for struct fields.
+Completion, hover and signature help need the file to parse: a line with a syntax error
+elsewhere in the file leaves them empty until it is fixed (completion still offers the
+keywords). They are computed by the C++ `eskiuc`.

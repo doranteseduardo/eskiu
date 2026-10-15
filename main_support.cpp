@@ -32,6 +32,7 @@
 #include "sema/async_transform.h"
 #include "codegen/codegen.h"
 #include "main_support.h"
+#include "pkg.h"
 
 // Definition of the shared stdlib-root global (declared in main_support.h).
 std::string stdlibRoot;
@@ -375,7 +376,7 @@ void seedPredefinedMacros(std::map<std::string, Macro>& macros, const std::strin
 // `macrosOut` receives the final macro table.
 std::shared_ptr<Program> loadProgram(const std::vector<std::string>& inputs, const std::string& triple,
                                      bool freestanding, std::map<std::string, Macro>* macrosOut,
-                                     bool* lexFailed) {
+                                     bool* lexFailed, const std::string* primarySource) {
     std::map<std::string, Macro> macros;     // shared: #defines propagate across files
     seedPredefinedMacros(macros, triple, freestanding);
     std::set<std::string> importedFiles;     // shared: a common import is parsed once
@@ -385,13 +386,15 @@ std::shared_ptr<Program> loadProgram(const std::vector<std::string>& inputs, con
     std::vector<DeclPtr> merged;
     std::vector<std::string> linkLibs;       // `#pragma link` libraries of every input
     if (lexFailed) *lexFailed = false;
+    if (!inputs.empty()) pkgLoadRoots(inputs[0]);   // package imports from eskiu.lock
     for (const auto& fname : inputs) {
         // Register the root file itself, so an import cycle back to it (or an
         // input that an earlier input already imported) is not parsed twice.
         std::string canon = Parser::canonicalPath(fname);
         if (!importedFiles.insert(canon).second) continue;
         cache.seen.insert(canon);
-        std::string source = readFile(fname);
+        // The first input may be given as text (editor tooling: an unsaved buffer).
+        std::string source = primarySource && fname == inputs.front() ? *primarySource : readFile(fname);
         PPImportHook hook = cache.hookFor(dirOf(fname));
         Lexer lexer(source, &macros, fname, &hook);
         std::vector<Token> tokens;
