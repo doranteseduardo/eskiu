@@ -256,8 +256,8 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
 <ul>
 <li>The self-hosted compiler names an unknown generic type with its arguments
   (<code>unknown type 'Opy&lt;int&gt;'</code>), as the C++ one does.</li>
-<li><code>tests/http_timeouts.esk</code> times the over-limit connection against the slot holder's
-  deadline, so a slow runner no longer fails it.</li>
+<li><code>tests/http_timeouts.esk</code> checks that the over-limit connection is closed while the slot
+  holder is still open (an order, not a time), so a slow runner no longer fails it.</li>
 <li>A dot-call to a method a struct does not have reported "has no member" and "undefined
   method" for the same call; it reports the method only, as the self-hosted compiler does.</li>
 </ul>
