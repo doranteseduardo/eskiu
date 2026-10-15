@@ -41,6 +41,11 @@ intellijPlatform {
     buildSearchableOptions = false
     // `./gradlew verifyPlugin -PverifyIde=/path/to/IDE.app` checks the plugin against an
     // installed IDE (binary compatibility with its platform and LSP4IJ).
+    // `./gradlew publishPlugin` (CI: .github/workflows/editors.yml) with the token in the
+    // intellijPlatformPublishingToken Gradle property.
+    publishing {
+        token = providers.gradleProperty("intellijPlatformPublishingToken")
+    }
     pluginVerification {
         ides {
             providers.gradleProperty("verifyIde").orNull?.let { local(file(it)) }

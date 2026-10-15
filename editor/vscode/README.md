@@ -40,6 +40,15 @@ signatures, signature help, go to definition, an outline, formatting and a Run c
 | `eskiu.checkOnType` | `true` | Type-check while typing, not only on open and save. |
 | `eskiu.checkDelay` | `400` | Milliseconds after the last edit before checking. |
 
+## Publishing
+
+`.github/workflows/editors.yml` packages the extension and the IntelliJ plugin on each
+release tag and uploads them as artifacts. It publishes to a store only when that store's
+token is a repository secret: `OVSX_PAT` for Open VSX (VSCodium, Cursor, Antigravity),
+`VSCE_PAT` for the Visual Studio Marketplace, `JETBRAINS_TOKEN` for the JetBrains
+Marketplace. The `doranteseduardo` namespace must exist on Open VSX first
+(`npx ovsx create-namespace doranteseduardo -p TOKEN`).
+
 ## Install
 
 Package the extension and install the `.vsix`:

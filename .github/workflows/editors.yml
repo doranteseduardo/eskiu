@@ -1,0 +1,64 @@
+name: Editor extensions
+
+# Packages the VS Code extension (.vsix) and the IntelliJ plugin (.zip) on every
+# release tag, or on demand, and uploads both as artifacts. Publishing is opt-in per
+# store: it runs only when the store's token is set as a repository secret.
+#   OVSX_PAT     Open VSX (used by VSCodium, Cursor and Antigravity), namespace doranteseduardo
+#   VSCE_PAT     Visual Studio Marketplace, publisher doranteseduardo
+#   JETBRAINS_TOKEN  JetBrains Marketplace (plugin xyz.reactvision.eskiu)
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  vscode:
+    runs-on: ubuntu-24.04
+    env:
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    defaults:
+      run:
+        working-directory: editor/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Package
+        run: npx --yes @vscode/vsce@3.6.0 package --allow-missing-repository
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eskiu-vscode
+          path: editor/vscode/*.vsix
+      - name: Publish to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
+        run: npx --yes ovsx@0.10.5 publish *.vsix -p "$OVSX_PAT"
+      - name: Publish to the Visual Studio Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx --yes @vscode/vsce@3.6.0 publish --packagePath *.vsix -p "$VSCE_PAT"
+
+  intellij:
+    runs-on: ubuntu-24.04
+    env:
+      JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
+    defaults:
+      run:
+        working-directory: editor/intellij/plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Build
+        run: ./gradlew buildPlugin --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eskiu-intellij
+          path: editor/intellij/plugin/build/distributions/*.zip
+      - name: Publish to the JetBrains Marketplace
+        if: ${{ env.JETBRAINS_TOKEN != '' }}
+        run: ./gradlew publishPlugin --no-daemon
+        env:
+          ORG_GRADLE_PROJECT_intellijPlatformPublishingToken: ${{ secrets.JETBRAINS_TOKEN }}
