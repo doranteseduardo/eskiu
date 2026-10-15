@@ -119,14 +119,78 @@ struct Attempt {
     std::unique_ptr<ParseCtx> ctx;
     std::shared_ptr<Program> program;
     FunctionDecl* wrapper = nullptr;
+    std::string entry;                                        // the function the JIT calls
     std::vector<DeclPtr> inputDecls;                          // Decls mode
     std::vector<ReplGlobal> newGlobals;                       // Stmts mode
     bool usesAwait = false;
+    bool asyncSupport = false;   // the build holds kAsyncSupport
     std::vector<std::pair<int, int>> letPos;   // where each untyped let's name is
 };
 
 std::string versioned(const std::string& base, int v) {
     return v <= 1 ? base : base + ".v" + std::to_string(v);
+}
+
+// The session's event loop and the driver of an input that awaits (see Repl::build): the
+// input runs as `async void __repl_async_N()`, and `void __repl_N()` hands its future to
+// `__repl_drive`, which runs `repl_loop()` until the future completes or nothing is left
+// on the loop that could complete it (a watchdog timer checks for pending timers and
+// watched descriptors). `__repl_await_ok` tells the REPL which happened.
+const char* kAsyncSupport = R"ESK(import <future>;
+import <eventloop>;
+import <atomic>;
+import <time>;
+EventLoop* __repl_loop;
+int __repl_watch_id = -1;
+int __repl_await_ok;
+EventLoop* repl_loop() {
+    if (__repl_loop == null) { __repl_loop = el_new(64); }
+    return __repl_loop;
+}
+void __repl_watch_fire(EventLoop* lp);
+void __repl_arm(EventLoop* lp, int64 deadline) {
+    __repl_watch_id = EventLoop_add_timer(lp, deadline, void() { __repl_watch_fire(lp); });
+}
+void __repl_watch_fire(EventLoop* lp) {
+    __repl_watch_id = -1;
+    int64 last = -1;
+    for (t in 0..lp.tcap) {
+        if (lp.timers[t].active != 0 && lp.timers[t].deadline > last) { last = lp.timers[t].deadline; }
+    }
+    int watched = 0;
+    for (d in 0..lp.cap) {
+        if (lp.slots[d].active != 0) { watched = 1; }
+    }
+    if (last < 0 && watched == 0) { EventLoop_stop(lp); return; }
+    if (watched != 0) { last = time_monotonic_ms() + 50; }
+    __repl_arm(lp, last);
+}
+void __repl_unwatch(EventLoop* lp) {
+    if (__repl_watch_id >= 0) { EventLoop_del_timer(lp, __repl_watch_id); }
+    __repl_watch_id = -1;
+}
+int __repl_drive(FutureHdr* f) {
+    EventLoop* lp = repl_loop();
+    f.waker = void() { EventLoop_stop(lp); };
+    if (atomic_cas(&f.state, PENDING, WAITING)) {
+        __repl_arm(lp, time_monotonic_ms());
+        try { EventLoop_run(lp); } finally { __repl_unwatch(lp); }
+    }
+    if (atomic_load(&f.state) == READY) {
+        free_closure(f.waker);
+        free_closure(f.on_drop);
+        free((*void)f);
+        return 1;
+    }
+    Future_drop(f);
+    return 0;
+}
+)ESK";
+
+// Whether an input may need kAsyncSupport: it awaits or names the session's loop.
+bool needsAsyncSupport(const std::string& text) {
+    static const std::regex word("\\b(await|repl_loop)\\b");
+    return std::regex_search(text, word);
 }
 
 // --- value printing -------------------------------------------------------------------
@@ -532,6 +596,7 @@ private:
     // redefined): a symbol defined before that is stale and gets a new version.
     std::map<std::string, int> declEpoch, prefixEpoch;
     std::set<std::string> loadedLibs;
+    bool asyncSupport = false;   // kAsyncSupport is part of the session
 
     bool initJit();
     void reset();
@@ -604,6 +669,7 @@ bool Repl::initJit() {
 void Repl::reset() {
     chunks.clear();
     globals.clear();
+    asyncSupport = false;
     version.clear();
     defEpoch.clear();
     declEpoch.clear();
@@ -672,6 +738,18 @@ bool Repl::build(const Plan& plan, Attempt& a) {
     ParseCtx& ctx = *a.ctx;
     struct Item { int epoch; DeclPtr decl; };
     std::vector<Item> items;
+    if (asyncSupport || needsAsyncSupport(plan.text)) {
+        const std::string file = "<repl-async>";
+        std::vector<Token> toks;
+        if (!lexInto(ctx, kAsyncSupport, file, toks)) return false;
+        auto prog = parseTokens(ctx, toks, file);
+        if (!prog) return false;
+        for (const auto& d : prog->declarations) {
+            d->fromImport = true;
+            items.push_back({0, d});
+        }
+        a.asyncSupport = true;
+    }
     for (const auto& c : chunks) {
         // An earlier prompt input is named by its number in diagnostics.
         std::string file = c.file == kReplFile ? "<repl:" + std::to_string(c.epoch) + ">" : c.file;
@@ -740,17 +818,20 @@ bool Repl::build(const Plan& plan, Attempt& a) {
             }
         }
         if (body.empty()) return false;
-        std::string wname = "__repl_" + std::to_string(cur);
+        // An input that awaits runs as the body of an async function (see kAsyncSupport).
+        std::string wname = (a.usesAwait ? "__repl_async_" : "__repl_") + std::to_string(cur);
         auto parseWrapped = [&](bool addSemi) {
             std::vector<Token> b = body;
             if (addSemi)
                 b.push_back(Token(TokenType::SEMICOLON, ";", b.back().line,
                                   b.back().column + (int)b.back().value.size()));
             int l0 = b.front().line, c0 = b.front().column;
-            std::vector<Token> wrapped = {
+            std::vector<Token> wrapped;
+            if (a.usesAwait) wrapped.push_back(Token(TokenType::ASYNC, "async", l0, c0));
+            wrapped.insert(wrapped.end(), {
                 Token(TokenType::VOID, "void", l0, c0), Token(TokenType::IDENT, wname, l0, c0),
                 Token(TokenType::LPAREN, "(", l0, c0), Token(TokenType::RPAREN, ")", l0, c0),
-                Token(TokenType::LBRACE, "{", l0, c0)};
+                Token(TokenType::LBRACE, "{", l0, c0)});
             wrapped.insert(wrapped.end(), b.begin(), b.end());
             wrapped.push_back(Token(TokenType::RBRACE, "}", b.back().line, b.back().column + 1));
             return parseTokens(ctx, wrapped, plan.file);
@@ -852,6 +933,17 @@ bool Repl::build(const Plan& plan, Attempt& a) {
             }
         }
         items.push_back({cur, prog->declarations.back()});
+        a.entry = wname;
+        if (a.usesAwait) {
+            a.entry = "__repl_" + std::to_string(cur);
+            std::string driver = "void " + a.entry + "() { __repl_await_ok = __repl_drive((FutureHdr*)" +
+                                 wname + "()); }";
+            std::vector<Token> dt;
+            if (!lexInto(ctx, driver, "<repl-async>", dt)) return false;
+            auto dprog = parseTokens(ctx, dt, "<repl-async>");
+            if (!dprog || dprog->declarations.empty()) return false;
+            items.push_back({cur, dprog->declarations.back()});
+        }
     }
 
     // A later declaration of a name replaces the earlier ones.
@@ -1053,7 +1145,7 @@ bool Repl::compileAndRun(Attempt& a, const std::string& valueSemaType,
     defEpoch = defEp;
 
     if (!a.wrapper) return true;
-    auto sym = jit->lookup(a.wrapper->name);
+    auto sym = jit->lookup(a.entry);
     if (!sym) {
         std::cerr << "error: " << llvm::toString(sym.takeError()) << std::endl;
         return true;
@@ -1084,6 +1176,15 @@ bool Repl::compileAndRun(Attempt& a, const std::string& valueSemaType,
         std::cerr << "error: uncaught exception" << std::endl;
     }
     fflush(stdout);
+    if (!threw && a.usesAwait) {
+        auto ok = jit->lookup("__repl_await_ok");
+        if (!ok) {
+            llvm::consumeError(ok.takeError());
+        } else if (*ok->toPtr<const int*>() == 0) {
+            std::cerr << "error: the awaited future did not complete" << std::endl;
+            threw = true;
+        }
+    }
     if (!threw && layout) {
         std::string vname = "__repl_val_" + std::to_string(cur);
         auto vs = jit->lookup(vname);
@@ -1100,6 +1201,7 @@ bool Repl::compileAndRun(Attempt& a, const std::string& valueSemaType,
 
 void Repl::commit(const Plan& plan, Attempt& a) {
     int cur = ++epoch;
+    if (a.asyncSupport) asyncSupport = true;
     if (plan.mode == Mode::Decls) {
         chunks.push_back({plan.text, plan.file, cur});
         return;
@@ -1194,12 +1296,6 @@ bool Repl::handleInput(const std::string& text, const std::string& file, Mode* f
             return false;
         }
         letPos = s.letPos;
-        if (plan.mode == Mode::Stmts && s.usesAwait) {
-            std::cerr << "error: " << kReplFile << ": `await` is not available at the prompt "
-                         "(no executor drives the future); run async code with `eskiuc run`"
-                      << std::endl;
-            return false;
-        }
     }
 
     if (plan.mode == Mode::Decls) {

@@ -10,6 +10,6 @@ error: uncaught exception: string "boom"
 1
 error: uncaught exception: int 7
 -9
-error: <repl>: `await` is not available at the prompt (no executor drives the future); run async code with `eskiuc run`
+error: <repl>:1:7: undefined function 'later'
 error: unknown command ':nope' (try :help)
 5
