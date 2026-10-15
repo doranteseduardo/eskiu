@@ -336,6 +336,32 @@ int callGuarded(void (*fn)()) {
 
 // Bracket depth of `text` outside string/char literals and comments: the reader keeps
 // reading lines while it is positive.
+// A header whose body starts on the next line (`int sq(int n)`, `for (i in 0..3)`,
+// `struct P`, `} else`), as written in the style that puts `{` on its own line: the
+// reader waits for the body instead of sending an incomplete input.
+bool awaitsBody(const std::string& text) {
+    std::string t = text;
+    while (!t.empty() && std::isspace((unsigned char)t.back())) t.pop_back();
+    size_t ls = t.find_last_of('\n');
+    std::string last = t.substr(ls == std::string::npos ? 0 : ls + 1);
+    size_t b = last.find_first_not_of(" \t");
+    if (b == std::string::npos) return false;
+    last = last.substr(b);
+    static const std::regex control(R"(^(\}\s*)?(if|else\s+if|for|while|switch|match)\b.*\)$)");
+    static const std::regex bare(R"(^(\}\s*)?(else|do)$)");
+    static const std::regex typeHead(R"(^(packed\s+)?(struct|union|enum|interface)\s+\w+(\s*<[^>]*>)?$)");
+    static const std::regex fnHead(
+        R"(^(?!(await|return|throw|defer|errdefer|case|else|sizeof|free_closure|thread_join)\b)((async|must_use|static|extern|deprecated\("[^"]*"\))\s+)*[\w*<>\[\],?. ]*[\w*>\]?]\s+\*?\w+\s*(<[^>]*>)?\s*\([^;{}]*\)$)");
+    return std::regex_match(last, control) || std::regex_match(last, bare) ||
+           std::regex_match(last, typeHead) || std::regex_match(last, fnHead);
+}
+
+// A complete `if` whose block just closed: an `else` may follow on the next line.
+bool ifAwaitsElse(const std::string& text) {
+    static const std::regex ifThen(R"(^\s*if\s*\([\s\S]*\}\s*$)");
+    return std::regex_match(text, ifThen);
+}
+
 int bracketDepth(const std::string& text) {
     int depth = 0;
     bool block = false;
@@ -1176,7 +1202,9 @@ void Repl::loadCommand(const std::string& path) {
 const char* kHelp =
     "Enter declarations (functions, structs, enums, imports), statements or an\n"
     "expression; an expression's value is printed. `let x = expr;` declares a session\n"
-    "variable. Unbalanced brackets continue the input on the next line.\n"
+    "variable. The input continues on the next line while a bracket is open, after a\n"
+    "header whose `{` comes next (`int f(int n)`, `for (...)`) and after an `if` block\n"
+    "(an `else` may follow). A blank line sends what is pending.\n"
     "  :type EXPR   print the type of EXPR without running it\n"
     "  :load FILE   add the declarations of FILE\n"
     "  :reset       forget every declaration and variable\n"
@@ -1196,10 +1224,25 @@ int Repl::run(const std::vector<std::string>& files) {
             std::fputs(pending.empty() ? "> " : "... ", stdout);
             fflush(stdout);
         }
+        auto submit = [&]() {
+            std::string input = pending;
+            pending.clear();
+            try {
+                handleInput(input, kReplFile, nullptr);
+            } catch (const std::exception& e) {
+                std::cerr << "error: " << e.what() << std::endl;
+            }
+            fflush(stdout);
+        };
         if (!std::getline(std::cin, line)) {
             if (interactive) std::fputs("\n", stdout);
+            if (!trim(pending).empty()) submit();
             break;
         }
+        // An `if` held for a possible `else`: anything else on this line runs it first.
+        if (!pending.empty() && bracketDepth(pending) <= 0 && ifAwaitsElse(pending) &&
+            !trim(line).empty() && trim(line).rfind("else", 0) != 0)
+            submit();
         if (pending.empty()) {
             std::string t = trim(line);
             if (t.empty()) continue;
@@ -1217,8 +1260,13 @@ int Repl::run(const std::vector<std::string>& files) {
                 continue;
             }
         }
+        // A blank line sends what is pending as it is (a way out of a continuation).
+        if (!pending.empty() && trim(line).empty()) {
+            submit();
+            continue;
+        }
         pending += line + "\n";
-        if (bracketDepth(pending) > 0) continue;
+        if (bracketDepth(pending) > 0 || awaitsBody(pending) || ifAwaitsElse(pending)) continue;
         std::string input = pending;
         pending.clear();
         if (trim(input).empty()) continue;
