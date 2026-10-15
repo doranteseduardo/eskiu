@@ -140,12 +140,15 @@ completion, signatures and quick fixes through the
 [VS Code extension](editor/vscode) (also Cursor, Antigravity and VSCodium) and the
 [IntelliJ plugin](editor/intellij).
 
-## Status
+## Stability
 
-Eskiu is pre-1.0. The language is stable enough for real work. What can change between
-releases, and how a renamed function is deprecated before it goes, is written down in
-[docs/lang/stability.md](docs/lang/stability.md); [docs/lang/migration.md](docs/lang/migration.md) maps every
-removed name to its replacement.
+Eskiu is stable since 0.11. Code that compiles with 0.11.0 keeps compiling in every 0.11.x
+release. A later minor release (0.12, 0.13) may still change the language or the standard
+library before 1.0, but never by surprise: a renamed or removed function keeps working for a
+whole minor release, marked `deprecated`, and each use prints a warning that names its
+replacement. The rules are in [docs/lang/stability.md](docs/lang/stability.md), and
+[docs/lang/migration.md](docs/lang/migration.md) maps every name removed so far to its
+replacement.
 
 ## Install
 

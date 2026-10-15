@@ -5,8 +5,9 @@ Eskiu is a statically typed systems language with the power of C and the immedia
 **Current version: v0.11.0.** A minor release about stability and tooling: an interactive
 REPL (`eskiuc repl`), a minimal package manager (`eskiu.toml`, `eskiuc build`/`run`/`add`),
 editor support with completion and signatures, `deprecated` warnings and "did you mean"
-suggestions, and a written stability policy. The full history is in the
-[changelog](../../CHANGELOG.md).
+suggestions, and a written stability policy: code that compiles with 0.11.0 keeps
+compiling in every 0.11.x, and later changes are announced by warnings first
+([stability.md](stability.md)). The full history is in the [changelog](../../CHANGELOG.md).
 
 ---
 
