@@ -928,7 +928,11 @@ bool Repl::compileAndRun(Attempt& a, const std::string& valueSemaType,
         if (int sig = callGuarded(fn)) {
             threw = true;
             fflush(stdout);
+#ifdef _WIN32
+            std::cerr << "error: the input crashed (signal " << sig << ")"
+#else
             std::cerr << "error: the input crashed (" << strsignal(sig)
+#endif
                       << "); the session may be unstable" << std::endl;
         }
     } catch (void*& ex) {
