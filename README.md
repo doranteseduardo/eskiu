@@ -117,6 +117,29 @@ area 1 = 6.00
 15
 ```
 
+## Tools
+
+`eskiuc` is also the toolchain around the language:
+
+```
+$ eskiuc repl                    # try code line by line
+> int[3] xs = {3, 1, 2};
+> xs[0] * 10
+30
+
+$ eskiuc new hello && cd hello   # a package: eskiu.toml + src/main.esk
+$ eskiuc add jsonx --git https://github.com/someone/jsonx --rev v1.0
+$ eskiuc run                     # fetches, builds and runs
+
+$ eskiuc fmt src/main.esk        # format in place
+```
+
+Dependencies are git repositories or local directories, pinned to a commit in
+`eskiu.lock`, and imported as `import <jsonx/parse>;`. Editors get errors as you type,
+completion, signatures and quick fixes through the
+[VS Code extension](editor/vscode) (also Cursor, Antigravity and VSCodium) and the
+[IntelliJ plugin](editor/intellij).
+
 ## Status
 
 Eskiu is pre-1.0. The language is stable enough for real work. What can change between
