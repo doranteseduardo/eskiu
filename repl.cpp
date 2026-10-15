@@ -44,11 +44,16 @@
 #include <sstream>
 #include <vector>
 
+#include <cxxabi.h>
 #if !defined(_WIN32)
 #include <csetjmp>
 #include <csignal>
-#include <cxxabi.h>
 extern "C" int __gxx_personality_v0(...);
+#else
+#include <cstdarg>
+// mingw: the SEH personality, and the C99 printf family the stdlib calls on Windows.
+extern "C" int __gxx_personality_seh0(...);
+extern "C" int __mingw_vsnprintf(char*, size_t, const char*, va_list);
 #endif
 
 namespace {
@@ -641,7 +646,6 @@ bool Repl::initJit() {
         return false;
     }
     jd.addGenerator(std::move(*gen));
-#if !defined(_WIN32)
     // The C++ exception runtime the compiled code throws through: taken from this binary,
     // where it is linked in (statically or not), so a lookup never depends on how the
     // compiler itself was linked.
@@ -656,13 +660,19 @@ bool Repl::initJit() {
     add("__cxa_begin_catch", (const void*)&__cxxabiv1::__cxa_begin_catch);
     add("__cxa_end_catch", (const void*)&__cxxabiv1::__cxa_end_catch);
     add("__cxa_rethrow", (const void*)&__cxxabiv1::__cxa_rethrow);
+#if !defined(_WIN32)
     add("__gxx_personality_v0", (const void*)&__gxx_personality_v0);
+#else
+    // A Windows executable exports nothing, so what the stdlib reaches beyond the C
+    // runtime DLLs comes from this binary too.
+    add("__gxx_personality_seh0", (const void*)&__gxx_personality_seh0);
+    add("__mingw_vsnprintf", (const void*)&__mingw_vsnprintf);
+#endif
     add("_ZTIPv", (const void*)&typeid(void*));
     if (auto err = jd.define(llvm::orc::absoluteSymbols(std::move(eh)))) {
         llvm::errs() << "error: " << llvm::toString(std::move(err)) << "\n";
         return false;
     }
-#endif
     return true;
 }
 

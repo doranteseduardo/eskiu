@@ -216,11 +216,18 @@ cp "$work/toml.bak" eskiu.toml
 mkdir -p "$work/nogit/bin"
 ln -s "$ESKIUC" "$work/nogit/bin/eskiuc"
 rm -rf "$ESKIU_HOME"
-err="$(PATH="$work/nogit/bin" eskiuc build 2>&1)"; code=$?
-if [[ $code -ne 0 && "$err" == *"git not found on PATH (needed to fetch package '"* ]]; then
-    ok "error/no-git"
+# A Windows eskiuc.exe loads DLLs (libLLVM) from PATH: keep its directory and MinGW's.
+nogit_path="$work/nogit/bin"
+case "$ESKIUC" in *.exe) nogit_path="$nogit_path:$(dirname "$ESKIUC"):${MINGW_PREFIX:-/mingw64}/bin" ;; esac
+if PATH="$nogit_path" command -v git > /dev/null 2>&1; then
+    echo "skip error/no-git (git is next to the compiler's DLLs)"
 else
-    bad "error/no-git" "$err"
+    err="$(PATH="$nogit_path" eskiuc build 2>&1)"; code=$?
+    if [[ $code -ne 0 && "$err" == *"git not found on PATH (needed to fetch package '"* ]]; then
+        ok "error/no-git"
+    else
+        bad "error/no-git" "$err"
+    fi
 fi
 "$ESKIUC" build > /dev/null 2>&1
 
