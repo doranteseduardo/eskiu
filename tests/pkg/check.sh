@@ -84,7 +84,7 @@ if (cd "$work" && "$ESKIUC" new app > /dev/null 2>&1); then bad "new/exists" "ac
 
 # ---- add --path / add --git ---------------------------------------------------
 if "$ESKIUC" add util --path ../util > /dev/null 2>&1 && grep -q '^util = { path = "../util" }$' eskiu.toml &&
-        grep -q "^util	path	" eskiu.lock; then
+        grep -q "^util	path	../util$" eskiu.lock; then
     ok "add/path"
 else
     bad "add/path" "$(cat eskiu.toml eskiu.lock 2>&1)"
@@ -246,6 +246,18 @@ if [[ -x "$ESK" ]]; then
     done
 else
     echo "skip selfhost packages: $ESK not found"
+fi
+
+# ---- a path dependency is relative in the lock: the tree can move -----------
+mkdir -p "$work/moved" && cp -R "$work/util" "$work/moved/util" && mkdir -p "$work/moved/app/src"
+printf 'import <io>;\nimport <util/math>;\nint main() { printf("%%d\\n", util_twice(21)); return 0; }\n' > "$work/moved/app/src/main.esk"
+printf '[package]\nname = "app"\nversion = "0.1.0"\n\n[deps]\nutil = { path = "../util" }\n' > "$work/moved/app/eskiu.toml"
+(cd "$work/moved/app" && "$ESKIUC" build > /dev/null 2>&1)
+mv "$work/moved" "$work/moved2"
+if [[ "$(cd "$work/moved2/app" && "$ESKIUC" run 2>&1)" == "42" ]]; then
+    ok "lock/relative-path"
+else
+    bad "lock/relative-path" "$(cd "$work/moved2/app" && "$ESKIUC" run 2>&1 | head -3)"
 fi
 
 exit $fail

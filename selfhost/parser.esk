@@ -211,6 +211,10 @@ void pkg_load_roots(string input) {
                        str_concat("/", List_get<string>(&f, 4)))));
             } else if (str_eq(kind, "path") == 1 && nf == 3) {
                 root = List_get<string>(&f, 2);
+                // Relative to the lock's directory (as the C++ eskiuc writes it).
+                if ((int)root[0] != 47 && !((int)root[0] != 0 && (int)root[1] == 58)) {
+                    root = canonical_path(str_concat(dir, str_concat("/", root)));
+                }
             } else if (str_eq(kind, "root") == 1 && nf == 3) {
                 root = dir;
             } else {

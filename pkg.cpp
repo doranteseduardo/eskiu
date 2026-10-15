@@ -359,7 +359,15 @@ std::map<std::string, LockEntry> readLock(const std::string& dir) {
         e.name = f[0];
         e.kind = f.size() > 1 ? f[1] : "";
         if (e.kind == "git" && f.size() == 5) { e.url = f[2]; e.rev = f[3]; e.commit = f[4]; }
-        else if ((e.kind == "path" || e.kind == "root") && f.size() == 3) e.path = f[2];
+        else if ((e.kind == "path" || e.kind == "root") && f.size() == 3) {
+            // A path dependency is stored relative to the lock's directory, so a lock
+            // committed with the package works on another machine.
+            e.path = f[2];
+            if (e.kind == "path" && fs::path(e.path).is_relative()) {
+                std::error_code ec;
+                e.path = fs::weakly_canonical(fs::path(dir) / e.path, ec).generic_string();
+            }
+        }
         else throw PkgError(displayPath(dir + "/eskiu.lock") + ":" + std::to_string(lineNo) +
                             ": malformed entry (run eskiuc fetch)");
         out[e.name] = e;
@@ -371,8 +379,15 @@ void writeLock(const std::string& dir, const std::vector<LockEntry>& entries) {
     std::string text = "# eskiu.lock: written by eskiuc (eskiuc fetch updates it); do not edit.\n";
     for (const auto& e : entries) {
         text += e.name + "\t" + e.kind + "\t";
-        if (e.kind == "git") text += e.url + "\t" + e.rev + "\t" + e.commit;
-        else text += e.path;
+        if (e.kind == "git") {
+            text += e.url + "\t" + e.rev + "\t" + e.commit;
+        } else if (e.kind == "path") {
+            std::error_code ec;
+            fs::path rel = fs::relative(e.path, fs::weakly_canonical(dir, ec), ec);
+            text += ec || rel.empty() ? e.path : rel.generic_string();
+        } else {
+            text += e.path;
+        }
         text += "\n";
     }
     bool ok = false;
