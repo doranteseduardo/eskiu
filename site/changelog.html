@@ -192,7 +192,8 @@ Versions follow <code>MAJOR.MINOR.PATCH-stage</code> (e.g. <code>0.0.9-alpha</co
   line sends what is pending. Commands: <code>:type</code>, <code>:load</code>, <code>:reset</code>, <code>:help</code>, <code>:quit</code>. <code>await</code> works at the
   prompt (<code>await f()</code>, <code>let v = await f();</code>): the input runs on an event loop the session
   keeps, <code>repl_loop()</code>, and a future that can no longer complete is reported instead of
-  hanging. <code>eskiuc-esk</code> has no REPL.</li>
+  hanging. On Windows the REPL refuses inputs that throw or catch, since the JIT does not
+  register the unwind tables Windows exceptions need. <code>eskiuc-esk</code> has no REPL.</li>
 <li>A minimal package manager. A package is a directory with an <code>eskiu.toml</code> manifest
   (<code>[package]</code> name, version, main; <code>[deps]</code> with <code>{ git = "URL", rev = "REV" }</code> or
   <code>{ path = "DIR" }</code>). <code>eskiuc new</code>, <code>add</code>, <code>build</code>, <code>run</code>, <code>test</code> and <code>fetch</code> create a

@@ -35,7 +35,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   line sends what is pending. Commands: `:type`, `:load`, `:reset`, `:help`, `:quit`. `await` works at the
   prompt (`await f()`, `let v = await f();`): the input runs on an event loop the session
   keeps, `repl_loop()`, and a future that can no longer complete is reported instead of
-  hanging. `eskiuc-esk` has no REPL.
+  hanging. On Windows the REPL refuses inputs that throw or catch, since the JIT does not
+  register the unwind tables Windows exceptions need. `eskiuc-esk` has no REPL.
 - A minimal package manager. A package is a directory with an `eskiu.toml` manifest
   (`[package]` name, version, main; `[deps]` with `{ git = "URL", rev = "REV" }` or
   `{ path = "DIR" }`). `eskiuc new`, `add`, `build`, `run`, `test` and `fetch` create a

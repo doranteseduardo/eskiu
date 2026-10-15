@@ -49,6 +49,7 @@ cd eskiu && cmake -S . -B build && cmake --build build
   style (an open bracket or string, a trailing operator, a header whose `{` comes next), and
   an `if` or `try` waits one line for its `else`, `catch` or `finally`. An input with an
   error is discarded and the session goes on. `:type`, `:load`, `:reset`, `:help`, `:quit`.
+  On Windows the REPL does not run code that throws or catches exceptions yet.
 - **Packages.** `eskiuc new NAME` creates a package (`eskiu.toml` and `src/main.esk`).
   `eskiuc add NAME --git URL [--rev R]` or `--path DIR` adds a dependency, `eskiuc build`,
   `run` and `test` build, run and test it, and `eskiuc fetch` updates the lock. Git
