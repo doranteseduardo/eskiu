@@ -214,7 +214,7 @@ bool validName(const std::string& n) {
 std::string displayPath(const std::string& path) {
     std::error_code ec;
     fs::path rel = fs::relative(path, fs::current_path(ec), ec);
-    if (!ec && !rel.empty() && rel.native().rfind("..", 0) != 0) return rel.generic_string();
+    if (!ec && !rel.empty() && rel.generic_string().rfind("..", 0) != 0) return rel.generic_string();
     return path;
 }
 
