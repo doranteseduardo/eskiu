@@ -1,0 +1,6 @@
+// EXPECT-ERROR: 5:12: undefined function 'compte' (did you mean 'compute'?)
+// A misspelled function names the closest declared one.
+int compute(int x) { return x * 2; }
+int main() {
+    return compte(0);
+}

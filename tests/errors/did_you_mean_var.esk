@@ -1,0 +1,6 @@
+// EXPECT-ERROR: 5:12: undefined variable 'cuont' (did you mean 'count'?)
+// A misspelled variable names the closest one in scope.
+int main() {
+    int count = 3;
+    return cuont - 3;
+}

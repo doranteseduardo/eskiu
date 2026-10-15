@@ -1,0 +1,8 @@
+// EXPECT-ERROR: 7:18: undefined method 'gett' on type 'Box' (did you mean 'get'?)
+// A misspelled method names the closest one callable on the receiver.
+struct Box { int v; }
+int Box_get(Box* self) { return self.v; }
+int main() {
+    Box b = Box{v: 0};
+    return b.gett();
+}
