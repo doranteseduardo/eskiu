@@ -1412,6 +1412,7 @@ const char* kHelp =
     "variable. An unfinished input continues on the next line (an open bracket or string,\n"
     "a trailing operator, a header such as `int f(int n)` whose `{` comes next); an `if`\n"
     "or `try` waits one line for `else`/`catch`. A blank line sends what is pending.\n"
+    "`await` runs on the session's event loop, `repl_loop()`.\n"
     "  :type EXPR   print the type of EXPR without running it\n"
     "  :load FILE   add the declarations of FILE\n"
     "  :reset       forget every declaration and variable\n"
