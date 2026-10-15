@@ -78,7 +78,8 @@ void clients(int port) {
 }
 
 void over_limit(int port) {
-    // Timed from before its connect, so a slow sleep below cannot eat into header_ms.
+    // Timed from before its connect, so a slow sleep below cannot eat into header_ms
+    // (1000 ms here).
     const int64 ta = time_monotonic_ms();
     int a = connect_retry(port);           // holds the only slot until header_ms
     usleep(20000);
@@ -94,7 +95,7 @@ void over_limit(int port) {
     net_set_recv_timeout(a, 0);
     printf("over max_open: recv=%lld (at once=%d)\n", n, a_open);
     net_close(b);
-    show("slot holder", a, ta, 140);
+    show2("slot holder", a, ta, 900, 3000);
     int64 t1 = time_monotonic_ms();
     int c = connect_retry(port);
     net_send_str(c, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
@@ -135,6 +136,9 @@ int main() {
     serve_async(18262, 4, async_clients);
     printf("== http_serve_async, max_open 1\n");
     g_lim.max_open = 1;
+    // The slot holder keeps the only slot for a full second, so a runner that stalls the
+    // client thread for a while still connects the second peer while the slot is held.
+    g_lim.header_ms = 1000;
     serve_async(18263, 3, async_over_limit);
     EventLoop_free(g_lp);
     return 0;
