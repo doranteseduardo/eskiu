@@ -30,6 +30,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-openssl
             diffutils
+            git
 
       - name: Configure
         run: |
@@ -182,6 +183,28 @@ jobs:
       - name: Example scripts
         if: ${{ !cancelled() }}
         run: ESKIUC="$PWD/build/eskiuc.exe" tests/scripts/check.sh
+
+      - name: REPL sessions
+        if: ${{ !cancelled() }}
+        run: |
+          # The tests/repl transcripts, fed to `eskiuc repl` on stdin (CRs dropped on
+          # both sides, as a Windows program writes them in text mode).
+          mkdir -p winbin
+          fail=0
+          for in_file in tests/repl/*.in; do
+            name=$(basename "$in_file" .in)
+            (cd tests/repl && ../../build/eskiuc.exe repl < "$name.in" > "../../winbin/repl_$name.out" 2>&1)
+            if diff <(tr -d '\r' < "tests/repl/$name.expected") <(tr -d '\r' < "winbin/repl_$name.out"); then
+              echo "ok repl/$name"
+            else
+              echo "FAIL repl/$name"; fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Package manager
+        if: ${{ !cancelled() }}
+        run: ESKIUC="$PWD/build/eskiuc.exe" tests/pkg/check.sh
 
       - name: Package
         run: |
