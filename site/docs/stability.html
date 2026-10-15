@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stability · Eskiu docs</title>
-  <meta name="description" content="Eskiu is before 1.0, so the language and the standard library can still change between" />
+  <meta name="description" content="Eskiu is stable since 0.11: code that compiles with 0.11.0 keeps compiling in every 0.11.x" />
   <meta name="theme-color" content="#fbf8f3" />
   <link rel="canonical" href="https://eskiu-lang.org/docs/stability.html" />
   <link rel="icon" type="image/png" href="../../assets/logo.png" />
@@ -159,9 +159,10 @@ details.cl-full[open] { padding-bottom: 8px; }</style>
     <main class="content">
       <details class="side-m"><summary>Language · Stability</summary><div class="inner"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="stability.html" aria-current="page">Stability</a><a href="migration.html">Migration</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a><a href="roadmap.html">Roadmap</a></nav></div></details>
 <h1 id="stability">Stability</h1>
-<p>Eskiu is before 1.0, so the language and the standard library can still change between
-minor releases (0.10 to 0.11). From 0.11 on, every change that can break a program follows
-the rules below, so code can move forward with warnings instead of failing to compile.</p>
+<p>Eskiu is stable since 0.11: code that compiles with 0.11.0 keeps compiling in every 0.11.x
+release. Before 1.0 a minor release (0.12, 0.13) can still change the language or the
+standard library, but every change that can break a program follows the rules below, so code
+moves forward with warnings instead of failing to compile.</p>
 <h2 id="standard-library-names">Standard library names</h2>
 <ul>
 <li>A public name (one without a leading <code>_</code>) is not renamed or removed in a patch release

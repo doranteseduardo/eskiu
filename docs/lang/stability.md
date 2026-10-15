@@ -1,8 +1,9 @@
 # Stability
 
-Eskiu is before 1.0, so the language and the standard library can still change between
-minor releases (0.10 to 0.11). From 0.11 on, every change that can break a program follows
-the rules below, so code can move forward with warnings instead of failing to compile.
+Eskiu is stable since 0.11: code that compiles with 0.11.0 keeps compiling in every 0.11.x
+release. Before 1.0 a minor release (0.12, 0.13) can still change the language or the
+standard library, but every change that can break a program follows the rules below, so code
+moves forward with warnings instead of failing to compile.
 
 ## Standard library names
 
