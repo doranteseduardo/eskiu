@@ -77,7 +77,7 @@ NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
-VERSION = "v0.10.1"
+VERSION = "v0.11.0"
 GH = "https://github.com/doranteseduardo/eskiu"
 
 CSS = r"""

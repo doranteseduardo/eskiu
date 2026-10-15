@@ -35,7 +35,7 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   included) and a struct field; `--complete-at LINE:COL` lists the fields and the
   dot-callable `Type_method` functions after `x.`, or the names in scope; `--symbols`
   lists a file's declarations.
-- VS Code extension 0.2.0 (also Antigravity, Cursor, VSCodium): completion, signature
+- VS Code extension 0.11.0 (also Antigravity, Cursor, VSCodium): completion, signature
   help and the outline, hover with signatures. `server.js` serves the same features as
   an LSP server (Neovim, Helix, Zed).
 - IntelliJ plugin: the language server through LSP4IJ (errors, completion, hover,
