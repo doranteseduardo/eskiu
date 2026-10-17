@@ -209,6 +209,7 @@ private:
     bool is_at_end() const;
 
     Token read_number();
+    void readDigits(std::string& num, bool (*isDigit)(char), int errLine, int errCol);
     void checkNumberSuffix(const std::string& num, int errLine, int errCol);
     void checkIntegerRange(const std::string& num, int errLine, int errCol);
     Token read_string();

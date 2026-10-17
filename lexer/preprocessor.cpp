@@ -390,13 +390,15 @@ struct PPExprEval {
             std::string d = t;
             while (!d.empty() && (d.back() == 'u' || d.back() == 'U' || d.back() == 'l' || d.back() == 'L')) d.pop_back();
             bool hex = d.size() > 1 && d[0] == '0' && (d[1] == 'x' || d[1] == 'X');
-            bool oct = !hex && d.size() > 1 && d[0] == '0';
-            unsigned base = hex ? 16 : oct ? 8 : 10;
-            size_t start = hex ? 2 : 0;
+            bool bin = d.size() > 1 && d[0] == '0' && (d[1] == 'b' || d[1] == 'B');
+            bool oct = !hex && !bin && d.size() > 1 && d[0] == '0';
+            unsigned base = hex ? 16 : bin ? 2 : oct ? 8 : 10;
+            size_t start = (hex || bin) ? 2 : 0;
             if (start >= d.size()) throw PPExprError{"invalid integer '" + t + "'"};
             unsigned long long v = 0;
             for (size_t i = start; i < d.size(); ++i) {
                 char c = d[i];
+                if (c == '_' && i > start && i + 1 < d.size()) continue;
                 unsigned dv = std::isdigit((unsigned char)c) ? c - '0'
                             : (c >= 'a' && c <= 'f') ? c - 'a' + 10
                             : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : 99;

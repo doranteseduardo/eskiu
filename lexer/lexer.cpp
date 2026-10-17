@@ -142,6 +142,27 @@ void Lexer::skip_comment() {
     }
 }
 
+static bool isDecDigit(char c) { return std::isdigit((unsigned char)c) != 0; }
+static bool isHexDigit(char c) { return std::isxdigit((unsigned char)c) != 0; }
+static bool isBinDigit(char c) { return c == '0' || c == '1'; }
+
+// Append a run of digits to `num`. A `_` between two digits is a separator
+// (`1_000_000`, `0xFF_FF`) and is dropped from the token text; one that does not sit
+// between two digits is an error.
+void Lexer::readDigits(std::string& num, bool (*isDigit)(char), int errLine, int errCol) {
+    bool any = false;
+    while (!is_at_end()) {
+        if (isDigit(peek())) { num += advance(); any = true; continue; }
+        if (peek() == '_' && any && isDigit(peek_next())) { advance(); continue; }
+        if (peek() == '_' && any) {
+            advance();
+            lexError(errLine, errCol, "digit separator '_' must be between two digits");
+            continue;
+        }
+        break;
+    }
+}
+
 Token Lexer::read_number() {
     int start_line = line;
     int start_col = column;
@@ -150,27 +171,55 @@ Token Lexer::read_number() {
     // Handle floats with leading dot
     if (peek() == '.') {
         num += advance();
-        while (!is_at_end() && std::isdigit(peek())) {
-            num += advance();
-        }
+        readDigits(num, isDecDigit, start_line, start_col);
         return Token(TokenType::FLOAT_LIT, num, start_line, start_col);
     }
 
     // Integer part
-    while (!is_at_end() && std::isdigit(peek())) {
-        num += advance();
-    }
+    readDigits(num, isDecDigit, start_line, start_col);
 
     // Hex literal: 0x... (e.g. 0xFF)
     if (num == "0" && !is_at_end() && (peek() == 'x' || peek() == 'X')) {
         num += advance(); // consume 'x'
-        while (!is_at_end() && std::isxdigit(peek())) {
-            num += advance();
-        }
+        if (peek() == '_' && isHexDigit(peek_next())) advance();
+        readDigits(num, isHexDigit, start_line, start_col);
         if (num.size() == 2) lexError(start_line, start_col, "hexadecimal literal '" + num + "' has no digits");
         else checkIntegerRange(num, start_line, start_col);
         checkNumberSuffix(num, start_line, start_col);
         return Token(TokenType::INT_LIT, num, start_line, start_col);
+    }
+
+    // Binary literal: 0b1011. The token text is the same value in hex, so every later
+    // phase reads it as it reads a hex literal.
+    if (num == "0" && !is_at_end() && (peek() == 'b' || peek() == 'B')) {
+        std::string bits;
+        std::string shown = num + advance();
+        if (peek() == '_' && isBinDigit(peek_next())) advance();
+        readDigits(bits, isBinDigit, start_line, start_col);
+        shown += bits;
+        if (bits.empty()) {
+            if (!is_at_end() && std::isdigit((unsigned char)peek()))
+                lexError(start_line, start_col, std::string("invalid digit '") + peek() + "' in binary literal '" + shown + "'");
+            else
+                lexError(start_line, start_col, "binary literal '" + shown + "' has no digits");
+            checkNumberSuffix(shown, start_line, start_col);
+            return Token(TokenType::INT_LIT, "0", start_line, start_col);
+        }
+        if (!is_at_end() && std::isdigit((unsigned char)peek())) {
+            lexError(start_line, start_col, std::string("invalid digit '") + peek() + "' in binary literal '" + shown + "'");
+            while (!is_at_end() && std::isdigit((unsigned char)peek())) advance();
+        }
+        size_t first = bits.find('1');
+        bits = first == std::string::npos ? "0" : bits.substr(first);
+        while (bits.size() % 4) bits = "0" + bits;
+        std::string hex = "0x";
+        for (size_t i = 0; i < bits.size(); i += 4) {
+            int d = (bits[i] - '0') * 8 + (bits[i + 1] - '0') * 4 + (bits[i + 2] - '0') * 2 + (bits[i + 3] - '0');
+            hex += "0123456789ABCDEF"[d];
+        }
+        if (hex.size() > 18) lexError(start_line, start_col, "integer literal '" + shown + "' does not fit in 64 bits");
+        checkNumberSuffix(shown, start_line, start_col);
+        return Token(TokenType::INT_LIT, hex, start_line, start_col);
     }
 
     // Fractional part and/or exponent make it a float: 3.14, 1e10, 3.4e38, 2.5e-3.
@@ -178,7 +227,7 @@ Token Lexer::read_number() {
     if (!is_at_end() && peek() == '.' && std::isdigit(peek_next())) {
         isFloat = true;
         num += advance(); // .
-        while (!is_at_end() && std::isdigit(peek())) num += advance();
+        readDigits(num, isDecDigit, start_line, start_col);
     }
     if (!is_at_end() && (peek() == 'e' || peek() == 'E')
         && (std::isdigit(peek_next()) || peek_next() == '+' || peek_next() == '-')) {
@@ -186,7 +235,7 @@ Token Lexer::read_number() {
         num += advance();                                    // e / E
         if (!is_at_end() && (peek() == '+' || peek() == '-')) num += advance();
         size_t digitsAt = num.size();
-        while (!is_at_end() && std::isdigit(peek())) num += advance();
+        readDigits(num, isDecDigit, start_line, start_col);
         if (num.size() == digitsAt)
             lexError(start_line, start_col, "exponent has no digits in floating-point literal '" + num + "'");
     }
@@ -222,8 +271,8 @@ void Lexer::checkIntegerRange(const std::string& num, int errLine, int errCol) {
     }
 }
 
-// A number must not run straight into an identifier character: `0b101`, `1_000`,
-// `3.5f` and `12abc` are not literals Eskiu accepts, so report them here rather
+// A number must not run straight into an identifier character: `3.5f`, `12abc` and
+// `0x1G` are not literals Eskiu accepts, so report them here rather
 // than as a confusing parse error on the leftover identifier.
 void Lexer::checkNumberSuffix(const std::string& num, int errLine, int errCol) {
     if (is_at_end() || !(std::isalnum((unsigned char)peek()) || peek() == '_')) return;
