@@ -601,6 +601,10 @@ private:
     void emitAssignment(BinaryExpr* node);
     llvm::Value* emitBuiltinBinary(BinaryExpr* node, llvm::Value* left);
     llvm::Value* emitIntDivRem(llvm::Value* left, llvm::Value* right, bool uns, bool rem);
+    // `dbg(e)`: append the printf format and arguments that show the value at `addr`
+    // (of Eskiu type `t`), structs field by field and arrays element by element.
+    void dbgFormat(const std::string& t, llvm::Value* addr, std::string& fmt, std::vector<llvm::Value*>& args, int depth);
+    llvm::Value* emitDbg(CallExpr* node);
     llvm::Value* safeArith(llvm::Intrinsic::ID id, llvm::Value* l, llvm::Value* r, bool uns);
     void emitSafeTrap(llvm::Value* cond, const char* name);
     llvm::Value* safeNonNull(llvm::Value* p);

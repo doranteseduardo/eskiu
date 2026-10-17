@@ -165,6 +165,7 @@ struct Codegen {
     int bfal;                // 1: an unnamed bitfield raises its struct's alignment (AAPCS)
     int msvc;                // 1: MSVC (not mingw): a `: 0` under pack(N) is aligned to at most N
     int wintgt;              // 1: a Windows target (mingw SEH exception personality)
+    int darwin;              // 1: a Darwin target (stderr is `__stderrp`)
     int bigend;              // 1: a big-endian AArch64 target (aarch64_be)
     int x86ri;               // 32-bit x86: a small aggregate result comes back in registers
     int x86ws;               // 32-bit x86: MSVC's struct rules (no float/double-in-ST0 result)
@@ -392,6 +393,10 @@ void cg_init(Codegen* g) {
     g.wintgt = 0;
     g.bigend = 0;
     ast_target_bf("", &g.bfal, &g.msvc);
+    g.darwin = 0;
+#ifdef __APPLE__
+    g.darwin = 1;
+#endif
 #ifdef _WIN32
     g.msbf = 1;
     g.wintgt = 1;
@@ -433,6 +438,7 @@ void cg_set_target(Codegen* g, string triple) {
     int win = cg_has_sub(triple, "windows") | cg_has_sub(triple, "win32") | cg_has_sub(triple, "mingw");
     g.msbf = win;
     g.wintgt = win;
+    g.darwin = apple;
     ast_target_bf(triple, &g.bfal, &g.msvc);
     g.bigend = cg_has_prefix(triple, "aarch64_be");
     if (cg_has_prefix(triple, "aarch64") == 1 || cg_has_prefix(triple, "arm64") == 1) {
@@ -1534,25 +1540,19 @@ void cg_emit_thunk(Codegen* g, string fnname) {
             List_push<CgVal>(&targs, ta);
             ti = ti + 1;
         }
-        cg_emit(g, ") {
-");
+        cg_emit(g, ") {\n");
         String_init(&g.entry_buf, 128);
         String saved = g.out;
         String_init(&g.out, 256);
         CgVal r = cg_cabi_call(g, &cab, &f, &targs);
-        if (cg_streq(f.retty, "void") == 1) { cg_emit(g, "  ret void
-"); }
-        else { cg_emit(g, "  ret "); cg_emit(g, f.retty); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, "
-"); }
+        if (cg_streq(f.retty, "void") == 1) { cg_emit(g, "  ret void\n"); }
+        else { cg_emit(g, "  ret "); cg_emit(g, f.retty); cg_emit(g, " "); cg_emit(g, r.op); cg_emit(g, "\n"); }
         string bodytext = (string)String_cstr(&g.out);
         g.out = saved;
-        cg_emit(g, "entry:
-");
+        cg_emit(g, "entry:\n");
         cg_emit(g, (string)String_cstr(&g.entry_buf));
         cg_emit(g, bodytext);
-        cg_emit(g, "}
-
-");
+        cg_emit(g, "}\n\n");
         return;
     }
     cg_emit(g, "define "); cg_emit(g, f.retty); cg_emit(g, " @__fnptr_"); cg_emit(g, fnname); cg_emit(g, "(ptr %e");
@@ -4035,6 +4035,7 @@ string cg_etype_raw(Codegen* g, *ExprNode e) {
             if (lf.slot[0] == 0) { lf = cg_find_global(g, e.a.sval); }
             if (lf.slot[0] != 0 && cg_is_fnty(lf.ety) == 1) { return cg_fnty_ret(lf.ety); }   // closure call
             if (cg_streq(e.a.sval, "va_start") == 1 || cg_streq(e.a.sval, "va_end") == 1) { return "void"; }
+            if (e.dbg_builtin == 1) { return cg_etype(g, List_get<*ExprNode>(&e.kids, 0)); }
             CgVariant var = cg_find_variant(g, e.a.sval);  // ADT variant constructor `Circle(4)`
             if (var.ename[0] != 0) { return var.ename; }
             *DeclNode gd = cg_find_gfn(g, e.a.sval);        // generic fn, type args inferred
@@ -4773,6 +4774,153 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
 // An expression's Eskiu type never names an alias (like cg_etype), so every signedness
 // and shape check on a value sees the target type (`(u8)x`, a call returning `u8`).
 CgVal cg_expr_i(Codegen* g, *ExprNode e);
+// `fmt` with each '%' doubled (literal text in a printf format).
+void cg_dbg_lit(String* fmt, string t) {
+    int i = 0;
+    while (t[i] != 0) { if ((int)t[i] == 37) { String_push(fmt, '%'); } String_push(fmt, t[i]); i = i + 1; }
+}
+
+string cg_dbg_load(Codegen* g, string llty, string addr) {
+    string v = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load "); cg_emit(g, llty); cg_emit(g, ", ptr "); cg_emit(g, addr); cg_emit(g, "\n");
+    return v;
+}
+
+string cg_dbg_conv(Codegen* g, string op, string from, string v, string to) {
+    string r = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = "); cg_emit(g, op); cg_emit(g, " "); cg_emit(g, from);
+    cg_emit(g, " "); cg_emit(g, v); cg_emit(g, " to "); cg_emit(g, to); cg_emit(g, "\n");
+    return r;
+}
+
+// The printf format and arguments for the value of type `t0` at `addr` (C++
+// CodeGen::dbgFormat): numbers, bool, char, string, pointers, arrays (16 elements at most)
+// and plain structs field by field, 4 levels deep; any other type prints as `<T>`.
+void cg_dbg_format(Codegen* g, string t0, string addr, String* fmt, String* args, int depth) {
+    string t = cg_strip_nullable(cg_dealias(g, t0));
+    string llty = cg_lltype(g, t);
+    int sint = cg_streq(t, "int") | cg_streq(t, "int8") | cg_streq(t, "int16") | cg_streq(t, "int32") | cg_streq(t, "int64");
+    int uns = cg_streq(t, "uint") | cg_streq(t, "uint8") | cg_streq(t, "uint16") | cg_streq(t, "uint32") | cg_streq(t, "uint64");
+    if (sint == 1 || uns == 1) {
+        string v = cg_dbg_load(g, llty, addr);
+        if (cg_streq(llty, "i64") == 0) { v = cg_dbg_conv(g, sint == 1 ? "sext" : "zext", llty, v, "i64"); }
+        String_append(args, ", i64 "); String_append(args, v);
+        String_append(fmt, sint == 1 ? "%lld" : "%llu");
+    } else if (cg_streq(t, "bool") == 1) {
+        string v = cg_dbg_load(g, llty, addr);
+        string r = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = select i1 "); cg_emit(g, v);
+        cg_emit(g, ", ptr "); cg_emit(g, cg_string_global(g, "true")); cg_emit(g, ", ptr "); cg_emit(g, cg_string_global(g, "false")); cg_emit(g, "\n");
+        String_append(args, ", ptr "); String_append(args, r);
+        String_append(fmt, "%s");
+    } else if (cg_streq(t, "char") == 1) {
+        string v = cg_dbg_conv(g, "zext", "i8", cg_dbg_load(g, llty, addr), "i32");
+        String_append(args, ", i32 "); String_append(args, v);
+        String_append(fmt, "'%c'");
+    } else if (cg_streq(t, "float") == 1 || cg_streq(t, "double") == 1) {
+        string v = cg_dbg_load(g, llty, addr);
+        if (cg_streq(t, "float") == 1) { v = cg_dbg_conv(g, "fpext", "float", v, "double"); }
+        String_append(args, ", double "); String_append(args, v);
+        String_append(fmt, "%g");
+    } else if (cg_streq(t, "string") == 1) {
+        string v = cg_dbg_load(g, "ptr", addr);
+        string z = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, z); cg_emit(g, " = icmp eq ptr "); cg_emit(g, v); cg_emit(g, ", null\n");
+        string q = cg_tmp(g);                  // a null string prints as `null`, unquoted
+        cg_emit(g, "  "); cg_emit(g, q); cg_emit(g, " = select i1 "); cg_emit(g, z);
+        cg_emit(g, ", ptr "); cg_emit(g, cg_string_global(g, "")); cg_emit(g, ", ptr "); cg_emit(g, cg_string_global(g, "\"")); cg_emit(g, "\n");
+        string r = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = select i1 "); cg_emit(g, z);
+        cg_emit(g, ", ptr "); cg_emit(g, cg_string_global(g, "null")); cg_emit(g, ", ptr "); cg_emit(g, v); cg_emit(g, "\n");
+        String_append(args, ", ptr "); String_append(args, q);
+        String_append(args, ", ptr "); String_append(args, r);
+        String_append(args, ", ptr "); String_append(args, q);
+        String_append(fmt, "%s%s%s");
+    } else if (cg_is_array(t) == 1 && cg_is_slice(t) == 0) {
+        int64 n = cg_parse_i64(cg_dim_val(g, cg_array_count(t)));
+        string et = cg_array_elem(t);
+        String_append(fmt, "[");
+        int64 i = (int64)0;
+        while (i < n && i < (int64)16) {
+            if (i > (int64)0) { String_append(fmt, ", "); }
+            string ep = cg_tmp(g);
+            cg_emit(g, "  "); cg_emit(g, ep); cg_emit(g, " = getelementptr inbounds "); cg_emit(g, llty);
+            cg_emit(g, ", ptr "); cg_emit(g, addr); cg_emit(g, ", i64 0, i64 "); cg_emit(g, cg_i64toa(i)); cg_emit(g, "\n");
+            if (depth < 4) { cg_dbg_format(g, et, ep, fmt, args, depth + 1); } else { String_append(fmt, "..."); }
+            i = i + (int64)1;
+        }
+        if (n > (int64)16) { String_append(fmt, ", ..."); }
+        String_append(fmt, "]");
+    } else if (cg_is_ptr_ty(t) == 1 || cg_streq(llty, "ptr") == 1) {
+        string v = cg_dbg_load(g, "ptr", addr);
+        String_append(args, ", ptr "); String_append(args, v);
+        String_append(fmt, "%p");
+    } else {
+        CgStruct st; st.name = "";
+        if (cg_is_fnty(t) == 0 && cg_is_slice(t) == 0) { st = cg_find_struct(g, t); }
+        if (st.name[0] != 0 && cg_is_union(g, st.name) == 0 && cg_is_bf_struct(g, st.name) == 0) {
+            cg_dbg_lit(fmt, st.name); String_append(fmt, "{");
+            int i = 0; int n = List_len<string>(&st.fnames);
+            while (i < n) {
+                if (i > 0) { String_append(fmt, ", "); }
+                cg_dbg_lit(fmt, List_get<string>(&st.fnames, i)); String_append(fmt, ": ");
+                string fp = cg_tmp(g);
+                cg_emit(g, "  "); cg_emit(g, fp); cg_emit(g, " = getelementptr inbounds %"); cg_emit(g, st.name);
+                cg_emit(g, ", ptr "); cg_emit(g, addr); cg_emit(g, ", i32 0, i32 "); cg_emit(g, cg_itoa(i)); cg_emit(g, "\n");
+                if (depth < 4) { cg_dbg_format(g, List_get<string>(&st.fetys, i), fp, fmt, args, depth + 1); }
+                else { String_append(fmt, "..."); }
+                i = i + 1;
+            }
+            String_append(fmt, "}");
+        } else if (cg_streq(llty, "i32") == 1) {   // a plain enum: `Color(5)`
+            cg_dbg_lit(fmt, t); String_append(fmt, "(%lld)");
+            string v = cg_dbg_conv(g, "sext", "i32", cg_dbg_load(g, "i32", addr), "i64");
+            String_append(args, ", i64 "); String_append(args, v);
+        } else {
+            String_append(fmt, "<"); cg_dbg_lit(fmt, t); String_append(fmt, ">");
+        }
+    }
+}
+
+// `dbg(e)`: print `[dbg L:C] <source of e> = <value>` to stderr and yield the value
+// (C++ CodeGen::emitDbg).
+CgVal cg_emit_dbg(Codegen* g, *ExprNode e) {
+    *ExprNode a = List_get<*ExprNode>(&e.kids, 0);
+    string t = cg_etype(g, a);
+    string llty = cg_lltype(g, t);
+    CgVal v = cg_expr(g, a);
+    string op = cg_coerce(g, v, llty);
+    string slot = cg_entry_alloca(g, llty);
+    cg_emit(g, "  store "); cg_emit(g, llty); cg_emit(g, " "); cg_emit(g, op); cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+    let fmt: String; String_init(&fmt, 64);
+    let args: String; String_init(&args, 64);
+    String_append(&fmt, "[dbg "); String_append(&fmt, cg_itoa(e.a.line)); String_append(&fmt, ":");
+    String_append(&fmt, cg_itoa(e.a.col)); String_append(&fmt, "] ");
+    if (e.dbg_text != null) { cg_dbg_lit(&fmt, e.dbg_text); }
+    String_append(&fmt, " = ");
+    cg_dbg_format(g, t, slot, &fmt, &args, 0);
+    String_append(&fmt, "\n");
+    string err = "";
+    if (g.wintgt == 1) {
+        cg_ensure_extern(g, "__acrt_iob_func", "declare ptr @__acrt_iob_func(i32)\n");
+        err = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, err); cg_emit(g, " = call ptr @__acrt_iob_func(i32 2)\n");
+    } else {
+        string nm = g.darwin == 1 ? "__stderrp" : "stderr";
+        if (cg_count_global(g, nm) == 0) {
+            cg_add_global(g, nm, cg_cat("@", nm), "ptr", "*void");
+            String_append(&g.globals, "@"); String_append(&g.globals, nm); String_append(&g.globals, " = external global ptr\n");
+        }
+        err = cg_dbg_load(g, "ptr", cg_cat("@", nm));
+    }
+    cg_ensure_extern(g, "fprintf", "declare i32 @fprintf(ptr, ptr, ...)\n");
+    string cargs = cg_cat(cg_cat(cg_cat("ptr ", err), ", ptr "), cg_string_global(g, fmt.data));
+    cg_emit_callish(g, "i32 (ptr, ptr, ...)", "@fprintf", cg_cat(cargs, args.data), 0);
+    CgVal r;
+    r.op = cg_dbg_load(g, llty, slot); r.ty = llty; r.ety = t;
+    return r;
+}
+
 CgVal cg_expr(Codegen* g, *ExprNode e) {
     int opened = cg_chain_begin(g, e);
     CgVal v = cg_expr_i(g, e);
@@ -5056,6 +5204,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
         if (e.a != null && e.a.kind == EK_IDENT && cg_is_atomic(g, e.a.sval) == 1) {
             return cg_emit_atomic(g, e.a.sval, e);
         }
+        if (e.dbg_builtin == 1) { return cg_emit_dbg(g, e); }
         // Variadic access: va_start(ap)/va_end(ap) → the llvm.va_{start,end} intrinsic on the
         // va_list's address (its alloca). `ap` is a local va_list.
         if (e.a != null && e.a.kind == EK_IDENT

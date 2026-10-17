@@ -215,7 +215,105 @@ llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) 
     return builder->CreateAtomicRMW(op, cell, operand(1), al, order(llvm::AtomicOrdering::AcquireRelease));
 }
 
+void CodeGen::dbgFormat(const std::string& t0, llvm::Value* addr, std::string& fmt,
+                        std::vector<llvm::Value*>& args, int depth) {
+    std::string t = tyq::strip(expandAlias(t0));
+    llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Type* ty = getTypeFromString(t);
+    auto lit = [&](const std::string& s) { for (char c : s) fmt += c == '%' ? std::string("%%") : std::string(1, c); };
+    static const std::set<std::string> sints = {"int", "int8", "int16", "int32", "int64"};
+    static const std::set<std::string> uints = {"uint", "uint8", "uint16", "uint32", "uint64"};
+    ty::Type pt = ty::Type::parse(t);
+    if (sints.count(t) || uints.count(t)) {
+        llvm::Value* v = builder->CreateLoad(ty, addr);
+        args.push_back(sints.count(t) ? builder->CreateSExtOrTrunc(v, i64) : builder->CreateZExtOrTrunc(v, i64));
+        fmt += sints.count(t) ? "%lld" : "%llu";
+    } else if (t == "bool") {
+        llvm::Value* v = builder->CreateLoad(ty, addr);
+        args.push_back(builder->CreateSelect(v, builder->CreateGlobalString("true"), builder->CreateGlobalString("false")));
+        fmt += "%s";
+    } else if (t == "char") {
+        args.push_back(builder->CreateZExt(builder->CreateLoad(ty, addr), llvm::Type::getInt32Ty(*context)));
+        fmt += "'%c'";
+    } else if (t == "float" || t == "double") {
+        llvm::Value* v = builder->CreateLoad(ty, addr);
+        args.push_back(t == "float" ? builder->CreateFPExt(v, builder->getDoubleTy()) : v);
+        fmt += "%g";
+    } else if (t == "string") {
+        llvm::Value* v = builder->CreateLoad(ty, addr);
+        llvm::Value* isNull = builder->CreateIsNull(v);
+        llvm::Value* q = builder->CreateSelect(isNull, builder->CreateGlobalString(""), builder->CreateGlobalString("\""));
+        args.push_back(q);
+        args.push_back(builder->CreateSelect(isNull, builder->CreateGlobalString("null"), v));
+        args.push_back(q);
+        fmt += "%s%s%s";
+    } else if (pt.kind == ty::Type::Kind::Array && pt.elem) {
+        auto* at = llvm::dyn_cast<llvm::ArrayType>(ty);
+        uint64_t n = at ? at->getNumElements() : 0;
+        fmt += "[";
+        for (uint64_t i = 0; i < n && i < 16; ++i) {
+            if (i) fmt += ", ";
+            llvm::Value* ep = builder->CreateConstGEP2_64(ty, addr, 0, i);
+            if (depth < 4) dbgFormat(pt.elem->str(), ep, fmt, args, depth + 1); else fmt += "...";
+        }
+        if (n > 16) fmt += ", ...";
+        fmt += "]";
+    } else if (ty->isStructTy() && structFields.count(stripToStructKey(t)) && !unionFields.count(stripToStructKey(t)) &&
+               !structLayout.count(stripToStructKey(t)) && !isPointerType(t)) {
+        std::string sname = stripToStructKey(t);
+        const auto& fields = structFields[sname];
+        lit(sname); fmt += "{";
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (i) fmt += ", ";
+            lit(fields[i].name); fmt += ": ";
+            llvm::Value* fp = builder->CreateStructGEP(structTypes[sname], addr, (unsigned)i);
+            if (depth < 4) dbgFormat(fields[i].type, fp, fmt, args, depth + 1); else fmt += "...";
+        }
+        fmt += "}";
+    } else if (ty->isPointerTy()) {
+        args.push_back(builder->CreateLoad(ty, addr));
+        fmt += "%p";
+    } else if (ty->isIntegerTy(32)) {
+        lit(stripToStructKey(t)); fmt += "(%lld)";
+        args.push_back(builder->CreateSExt(builder->CreateLoad(ty, addr), i64));
+    } else {
+        fmt += "<"; lit(stripToStructKey(t)); fmt += ">";
+    }
+}
+
+llvm::Value* CodeGen::emitDbg(CallExpr* node) {
+    std::string t = getExprEskiuType(node->args[0]);
+    llvm::Value* v = evalForType(node->args[0], t);
+    llvm::Value* slot = entryAlloca(v->getType(), nullptr, "dbg.val");
+    builder->CreateStore(v, slot);
+    std::string fmt;
+    for (char c : "[dbg " + std::to_string(node->callee->line) + ":" + std::to_string(node->callee->col) + "] " + node->dbgText + " = ")
+        fmt += c == '%' ? std::string("%%") : std::string(1, c);
+    std::vector<llvm::Value*> args;
+    dbgFormat(t, slot, fmt, args, 0);
+    fmt += "\n";
+    llvm::Type* ptrTy = llvm::PointerType::get(*context, 0);
+    llvm::Type* i32 = llvm::Type::getInt32Ty(*context);
+    const llvm::Triple& tt = module->getTargetTriple();
+    llvm::Value* err;
+    if (tt.isOSWindows()) {
+        llvm::FunctionCallee iob = module->getOrInsertFunction("__acrt_iob_func", ptrTy, i32);
+        err = builder->CreateCall(iob, {builder->getInt32(2)});
+    } else {
+        const char* name = tt.isOSDarwin() ? "__stderrp" : "stderr";
+        llvm::GlobalVariable* gv = module->getNamedGlobal(name);
+        if (!gv) gv = new llvm::GlobalVariable(*module, ptrTy, false, llvm::GlobalValue::ExternalLinkage, nullptr, name);
+        err = builder->CreateLoad(ptrTy, gv);
+    }
+    llvm::FunctionCallee fprintfFn = module->getOrInsertFunction("fprintf", llvm::FunctionType::get(i32, {ptrTy, ptrTy}, true));
+    std::vector<llvm::Value*> callArgs{err, builder->CreateGlobalString(fmt)};
+    callArgs.insert(callArgs.end(), args.begin(), args.end());
+    createMaybeInvoke(fprintfFn.getFunctionType(), fprintfFn.getCallee(), callArgs, "");
+    return builder->CreateLoad(v->getType(), slot);
+}
+
 void CodeGen::visit(CallExpr* node) {
+    if (node->dbgBuiltin && node->args.size() == 1) { exprValueStack.push(emitDbg(node)); return; }
     // Variadic access: va_start(ap) / va_end(ap) — `ap` is a local va_list, whose
     // alloca is the pointer the intrinsics need.
     if (auto* bid = dynamic_cast<IdentExpr*>(node->callee.get())) {
