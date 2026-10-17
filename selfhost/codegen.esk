@@ -6564,6 +6564,15 @@ void cg_stmt(Codegen* g, *StmtNode st) {
                 cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, iop);
                 cg_emit(g, ", ptr "); cg_emit(g, slot); cg_emit(g, "\n");
             }
+        } else {
+            // A local declared without a value starts at zero (mirrors the C++ codegen):
+            // every declaration, so each loop iteration, gets a fresh zero.
+            if (cg_ll_big(g, ty) == 1) { cg_zero_fill(g, slot, ty); }
+            else {
+                cg_emit(g, "  store ");
+                if (st.is_vol == 1) { cg_emit(g, "volatile "); }
+                cg_emit(g, ty); cg_emit(g, " zeroinitializer, ptr "); cg_emit(g, slot); cg_emit(g, "\n");
+            }
         }
         cg_add_local(g, st.name, slot, ty, cg_apply_sub(g, st.type));
         if (st.is_vol == 1) { List_push<string>(&g.vols, st.name); }

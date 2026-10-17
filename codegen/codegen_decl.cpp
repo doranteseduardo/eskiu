@@ -405,6 +405,13 @@ void CodeGen::visit(VarDecl* node) {
             val = coerceValue(val, declType, eskiuUnsigned(getExprEskiuType(node->initializer)));
             if (val) builder->CreateStore(val, alloca)->setVolatile(node->isVolatile);   // an MMIO init
         }
+    } else {
+        // A local declared without a value starts at zero, as a global, a `static` and
+        // alloc<T> do: every declaration (so each loop iteration) gets a fresh zero.
+        if (module->getDataLayout().getTypeAllocSize(declType).getFixedValue() > kBulkZeroBytes)
+            emitZeroFill(alloca, declType);
+        else
+            builder->CreateStore(llvm::Constant::getNullValue(declType), alloca)->setVolatile(node->isVolatile);
     }
     if (node->isVolatile) volatileVars.insert(node->name);
     if (constVal && !node->isVolatile) constValueOf[alloca] = constVal;
