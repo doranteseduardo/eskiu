@@ -1,0 +1,43 @@
+// EXPECT-WARNING: wall_scopes.esk:17:46: warning: unused variable 'loc'
+// EXPECT-WARNING: wall_scopes.esk:0:0: warning: unused variable 'unusedm'
+// EXPECT-WARNING: wall_scopes.esk:19:24: warning: unused parameter 'b'
+// EXPECT-WARNING: wall_scopes.esk:21:56: warning: unused variable 'w'
+// EXPECT-WARNING: wall_scopes.esk:21:32: warning: unused parameter 'q'
+// EXPECT-WARNING: wall_scopes.esk:24:16: warning: unused variable 'x'
+// EXPECT-WARNING: wall_scopes.esk:27:22: warning: unused variable 'j'
+// EXPECT-WARNING: wall_scopes.esk:27:11: warning: unused variable 'k'
+// EXPECT-WARNING: wall_scopes.esk:30:10: warning: unused variable 'e'
+// EXPECT-WARNING: wall_scopes.esk:26:9: warning: unused variable 'k'
+// EXPECT-WARNING: wall_scopes.esk:35:11: warning: assignment used as a condition
+// EXPECT-WARNING: wall_scopes.esk:36:14: warning: assignment used as a condition
+// EXPECT-WARNING: wall_scopes.esk:19:5: warning: unused function 'helper2'
+// -Wall over the kinds of scope: an inline method (its parameters carry no position), a
+// lambda (its parameters are at the lambda), nested blocks (inner scope first, then by
+// name), for-in and sizeof(var). A generic body is linted only once instantiated (never).
+struct S { int v; int get(int unusedm) { int loc = 1; return self.v; } }
+int gen<T>(T x, int unusedg) { int z; return 1; }
+int helper2(int a, int b) { return a; }
+int lam_user() {
+    let f: fn(int, int)->int = int(int p, int q) { int w = 3; return p; };
+    return f(1, 2);
+}
+int sz() { int x; int y = 2; return (int)sizeof(y); }
+int shadow(int a) {
+    int k = 1;
+    { int k = 2; int j = 3; }
+    for (i in 0..3) { }
+    int[3] arr;
+    for (e in arr) { }
+    return a;
+}
+void cond(int a) {
+    int x = 0;
+    if (x = a) { }
+    while (x = 0) { }
+}
+int main() {
+    S s = S{v: 1};
+    int r = gen<int>(1, 2);
+    cond(1);
+    return s.get(1) + r + lam_user() + sz() + shadow(1);
+}

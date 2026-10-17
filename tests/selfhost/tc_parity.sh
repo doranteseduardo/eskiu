@@ -199,6 +199,22 @@ for esk in tests/errors/did_you_mean_*.esk tests/warnings/deprecated_use.esk tes
     done
 done
 
+# ── -Wall / -Wextra lint: every warning line, byte for byte, in the same order ──
+# (the three corpus files hold signed/unsigned comparisons for -Wextra).
+echo "Lint warnings under -Wall (byte-exact):"
+for esk in tests/warnings/*.esk tests/sizeof_mixed_sign.esk tests/const_fold_typed_c.esk tests/bitfield_promote.esk; do
+    [ -e "$esk" ] || continue
+    for flags in "-Wall" "-Wall -Wextra"; do
+        ref="$("$BIN" --test-typechecker $flags "$esk" 2>&1 | grep 'warning:' || true)"
+        got="$(ESKIU_ROOT="$(pwd)" "$TCBIN" --test-typechecker $flags "$esk" 2>&1 | grep 'warning:' || true)"
+        if [ "$ref" != "$got" ]; then
+            echo "  FAIL  $esk $flags"; diff <(echo "$ref") <(echo "$got") | sed 's/^/    /'; fail=1
+        else
+            echo "  ok    $esk $flags"
+        fi
+    done
+done
+
 echo "----"
 if [ "$fail" -eq 0 ]; then echo "tc parity: OK"; else echo "tc parity: MISMATCH"; fi
 exit "$fail"

@@ -19,7 +19,8 @@ import <string>;
 import <mem>;
 import "ast.esk";
 
-struct Sym { string name; string type; int depth; int is_const; *ExprNode init; int is_static; int addr_taken; }   // init: a const's initializer (case-label folding)
+struct Sym { string name; string type; int depth; int is_const; *ExprNode init; int is_static; int addr_taken;
+             int used; int line; int col; int is_param; }   // -Wall: referenced, its position, a parameter   // init: a const's initializer (case-label folding)
 
 // Signature of a non-generic top-level function/extern/intrinsic, for arg-count
 // checking. `variadic` = trailing `...`; `fixed` = required arg count.
@@ -121,6 +122,19 @@ struct Sema {
     List<string> wno;       // -Wno-<name>: the default-on warnings turned off
     int werror;             // -Werror: every warning is reported as an error
     int wnone;              // -w: no warning is printed
+    int wall;               // -Wall: lint warnings (unused names, assignment in a condition, maybe-uninitialized)
+    int wextra;             // -Wextra: signed/unsigned comparisons
+    List<string> def_fns;   // -Wall: top-level functions defined (name), with position and display name
+    List<int> def_lines;
+    List<int> def_cols;
+    List<string> def_disp;
+    StrTab called_fns;      // -Wall: functions referenced anywhere (a set)
+    StrTab mu_warned;       // "file:line:col:name" of each maybe-uninitialized warning printed
+    string addr_fn;         // the function whose locals' addresses are tracked (C++ localAddrFn)
+    List<*ExprNode> cap_lams;   // per lambda, the enclosing locals it captures (first use first)
+    List<string> cap_names;
+    int match_line;         // position of the `match` whose arms are being checked (its
+    int match_col;          // bindings are reported there, as in the C++)
     List<string> addr_keys; // -Wdangling-pointer: "sym index:name" of a local pointer ...
     List<string> addr_roots;// ... and the local whose address it holds ("" = something else)
     // Name indexes over the lists above (NameIdx, ast.esk), kept in step with every push
@@ -144,6 +158,8 @@ void sema_stmt(Sema* s, *StmtNode st);
 *DeclNode sema_find_fndecl(Sema* s, string name);   // used by sema_infer_type before its definition
 string sema_did_you_mean(Sema* s, string name, int kind, string recv);
 void sema_note_depr(Sema* s, string fname, int line, int col);
+void sema_note_call(Sema* s, string fname);
+void sema_lint(Sema* s, int line, int col, string msg);
 
 // Substring [a, b) of s (b exclusive), heap-allocated and NUL-terminated.
 string sema_sub_str(string s, int a, int b) {
@@ -541,9 +557,48 @@ void sema_bump(Sema* s) { g_sema_epoch = g_sema_epoch + 1; }
 
 void sema_push(Sema* s) { s.depth = s.depth + 1; sema_bump(s); }
 
+// -Wall: the names of the scope being left that nothing referenced, in name order (the
+// C++ scope is a std::map); a global scope is not linted.
+void sema_warn_unused(Sema* s, int d) {
+    if (s.wall == 0 || d < 1) { return; }
+    List<int> idx; List_init<int>(&idx, 4);
+    List<string> seen; List_init<string>(&seen, 4);
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0 && List_get<Sym>(&s.syms, i).depth >= d) {
+        Sym y = List_get<Sym>(&s.syms, i);
+        // A name bound twice in one scope is one map entry: its last binding.
+        if (sema_in_list(&seen, y.name) == 0) {
+            List_push<string>(&seen, y.name);
+            if (y.used == 0 && sema_streq(y.name, "self") == 0 && sema_streq(y.name, "_") == 0) { List_push<int>(&idx, i); }
+        }
+        i = i - 1;
+    }
+    int n = List_len<int>(&idx);
+    int a = 1;                             // insertion sort by name (byte order, as std::map)
+    while (a < n) {
+        int v = List_get<int>(&idx, a);
+        int b = a - 1;
+        while (b >= 0 && strcmp(List_get<Sym>(&s.syms, List_get<int>(&idx, b)).name, List_get<Sym>(&s.syms, v).name) > 0) {
+            List_set<int>(&idx, b + 1, List_get<int>(&idx, b));
+            b = b - 1;
+        }
+        List_set<int>(&idx, b + 1, v);
+        a = a + 1;
+    }
+    int k = 0;
+    while (k < n) {
+        Sym y = List_get<Sym>(&s.syms, List_get<int>(&idx, k));
+        string what = "unused variable '";
+        if (y.is_param == 1) { what = "unused parameter '"; }
+        sema_lint(s, y.line, y.col, sema_cat(sema_cat(what, y.name), "'"));
+        k = k + 1;
+    }
+}
+
 void sema_pop(Sema* s) {
     sema_bump(s);
     int d = s.depth;
+    sema_warn_unused(s, d);
     while (List_len<Sym>(&s.syms) > 0) {
         Sym last = List_get<Sym>(&s.syms, List_len<Sym>(&s.syms) - 1);
         if (last.depth < d) { break; }
@@ -580,9 +635,64 @@ void sema_define(Sema* s, string name, string type, int is_const) {
     sym.init = null;
     sym.is_static = 0;
     sym.addr_taken = 0;
+    sym.used = 0; sym.line = 0; sym.col = 0; sym.is_param = 0;
     List_push<Sym>(&s.syms, sym);
     NameIdx_push(&s.syms_ix, name);
     sema_bump(s);
+}
+
+// sema_define, recording the binding's position (for -Wall) and whether it is a parameter.
+void sema_define_at(Sema* s, string name, string type, int is_const, int line, int col, int is_param) {
+    sema_define(s, name, type, is_const);
+    int n = List_len<Sym>(&s.syms);
+    Sym sym = List_get<Sym>(&s.syms, n - 1);
+    sym.line = line; sym.col = col; sym.is_param = is_param;
+    List_set<Sym>(&s.syms, n - 1, sym);
+}
+
+// -Wall: `name`, read inside lambdas, is captured by every enclosing lambda it is outer
+// to (a local, not a global or `static`), as the C++ capture map records it.
+void sema_note_capture(Sema* s, string name) {
+    int nb = List_len<int>(&s.lam_bounds);
+    if (nb == 0 || s.in_inst == 1) { return; }
+    int i = NameIdx_last(&s.syms_ix, name);
+    if (i < 0) { return; }
+    Sym sym = List_get<Sym>(&s.syms, i);
+    if (sym.depth < 1 || sym.is_static == 1 || sym.type == null || sym.type[0] == 0) { return; }
+    int j = 0;
+    while (j < nb) {
+        if (sym.depth <= List_get<int>(&s.lam_bounds, j)) {
+            *ExprNode lam = List_get<*ExprNode>(&s.lam_nodes, j);
+            int seen = 0; int c = 0;
+            while (c < List_len<*ExprNode>(&s.cap_lams) && seen == 0) {
+                if (List_get<*ExprNode>(&s.cap_lams, c) == lam && sema_streq(List_get<string>(&s.cap_names, c), name) == 1) { seen = 1; }
+                c = c + 1;
+            }
+            if (seen == 0) { List_push<*ExprNode>(&s.cap_lams, lam); List_push<string>(&s.cap_names, name); }
+        }
+        j = j + 1;
+    }
+}
+
+// -Wall: the innermost binding of `name` is referenced (the C++ lookupSymbol).
+void sema_mark_used(Sema* s, string name) {
+    int i = NameIdx_last(&s.syms_ix, name);
+    if (i < 0) { return; }
+    Sym sym = List_get<Sym>(&s.syms, i);
+    if (sym.used == 1) { return; }
+    sym.used = 1;
+    List_set<Sym>(&s.syms, i, sym);
+}
+
+// Every binding of the scopes from depth `d` in counts as used (a prototype's parameter names).
+void sema_mark_all_used(Sema* s, int d) {
+    int i = List_len<Sym>(&s.syms) - 1;
+    while (i >= 0 && List_get<Sym>(&s.syms, i).depth >= d) {
+        Sym sym = List_get<Sym>(&s.syms, i);
+        sym.used = 1;
+        List_set<Sym>(&s.syms, i, sym);
+        i = i - 1;
+    }
 }
 
 // Record the initializer of the binding just defined, when it is a `const`.
@@ -2601,6 +2711,7 @@ string sema_iface_mismatch_full(Sema* s, string sn, string full, *DeclNode iface
                 && sema_streq(sema_struct_of_type(List_get<Param>(&ff.params, 0).ty), sn) == 1) { impl = ff; }
         }
         if (impl == null) { return sema_cat(sema_cat("missing method '", m.name), "'"); }
+        sema_note_call(s, impl.name);      // -Wall: used through the interface's vtable
         int want = List_len<Param>(&m.params);
         int got = List_len<Param>(&impl.params) - skip;
         if (got != want) {
@@ -4502,6 +4613,79 @@ void sema_expr(Sema* s, *ExprNode e) {
     s.line = pl; s.col = pc;
 }
 
+// The C++ checker's spelling of an arithmetic result type (its promoteType after the
+// integer promotions): a mixed int-sized pair is named `int32`/`uint32`/`int64`/`uint64`.
+// Only diagnostics show it; the types themselves agree.
+string sema_cxx_int_promoted(string t) {
+    if (sema_streq(t, "bool") == 1 || sema_streq(t, "char") == 1 || sema_streq(t, "int8") == 1 || sema_streq(t, "uint8") == 1
+        || sema_streq(t, "int16") == 1 || sema_streq(t, "uint16") == 1) { return "int32"; }
+    return t;
+}
+int sema_cxx_width(string t) {
+    if (sema_streq(t, "int64") == 1 || sema_streq(t, "uint64") == 1) { return 64; }
+    if (sema_streq(t, "int") == 1 || sema_streq(t, "int32") == 1 || sema_streq(t, "uint") == 1 || sema_streq(t, "uint32") == 1) { return 32; }
+    if (sema_is_int_ty(t) == 1) { return 16; }
+    return 0;
+}
+string sema_cxx_promote(string a, string b) {
+    if (sema_streq(a, b) == 1) { return a; }
+    if (sema_streq(a, "double") == 1 || sema_streq(b, "double") == 1) { return "double"; }
+    if (sema_streq(a, "float") == 1 || sema_streq(b, "float") == 1) { return "float"; }
+    int w1 = sema_cxx_width(a); int w2 = sema_cxx_width(b);
+    if (w1 > 0 && w2 > 0 && (w1 >= 32 || w2 >= 32)) {
+        int u1 = 0; if (sema_streq(a, "uint") == 1 || sema_streq(a, "uint32") == 1 || sema_streq(a, "uint64") == 1) { u1 = 1; }
+        int u2 = 0; if (sema_streq(b, "uint") == 1 || sema_streq(b, "uint32") == 1 || sema_streq(b, "uint64") == 1) { u2 = 1; }
+        if (w1 < 32) { w1 = 32; }
+        if (w2 < 32) { w2 = 32; }
+        int w = w1; int u = u1;
+        if (u1 == u2) { if (w2 > w1) { w = w2; } }
+        else {
+            int wu = w2; int ws = w1;
+            if (u1 == 1) { wu = w1; ws = w2; }
+            u = 0; w = ws;
+            if (wu >= ws) { u = 1; w = wu; }
+        }
+        if (w == 64) { if (u == 1) { return "uint64"; } return "int64"; }
+        if (u == 1) { return "uint32"; }
+        return "int32";
+    }
+    if (sema_streq(a, "int64") == 1 || sema_streq(b, "int64") == 1) { return "int64"; }
+    if (sema_streq(a, "uint64") == 1 || sema_streq(b, "uint64") == 1) { return "uint64"; }
+    if (sema_streq(a, "int32") == 1 || sema_streq(b, "int32") == 1) { return "int32"; }
+    if (sema_streq(a, "uint32") == 1 || sema_streq(b, "uint32") == 1) { return "uint32"; }
+    if (sema_streq(a, "int16") == 1 || sema_streq(b, "int16") == 1) { return "int16"; }
+    if (sema_streq(a, "uint16") == 1 || sema_streq(b, "uint16") == 1) { return "uint16"; }
+    return a;
+}
+// The C++ spelling of the type of operand `e`, whose self-host type is `t`.
+string sema_cxx_spelling(Sema* s, *ExprNode e, string t) {
+    if (e == null || e.kind != EK_BINARY || e.a == null || e.b == null) { return t; }
+    string op = e.sval;
+    int arith = 0;
+    if (sema_streq(op, "+") == 1 || sema_streq(op, "-") == 1 || sema_streq(op, "*") == 1 || sema_streq(op, "/") == 1
+        || sema_streq(op, "%") == 1 || sema_streq(op, "&") == 1 || sema_streq(op, "|") == 1 || sema_streq(op, "^") == 1) { arith = 1; }
+    int shift = 0;
+    if (sema_streq(op, "<<") == 1 || sema_streq(op, ">>") == 1) { shift = 1; }
+    if (arith == 0 && shift == 0) { return t; }
+    string l = sema_strip_const(sema_canon(s, sema_cxx_spelling(s, e.a, sema_infer_type(s, e.a))));
+    if (shift == 1) {
+        if (sema_is_int_ty(l) == 0) { return t; }
+        return sema_cxx_int_promoted(l);
+    }
+    string r = sema_strip_const(sema_canon(s, sema_cxx_spelling(s, e.b, sema_infer_type(s, e.b))));
+    if (sema_is_numeric_ty(l) == 0 || sema_is_numeric_ty(r) == 0) { return t; }
+    return sema_cxx_promote(sema_cxx_int_promoted(l), sema_cxx_int_promoted(r));
+}
+
+int sema_is_uns_name(string t) {
+    return sema_streq(t, "uint") == 1 || sema_streq(t, "uint8") == 1 || sema_streq(t, "uint16") == 1
+        || sema_streq(t, "uint32") == 1 || sema_streq(t, "uint64") == 1;
+}
+int sema_is_sgn_name(string t) {
+    return sema_streq(t, "int") == 1 || sema_streq(t, "int8") == 1 || sema_streq(t, "int16") == 1
+        || sema_streq(t, "int32") == 1 || sema_streq(t, "int64") == 1;
+}
+
 // The checks of one non-assignment binary operator `e` whose operands have the inferred
 // types `lt0` and `rt0` (see sema_binary_chain).
 // An aggregate (struct, union or payload enum): compared only through a user operator
@@ -4615,6 +4799,19 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
             || (sema_is_aggregate(s, rt0) == 1 && sema_is_iface_val(s, rt0) == 0))) {
         s.had_error = 1;
         dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
+    }
+    // -Wextra: a signed operand compared with an unsigned one is converted to unsigned.
+    if (s.wextra == 1 && sema_is_cmp_op(e.sval) == 1 && lt0[0] != 0 && rt0[0] != 0
+        && sema_streq(lt0, "unknown") == 0 && sema_streq(rt0, "unknown") == 0) {
+        string wl = sema_canon(s, lt0); string wr = sema_canon(s, rt0);
+        if ((sema_is_uns_name(wl) == 1 && sema_is_sgn_name(wr) == 1) || (sema_is_sgn_name(wl) == 1 && sema_is_uns_name(wr) == 1)) {
+            sema_lint(s, e.line, e.col, sema_cat(sema_cat(sema_cat(sema_cat("comparison between signed and unsigned integers ('",
+                      sema_cxx_spelling(s, e.a, lt0)), "' and '"), sema_cxx_spelling(s, e.b, rt0)), "')"));
+        }
+    }
+    if (s.has_ops == 1 && verdict != 1) {  // -Wall: an operator use references its overload
+        *DeclNode uod = sema_find_binop(s, e.sval, lt0, rt0);
+        if (uod != null) { sema_note_call(s, uod.name); }
     }
     // `s == "abc"` compares two addresses (mirrors the C++ -Wstring-compare).
     // Only a pointer comparison: `S == "x"` on a struct S is an overloaded operator.
@@ -5000,6 +5197,18 @@ void sema_warn(Sema* s, string name, int line, int col, string msg) {
     dprintf(2, "%s:%d:%d: warning: %s [-W%s]\n", s.filename, line, col, msg, name);
 }
 
+// A -Wall/-Wextra lint warning (mirrors the C++ TypeChecker::warning): no option suffix,
+// never in an imported declaration or a generic instance.
+void sema_lint(Sema* s, int line, int col, string msg) {
+    if (s.in_inst == 1 || s.cur_import == 1 || s.wnone == 1) { return; }
+    if (s.werror == 1) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: %s\n", s.filename, line, col, msg);
+        return;
+    }
+    dprintf(2, "%s:%d:%d: warning: %s\n", s.filename, line, col, msg);
+}
+
 string sema_addr_key(Sema* s, string name) {
     return sema_cat(sema_cat(sema_i64_text((int64)sema_sym_index(s, name)), ":"), name);
 }
@@ -5071,6 +5280,12 @@ void sema_warn_packed_addr(Sema* s, *ExprNode u) {
         }
         fi = fi + 1;
     }
+}
+
+// -Wall: function `fname` is referenced (a call, a dot-call, a value, an operator, an
+// interface's vtable), so it is not unused.
+void sema_note_call(Sema* s, string fname) {
+    if (fname != null && fname[0] != 0) { StrTab_set(&s.called_fns, fname, 1); }
 }
 
 void sema_note_depr(Sema* s, string fname, int line, int col) {
@@ -5271,7 +5486,9 @@ void sema_expr_k(Sema* s, *ExprNode e) {
     if (e == null) { return; }
     int k = e.kind;
     if (k == EK_IDENT) {
-        if (sema_find_fn(s, e.sval) >= 0) { sema_note_depr(s, e.sval, e.line, e.col); }
+        sema_mark_used(s, e.sval);
+        if (s.wall == 1) { sema_note_capture(s, e.sval); }
+        if (sema_find_fn(s, e.sval) >= 0) { sema_note_call(s, e.sval); sema_note_depr(s, e.sval, e.line, e.col); }
         // va_start/va_end are variadic-access builtins with no declaration (va_arg<T> is a
         // template call). Treat them as defined, matching the C++ checker.
         if ((sema_lookup(s, e.sval) == 0
@@ -5324,6 +5541,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         return;
     }
     if (k == EK_SIZEOF) {                  // sizeof(T) or sizeof(variable): T must be a known type
+        if (sema_known_type(s, e.sval) == 0) { sema_mark_used(s, e.sval); }   // sizeof(variable) reads its name
         *DeclNode szd = sema_find_tdecl(s, e.sval);
         if (sema_lookup(s, e.sval) == 0 && szd != null && List_len<TypeParam>(&szd.type_params) > 0
             && sema_in_list(&s.tparams, e.sval) == 0) {
@@ -5387,6 +5605,17 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         if (sema_is_assign(e.sval) == 1 && e.a != null && e.a.kind == EK_IDENT) {
             if (sema_streq(e.sval, "=") == 1) { sema_track_addr(s, e.a.sval, e.b); }
             else if (sema_streq(e.sval, "+=") == 0 && sema_streq(e.sval, "-=") == 0) { sema_track_addr(s, e.a.sval, null); }
+            // -Wall: a local's address stored in a global dangles once the function returns
+            // (main's locals outlive every use).
+            if (s.wall == 1 && sema_streq(e.sval, "=") == 1 && e.b != null && e.b.kind == EK_UNARY
+                && sema_streq(e.b.sval, "&") == 1 && sema_sym_depth(s, e.a.sval) == 0
+                && (s.addr_fn == null || sema_streq(s.addr_fn, "main") == 0)) {
+                string groot = sema_local_root(s, e.b.a);
+                if (groot[0] != 0) {
+                    sema_lint(s, e.line, e.col, sema_cat(sema_cat(sema_cat(sema_cat("storing the address of local '", groot), "' in global '"),
+                              e.a.sval), "' (it dangles once the function returns)"));
+                }
+            }
         }
         // `f = <lambda>` rebinds a lambda local: the target is not a use of f's value, and
         // the lambda is bound to f like an initializer (mirrors the C++ visit(BinaryExpr)).
@@ -5661,7 +5890,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 if (ok == 0 && sema_streq(e.sval, "*") == 0 && sema_streq(e.sval, "+") == 0) {
                     string uop = e.sval; if (sema_streq(uop, "-") == 1) { uop = "u-"; }
                     List<string> utys; List_init<string>(&utys, 1); List_push<string>(&utys, ut);
-                    if (sema_find_op(s, uop, &utys) != null) { ok = 1; }
+                    *DeclNode uod = sema_find_op(s, uop, &utys);
+                    if (uod != null) { ok = 1; sema_note_call(s, uod.name); }
                 }
                 if (ok == 0) {
                     s.had_error = 1;
@@ -5890,6 +6120,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             int bad = 0;
             if (icls == 1) { bad = 1; }
             if (sema_streq(ibt, "null") == 1) { bad = 1; }   // `null[0]` points at nothing
+            if (icls == 3 && sema_is_arr_ty(ibt) == 0 && sema_is_fn_type(ibt) == 0 && s.has_ops == 1
+                && List_len<*ExprNode>(&e.kids) == 0) {
+                *DeclNode iod = sema_find_binop(s, "[]", ibt, sema_infer_type(s, e.b));
+                if (iod != null) { sema_note_call(s, iod.name); }
+            }
             if (icls == 3 && sema_is_arr_ty(ibt) == 0 && sema_is_fn_type(ibt) == 0) {
                 // a struct value: only through a user `operator []`
                 List<string> oty; List_init<string>(&oty, 2);
@@ -5976,9 +6211,11 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 string iflat = sema_flat_name(ibt);
                 if (sema_streq(iflat, sn) == 0) { ffn = sema_find_fndecl(s, sema_cat(sema_cat(iflat, "_"), mem.sval)); }
             }
+            if (inline_m == 1) { sema_note_call(s, sema_cat(sema_cat(sn, "_"), mem.sval)); }   // `x.m()` names `S_m`
             if (ffn != null && inline_m == 0) {
                 int dln = mem.mline; int dcl = mem.mcol;
                 if (dln <= 0) { dln = e.line; dcl = e.col; }
+                sema_note_call(s, ffn.name);
                 sema_note_depr(s, ffn.name, dln, dcl);
             }
             // Arguments against the method's parameters (self excluded), with the same
@@ -6089,11 +6326,12 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 served = 1;
                 int dln = mem.mline; int dcl = mem.mcol;
                 if (dln <= 0) { dln = e.line; dcl = e.col; }
+                sema_note_call(s, sema_cat(sema_cat(sn, "_"), mem.sval));
                 sema_note_depr(s, sema_cat(sema_cat(sn, "_"), mem.sval), dln, dcl);
             }
             if (s.in_inst == 1 && sema_is_scalar_prim(rbc) == 1) {
                 *DeclNode pf = sema_find_fndecl(s, mem.sval);
-                if (pf != null && List_len<Param>(&pf.params) > 0) { served = 1; }
+                if (pf != null && List_len<Param>(&pf.params) > 0) { served = 1; sema_note_call(s, pf.name); }
             }
             if (served == 0) {
                 s.had_error = 1;
@@ -6254,8 +6492,10 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             s.had_error = 1;               // an unbound callee names no function (mirrors the C++)
             dprintf(2, "error: %s:%d:%d: undefined function '%s'%s\n", s.filename, e.a.line, e.a.col, e.a.sval,
                    sema_did_you_mean(s, e.a.sval, 0, ""));
+            s.callee_ctx = prev;
+            return;                        // its arguments are not checked (as in the C++)
         } else {
-            if (e.a != null && e.a.kind == EK_IDENT) { sema_note_depr(s, e.a.sval, e.a.line, e.a.col); }
+            if (e.a != null && e.a.kind == EK_IDENT) { sema_note_call(s, e.a.sval); sema_note_depr(s, e.a.sval, e.a.line, e.a.col); }
             sema_expr(s, e.a);             // callee (functions live in the global scope)
         }
         s.callee_ctx = prev;
@@ -6565,7 +6805,7 @@ void sema_check_lambda(Sema* s, *ExprNode e) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: duplicate parameter '%s' in lambda\n", s.filename, s.line, s.col, pn);
             } else { List_push<string>(&seen, pn); }
-            sema_define(s, pn, sema_isub(s, List_get<string>(&ptys, i)), 0);
+            sema_define_at(s, pn, sema_isub(s, List_get<string>(&ptys, i)), 0, e.line, e.col, 1);
         }
         i = i + 1;
     }
@@ -6852,6 +7092,12 @@ void sema_stmt(Sema* s, *StmtNode st) {
     s.line = pl; s.col = pc;
 }
 
+// -Wall: `if (x = 0)` (mirrors the C++ warnAssignInCondition).
+void sema_warn_assign_cond(Sema* s, *ExprNode c) {
+    if (s.wall == 0 || c == null || c.kind != EK_BINARY || sema_streq(c.sval, "=") == 0) { return; }
+    sema_lint(s, c.line, c.col, "assignment used as a condition \342\200\224 did you mean '=='?");
+}
+
 void sema_stmt_k(Sema* s, *StmtNode st) {
     if (st == null) { return; }
     int k = st.kind;
@@ -6984,7 +7230,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: variable '%s' %s\n", s.filename, s.line, s.col, st.name, vterr);
         }
-        sema_define(s, st.name, vty, st.is_const);
+        sema_define_at(s, st.name, vty, st.is_const, st.line, st.col, 0);
         if (st.is_static == 1) {
             int sti = List_len<Sym>(&s.syms) - 1;
             Sym ss = List_get<Sym>(&s.syms, sti); ss.is_static = 1; List_set<Sym>(&s.syms, sti, ss);
@@ -7130,6 +7376,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         *StmtNode n = st;
         while (n != null) {
             if (n.line > 0) { s.line = n.line; s.col = n.col; }
+            sema_warn_assign_cond(s, n.expr);
             sema_cond(s, n.expr);
             // Null-narrowing: `if (q != null)` proves `q` non-null in the then-branch (and
             // `if (q == null)` in the else-branch), so a `?*T` may be dereferenced there.
@@ -7159,6 +7406,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // observe it); the condition's own narrowing holds at the top of every iteration.
         sema_drop_assigned(s, st);
         sema_mark_addr_in(s, st.s1);
+        sema_warn_assign_cond(s, st.expr);
         sema_cond(s, st.expr);
         List<string> keys; List_init<string>(&keys, 2);
         List<string> ins; List_init<string>(&ins, 2);
@@ -7168,7 +7416,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_narrow_undo(s, &ins);
         return;
     }
-    if (k == SK_DOWHILE) { sema_drop_assigned(s, st); sema_mark_addr_in(s, st.s1); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_cond(s, st.expr); return; }
+    if (k == SK_DOWHILE) { sema_drop_assigned(s, st); sema_mark_addr_in(s, st.s1); sema_lbl_push(s, st.label); sema_stmt(s, st.s1); sema_lbl_pop(s); sema_warn_assign_cond(s, st.expr); sema_cond(s, st.expr); return; }
     if (k == SK_FOR) {
         sema_push(s);                      // init var stays in scope for cond/step/body
         // The init is wrapped in a BlockStmt; walk its items in the FOR scope rather
@@ -7231,6 +7479,8 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         // cannot be iterated (mirrors the C++ visit(ForInStmt)).
         string itc = sema_canon(s, itt);
         while ((int)itc[0] == 42) { itc = sema_sub_str(itc, 1, sema_slen(itc)); }   // through a pointer too
+        int fline = st.line; int fcol = st.col;   // the variable's position (none when the iterable is bad)
+        if (itt == null || itt[0] == 0 || sema_streq(itt, "unknown") == 1) { fline = 0; fcol = 0; }
         if (sema_judgeable(s, itc) == 1 && sema_arr_bracket(itc) < 0) {
             *DeclNode lsd = sema_find_struct(s, sema_base_name(itc));
             int listy = 0;
@@ -7248,11 +7498,12 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: for-in expects a fixed-size array or a List-like value (with `data` and `size` fields), got %s\n",
                        s.filename, s.line, s.col, itt);
+                fline = 0; fcol = 0;
             }
         }
         sema_drop_assigned(s, st.s1);
         sema_mark_addr_in(s, st.s1);
-        sema_define(s, st.name, elem, 0);
+        sema_define_at(s, st.name, elem, 0, fline, fcol, 0);
         sema_lbl_push(s, st.label);
         sema_stmt(s, st.s1);
         sema_lbl_pop(s);
@@ -7383,7 +7634,11 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
                 *StmtNode arm = List_get<*StmtNode>(&st.items, ai);
                 if (arm.kind == SK_ARM) {
                     string v = sema_base_name(arm.name);
-                    if (sema_streq(v, "_") == 1) { has_wild = 1; }
+                    if (sema_streq(v, "_") == 1) {
+                        if (has_wild == 1) { sema_error(s, "duplicate match arm for variant '_'"); }
+                        has_wild = 1;
+                        if (ai + 1 < an) { sema_lint(s, s.line, s.col, "match arms after the `_` default are unreachable"); }   // they can never match
+                    }
                     *DeclNode med = sema_find_tdecl(s, msty);
                     if (sema_streq(v, "_") == 0 && med != null && med.kind == DK_ENUM) {
                         int vi = sema_variant_index(med, v);
@@ -7469,11 +7724,12 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         }
         if (k == SK_SWITCH) { s.sw_depth = s.sw_depth + 1; sema_push(s); }   // one scope (C)
         string saved_mty = s.match_ty;
-        if (k == SK_MATCH) { s.match_ty = sema_infer_type(s, st.expr); }
+        int saved_ml = s.match_line; int saved_mc = s.match_col;
+        if (k == SK_MATCH) { s.match_ty = sema_infer_type(s, st.expr); s.match_line = st.line; s.match_col = st.col; }
         int i = 0;
         int n = List_len<*StmtNode>(&st.items);
         while (i < n) { sema_stmt(s, List_get<*StmtNode>(&st.items, i)); i = i + 1; }
-        s.match_ty = saved_mty;
+        s.match_ty = saved_mty; s.match_line = saved_ml; s.match_col = saved_mc;
         if (k == SK_SWITCH) { sema_pop(s); s.sw_depth = s.sw_depth - 1; }
         return;
     }
@@ -7542,7 +7798,8 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         while (bi < List_len<string>(&binds)) {
             string bt = "";
             if (bi < List_len<string>(&fts)) { bt = List_get<string>(&fts, bi); }
-            sema_define(s, List_get<string>(&binds, bi), bt, 0);
+            sema_define_at(s, List_get<string>(&binds, bi), bt, 0, s.match_line, s.match_col, 0);
+            if (bi >= List_len<string>(&fts)) { sema_mark_used(s, List_get<string>(&binds, bi)); }   // C++ binds only a variant's fields
             if (bi > 0) { ats = sema_cat(ats, ";"); }
             ats = sema_cat(ats, bt);
             bi = bi + 1;
@@ -7558,7 +7815,7 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
         sema_push(s);
         int sp = 0; int j = 0;
         while (st.name[j] != 0) { if ((int)st.name[j] == 32) { sp = j; } j = j + 1; }
-        if (sp > 0) { sema_define(s, sema_sub_str(st.name, sp + 1, j), sema_sub_str(st.name, 0, sp), 0); }
+        if (sp > 0) { sema_define_at(s, sema_sub_str(st.name, sp + 1, j), sema_sub_str(st.name, 0, sp), 0, st.line, st.col, 0); }
         sema_stmt(s, st.s1);
         sema_pop(s);
         return;
@@ -7926,8 +8183,20 @@ void sema_uninit_scan(Sema* s, *ExprNode e, List<string>* uninit) {
 
 // Conservative straight-line scan of a function body for reads of an uninitialized scalar
 // local, stopping at the first control-flow statement (mirrors C++ checkUninitPrefix).
-void sema_check_uninit(Sema* s, *StmtNode body) {
-    if (body == null || body.kind != SK_BLOCK) { return; }
+// Only genuine scalars are tracked: an array ends in ']' (element writes initialize it
+// piecewise), as are structs, unions, slices and interface values (mirrors the C++
+// isUninitScalar).
+int sema_uninit_scalar(Sema* s, string ty) {
+    string t = sema_dealias(s, sema_isub(s, ty));
+    *DeclNode ed = sema_find_tdecl(s, sema_strip_const(t));   // a classic enum is an int
+    if (ed != null && ed.kind == DK_ENUM && sema_is_plain_enum_decl(ed) == 1) { return 1; }
+    return sema_is_arr_ty(t) == 0 && (sema_is_numeric_ty(t) == 1 || sema_is_ptrish(t) == 1 || sema_is_fn_type(t) == 1);
+}
+
+// Returns 1 when it reported a read.
+int sema_check_uninit(Sema* s, *StmtNode body) {
+    if (body == null || body.kind != SK_BLOCK) { return 0; }
+    int had = s.had_error; s.had_error = 0;
     List<string> uninit; List_init<string>(&uninit, 4);
     int i = 0; int n = List_len<*StmtNode>(&body.items);
     while (i < n) {
@@ -7936,11 +8205,8 @@ void sema_check_uninit(Sema* s, *StmtNode body) {
         if (it.kind == SK_VARDECL) {
             if (it.expr != null) { sema_uninit_scan(s, it.expr, &uninit); sema_list_erase(&uninit, it.name); }
             else if (it.is_static == 1) { sema_list_erase(&uninit, it.name); }   // static storage starts at zero (C)
-            else {
-                string t = sema_isub(s, it.type);  // only genuine scalars (arrays init piecewise); a generic instance's `T x` too
-                if (sema_is_arr_ty(t) == 0 && (sema_is_numeric_ty(t) == 1 || sema_is_ptrish(t) == 1 || sema_is_fn_type(t) == 1)) {
-                    List_push<string>(&uninit, it.name);
-                }
+            else if (sema_uninit_scalar(s, it.type) == 1) {   // a generic instance's `T x` too
+                List_push<string>(&uninit, it.name);
             }
         } else if (it.kind == SK_EXPR) {
             sema_uninit_scan(s, it.expr, &uninit);
@@ -7950,7 +8216,526 @@ void sema_check_uninit(Sema* s, *StmtNode body) {
             i = n;                                 // control flow / anything else: stop (conservative)
         }
     }
+    int reported = s.had_error;
+    if (had == 1) { s.had_error = 1; }
+    return reported;
 }
+// ── -Wall: maybe-uninitialized reads (mirrors the C++ MaybeUninit, typecheck_decl.cpp) ──
+// A forward "possibly unassigned" dataflow over a function body. The state is the set of
+// tracked locals (scalar locals declared without an initializer) that some path to this
+// point has not assigned; paths meet by union, and a read of one is a warning. `=` to the
+// bare name and `&x` assign it. Unreachable code reads nothing. A loop body starts from
+// the state before the loop and the loop exits with its condition-false state joined
+// with every `break` to it; `switch` cases fall through; a `match` arm, a `catch` and a
+// `finally` start from the state before the construct; a `defer` body runs at each exit;
+// a lambda reads its captures when it is created. Variables are keyed by declaration.
+struct MuSt { int live; List<int> u; }     // u[id] == 1: local id is unassigned on some path
+struct MuFrame { int is_loop; string label; int defer_depth; *MuSt brk; *MuSt cont; }
+struct Mu {
+    Sema* sm;
+    *MuSt s;
+    int next_id;
+    List<string> env_n;         // bindings in scope, innermost last ...
+    List<int> env_id;           // ... and their ids
+    List<int> scope_env;        // per open scope: env length at its start
+    List<*StmtNode> dfr;        // pending defer bodies, in registration order ...
+    List<int> dfr_scope;        // ... and the scope each belongs to
+    List<*MuFrame> frames;
+    List<int> warned;           // ids already reported
+    int in_defer;
+}
+
+*MuSt mu_st(int live) {
+    *MuSt r = alloc<MuSt>(1);
+    r.live = live;
+    List_init<int>(&r.u, 8);
+    return r;
+}
+int mu_has(*MuSt st, int id) {
+    if (id < 0 || id >= List_len<int>(&st.u)) { return 0; }
+    return List_get<int>(&st.u, id);
+}
+void mu_put(*MuSt st, int id, int v) {
+    while (List_len<int>(&st.u) <= id) { List_push<int>(&st.u, 0); }
+    List_set<int>(&st.u, id, v);
+}
+// dst = src (a copy).
+void mu_assign(*MuSt dst, *MuSt src) {
+    dst.live = src.live;
+    List_clear<int>(&dst.u);
+    int i = 0;
+    while (i < List_len<int>(&src.u)) { List_push<int>(&dst.u, List_get<int>(&src.u, i)); i = i + 1; }
+}
+*MuSt mu_copy(*MuSt src) { *MuSt r = mu_st(1); mu_assign(r, src); return r; }
+// into = into joined with other (a dead path adds nothing).
+void mu_join(*MuSt into, *MuSt other) {
+    if (other.live == 0) { return; }
+    if (into.live == 0) { mu_assign(into, other); return; }
+    int i = 0;
+    while (i < List_len<int>(&other.u)) { if (List_get<int>(&other.u, i) == 1) { mu_put(into, i, 1); } i = i + 1; }
+}
+
+void mu_push_scope(Mu* m) { List_push<int>(&m.scope_env, List_len<string>(&m.env_n)); }
+void mu_pop_scope(Mu* m) {
+    int top = List_len<int>(&m.scope_env) - 1;
+    int start = List_get<int>(&m.scope_env, top);
+    while (List_len<string>(&m.env_n) > start) {
+        int last = List_len<string>(&m.env_n) - 1;
+        mu_put(m.s, List_get<int>(&m.env_id, last), 0);
+        List_remove<string>(&m.env_n, last);
+        List_remove<int>(&m.env_id, last);
+    }
+    while (List_len<int>(&m.dfr_scope) > 0 && List_get<int>(&m.dfr_scope, List_len<int>(&m.dfr_scope) - 1) >= top) {
+        List_remove<*StmtNode>(&m.dfr, List_len<*StmtNode>(&m.dfr) - 1);
+        List_remove<int>(&m.dfr_scope, List_len<int>(&m.dfr_scope) - 1);
+    }
+    List_remove<int>(&m.scope_env, top);
+}
+void mu_declare(Mu* m, string name, int tracked) {
+    int id = m.next_id;
+    m.next_id = m.next_id + 1;
+    List_push<string>(&m.env_n, name);
+    List_push<int>(&m.env_id, id);
+    if (tracked == 1) { mu_put(m.s, id, 1); }
+}
+int mu_lookup(Mu* m, string name) {
+    int i = List_len<string>(&m.env_n) - 1;
+    while (i >= 0) { if (sema_streq(List_get<string>(&m.env_n, i), name) == 1) { return List_get<int>(&m.env_id, i); } i = i - 1; }
+    return -1;
+}
+void mu_assign_name(Mu* m, string name) { int id = mu_lookup(m, name); if (id >= 0) { mu_put(m.s, id, 0); } }
+void mu_read(Mu* m, string name, int line, int col) {
+    int v = mu_lookup(m, name);
+    if (v < 0 || m.s.live == 0 || mu_has(m.s, v) == 0) { return; }
+    while (List_len<int>(&m.warned) <= v) { List_push<int>(&m.warned, 0); }
+    if (List_get<int>(&m.warned, v) == 1) { return; }
+    List_set<int>(&m.warned, v, 1);
+    Sema* s = m.sm;
+    string key = sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(sema_cat(s.filename, ":"), sema_i64_text((int64)line)), ":"),
+                          sema_i64_text((int64)col)), ":"), name);
+    if (StrTab_has(&s.mu_warned, key) == 1) { return; }
+    StrTab_set(&s.mu_warned, key, 1);
+    sema_lint(s, line, col, sema_cat(sema_cat("variable '", name), "' may be used uninitialized"));
+}
+
+void mu_stmt(Mu* m, *StmtNode st);
+
+// Run the pending defer bodies of scopes [from, end), innermost first, on a copy of the
+// state (they run on the way out). A defer body is not re-entered.
+void mu_run_defers(Mu* m, int from) {
+    if (m.s.live == 0 || m.in_defer == 1) { return; }
+    *MuSt saved = mu_copy(m.s);
+    m.in_defer = 1;
+    List<*StmtNode> run; List_init<*StmtNode>(&run, 4);
+    int i = List_len<*StmtNode>(&m.dfr) - 1;
+    while (i >= 0) { if (List_get<int>(&m.dfr_scope, i) >= from) { List_push<*StmtNode>(&run, List_get<*StmtNode>(&m.dfr, i)); } i = i - 1; }
+    i = 0;
+    while (i < List_len<*StmtNode>(&run)) { mu_stmt(m, List_get<*StmtNode>(&run, i)); i = i + 1; }
+    m.in_defer = 0;
+    mu_assign(m.s, saved);
+}
+// The defers of the innermost scope, at its normal end.
+void mu_run_scope_defers(Mu* m) {
+    if (m.s.live == 0 || m.in_defer == 1) { return; }
+    m.in_defer = 1;
+    int top = List_len<int>(&m.scope_env) - 1;
+    List<*StmtNode> run; List_init<*StmtNode>(&run, 4);
+    int i = List_len<*StmtNode>(&m.dfr) - 1;
+    while (i >= 0) { if (List_get<int>(&m.dfr_scope, i) == top) { List_push<*StmtNode>(&run, List_get<*StmtNode>(&m.dfr, i)); } i = i - 1; }
+    i = 0;
+    while (i < List_len<*StmtNode>(&run)) { mu_stmt(m, List_get<*StmtNode>(&run, i)); i = i + 1; }
+    m.in_defer = 0;
+}
+
+int mu_logical(string op) { return sema_streq(op, "&&") == 1 || sema_streq(op, "||") == 1; }
+
+void mu_expr(Mu* m, *ExprNode e);
+
+// Evaluate condition `e`, leaving in `on_t` / `on_f` the state on the paths where it is
+// true / false (`&&`, `||` and `!` split it).
+void mu_cond(Mu* m, *ExprNode e, *MuSt on_t, *MuSt on_f) {
+    if (e != null && e.kind == EK_UNARY && sema_streq(e.sval, "!") == 1) { mu_cond(m, e.a, on_f, on_t); return; }
+    if (e == null || e.kind != EK_BINARY || mu_logical(e.sval) == 0) {
+        mu_expr(m, e); mu_assign(on_t, m.s); mu_assign(on_f, m.s);
+        return;
+    }
+    int is_and = sema_streq(e.sval, "&&");
+    List<*ExprNode> spine; List_init<*ExprNode>(&spine, 4);
+    List_push<*ExprNode>(&spine, e);
+    while (1 == 1) {
+        *ExprNode l = List_get<*ExprNode>(&spine, List_len<*ExprNode>(&spine) - 1).a;
+        if (l == null || l.kind != EK_BINARY || sema_streq(l.sval, e.sval) == 0) { break; }
+        List_push<*ExprNode>(&spine, l);
+    }
+    *MuSt t = mu_st(1); *MuSt f = mu_st(1);
+    mu_cond(m, List_get<*ExprNode>(&spine, List_len<*ExprNode>(&spine) - 1).a, t, f);
+    int i = List_len<*ExprNode>(&spine) - 1;
+    while (i >= 0) {
+        if (is_and == 1) { mu_assign(m.s, t); } else { mu_assign(m.s, f); }
+        *MuSt rt = mu_st(1); *MuSt rf = mu_st(1);
+        mu_cond(m, List_get<*ExprNode>(&spine, i).b, rt, rf);
+        if (is_and == 1) { mu_assign(t, rt); mu_join(f, rf); }
+        else { mu_join(t, rt); mu_assign(f, rf); }
+        i = i - 1;
+    }
+    mu_assign(on_t, t); mu_assign(on_f, f);
+    mu_assign(m.s, on_t);
+    mu_join(m.s, on_f);
+}
+
+void mu_function(Mu* m, List<string>* params, *StmtNode body);
+
+// A lambda body is a function of its own, analyzed in a fresh context.
+void mu_lambda(Mu* m, *ExprNode e) {
+    *MuSt saved_s = m.s;
+    List<string> saved_n = m.env_n; List<int> saved_id = m.env_id; List<int> saved_sc = m.scope_env;
+    List<*StmtNode> saved_d = m.dfr; List<int> saved_ds = m.dfr_scope; List<*MuFrame> saved_f = m.frames;
+    List_init<string>(&m.env_n, 4); List_init<int>(&m.env_id, 4); List_init<int>(&m.scope_env, 4);
+    List_init<*StmtNode>(&m.dfr, 2); List_init<int>(&m.dfr_scope, 2); List_init<*MuFrame>(&m.frames, 2);
+    m.s = mu_st(1);
+    List<string> ptys; List_init<string>(&ptys, 4);
+    List<string> pnames; List_init<string>(&pnames, 4);
+    sema_lambda_sig(e.sval, &ptys, &pnames);
+    mu_function(m, &pnames, e.stmt);
+    m.env_n = saved_n; m.env_id = saved_id; m.scope_env = saved_sc;
+    m.dfr = saved_d; m.dfr_scope = saved_ds; m.frames = saved_f;
+    m.s = saved_s;
+}
+
+void mu_kids(Mu* m, *ExprNode e) {
+    int i = 0;
+    while (i < List_len<*ExprNode>(&e.kids)) { mu_expr(m, List_get<*ExprNode>(&e.kids, i)); i = i + 1; }
+}
+
+void mu_expr(Mu* m, *ExprNode e) {
+    if (e == null) { return; }
+    int k = e.kind;
+    if (k == EK_IDENT) { mu_read(m, e.sval, e.line, e.col); return; }
+    if (k == EK_UNARY && sema_streq(e.sval, "&") == 1 && e.a != null && e.a.kind == EK_IDENT) { mu_assign_name(m, e.a.sval); return; }
+    if (k == EK_SIZEOF) { return; }                // not evaluated
+    if (k == EK_BINARY) {
+        if (sema_streq(e.sval, "=") == 1) {
+            mu_expr(m, e.b);
+            if (e.a != null && e.a.kind == EK_IDENT) { mu_assign_name(m, e.a.sval); } else { mu_expr(m, e.a); }
+            return;
+        }
+        if (mu_logical(e.sval) == 1) {             // what follows sees the join of both outcomes
+            *MuSt t = mu_st(1); *MuSt f = mu_st(1);
+            mu_cond(m, e, t, f);
+            mu_assign(m.s, t); mu_join(m.s, f);
+            return;
+        }
+        // A left-leaning operator chain is walked down its left spine by a loop.
+        List<*ExprNode> spine; List_init<*ExprNode>(&spine, 4);
+        List_push<*ExprNode>(&spine, e);
+        while (1 == 1) {
+            *ExprNode l = List_get<*ExprNode>(&spine, List_len<*ExprNode>(&spine) - 1).a;
+            if (l == null || l.kind != EK_BINARY || sema_streq(l.sval, "=") == 1 || mu_logical(l.sval) == 1) { break; }
+            List_push<*ExprNode>(&spine, l);
+        }
+        mu_expr(m, List_get<*ExprNode>(&spine, List_len<*ExprNode>(&spine) - 1).a);
+        int i = List_len<*ExprNode>(&spine) - 1;
+        while (i >= 0) { mu_expr(m, List_get<*ExprNode>(&spine, i).b); i = i - 1; }
+        return;
+    }
+    if (k == EK_TERNARY) {
+        *MuSt before = mu_st(1); *MuSt else_st = mu_st(1);
+        mu_cond(m, e.a, before, else_st);
+        mu_assign(m.s, before);
+        mu_expr(m, e.b);
+        *MuSt a = mu_copy(m.s);
+        mu_assign(m.s, else_st);
+        if (List_len<*ExprNode>(&e.kids) > 0) { mu_expr(m, List_get<*ExprNode>(&e.kids, 0)); }
+        mu_join(m.s, a);
+        return;
+    }
+    if (k == EK_QUESTION) { mu_expr(m, e.a); mu_run_defers(m, 0); return; }   // `?` may return from here
+    if (k == EK_LAMBDA) {
+        Sema* s = m.sm;                            // its captures are read when it is created
+        List<string> caps; List_init<string>(&caps, 4);
+        int i = 0;
+        while (i < List_len<*ExprNode>(&s.cap_lams)) {
+            if (List_get<*ExprNode>(&s.cap_lams, i) == e) { List_push<string>(&caps, List_get<string>(&s.cap_names, i)); }
+            i = i + 1;
+        }
+        int n = List_len<string>(&caps);
+        int a = 1;                                 // in name order (the C++ capture map)
+        while (a < n) {
+            string v = List_get<string>(&caps, a);
+            int b = a - 1;
+            while (b >= 0 && strcmp(List_get<string>(&caps, b), v) > 0) { List_set<string>(&caps, b + 1, List_get<string>(&caps, b)); b = b - 1; }
+            List_set<string>(&caps, b + 1, v);
+            a = a + 1;
+        }
+        i = 0;
+        while (i < n) { mu_read(m, List_get<string>(&caps, i), e.line, e.col); i = i + 1; }
+        mu_lambda(m, e);
+        return;
+    }
+    if (k == EK_INDEX) {
+        mu_expr(m, e.a); mu_expr(m, e.b);
+        if (List_len<*ExprNode>(&e.kids) > 0) { mu_expr(m, List_get<*ExprNode>(&e.kids, 0)); }
+        return;
+    }
+    if (k == EK_CALL) { mu_expr(m, e.a); mu_kids(m, e); return; }
+    if (k == EK_TEMPLATECALL || k == EK_STRUCTINIT || k == EK_ARRAYLIT) { mu_kids(m, e); return; }
+    if (k == EK_ALLOCWITH) { mu_expr(m, e.a); mu_expr(m, e.b); return; }
+    if (k == EK_UNARY || k == EK_INCDEC || k == EK_MEMBER || k == EK_CAST || k == EK_AWAIT
+        || k == EK_FREECLOSURE || k == EK_THREADCREATE) { mu_expr(m, e.a); return; }
+}
+
+// A statement in its own scope (a block, or an unbraced body).
+void mu_block(Mu* m, *StmtNode body) {
+    mu_push_scope(m);
+    if (body != null && body.kind == SK_BLOCK) {
+        int i = 0;
+        while (i < List_len<*StmtNode>(&body.items)) { mu_stmt(m, List_get<*StmtNode>(&body.items, i)); i = i + 1; }
+    } else { mu_stmt(m, body); }
+    mu_run_scope_defers(m);
+    mu_pop_scope(m);
+}
+
+void mu_jump(Mu* m, string label, int is_cont) {
+    int i = List_len<*MuFrame>(&m.frames) - 1;
+    while (i >= 0) {
+        *MuFrame f = List_get<*MuFrame>(&m.frames, i);
+        int skip = 0;
+        if (label != null && label[0] != 0) { if (f.is_loop == 0 || sema_streq(f.label, label) == 0) { skip = 1; } }
+        else if (is_cont == 1 && f.is_loop == 0) { skip = 1; }
+        if (skip == 0) {
+            mu_run_defers(m, f.defer_depth);
+            if (is_cont == 1) { mu_join(f.cont, m.s); } else { mu_join(f.brk, m.s); }
+            break;
+        }
+        i = i - 1;
+    }
+    m.s.live = 0;
+}
+void mu_push_frame(Mu* m, int is_loop, string label) {
+    *MuFrame f = alloc<MuFrame>(1);
+    f.is_loop = is_loop;
+    f.label = label; if (f.label == null) { f.label = ""; }
+    f.defer_depth = List_len<int>(&m.scope_env);
+    f.brk = mu_st(0); f.cont = mu_st(0);
+    List_push<*MuFrame>(&m.frames, f);
+}
+*MuFrame mu_pop_frame(Mu* m) {
+    int n = List_len<*MuFrame>(&m.frames);
+    *MuFrame f = List_get<*MuFrame>(&m.frames, n - 1);
+    List_remove<*MuFrame>(&m.frames, n - 1);
+    return f;
+}
+*MuFrame mu_top_frame(Mu* m) { return List_get<*MuFrame>(&m.frames, List_len<*MuFrame>(&m.frames) - 1); }
+
+void mu_stmt(Mu* m, *StmtNode st) {
+    if (st == null) { return; }
+    int k = st.kind;
+    Sema* s = m.sm;
+    if (k == SK_BLOCK) { mu_block(m, st); return; }
+    if (k == SK_VARDECL) {
+        mu_expr(m, st.expr);
+        int tracked = 0;
+        if (st.expr == null && st.is_static == 0 && sema_uninit_scalar(s, st.type) == 1) { tracked = 1; }
+        mu_declare(m, st.name, tracked);
+        return;
+    }
+    if (k == SK_EXPR) { mu_expr(m, st.expr); return; }
+    if (k == SK_RETURN) { mu_expr(m, st.expr); mu_run_defers(m, 0); m.s.live = 0; return; }
+    if (k == SK_THROW) { mu_expr(m, st.expr); m.s.live = 0; return; }
+    if (k == SK_BREAK) { mu_jump(m, st.label, 0); return; }
+    if (k == SK_CONTINUE) { mu_jump(m, st.label, 1); return; }
+    if (k == SK_DEFER) {
+        if (m.s.live == 1) { List_push<*StmtNode>(&m.dfr, st.s1); List_push<int>(&m.dfr_scope, List_len<int>(&m.scope_env) - 1); }
+        return;
+    }
+    if (k == SK_ASM) {
+        int i = 0;
+        while (i < List_len<*StmtNode>(&st.items)) {
+            *StmtNode op = List_get<*StmtNode>(&st.items, i);
+            if (op.kind == SK_ASMINPUT) { mu_expr(m, op.expr); }
+            i = i + 1;
+        }
+        return;
+    }
+    if (k == SK_THREADJOIN) { mu_expr(m, st.expr); return; }
+    if (k == SK_IF) {                              // an `else if` chain is walked with a loop
+        *MuSt out = mu_st(0);
+        *StmtNode n = st;
+        while (n != null) {
+            *MuSt then_st = mu_st(1); *MuSt else_st = mu_st(1);
+            mu_cond(m, n.expr, then_st, else_st);
+            mu_assign(m.s, then_st);
+            mu_block(m, n.s1);
+            mu_join(out, m.s);
+            mu_assign(m.s, else_st);
+            *StmtNode next = null;
+            if (n.s2 != null && n.s2.kind == SK_IF) { next = n.s2; }
+            if (next == null) {
+                if (n.s2 != null) { mu_block(m, n.s2); }
+                mu_join(out, m.s);
+            }
+            n = next;
+        }
+        mu_assign(m.s, out);
+        return;
+    }
+    if (k == SK_WHILE) {
+        *MuSt body_st = mu_st(1); *MuSt exit_st = mu_st(1);
+        mu_cond(m, st.expr, body_st, exit_st);
+        mu_assign(m.s, body_st);
+        *MuSt ex = exit_st;
+        if (sema_cond_true(st.expr) == 1) { ex = mu_st(0); }
+        mu_push_frame(m, 1, st.label);
+        mu_block(m, st.s1);
+        *MuFrame f = mu_pop_frame(m);
+        mu_assign(m.s, ex);
+        mu_join(m.s, f.brk);
+        return;
+    }
+    if (k == SK_DOWHILE) {
+        mu_push_frame(m, 1, st.label);
+        mu_block(m, st.s1);
+        mu_join(m.s, mu_top_frame(m).cont);
+        mu_expr(m, st.expr);
+        *MuFrame f = mu_pop_frame(m);
+        if (sema_cond_true(st.expr) == 1) { m.s.live = 0; }
+        mu_join(m.s, f.brk);
+        return;
+    }
+    if (k == SK_FOR) {
+        mu_push_scope(m);
+        if (st.s1 != null && st.s1.kind == SK_BLOCK) {   // the init's declarations belong to the loop
+            int i = 0;
+            while (i < List_len<*StmtNode>(&st.s1.items)) { mu_stmt(m, List_get<*StmtNode>(&st.s1.items, i)); i = i + 1; }
+        } else { mu_stmt(m, st.s1); }
+        *MuSt body_st = mu_st(1); *MuSt exit_st = mu_st(1);
+        if (st.expr != null) { mu_cond(m, st.expr, body_st, exit_st); }
+        else { mu_assign(body_st, m.s); mu_assign(exit_st, m.s); }
+        mu_assign(m.s, body_st);
+        *MuSt ex = exit_st;
+        if (sema_cond_true(st.expr) == 1) { ex = mu_st(0); }
+        mu_push_frame(m, 1, st.label);
+        mu_block(m, st.s2);
+        mu_join(m.s, mu_top_frame(m).cont);
+        mu_expr(m, st.expr2);
+        *MuFrame fr = mu_pop_frame(m);
+        mu_assign(m.s, ex);
+        mu_join(m.s, fr.brk);
+        mu_pop_scope(m);
+        return;
+    }
+    if (k == SK_FORIN) {
+        mu_expr(m, st.expr);
+        *MuSt ex = mu_copy(m.s);
+        mu_push_scope(m);
+        mu_declare(m, st.name, 0);
+        mu_push_frame(m, 1, st.label);
+        mu_block(m, st.s1);
+        *MuFrame fr = mu_pop_frame(m);
+        mu_pop_scope(m);
+        mu_assign(m.s, ex);
+        mu_join(m.s, fr.brk);
+        return;
+    }
+    if (k == SK_SWITCH) {
+        mu_expr(m, st.expr);
+        *MuSt entry = mu_copy(m.s);
+        *MuSt cur = mu_st(0);
+        int has_default = 0;
+        mu_push_scope(m);                          // the switch body is one scope
+        mu_push_frame(m, 0, "");
+        int ci = 0;
+        while (ci < List_len<*StmtNode>(&st.items)) {
+            *StmtNode c = List_get<*StmtNode>(&st.items, ci);
+            if (c.expr == null) { has_default = 1; }
+            mu_assign(m.s, entry);
+            mu_join(m.s, cur);                     // fall-through from the case above
+            int i = 0;
+            while (i < List_len<*StmtNode>(&c.items)) { mu_stmt(m, List_get<*StmtNode>(&c.items, i)); i = i + 1; }
+            mu_assign(cur, m.s);
+            ci = ci + 1;
+        }
+        *MuFrame fr = mu_pop_frame(m);
+        if (List_len<*StmtNode>(&st.items) == 0) { mu_assign(m.s, entry); } else { mu_assign(m.s, cur); }
+        if (has_default == 0) { mu_join(m.s, entry); }
+        mu_join(m.s, fr.brk);
+        mu_run_scope_defers(m);
+        mu_pop_scope(m);
+        return;
+    }
+    if (k == SK_MATCH) {                           // the arms are exhaustive (checked separately)
+        mu_expr(m, st.expr);
+        if (List_len<*StmtNode>(&st.items) == 0) { return; }
+        *MuSt entry = mu_copy(m.s);
+        *MuSt out = mu_st(0);
+        int ai = 0;
+        while (ai < List_len<*StmtNode>(&st.items)) {
+            *StmtNode arm = List_get<*StmtNode>(&st.items, ai);
+            mu_assign(m.s, entry);
+            mu_push_scope(m);
+            List<string> binds; List_init<string>(&binds, 2);
+            sema_arm_binds(arm.name, &binds);
+            int bi = 0;
+            while (bi < List_len<string>(&binds)) { mu_declare(m, List_get<string>(&binds, bi), 0); bi = bi + 1; }
+            mu_block(m, arm.s1);
+            mu_pop_scope(m);
+            mu_join(out, m.s);
+            ai = ai + 1;
+        }
+        mu_assign(m.s, out);
+        return;
+    }
+    if (k == SK_TRY) {
+        *MuSt before = mu_copy(m.s);
+        mu_block(m, st.s1);
+        *MuSt out = mu_copy(m.s);
+        int ci = 0;
+        while (ci < List_len<*StmtNode>(&st.items)) {
+            *StmtNode c = List_get<*StmtNode>(&st.items, ci);
+            mu_assign(m.s, before);
+            mu_push_scope(m);
+            int sp = 0; int j = 0;
+            while (c.name[j] != 0) { if ((int)c.name[j] == 32) { sp = j; } j = j + 1; }
+            mu_declare(m, sema_sub_str(c.name, sp + 1, j), 0);
+            mu_block(m, c.s1);
+            mu_pop_scope(m);
+            mu_join(out, m.s);
+            ci = ci + 1;
+        }
+        if (st.s2 != null) {
+            mu_assign(m.s, before);
+            mu_block(m, st.s2);
+            if (m.s.live == 0) { return; }
+            // What the finally assigns on every path through it is assigned after.
+            int v = 0;
+            while (v < List_len<int>(&before.u)) {
+                if (List_get<int>(&before.u, v) == 1 && mu_has(m.s, v) == 0) { mu_put(out, v, 0); }
+                v = v + 1;
+            }
+        }
+        mu_assign(m.s, out);
+        return;
+    }
+}
+
+void mu_function(Mu* m, List<string>* params, *StmtNode body) {
+    mu_push_scope(m);
+    int i = 0;
+    while (i < List_len<string>(params)) { mu_declare(m, List_get<string>(params, i), 0); i = i + 1; }
+    mu_block(m, body);
+    mu_pop_scope(m);
+}
+
+void sema_warn_maybe_uninit(Sema* s, *DeclNode f) {
+    let m: Mu;
+    m.sm = s;
+    m.s = mu_st(1);
+    List<string> params; List_init<string>(&params, 4);
+    int i = 0;
+    while (i < List_len<Param>(&f.params)) { List_push<string>(&params, List_get<Param>(&f.params, i).name); i = i + 1; }
+    mu_function(&m, &params, f.body);
+}
+
 
 // Is `t` a `void` value type (void, or an array of void)? Only a function result may be void.
 int sema_is_void_value(string t0) {
@@ -8440,7 +9225,10 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         int pn2 = 0; while (pm.ty[pn2] != 0) { pn2 = pn2 + 1; }
         if (pn2 >= 6 && sema_streq(sema_sub_str(pm.ty, 0, 6), "const ") == 1 && sema_has_star(pm.ty) == 0) { pconst = 1; }
         if (pn2 >= 6 && sema_streq(sema_sub_str(pm.ty, pn2 - 6, pn2), "*const") == 1) { pconst = 1; }
-        sema_define(s, pm.name, sema_isub(s, pm.ty), pconst);
+        // An inline struct method's parameters carry no position and count as variables
+        // (the C++ checks those bodies with plain scope bindings).
+        if (self_type[0] != 0) { sema_define_at(s, pm.name, sema_isub(s, pm.ty), pconst, 0, 0, 0); }
+        else { sema_define_at(s, pm.name, sema_isub(s, pm.ty), pconst, pm.line, pm.col, 1); }
         if (s.in_inst == 1) {              // `id<void>`: a type argument may make a parameter void
             string iperr = sema_void_type_err(s, sema_isub(s, pm.ty));
             if (iperr[0] != 0) {
@@ -8455,8 +9243,14 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
     List_clear<string>(&s.addr_keys); List_clear<string>(&s.addr_roots);
     sema_stmt(s, f.body);
     s.param_depth = prev_pd;
+    // Reads of an uninitialized scalar local; under -Wall, those uninitialized on some
+    // path. An async body is skipped (its locals become frame fields), and so is an inline
+    // struct method's (the C++ checks those bodies apart from visit(FunctionDecl)).
+    if (f.is_async == 0) {
+        int urep = sema_check_uninit(s, f.body);
+        if (urep == 0 && s.wall == 1 && s.in_inst == 0 && self_type[0] == 0) { sema_warn_maybe_uninit(s, f); }
+    }
     sema_pop(s);
-    if (f.is_async == 0) { sema_check_uninit(s, f.body); }   // reads of an uninitialized scalar local
     // A non-void function must return on every path (no implicit zero return);
     // void may fall off, and async completes its future implicitly.
     if (f.is_async == 0 && s.in_inst == 0 && sema_streq(f.ret_type, "void") == 0
@@ -8490,6 +9284,52 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         wi = wi + 1;
     }
     s.in_async = 0;
+}
+
+// -Wall: a top-level function defined here (its last declaration's position wins, as the
+// C++ map entry).
+void sema_def_fn(Sema* s, *DeclNode d) {
+    int i = 0;
+    while (i < List_len<string>(&s.def_fns)) {
+        if (sema_streq(List_get<string>(&s.def_fns, i), d.name) == 1) {
+            List_set<int>(&s.def_lines, i, d.line); List_set<int>(&s.def_cols, i, d.col);
+            return;
+        }
+        i = i + 1;
+    }
+    List_push<string>(&s.def_fns, d.name);
+    List_push<int>(&s.def_lines, d.line);
+    List_push<int>(&s.def_cols, d.col);
+    List_push<string>(&s.def_disp, sema_fn_display(d));
+}
+
+// -Wall: the functions nothing references, in name order, after every body is checked.
+void sema_warn_unused_fns(Sema* s) {
+    if (s.wall == 0) { return; }
+    int n = List_len<string>(&s.def_fns);
+    List<int> idx; List_init<int>(&idx, n + 1);
+    int i = 0;
+    while (i < n) { if (StrTab_has(&s.called_fns, List_get<string>(&s.def_fns, i)) == 0) { List_push<int>(&idx, i); } i = i + 1; }
+    int m = List_len<int>(&idx);
+    int a = 1;
+    while (a < m) {
+        int v = List_get<int>(&idx, a);
+        int b = a - 1;
+        while (b >= 0 && strcmp(List_get<string>(&s.def_fns, List_get<int>(&idx, b)), List_get<string>(&s.def_fns, v)) > 0) {
+            List_set<int>(&idx, b + 1, List_get<int>(&idx, b));
+            b = b - 1;
+        }
+        List_set<int>(&idx, b + 1, v);
+        a = a + 1;
+    }
+    s.cur_import = 0; s.in_inst = 0;
+    int k = 0;
+    while (k < m) {
+        int j = List_get<int>(&idx, k);
+        sema_lint(s, List_get<int>(&s.def_lines, j), List_get<int>(&s.def_cols, j),
+                  sema_cat(sema_cat("unused function '", List_get<string>(&s.def_disp, j)), "'"));
+        k = k + 1;
+    }
 }
 
 // Check each queued generic instance: the template body with its type parameters bound
@@ -8564,8 +9404,10 @@ int sema_check(Sema* s, *Program prog) {
     while (gi < List_len<string>(&s.gaddr)) { StrTab_set(&s.gaddr_set, List_get<string>(&s.gaddr, gi), 1); gi = gi + 1; }
     sema_register_globals(s, prog);
     sema_check_top_names(s, prog);
+    int top_err = s.had_error; s.had_error = 0;
     sema_check_alias_cycles(s);
     if (s.had_error == 1) { return 0; }   // a cyclic alias makes every later type check meaningless
+    if (top_err == 1) { s.had_error = 1; }   // a duplicate name: the rest is still checked (as the C++)
     let defined_fns: StrTab;    // top-level functions WITH a body, to catch a redefinition (a set)
     memset((*void)&defined_fns, 0, sizeof(StrTab));
     string primary = s.filename;
@@ -8677,7 +9519,13 @@ int sema_check(Sema* s, *Program prog) {
                 dprintf(2, "error: %s:%d:%d: operator '%s' takes %s, got %d\n", s.filename, s.line, s.col, shown, cnt, got);
             }
         }
-        if (d.kind == DK_FUNCTION) { sema_check_fn(s, d, ""); }
+        if (d.kind == DK_FUNCTION) {
+            s.addr_fn = d.name;
+            if (List_len<TypeParam>(&d.type_params) == 0 && d.from_import == 0 && sema_streq(d.name, "main") == 0) {
+                sema_def_fn(s, d);
+            }
+            sema_check_fn(s, d, "");
+        }
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.
         if (d.kind == DK_VARDECL) { sema_check_decl_type(s, d.ret_type); }   // a global's type must exist
@@ -8768,6 +9616,7 @@ int sema_check(Sema* s, *Program prog) {
     sema_check_insts(s, primary);
     s.filename = primary;
     sema_check_value_cycles(s);
+    sema_warn_unused_fns(s);
     if (s.had_error == 1) { return 0; }
     return 1;
 }
