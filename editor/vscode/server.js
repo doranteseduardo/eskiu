@@ -226,6 +226,23 @@ async function onText(uri, args, timeout = 8000) {
 }
 
 const at = (pos) => `${pos.line + 1}:${pos.character + 1}`;
+
+// --references-at: one FILE:LINE:COL:WIDTH per line; the checked file (a temp copy of
+// an unsaved buffer) is this document.
+async function references(uri, position) {
+    const { out, file } = await onText(uri, ['--references-at', at(position)], 5000);
+    const refs = [];
+    for (const row of out.split('\n')) {
+        const m = row.trim().match(/^(.+):(\d+):(\d+):(\d+)$/);
+        if (!m) continue;
+        const target = path.resolve(m[1]) === path.resolve(file) ? uri
+            : 'file://' + path.resolve(m[1]).split('/').map(encodeURIComponent).join('/');
+        const line = parseInt(m[2], 10) - 1, ch = parseInt(m[3], 10) - 1;
+        refs.push({ uri: target, range: { start: { line, character: ch },
+                                          end: { line, character: ch + parseInt(m[4], 10) } } });
+    }
+    return refs;
+}
 const lastLine = (out) => (out.trim().split('\n').pop() || '').trim();
 
 const COMPLETION_KINDS = { field: 5, method: 2, function: 3, variable: 6, global: 6, struct: 22,
@@ -287,6 +304,28 @@ const REQUESTS = {
             : 'file://' + path.resolve(m[1]).split('/').map(encodeURIComponent).join('/');
         const pos = { line: parseInt(m[2], 10) - 1, character: parseInt(m[3], 10) - 1 };
         return { uri: target, range: { start: pos, end: pos } };
+    },
+    'textDocument/references': async (p) => {
+        const refs = await references(p.textDocument.uri, p.position);
+        return refs.map(({ uri, range }) => ({ uri, range }));
+    },
+    'textDocument/prepareRename': async (p) => {
+        const refs = await references(p.textDocument.uri, p.position);
+        const here = refs.find((r) => r.uri === p.textDocument.uri && r.range.start.line === p.position.line &&
+            r.range.start.character <= p.position.character && p.position.character <= r.range.end.character);
+        if (!here || refs.some((r) => r.uri !== p.textDocument.uri)) return null;
+        return here.range;
+    },
+    'textDocument/rename': async (p) => {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p.newName) || KEYWORDS.includes(p.newName)) return null;
+        const refs = await references(p.textDocument.uri, p.position);
+        // A symbol declared in another file (an import) is not renamed from here.
+        if (!refs.length || refs.some((r) => r.uri !== p.textDocument.uri)) return null;
+        // A wider declaration (`P_sum` for `p.sum()`) keeps its prefix: only the name is replaced.
+        const w = Math.min(...refs.map((r) => r.range.end.character - r.range.start.character));
+        return { changes: { [p.textDocument.uri]: refs.map((r) => ({
+            range: { start: { line: r.range.start.line, character: r.range.end.character - w }, end: r.range.end },
+            newText: p.newName })) } };
     },
     'textDocument/completion': async (p) => {
         const text = docs.get(p.textDocument.uri) || '';
@@ -413,6 +452,8 @@ function handleMessage(msg) {
                 textDocumentSync: 1,          // full: every change carries the whole text
                 hoverProvider: true,
                 definitionProvider: true,
+                referencesProvider: true,
+                renameProvider: { prepareProvider: true },
                 completionProvider: { triggerCharacters: ['.'] },
                 signatureHelpProvider: { triggerCharacters: ['(', ','] },
                 documentSymbolProvider: true,

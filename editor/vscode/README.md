@@ -2,7 +2,8 @@
 
 Eskiu support for Visual Studio Code and editors built on it (Cursor, Antigravity,
 VSCodium): syntax highlighting, errors as you type, completion, hover with types and
-signatures, signature help, go to definition, an outline, formatting and a Run command.
+signatures, signature help, go to definition, references and rename, an outline,
+formatting and a Run command.
 
 ## Features
 
@@ -22,6 +23,10 @@ signatures, signature help, go to definition, an outline, formatting and a Run c
   highlighted; a dot-call leaves out `self`.
 - **Go to definition** (`--definition-at`) jumps to where a variable, function, method
   (also from a dot-call, inline methods included) or struct field is declared.
+- **Find references and rename** (`--references-at`): Shift+F12 lists every place in the
+  file that names the symbol under the cursor (a local resolves by scope, a field also in
+  `Point{x: 1}` literals); F2 renames them all. A symbol declared in another file (an
+  import) is not renamed.
 - **Quick fix** for a misspelled name: an error such as `undefined variable 'totl' (did you
   mean 'total'?)` offers "Change to 'total'" (Cmd/Ctrl+.). Uses of a `deprecated` function
   show as warnings with the replacement.

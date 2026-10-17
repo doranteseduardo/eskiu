@@ -552,6 +552,16 @@ for esk in "$here"/lsp/*.esk; do
         fi
     done < <(grep '^// HOVER ' "$esk" | sed 's#^// HOVER ##')
 
+    # `// REFS L:C L1:C1 L2:C2 ...`: --references-at L:C lists exactly those places.
+    while read -r q want; do
+        got="$("$ESKIUC" "$esk" --references-at "$q" 2>&1 | sed 's#^.*:\([0-9]*:[0-9]*\):[0-9]*$#\1#' | tr '\n' ' ' | sed 's/ $//')"
+        if [[ "$got" == "$want" ]]; then
+            ok "$name refs $q"
+        else
+            bad "$name refs $q" "expected '$want', got '$got'"
+        fi
+    done < <(grep '^// REFS ' "$esk" | sed 's#^// REFS ##')
+
     # `// COMPLETE L:C NAME...`: --complete-at L:C must offer every NAME.
     while read -r q names; do
         got="$("$ESKIUC" "$esk" --complete-at "$q" 2>/dev/null | cut -f2)"

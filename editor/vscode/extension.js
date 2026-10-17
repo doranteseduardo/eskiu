@@ -309,6 +309,52 @@ async function definition(document, position) {
         Math.max(0, parseInt(line, 10) - 1), Math.max(0, parseInt(col, 10) - 1)));
 }
 
+// `--references-at`: one FILE:LINE:COL:WIDTH per line, the checked copy of the buffer
+// being this document.
+async function referenceRanges(document, position) {
+    const at = `${position.line + 1}:${position.character + 1}`;
+    const { result, checked } = await withCurrentText(document, (file, cwd) =>
+        runCompiler([file, ...getCompilerFlags(), '--references-at', at], 5000, cwd, document.uri.fsPath), true);
+    const refs = [];
+    for (const row of result.stdout.split('\n')) {
+        const m = row.trim().match(/^(.+):(\d+):(\d+):(\d+)$/);
+        if (!m) continue;
+        const [, file, line, col, width] = m;
+        const uri = path.resolve(file) === path.resolve(checked) ? document.uri
+            : vscode.Uri.file(path.resolve(path.dirname(checked), file));
+        const start = new vscode.Position(parseInt(line, 10) - 1, parseInt(col, 10) - 1);
+        refs.push(new vscode.Location(uri, new vscode.Range(start, start.translate(0, parseInt(width, 10)))));
+    }
+    return refs;
+}
+
+async function references(document, position) {
+    return referenceRanges(document, position);
+}
+
+async function prepareRename(document, position) {
+    const refs = await referenceRanges(document, position);
+    const here = refs.find((r) => r.uri.toString() === document.uri.toString() && r.range.contains(position));
+    if (!here) throw new Error('No symbol to rename here.');
+    if (refs.some((r) => r.uri.toString() !== document.uri.toString()))
+        throw new Error('This symbol is declared in another file.');
+    return here.range;
+}
+
+async function rename(document, position, newName) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) || KEYWORDS.includes(newName))
+        throw new Error(`'${newName}' is not a valid name.`);
+    const refs = await referenceRanges(document, position);
+    if (!refs.length) return null;
+    if (refs.some((r) => r.uri.toString() !== document.uri.toString()))
+        throw new Error('This symbol is declared in another file.');
+    // A wider declaration (`P_sum` for `p.sum()`) keeps its prefix: only the name is replaced.
+    const w = Math.min(...refs.map((r) => r.range.end.character - r.range.start.character));
+    const edit = new vscode.WorkspaceEdit();
+    for (const r of refs) edit.replace(r.uri, new vscode.Range(r.range.end.translate(0, -w), r.range.end), newName);
+    return edit;
+}
+
 const KEYWORDS = [
     'if', 'else', 'for', 'in', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue',
     'return', 'match', 'struct', 'union', 'enum', 'interface', 'type', 'let', 'const', 'static',
@@ -554,6 +600,8 @@ function activate(context) {
         }),
         vscode.languages.registerHoverProvider('eskiu', { provideHover: hover }),
         vscode.languages.registerDefinitionProvider('eskiu', { provideDefinition: definition }),
+        vscode.languages.registerReferenceProvider('eskiu', { provideReferences: references }),
+        vscode.languages.registerRenameProvider('eskiu', { provideRenameEdits: rename, prepareRename }),
         vscode.languages.registerCompletionItemProvider('eskiu', { provideCompletionItems: complete }, '.'),
         vscode.languages.registerSignatureHelpProvider('eskiu', { provideSignatureHelp: signatureHelp }, '(', ','),
         vscode.languages.registerDocumentSymbolProvider('eskiu', { provideDocumentSymbols: documentSymbols }),

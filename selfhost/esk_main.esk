@@ -97,6 +97,7 @@ int is_value_opt(string o) {
     if (cg_streq(o, "--reloc") == 1 || cg_streq(o, "-reloc") == 1) { return 1; }
     if (cg_streq(o, "--hover-at") == 1 || cg_streq(o, "-hover-at") == 1) { return 1; }
     if (cg_streq(o, "--definition-at") == 1 || cg_streq(o, "-definition-at") == 1) { return 1; }
+    if (cg_streq(o, "--references-at") == 1 || cg_streq(o, "-references-at") == 1) { return 1; }
     return 0;
 }
 

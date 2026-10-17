@@ -151,6 +151,11 @@ static llvm::cl::opt<std::string> DefinitionAt("definition-at",
     llvm::cl::value_desc("LINE:COL"),
     llvm::cl::cat(EskiuCat));
 
+static llvm::cl::opt<std::string> ReferencesAt("references-at",
+    llvm::cl::desc("Print every reference to the symbol at LINE:COL, one per line: FILE:LINE:COL:WIDTH"),
+    llvm::cl::value_desc("LINE:COL"),
+    llvm::cl::cat(EskiuCat));
+
 static llvm::cl::opt<std::string> CompleteAt("complete-at",
     llvm::cl::desc("Print the completions at LINE:COL, one per line: kind, name, detail (tab-separated)"),
     llvm::cl::value_desc("LINE:COL"),
@@ -403,7 +408,7 @@ static int compilerMain(int argc, char** argv) {
         static const std::set<std::string> valueOpts = {
             "-o", "-target", "--target", "-mcpu", "--mcpu", "-mattr", "--mattr",
             "-reloc", "--reloc", "-link-arg", "--link-arg", "-hover-at", "--hover-at",
-            "-definition-at", "--definition-at", "-complete-at", "--complete-at", "-l", "-L",
+            "-definition-at", "--definition-at", "-references-at", "--references-at", "-complete-at", "--complete-at", "-l", "-L",
         };
         std::vector<char*> clArgv = { argv[0] };
         bool gotScript = false;
@@ -530,6 +535,30 @@ static int compilerMain(int argc, char** argv) {
             return 1;
         } catch (...) {
             std::cerr << "error: unknown internal error during definition\n";
+            std::cout << "(internal error)\n";
+            return 1;
+        }
+        return 0;
+    }
+
+    // Handle --references-at LINE:COL
+    if (!ReferencesAt.empty()) {
+        int line = 0, col = 0;
+        if (sscanf(ReferencesAt.c_str(), "%d:%d", &line, &col) != 2) {
+            std::cerr << "error: --references-at expects LINE:COL format\n"; return 1;
+        }
+        auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
+        if (!program) { std::cout << "(parse error)\n"; return 0; }
+        try {
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false; tc.warnDefaults = false;
+            tc.sourceFile = std::string(InputFilename);
+            bool ok = tc.check(program.get());
+            auto refs = tc.getReferencesAt(line, col);
+            if (refs.empty()) std::cout << (ok ? "(no symbol at " + std::to_string(line) + ":" + std::to_string(col) + ")"
+                                                : std::string("(semantic error)")) << "\n";
+            for (const auto& r : refs) std::cout << r << "\n";
+        } catch (const std::exception& e) {
+            std::cerr << "error: internal error during references: " << e.what() << "\n";
             std::cout << "(internal error)\n";
             return 1;
         }
