@@ -150,6 +150,11 @@ jobs:
       - name: Sema self-host parity
         run: tests/selfhost/tc_parity.sh
 
+      # Editor modes (--hover-at/--definition-at/--complete-at/--symbols): every
+      # tests/lsp query gives byte-identical output from both compilers.
+      - name: Editor modes self-host parity
+        run: tests/selfhost/lsp_parity.sh
+
       # Self-hosted code generator (selfhost/codegen.esk): emit LLVM IR, compile it
       # with clang, run, and compare exit code + stdout to the C++-built binary over
       # the synthetic corpus. Behavioral oracle (IR can't match byte-for-byte). clang
