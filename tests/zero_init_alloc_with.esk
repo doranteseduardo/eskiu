@@ -1,0 +1,60 @@
+// alloc_with returns zeroed memory whatever the allocator, as alloc<T> does: a Bump
+// after reset, a reused Pool block and a reused FirstFit region hand back old bytes,
+// which the compiler clears. A sum-type variant zeroes its payload area past the
+// variant's own fields, so its bytes are the same each time it is built.
+import <alloc>;
+import <io>;
+
+struct P { int64 a; int64 b; *int c; }
+enum Sh { Pt, Big(int64, int64, int64), Small(int8) }
+
+int64 sum_bytes(*uint8 p, int64 n) {
+    int64 s = 0;
+    for (i in 0..n) { s += (int64)p[i]; }
+    return s;
+}
+
+void dirty(*uint8 p, int64 n) {
+    for (i in 0..n) { p[i] = (uint8)0xAB; }
+}
+
+int main() {
+    uint8[256] buf;
+    let b: Bump; Bump_init(&b, &buf[0], 256);
+    *P p = alloc_with(&b, P, 2);
+    dirty((*uint8)p, 48);
+    Bump_reset(&b);
+    *P q = alloc_with(&b, P, 2);
+    printf("bump %d %d\n", (int)sum_bytes((*uint8)q, 48), q[1].c == null ? 1 : 0);
+
+    uint8[256] pbuf;
+    let pl: Pool; Pool_init(&pl, &pbuf[0], 256, 32);
+    *int64 x = alloc_with(&pl, int64, 4);
+    dirty((*uint8)x, 32);
+    Pool_free(&pl, (*void)x);
+    *int64 y = alloc_with(&pl, int64, 4);
+    printf("pool %d %d\n", (int)sum_bytes((*uint8)y, 32), y == x ? 1 : 0);
+
+    uint8[512] fbuf;
+    let ff: FirstFit; FirstFit_init(&ff, &fbuf[0], 512);
+    *int r = alloc_with(&ff, int, 16);
+    dirty((*uint8)r, 64);
+    FirstFit_free(&ff, (*void)r);
+    *int s = alloc_with(&ff, int, 16);
+    printf("firstfit %d\n", (int)sum_bytes((*uint8)s, 64));
+
+    *int none = alloc_with(&ff, int, 100000);
+    printf("too big %d\n", none == null ? 1 : 0);
+
+    Sh[2] shapes;
+    dirty((*uint8)&shapes[0], (int64)sizeof(shapes));
+    shapes[0] = Big(1, 2, 3);
+    shapes[0] = Small(4);
+    shapes[1] = Small(4);
+    *uint8 s0 = (*uint8)&shapes[0];
+    *uint8 s1 = (*uint8)&shapes[1];
+    int same = 1;
+    for (i in 0..(int64)sizeof(Sh)) { if (s0[i] != s1[i]) { same = 0; } }
+    printf("variant %d %d\n", same, (int)sum_bytes(s0 + 8, (int64)sizeof(Sh) - 8));
+    return 0;
+}
