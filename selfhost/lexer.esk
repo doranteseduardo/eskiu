@@ -664,6 +664,15 @@ Token lx_next(Lexer* lx) {
     if (c == 58)  { t.type = COLON;     return lx_finish(t, sp, lx.pos, sl, sc); }   // ':'
     if (c == 63)  { t.type = QUESTION;  return lx_finish(t, sp, lx.pos, sl, sc); }   // '?'
 
+    // A UTF-8 character outside a string or comment: one error for the whole sequence
+    // (identifiers are ASCII), as the C++ lexer.
+    if (c >= 192) {
+        while (lx_at_end(lx) == 0 && (lx_peek(lx) & 192) == 128) { lx_advance(lx); }
+        lx_error(sl, sc, lx_cat3("non-ASCII character '", lx_span(lx.src, sp, lx.pos),
+                                 "' outside a string or comment (identifiers and operators are ASCII)"));
+        t.type = UNKNOWN;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
     // Anything else: a single-byte UNKNOWN token (matches the switch default).
     uint8[48] ub;
     if (c >= 32 && c < 127) { sprintf((string)&ub[0], "unexpected character '%c'", c); }
