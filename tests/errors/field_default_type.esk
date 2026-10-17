@@ -1,0 +1,3 @@
+// EXPECT-ERROR: default value of field 'w': cannot convert
+struct N { int w = "no"; }
+int main() { N n; return n.w; }

@@ -1,0 +1,32 @@
+// Field defaults: a constant after a field's name is what the field holds when nothing
+// sets it: an omitted field of a literal (named or positional), a local or global with
+// no initializer (each declaration, in a loop and in an async function too), nested
+// structs and arrays of them, and a packed struct. A generic instance starts at zero.
+extern int printf(string fmt, ...);
+struct Opts { int timeout_ms = 30000; bool follow = true; string name = "default"; double ratio = 0.5; int plain; }
+struct Outer { Opts o; int n = 7; Opts[2] pair; }
+packed struct Pk { uint8 a = 9; int64 b = 100; }
+Opts g_opts;
+Outer g_outer;
+void show(Opts o) { printf("%d %d %s %.1f %d\n", o.timeout_ms, o.follow ? 1 : 0, o.name, o.ratio, o.plain); }
+int main() {
+    Opts a;
+    show(a);
+    Opts b = Opts{timeout_ms: 5};
+    show(b);
+    Opts c = Opts{1, false};
+    show(c);
+    show(g_opts);
+    Outer o;
+    printf("%d %d %d %s\n", o.n, o.o.timeout_ms, o.pair[1].timeout_ms, o.pair[0].name);
+    printf("%d %d\n", g_outer.n, g_outer.pair[1].timeout_ms);
+    Opts[3] arr;
+    printf("%d %d\n", arr[2].timeout_ms, arr[0].follow ? 1 : 0);
+    for (i in 0..2) { Opts l; l.timeout_ms = l.timeout_ms + i; printf("%d ", l.timeout_ms); }
+    printf("\n");
+    a = Opts{};
+    show(a);
+    Pk p; Pk q = Pk{b: 1};
+    printf("%d %lld %d %lld\n", p.a, p.b, q.a, q.b);
+    return 0;
+}

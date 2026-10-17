@@ -1,0 +1,4 @@
+// EXPECT-ERROR: default value of field 'c' is not a compile-time constant
+int g() { return 1; }
+struct N { int c = g(); }
+int main() { N n; return n.c; }

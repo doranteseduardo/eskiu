@@ -1,0 +1,29 @@
+// An async function's locals take their defaults at each declaration, and a generic
+// instance's fields start at zero.
+import <future>;
+import <timer>;
+import <eventloop>;
+extern int printf(string fmt, ...);
+struct Opts { int timeout_ms = 30000; string name = "d"; }
+struct Box<T> { T v; Opts o; }
+EventLoop* g;
+async int work() {
+    int s = 0;
+    for (i in 0..3) {
+        Opts o;
+        o.timeout_ms = o.timeout_ms + i;
+        int t = await timer_after(g, (int64)1);
+        s = s + o.timeout_ms + t;
+    }
+    return s;
+}
+int main() {
+    g = el_new(64);
+    *Future<int> f = work();
+    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
+    printf("%d\n", f.value);
+    Future_free_polled<int>(f);
+    Box<int> b;
+    printf("%d %d\n", b.v, b.o.timeout_ms);
+    return 0;
+}
