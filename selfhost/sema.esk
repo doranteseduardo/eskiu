@@ -2439,7 +2439,7 @@ string sema_assign_strict(Sema* s, string t0, string src0) {
             return sema_cat(sema_cat(sema_cat(sema_cat("cannot convert struct '", src0), "' to interface '"), t0), "' by value; pass a pointer (&x)");
         }
         string nom = cs; while ((int)nom[0] == 42) { nom = sema_sub_str(nom, 1, sema_slen(nom)); }
-        string why = sema_iface_mismatch(s, sema_base_name(nom), ifc);
+        string why = sema_iface_mismatch_full(s, sema_base_name(nom), nom, ifc);
         if (why[0] == 0 && sp == 1) { return ""; }
         if (why[0] != 0) {
             return sema_cat(sema_cat(sema_cat(sema_cat(sema_cat("'", src0), "' does not satisfy interface '"), t0), "': "), why);
@@ -2563,7 +2563,11 @@ int sema_iface_types_differ(Sema* s, string a, string b) {
 // A struct implements a method inline or as a free `Type_method`; a scalar primitive
 // through a free function named like the method whose first parameter is it. "" when
 // satisfied, else the reason. Mirrors the C++ interfaceMismatch.
-string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
+string sema_iface_mismatch_full(Sema* s, string sn, string full, *DeclNode iface);
+string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) { return sema_iface_mismatch_full(s, sn, sn, iface); }
+// `full` is the type as written (`Ctr<int>`), `sn` its base name: a generic instance
+// may implement a method as a free function named after the instance (`Ctr_int_next`).
+string sema_iface_mismatch_full(Sema* s, string sn, string full, *DeclNode iface) {
     *DeclNode sd = sema_find_struct(s, sn);
     int i = 0; int n = List_len<*DeclNode>(&iface.methods);
     while (i < n) {
@@ -2574,6 +2578,9 @@ string sema_iface_mismatch(Sema* s, string sn, *DeclNode iface) {
             while (j < mn) { *DeclNode c = List_get<*DeclNode>(&sd.methods, j); if (sema_streq(c.name, m.name) == 1) { impl = c; } j = j + 1; }
         }
         if (impl == null) { impl = sema_find_fndecl(s, sema_cat(sema_cat(sn, "_"), m.name)); skip = 1; }
+        if (impl == null && sema_has_lt(full) == 1) {
+            impl = sema_find_fndecl(s, sema_cat(sema_cat(sema_flat_name(full), "_"), m.name)); skip = 1;
+        }
         if (impl == null && sema_is_scalar_prim(sn) == 1) {
             *DeclNode ff = sema_find_fndecl(s, m.name);
             if (ff != null && List_len<Param>(&ff.params) > 0
@@ -3423,6 +3430,7 @@ int sema_check_constraints(Sema* s, List<TypeParam>* tps, List<string>* targs) {
         string concrete = sema_isub(s, List_get<string>(targs, t));
         string bare = sema_canon(s, concrete);
         while ((int)bare[0] == 42) { bare = sema_sub_str(bare, 1, sema_slen(bare)); }
+        string full = bare;
         bare = sema_base_name(bare);
         int ci = 0;
         if (sema_in_list(&s.tparams, bare) == 1) { ci = List_len<string>(&tp.constraints); }   // still abstract
@@ -3433,7 +3441,7 @@ int sema_check_constraints(Sema* s, List<TypeParam>* tps, List<string>* targs) {
                 s.had_error = 1; ok = 0;
                 dprintf(2, "error: %s:%d:%d: unknown constraint interface '%s'\n", s.filename, s.line, s.col, ic);
             } else {
-                string why = sema_iface_mismatch(s, bare, iface);
+                string why = sema_iface_mismatch_full(s, bare, full, iface);
                 if (why[0] != 0) {
                     s.had_error = 1; ok = 0;
                     dprintf(2, "error: %s:%d:%d: type '%s' does not satisfy constraint '%s' (required by a bounded type parameter): %s\n",
@@ -6969,22 +6977,25 @@ void sema_stmt_k(Sema* s, *StmtNode st) {
             if (has_wild == 0) {
                 string sty = sema_struct_of_type(sema_infer_type(s, st.expr));
                 if (sema_is_enum(s, sty) == 1) {
-                    int reported = 0;
+                    string missing = "";
                     int ei = 0;
                     int en = List_len<EVar>(&s.evars);
                     while (ei < en) {
                         EVar ev = List_get<EVar>(&s.evars, ei);
-                        if (reported == 0 && sema_streq(ev.en, sty) == 1) {
+                        if (sema_streq(ev.en, sty) == 1) {
                             int covered = sema_in_list(&seen, ev.variant);
                             if (covered == 0 && ev.plain == 1 && sema_in_list(&seen_vals, ev.val) == 1) { covered = 1; }
                             if (covered == 0) {
-                                s.had_error = 1;
-                                dprintf(2, "error: %s:%d:%d: non-exhaustive match on '%s': missing '%s'\n",
-                                       s.filename, s.line, s.col, sty, ev.variant);
-                                reported = 1;
+                                if (missing[0] != 0) { missing = sema_cat(missing, ", "); }
+                                missing = sema_cat(sema_cat(sema_cat(missing, "'"), ev.variant), "'");
                             }
                         }
                         ei = ei + 1;
+                    }
+                    if (missing[0] != 0) {
+                        s.had_error = 1;
+                        dprintf(2, "error: %s:%d:%d: non-exhaustive match on '%s': missing %s (add those arms or a `_` default)\n",
+                               s.filename, s.line, s.col, sty, missing);
                     }
                 }
             }
