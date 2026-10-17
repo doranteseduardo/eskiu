@@ -1,0 +1,2 @@
+// A lone CR between tokens is a blank (to the lexer too), so it becomes a space.
+int main() {    int y = 1;    return y - 1;}

@@ -442,7 +442,7 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
             ln.i = e + 2;
             continue;
         }
-        if (c == 32 || c == 9) {
+        if (c == 32 || c == 9 || c == 13) {   // a lone CR is a blank to the lexer
             int b = fmt_back(&ln.cur);
             if (ln.cur.len > 0 && b != 32 && b != 40 && b != 91) {
                 String_push(&ln.cur, (char)32);

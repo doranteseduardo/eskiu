@@ -236,7 +236,7 @@ std::vector<std::string> fmtLayoutLine(FmtLayout& st, const std::string& t, char
             i = e + 2;
             continue;
         }
-        if (c == ' ' || c == '\t') {
+        if (c == ' ' || c == '\t' || c == '\r') {   // a lone CR is a blank to the lexer
             if (!cur.empty() && cur.back() != ' ' && cur.back() != '(' && cur.back() != '[') cur += ' ';
             i++;
             continue;
