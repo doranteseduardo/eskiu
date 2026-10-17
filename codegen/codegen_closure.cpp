@@ -275,47 +275,55 @@ void CodeGen::emitUncaughtReporter() {
     auto isType = [&](const char* name) {
         return b.CreateICmpEQ(b.CreateCall(strcmpFn, {tname, b.CreateGlobalString(name)}), b.getInt32(0));
     };
-    llvm::Value* isInt = b.CreateOr(isType("int"), isType("int32"));
-    llvm::Value* isI64 = isType("int64");
-    llvm::Value* isStr = isType("string");
-    auto* bInt = llvm::BasicBlock::Create(c, "int", handler);
-    auto* bNot = llvm::BasicBlock::Create(c, "notint", handler);
-    auto* bI64 = llvm::BasicBlock::Create(c, "i64", handler);
-    auto* bNot64 = llvm::BasicBlock::Create(c, "noti64", handler);
-    auto* bStr = llvm::BasicBlock::Create(c, "str", handler);
-    auto* bOther = llvm::BasicBlock::Create(c, "other", handler);
+    // One entry per primitive type name an exception can carry (exceptionTypeName): the
+    // payload is read with that type only after its name matched (a smaller payload has
+    // fewer bytes), widened, and formatted; any other type prints its name alone.
+    struct Entry { const char* name; char kind; unsigned bits; };
+    static const Entry entries[] = {
+        {"int", 'i', 32}, {"int8", 'i', 8}, {"int16", 'i', 16}, {"int64", 'i', 64},
+        {"uint", 'u', 32}, {"uint8", 'u', 8}, {"uint16", 'u', 16}, {"uint64", 'u', 64},
+        {"double", 'f', 64}, {"float", 'f', 32}, {"bool", 'b', 8}, {"char", 'c', 8}, {"string", 's', 0}};
+    const std::string head = "error: uncaught exception: %s";
     auto* bOut = llvm::BasicBlock::Create(c, "out", handler);
-    const char* head = "error: uncaught exception: ";
-    b.CreateCondBr(isInt, bInt, bNot);
-    b.SetInsertPoint(bInt);
-    llvm::Value* n1 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
-        b.CreateGlobalString(std::string(head) + "%s %d\n"), tname, b.CreateLoad(i32, pay)});
-    b.CreateBr(bOut);
-    b.SetInsertPoint(bNot);
-    b.CreateCondBr(isI64, bI64, bNot64);
-    b.SetInsertPoint(bI64);
-    llvm::Value* n2 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
-        b.CreateGlobalString(std::string(head) + "%s %lld\n"), tname, b.CreateLoad(i64, pay)});
-    b.CreateBr(bOut);
-    // The payload is read as a string pointer only once the type says it is one (a
-    // smaller payload, such as a struct of one int, has no 8 bytes to read).
-    auto* bStrChk = llvm::BasicBlock::Create(c, "strchk", handler);
-    b.SetInsertPoint(bNot64);
-    b.CreateCondBr(isStr, bStrChk, bOther);
-    b.SetInsertPoint(bStrChk);
-    llvm::Value* sval = b.CreateLoad(ptrTy, pay);
-    b.CreateCondBr(b.CreateIsNotNull(sval), bStr, bOther);
-    b.SetInsertPoint(bStr);
-    llvm::Value* n3 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
-        b.CreateGlobalString(std::string(head) + "%s \"%s\"\n"), tname, sval});
-    b.CreateBr(bOut);
-    b.SetInsertPoint(bOther);
-    llvm::Value* n4 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
-        b.CreateGlobalString(std::string(head) + "%s\n"), tname});
+    std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> lens;
+    for (const Entry& e : entries) {
+        auto* yes = llvm::BasicBlock::Create(c, std::string("is.") + e.name, handler);
+        auto* next = llvm::BasicBlock::Create(c, std::string("not.") + e.name, handler);
+        b.CreateCondBr(isType(e.name), yes, next);
+        b.SetInsertPoint(yes);
+        llvm::Value* fmt = nullptr;
+        llvm::Value* arg = nullptr;
+        if (e.kind == 'i' || e.kind == 'u') {
+            llvm::Value* v = b.CreateLoad(b.getIntNTy(e.bits), pay);
+            arg = e.kind == 'i' ? b.CreateSExt(v, i64) : b.CreateZExt(v, i64);
+            if (e.bits == 64) arg = v;
+            fmt = b.CreateGlobalString(head + (e.kind == 'i' ? " %lld\n" : " %llu\n"));
+        } else if (e.kind == 'f') {
+            llvm::Value* v = b.CreateLoad(e.bits == 32 ? b.getFloatTy() : b.getDoubleTy(), pay);
+            arg = e.bits == 32 ? b.CreateFPExt(v, b.getDoubleTy()) : v;
+            fmt = b.CreateGlobalString(head + " %g\n");
+        } else if (e.kind == 'b') {
+            llvm::Value* v = b.CreateICmpNE(b.CreateLoad(b.getInt8Ty(), pay), b.getInt8(0));
+            arg = b.CreateSelect(v, b.CreateGlobalString("true"), b.CreateGlobalString("false"));
+            fmt = b.CreateGlobalString(head + " %s\n");
+        } else if (e.kind == 'c') {
+            arg = b.CreateZExt(b.CreateLoad(b.getInt8Ty(), pay), i32);
+            fmt = b.CreateGlobalString(head + " '%c'\n");
+        } else {
+            arg = b.CreateLoad(ptrTy, pay);
+            fmt = b.CreateSelect(b.CreateIsNull(arg), b.CreateGlobalString(head + "\n"),
+                                 b.CreateGlobalString(head + " \"%s\"\n"));
+        }
+        lens.push_back({b.CreateCall(snprintfFn, {buf, b.getInt64(512), fmt, tname, arg}), b.GetInsertBlock()});
+        b.CreateBr(bOut);
+        b.SetInsertPoint(next);
+    }
+    lens.push_back({b.CreateCall(snprintfFn, {buf, b.getInt64(512), b.CreateGlobalString(head + "\n"), tname}),
+                    b.GetInsertBlock()});
     b.CreateBr(bOut);
     b.SetInsertPoint(bOut);
-    llvm::PHINode* n = b.CreatePHI(i32, 4);
-    n->addIncoming(n1, bInt); n->addIncoming(n2, bI64); n->addIncoming(n3, bStr); n->addIncoming(n4, bOther);
+    llvm::PHINode* n = b.CreatePHI(i32, (unsigned)lens.size());
+    for (auto& [v, bb] : lens) n->addIncoming(v, bb);
     llvm::Value* len = b.CreateSelect(b.CreateICmpSGT(n, b.getInt32(511)), b.getInt32(511), n);
     llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", i32, ptrTy);
     b.CreateCall(fflushFn, {llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy))});

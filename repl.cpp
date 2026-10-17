@@ -351,8 +351,22 @@ std::string describeException(void* ex) {
     if (!type) return "";
     std::string t = type, out = t;
     const char* pay = p + 16;
+    // The same primitives as a compiled program's uncaught-exception report.
     if (t == "int" || t == "int32") out += " " + std::to_string(readAt<int32_t>(pay));
+    else if (t == "int8") out += " " + std::to_string(readAt<int8_t>(pay));
+    else if (t == "int16") out += " " + std::to_string(readAt<int16_t>(pay));
     else if (t == "int64") out += " " + std::to_string(readAt<long long>(pay));
+    else if (t == "uint" || t == "uint32") out += " " + std::to_string(readAt<uint32_t>(pay));
+    else if (t == "uint8") out += " " + std::to_string(readAt<uint8_t>(pay));
+    else if (t == "uint16") out += " " + std::to_string(readAt<uint16_t>(pay));
+    else if (t == "uint64") out += " " + std::to_string(readAt<unsigned long long>(pay));
+    else if (t == "double" || t == "float") {
+        char b[64];
+        std::snprintf(b, sizeof b, " %g", t == "float" ? (double)readAt<float>(pay) : readAt<double>(pay));
+        out += b;
+    }
+    else if (t == "bool") out += readAt<uint8_t>(pay) ? " true" : " false";
+    else if (t == "char") out += std::string(" '") + readAt<char>(pay) + "'";
     else if (t == "string") {
         const char* s = readAt<const char*>(pay);
         if (s) out += " " + quoteText(s, std::strlen(s), '"');
