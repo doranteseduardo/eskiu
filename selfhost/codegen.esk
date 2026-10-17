@@ -8918,6 +8918,77 @@ void cg_emit_tydecl_body(Codegen* g, *DeclNode d) {
     cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
 }
 
+// One type of the uncaught-exception report: block `is<k>` (the name matched: load the
+// payload as that type, widen, snprintf) and `not<k>` (try the next). `kind` is 'i'/'u'
+// (signed/unsigned of `bits`), 'f' (float/double), 'b' bool, 'c' char, 's' string.
+void cg_ux_entry(Codegen* g, String* phi, int k, string name, int kind, int bits) {
+    string ks = cg_itoa(k);
+    string nm = cg_string_global_n(g, name, cg_strlen(name));
+    cg_emit(g, "  %c"); cg_emit(g, ks); cg_emit(g, " = call i32 @strcmp(ptr %tn, ptr "); cg_emit(g, nm); cg_emit(g, ")\n");
+    cg_emit(g, "  %e"); cg_emit(g, ks); cg_emit(g, " = icmp eq i32 %c"); cg_emit(g, ks); cg_emit(g, ", 0\n");
+    cg_emit(g, "  br i1 %e"); cg_emit(g, ks); cg_emit(g, ", label %is"); cg_emit(g, ks); cg_emit(g, ", label %not"); cg_emit(g, ks); cg_emit(g, "\n");
+    cg_emit(g, "is"); cg_emit(g, ks); cg_emit(g, ":\n");
+    string head = "error: uncaught exception: %s";
+    string fmt = ""; string arg = ""; string aty = "i64";
+    string v = cg_cat("%v", ks); string w = cg_cat("%w", ks);
+    if (kind == 105 || kind == 117) {
+        string it = cg_cat("i", cg_itoa(bits));
+        cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load "); cg_emit(g, it); cg_emit(g, ", ptr %pay\n");
+        if (bits == 64) { arg = v; }
+        else {
+            cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = ");
+            if (kind == 105) { cg_emit(g, "sext "); } else { cg_emit(g, "zext "); }
+            cg_emit(g, it); cg_emit(g, " "); cg_emit(g, v); cg_emit(g, " to i64\n");
+            arg = w;
+        }
+        if (kind == 105) { fmt = cg_cat(head, " %lld\n"); } else { fmt = cg_cat(head, " %llu\n"); }
+        fmt = cg_string_global_n(g, fmt, cg_strlen(fmt));
+    } else if (kind == 102) {
+        aty = "double";
+        if (bits == 32) {
+            cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load float, ptr %pay\n");
+            cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = fpext float "); cg_emit(g, v); cg_emit(g, " to double\n");
+            arg = w;
+        } else {
+            cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load double, ptr %pay\n");
+            arg = v;
+        }
+        string f0 = cg_cat(head, " %g\n");
+        fmt = cg_string_global_n(g, f0, cg_strlen(f0));
+    } else if (kind == 98) {
+        aty = "ptr";
+        string tt = cg_string_global_n(g, "true", 4); string ff = cg_string_global_n(g, "false", 5);
+        cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load i8, ptr %pay\n");
+        cg_emit(g, "  %t"); cg_emit(g, ks); cg_emit(g, " = icmp ne i8 "); cg_emit(g, v); cg_emit(g, ", 0\n");
+        cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = select i1 %t"); cg_emit(g, ks); cg_emit(g, ", ptr "); cg_emit(g, tt);
+        cg_emit(g, ", ptr "); cg_emit(g, ff); cg_emit(g, "\n");
+        arg = w;
+        string f0 = cg_cat(head, " %s\n");
+        fmt = cg_string_global_n(g, f0, cg_strlen(f0));
+    } else if (kind == 99) {
+        aty = "i32";
+        cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load i8, ptr %pay\n");
+        cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = zext i8 "); cg_emit(g, v); cg_emit(g, " to i32\n");
+        arg = w;
+        string f0 = cg_cat(head, " '%c'\n");
+        fmt = cg_string_global_n(g, f0, cg_strlen(f0));
+    } else {
+        aty = "ptr";
+        string f1 = cg_cat(head, "\n"); string f2 = cg_cat(head, " \"%s\"\n");
+        string g1 = cg_string_global_n(g, f1, cg_strlen(f1)); string g2 = cg_string_global_n(g, f2, cg_strlen(f2));
+        cg_emit(g, "  "); cg_emit(g, v); cg_emit(g, " = load ptr, ptr %pay\n");
+        cg_emit(g, "  %t"); cg_emit(g, ks); cg_emit(g, " = icmp eq ptr "); cg_emit(g, v); cg_emit(g, ", null\n");
+        cg_emit(g, "  "); cg_emit(g, w); cg_emit(g, " = select i1 %t"); cg_emit(g, ks); cg_emit(g, ", ptr "); cg_emit(g, g1);
+        cg_emit(g, ", ptr "); cg_emit(g, g2); cg_emit(g, "\n");
+        arg = v; fmt = w;
+    }
+    cg_emit(g, "  %n"); cg_emit(g, ks); cg_emit(g, " = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr ");
+    cg_emit(g, fmt); cg_emit(g, ", ptr %tn, "); cg_emit(g, aty); cg_emit(g, " "); cg_emit(g, arg); cg_emit(g, ")\n");
+    cg_emit(g, "  br label %out\n");
+    cg_emit(g, "not"); cg_emit(g, ks); cg_emit(g, ":\n");
+    String_append(phi, cg_cat(cg_cat(cg_cat(cg_cat("[ %n", ks), ", %is"), ks), " ], "));
+}
+
 // A program that throws reports an exception nobody catches by type and value
 // (mirrors the C++ emitUncaughtReporter): a constructor installs a std::terminate
 // handler that rethrows into a catch-all, prints to stderr and aborts.
@@ -8930,14 +9001,6 @@ void cg_emit_uncaught(Codegen* g, *Program prog) {
     cg_ensure_extern(g, "write", "declare i64 @write(i32, ptr, i64)\n");
     cg_ensure_extern(g, "abort", "declare void @abort()\n");
     cg_ensure_extern(g, "_ZSt13set_terminatePFvvE", "declare ptr @_ZSt13set_terminatePFvvE(ptr)\n");
-    String_append(&g.globals, "@.eskiu.ux.int = private unnamed_addr constant [4 x i8] c\"int\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.int32 = private unnamed_addr constant [6 x i8] c\"int32\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.int64 = private unnamed_addr constant [6 x i8] c\"int64\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.string = private unnamed_addr constant [7 x i8] c\"string\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.f1 = private unnamed_addr constant [34 x i8] c\"error: uncaught exception: %s %d\\0A\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.f2 = private unnamed_addr constant [36 x i8] c\"error: uncaught exception: %s %lld\\0A\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.f3 = private unnamed_addr constant [36 x i8] c\"error: uncaught exception: %s \\22%s\\22\\0A\\00\"\n");
-    String_append(&g.globals, "@.eskiu.ux.f4 = private unnamed_addr constant [31 x i8] c\"error: uncaught exception: %s\\0A\\00\"\n");
     String_append(&g.globals, "@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 65535, ptr @__eskiu_install_terminate, ptr null }]\n");
     cg_emit(g, "define internal void @__eskiu_terminate() personality ptr @"); cg_emit(g, cg_eh_pers(g)); cg_emit(g, " {\n");
     cg_emit(g, "entry:\n  %buf = alloca [512 x i8]\n  invoke void @__cxa_rethrow() to label %never unwind label %lp\n");
@@ -8945,19 +9008,27 @@ void cg_emit_uncaught(Codegen* g, *Program prog) {
     cg_emit(g, "lp:\n  %pad = landingpad { ptr, i32 } catch ptr null\n  %exc = extractvalue { ptr, i32 } %pad, 0\n");
     cg_emit(g, "  %obj = call ptr @__cxa_begin_catch(ptr %exc)\n");
     cg_emit(g, "  %tnp = getelementptr i8, ptr %obj, i64 8\n  %tn = load ptr, ptr %tnp\n  %pay = getelementptr i8, ptr %obj, i64 16\n");
-    cg_emit(g, "  %c1 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.int)\n  %c2 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.int32)\n");
-    cg_emit(g, "  %c3 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.int64)\n  %c4 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.string)\n");
-    cg_emit(g, "  %e1 = icmp eq i32 %c1, 0\n  %e2 = icmp eq i32 %c2, 0\n  %isint = or i1 %e1, %e2\n");
-    cg_emit(g, "  br i1 %isint, label %int, label %notint\n");
-    cg_emit(g, "int:\n  %iv = load i32, ptr %pay\n  %n1 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f1, ptr %tn, i32 %iv)\n  br label %out\n");
-    cg_emit(g, "notint:\n  %e3 = icmp eq i32 %c3, 0\n  br i1 %e3, label %i64, label %noti64\n");
-    cg_emit(g, "i64:\n  %lv = load i64, ptr %pay\n  %n2 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f2, ptr %tn, i64 %lv)\n  br label %out\n");
-    // The payload is read as a string pointer only once the type says it is one (as the C++).
-    cg_emit(g, "noti64:\n  %e4 = icmp eq i32 %c4, 0\n  br i1 %e4, label %strchk, label %other\n");
-    cg_emit(g, "strchk:\n  %sv = load ptr, ptr %pay\n  %nn = icmp ne ptr %sv, null\n  br i1 %nn, label %str, label %other\n");
-    cg_emit(g, "str:\n  %n3 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f3, ptr %tn, ptr %sv)\n  br label %out\n");
-    cg_emit(g, "other:\n  %n4 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f4, ptr %tn)\n  br label %out\n");
-    cg_emit(g, "out:\n  %n = phi i32 [ %n1, %int ], [ %n2, %i64 ], [ %n3, %str ], [ %n4, %other ]\n");
+    // One entry per primitive type an exception can carry (mirrors the C++ table): the
+    // payload is read with that type only after its name matched.
+    let phi: String; String_init(&phi, 256);
+    cg_ux_entry(g, &phi, 0, "int", 105, 32);
+    cg_ux_entry(g, &phi, 1, "int8", 105, 8);
+    cg_ux_entry(g, &phi, 2, "int16", 105, 16);
+    cg_ux_entry(g, &phi, 3, "int64", 105, 64);
+    cg_ux_entry(g, &phi, 4, "uint", 117, 32);
+    cg_ux_entry(g, &phi, 5, "uint8", 117, 8);
+    cg_ux_entry(g, &phi, 6, "uint16", 117, 16);
+    cg_ux_entry(g, &phi, 7, "uint64", 117, 64);
+    cg_ux_entry(g, &phi, 8, "double", 102, 64);
+    cg_ux_entry(g, &phi, 9, "float", 102, 32);
+    cg_ux_entry(g, &phi, 10, "bool", 98, 8);
+    cg_ux_entry(g, &phi, 11, "char", 99, 8);
+    cg_ux_entry(g, &phi, 12, "string", 115, 0);
+    string fo0 = "error: uncaught exception: %s\n";
+    string fo = cg_string_global_n(g, fo0, cg_strlen(fo0));
+    cg_emit(g, "  %nz = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr "); cg_emit(g, fo); cg_emit(g, ", ptr %tn)\n");
+    cg_emit(g, "  br label %out\n");
+    cg_emit(g, "out:\n  %n = phi i32 "); cg_emit(g, (string)String_cstr(&phi)); cg_emit(g, "[ %nz, %not12 ]\n");
     cg_emit(g, "  %big = icmp sgt i32 %n, 511\n  %len = select i1 %big, i32 511, i32 %n\n  %len64 = sext i32 %len to i64\n");
     cg_emit(g, "  %fl = call i32 @fflush(ptr null)\n  %wr = call i64 @write(i32 2, ptr %buf, i64 %len64)\n  call void @abort()\n  unreachable\n}\n");
     cg_emit(g, "define internal void @__eskiu_install_terminate() {\nentry:\n  %old = call ptr @_ZSt13set_terminatePFvvE(ptr @__eskiu_terminate)\n  ret void\n}\n");
