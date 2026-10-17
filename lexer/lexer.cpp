@@ -627,6 +627,15 @@ Token Lexer::next_token() {
             }
             return Token(TokenType::DOT, ".", start_line, start_col);
         default: {
+            // A UTF-8 character outside a string or comment: one error for the whole
+            // sequence (identifiers are ASCII).
+            if ((unsigned char)c >= 0xC0) {
+                std::string seq(1, c);
+                while (!is_at_end() && ((unsigned char)peek() & 0xC0) == 0x80) seq += advance();
+                lexError(start_line, start_col, "non-ASCII character '" + seq +
+                         "' outside a string or comment (identifiers and operators are ASCII)");
+                return Token(TokenType::UNKNOWN, seq, start_line, start_col);
+            }
             char hex[8];
             std::snprintf(hex, sizeof hex, "0x%02X", (unsigned char)c);
             lexError(start_line, start_col, std::isprint((unsigned char)c)
