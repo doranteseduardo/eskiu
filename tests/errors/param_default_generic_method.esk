@@ -1,0 +1,3 @@
+// EXPECT-ERROR: cannot have default values
+struct B<T> { T v; int get(int k = 1) { return k; } }
+int main() { return 0; }

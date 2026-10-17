@@ -1,0 +1,4 @@
+// EXPECT-ERROR: is not a constant (a literal or an integer constant expression)
+int g(int x) { return x; }
+int f(int a = g(2)) { return a; }
+int main() { return f(); }

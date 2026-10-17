@@ -1,0 +1,41 @@
+// Default parameter values: a call that omits trailing arguments gets the defaults.
+// A default is a literal or an integer constant expression, folded where the function
+// is declared (a caller's local of the same name does not change it).
+import <future>;
+extern int printf(string fmt, ...);
+const int BASE = 400;
+enum Mode { Plain, Tls = 7 }
+int connect(string host, int port = BASE + 43, Mode m = Tls, double t = -1.5, bool v = true) {
+    printf("%s:%d m=%d t=%.1f v=%d\n", host, port, (int)m, t, v ? 1 : 0);
+    return port;
+}
+struct Srv {
+    int n;
+    int add(int k = 10) { return self.n + k; }
+}
+int Srv_mul(*Srv self, int k = 3) { return self.n * k; }
+struct Outer { Srv inner; }
+int later(int x = 5);
+T pick<T>(T a, int n = 2) { return a; }
+Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
+async int work(int x, int mul = 3) { int q = await rdy<int>(x); return q * mul; }
+string label(string s = "none", char c = 'x') { printf("%s %c\n", s, c); return s; }
+int main() {
+    int BASE = 1;
+    connect("a");
+    connect("b", 80);
+    connect("c", 80, Plain);
+    connect("d", 1, Plain, 2.5, false);
+    Srv s = Srv{n: 2};
+    printf("%d %d %d %d\n", s.add(), s.add(1), s.mul(), later());
+    Outer o = Outer{inner: Srv{n: 4}};
+    *Outer po = &o;
+    printf("%d %d\n", o.inner.add(), po.inner.mul());
+    printf("%d %d\n", pick(5), pick<int>(6, 1));
+    Future<int>* f = work(4);
+    printf("%d\n", f.value);
+    label();
+    label("yes");
+    return BASE - 1;
+}
+int later(int x) { return x * 2; }

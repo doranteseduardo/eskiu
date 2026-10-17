@@ -1,0 +1,6 @@
+// EXPECT-ERROR: dbg needs a value: its argument is a void call
+void f() {}
+int main() {
+    dbg(f());
+    return 0;
+}

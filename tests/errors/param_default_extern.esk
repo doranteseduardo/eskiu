@@ -1,0 +1,3 @@
+// EXPECT-ERROR: a default value is allowed only on a function's parameter
+extern int h(int a = 1);
+int main() { return 0; }
