@@ -1,0 +1,2 @@
+// EXPECT-ERROR: non-ASCII character 'ñ' outside a string or comment (identifiers and operators are ASCII)
+int main() { int año = 1; return año; }
