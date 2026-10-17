@@ -1065,7 +1065,7 @@ Available modules:
 | `<io>`       | `printf`, `fprintf`, `sprintf`, `scanf`, `puts`; `print`, `println`, `print_err`, `println_err`, `read_line`, `input`, `read_all_stdin` |
 | `<mem>`      | `alloc<T>(n)`, `free(p)`, `memcpy`, `memset`, `memmove`, `memcmp`, `strlen` |
 | `<libc>`     | the common C library for ported code (opt-in): string.h, stdlib.h (`malloc`, `strtoll`, `qsort`, ...), stdio.h (`snprintf`, `sscanf`, `fopen`, ...), ctype.h, the rest of libm (`sin`, `log`, `round`, ...), POSIX unistd, `libc_errno()` |
-| `<atomic>`   | `atomic_load`/`store`/`swap`/`cas`/`fetch_add`... on `int`, `int64` (`...64`) and pointer (`..._ptr`) cells, `atomic_fence()` |
+| `<atomic>`   | `atomic_load`/`store`/`swap`/`cas`/`fetch_add`... on `int`, `int64` (`...64`) and pointer (`..._ptr`) cells, `..._relaxed` forms, `atomic_fence()` |
 | `<alloc>`    | `Bump`, `Arena`, `Pool`, `FirstFit`: explicit allocators over a buffer you own (the Zig model; not a `malloc` replacement) |
 | `<either>`   | sum types: `Option<T>`, `Either<A,B>` + helpers (built on generic algebraic enums) |
 | `<futureval>`| value-returning combinators: `select2v` -> `Either`, `join2v` -> `Pair` |

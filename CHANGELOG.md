@@ -44,7 +44,9 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   constructor rethrows the exception into a catch-all; only programs that throw get it.
 - `<atomic>`: `atomic_fetch_add`/`_sub`/`_and`/`_or`/`_xor` on `int`, the whole family on
   `int64` (`atomic_load64`, `atomic_cas64`, `atomic_fetch_add64`, ...), `atomic_load_ptr`
-  / `_store_ptr` / `_swap_ptr` / `_cas_ptr` on pointer cells, and `atomic_fence()`.
+  / `_store_ptr` / `_swap_ptr` / `_cas_ptr` on pointer cells, and `atomic_fence()`. Every
+  operation but the fence also has a `_relaxed` form (`atomic_fetch_add_relaxed`,
+  `atomic_load64_relaxed`): monotonic ordering, for counters read after a join.
 - `<libc>`: the common C library (string.h, stdlib.h, stdio.h, ctype.h, the rest of libm,
   `time`, `raise`, the POSIX unistd calls) plus `libc_errno()`/`libc_set_errno()` and
   `LIBC_E*` codes. Opt-in, so a program that defines its own `log` or `remove` is not
