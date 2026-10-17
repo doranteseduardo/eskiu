@@ -662,7 +662,9 @@ llvm::Function* CodeGen::getOrDeclareFunc(const std::string& name, llvm::Type* r
 }
 
 void CodeGen::visit(AllocWithExpr* node) {
-    // Lower to: (*T) <AllocType>_alloc(allocator, count * sizeof(T))
+    // Lower to: (*T) <AllocType>_alloc(allocator, count * sizeof(T)), then zero the
+    // block when it is not null, as alloc<T> returns zeroed memory whatever the
+    // allocator (a Bump after reset or a Pool block reused hands back old bytes).
     // The allocator is a struct providing `*void alloc(... size)`.
     llvm::Value* allocPtr = evaluateExpr(node->allocator);
 
@@ -693,6 +695,7 @@ void CodeGen::visit(AllocWithExpr* node) {
     llvm::Value* bad = builder->CreateOr(builder->CreateExtractValue(prod, {1}),
         builder->CreateICmpSLT(total, llvm::ConstantInt::get(i64, 0)), "allocw.bad");
 
+    llvm::Value* total64 = total;
     // Coerce the size to the alloc method's second parameter type.
     llvm::FunctionType* fty = af->getFunctionType();
     if (fty->getNumParams() >= 2 && fty->getParamType(1) != total->getType()) {
@@ -712,13 +715,19 @@ void CodeGen::visit(AllocWithExpr* node) {
     builder->SetInsertPoint(doCall);
     // Returns *void; the cast to *T is a no-op under opaque pointers.
     llvm::Value* p = createMaybeInvoke(af->getFunctionType(), af, {allocPtr, total}, "allocw.ptr");
+    llvm::BasicBlock* zero = llvm::BasicBlock::Create(*context, "allocw.zero", fn);
+    builder->CreateCondBr(builder->CreateIsNull(p), done, zero);
     llvm::BasicBlock* callEnd = builder->GetInsertBlock();
+    builder->SetInsertPoint(zero);
+    emitZeroBytes(p, total64, llvm::Align(1));
+    llvm::BasicBlock* zeroEnd = builder->GetInsertBlock();
     builder->CreateBr(done);
     builder->SetInsertPoint(fail);
     builder->CreateBr(done);
     builder->SetInsertPoint(done);
-    llvm::PHINode* phi = builder->CreatePHI(p->getType(), 2, "allocw.res");
+    llvm::PHINode* phi = builder->CreatePHI(p->getType(), 3, "allocw.res");
     phi->addIncoming(p, callEnd);
+    phi->addIncoming(p, zeroEnd);
     phi->addIncoming(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(p->getType())), fail);
     exprValueStack.push(phi);
 }

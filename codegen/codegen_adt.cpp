@@ -80,11 +80,16 @@ std::string CodeGen::ensureEnumInst(const std::string& genericName,
     return mangled;
 }
 
-// Core builder: alloca the enum struct, store the tag, write payload fields (viewed
-// as the variant's struct, coerced to the field types), then load the value.
+// Core builder: alloca the enum struct, zero it (the payload area past this variant's
+// fields holds no garbage), store the tag, write payload fields (viewed as the
+// variant's struct, coerced to the field types), then load the value.
 llvm::Value* CodeGen::buildEnumValue(llvm::StructType* et, int tag,
         const std::vector<std::string>& fieldEsk, const std::vector<ExprPtr>& args) {
     llvm::Value* tmp = entryAlloca(et, nullptr, "variant.tmp");
+    if (module->getDataLayout().getTypeAllocSize(et).getFixedValue() > kBulkZeroBytes)
+        emitZeroFill(tmp, et);
+    else
+        builder->CreateStore(llvm::Constant::getNullValue(et), tmp);
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), tag),
                          builder->CreateStructGEP(et, tmp, 0));
     std::vector<llvm::Type*> fieldTypes;
@@ -123,10 +128,15 @@ std::string CodeGen::resolveStructInitName(const std::string& name) {
 
 void CodeGen::emitZeroFill(llvm::Value* dest, llvm::Type* ty) {
     const llvm::DataLayout& DL = module->getDataLayout();
+    emitZeroBytes(dest, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context),
+                                               DL.getTypeAllocSize(ty).getFixedValue()),
+                  DL.getABITypeAlign(ty));
+}
+
+void CodeGen::emitZeroBytes(llvm::Value* dest, llvm::Value* size, llvm::Align align) {
     llvm::Type* i64 = llvm::Type::getInt64Ty(*context);
-    llvm::Value* size = llvm::ConstantInt::get(i64, DL.getTypeAllocSize(ty).getFixedValue());
     if (!freestanding) {
-        builder->CreateMemSet(dest, builder->getInt8(0), size, DL.getABITypeAlign(ty));
+        builder->CreateMemSet(dest, builder->getInt8(0), size, align);
         return;
     }
     llvm::Function* fn = builder->GetInsertBlock()->getParent();

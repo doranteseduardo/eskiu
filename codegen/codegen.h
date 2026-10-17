@@ -688,6 +688,8 @@ private:
     // Zero `ty`'s storage at `dest` in one operation: memset, or a byte loop when
     // freestanding (no C library to call).
     void emitZeroFill(llvm::Value* dest, llvm::Type* ty);
+    // Zero `size` (an i64 value) bytes at `dest`, the same two ways.
+    void emitZeroBytes(llvm::Value* dest, llvm::Value* size, llvm::Align align);
     // An aggregate this large is zeroed by emitZeroFill rather than element by element.
     static constexpr uint64_t kBulkZeroBytes = 4096;
     // A constant array whose zero tail has this many elements is folded as a struct
