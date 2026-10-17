@@ -1242,14 +1242,18 @@ int sema_pdefs(Sema* s, string key, *DeclNode sd, string mname) {
 // call's position (C++ TypeChecker::fillDefaultArgs): direct calls of a function not
 // hidden by a variable, and dot-calls of an inline method.
 void sema_fill_defaults(Sema* s, *ExprNode e) {
-    if (e.a == null) {
-        return;
-    }
     string key = "";
     *DeclNode sd = null;
     string mname = "";
     int given = List_len<*ExprNode>(&e.kids);
-    if (e.a.kind == EK_IDENT) {
+    if (e.kind == EK_TEMPLATECALL) {   // an explicit generic call `f<int>(x)`
+        key = sema_base_name(e.sval);
+        if (sema_find_fndecl(s, key) == null) {
+            return;
+        }
+    } else if (e.a == null) {
+        return;
+    } else if (e.a.kind == EK_IDENT) {
         if (sema_lookup(s, e.a.sval) == 1 && sema_find_fndecl(s, e.a.sval) == null) {
             return;
         }
@@ -1318,7 +1322,7 @@ void sema_fill_defaults(Sema* s, *ExprNode e) {
 }
 
 void sema_expr_k(Sema* s, *ExprNode e) {
-    if (e != null && e.kind == EK_CALL) {
+    if (e != null && (e.kind == EK_CALL || e.kind == EK_TEMPLATECALL)) {
         sema_fill_defaults(s, e);
     }
     if (e == null) {

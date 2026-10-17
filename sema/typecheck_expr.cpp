@@ -1619,6 +1619,12 @@ void TypeChecker::fillDefaultArgs(CallExpr* node, const std::string& method) {
         if (!id || !lookupSymbol(id->name).empty()) return;
         fn = id->name;
     }
+    appendDefaultArgs(node->args, given, fn, node);
+}
+
+// The defaults of `fn`'s parameters from `given` on, appended to `args` at `at`'s
+// position (a call, or an explicit generic call `f<int>(x)`).
+void TypeChecker::appendDefaultArgs(std::vector<ExprPtr>& args, size_t given, const std::string& fn, const Expr* at) {
     if (!fnDeclsAll.count(fn)) return;
     const auto& defs = paramDefaultsOf(fn);
     if (given >= defs.size()) return;
@@ -1626,9 +1632,9 @@ void TypeChecker::fillDefaultArgs(CallExpr* node, const std::string& method) {
         if (!defs[i]) return;
     for (size_t i = given; i < defs.size(); ++i) {
         auto lit = std::make_shared<LiteralExpr>(defs[i]->kind, defs[i]->value);
-        lit->line = node->line;
-        lit->col = node->col;
-        node->args.push_back(lit);
+        lit->line = at->line;
+        lit->col = at->col;
+        args.push_back(lit);
     }
 }
 
@@ -2293,6 +2299,7 @@ void TypeChecker::visit(TemplateCallExpr* node) {
         return;
     }
     FunctionDecl* fd = templ->second;
+    appendDefaultArgs(node->args, node->args.size(), node->templateName, node);
     auto& tp = fd->typeParams;
     size_t errsBefore = errors.size();
     std::map<std::string, std::string> subs;

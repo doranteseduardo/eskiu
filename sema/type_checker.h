@@ -168,6 +168,7 @@ public:
     bool globalLookupOnly = false;
     const std::vector<std::shared_ptr<LiteralExpr>>& paramDefaultsOf(const std::string& fn);
     void fillDefaultArgs(CallExpr* node, const std::string& method);
+    void appendDefaultArgs(std::vector<ExprPtr>& args, size_t given, const std::string& fn, const Expr* at);
     // Struct field definitions, keyed "Struct.field".
     std::map<std::string, DefLocation> fieldLocations;
     // Inline struct methods by mangled name (`Point_sum`): where the method is written.

@@ -16,7 +16,7 @@ struct Srv {
 int Srv_mul(*Srv self, int k = 3) { return self.n * k; }
 struct Outer { Srv inner; }
 int later(int x = 5);
-T pick<T>(T a, int n = 2) { return a; }
+T pick<T>(T a, int n = 2) { return a + n; }
 Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 async int work(int x, int mul = 3) { int q = await rdy<int>(x); return q * mul; }
 string label(string s = "none", char c = 'x') { printf("%s %c\n", s, c); return s; }
@@ -31,7 +31,7 @@ int main() {
     Outer o = Outer{inner: Srv{n: 4}};
     *Outer po = &o;
     printf("%d %d\n", o.inner.add(), po.inner.mul());
-    printf("%d %d\n", pick(5), pick<int>(6, 1));
+    printf("%d %d %d\n", pick(5), pick<int>(6, 1), pick<int>(7));
     Future<int>* f = work(4);
     printf("%d\n", f.value);
     label();
