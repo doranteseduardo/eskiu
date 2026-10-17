@@ -1986,6 +1986,22 @@ int ast_ci_unary(string op, AstCInt x, AstCInt* out) {
     return 0;
 }
 
+// A negative literal `-m` (one token, as the program sees it at run time): `int` when
+// the value fits, else `int64`; past that, the C negation of the literal. `mv` is the
+// magnitude as parsed (2^63 reads as INT64_MIN). Mirrors ty::cintNegLiteral.
+AstCInt ast_ci_neg_lit(int64 mv) {
+    if (mv >= (int64)0 && mv <= (int64)2147483648) {
+        return ast_ci_make((int64)0 - mv, 32, 0);
+    }
+    if (mv >= (int64)0 || mv == (int64)(-9223372036854775807) - (int64)1) {
+        return ast_ci_make((int64)0 - mv, 64, 0);
+    }
+    AstCInt m = ast_ci_lit(mv);
+    AstCInt r = m;
+    ast_ci_unary("-", m, &r);
+    return r;
+}
+
 // `x op y` (mirrors ty::cintBinary); 0 when `op` does not fold or is undefined.
 int ast_ci_binary(string op, AstCInt x, AstCInt y, AstCInt* out) {
     int64 z = (int64)0;
@@ -2179,6 +2195,14 @@ AstCInt ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
         return ast_df_fail(f);
     }
     int c = (int)f.s[f.i];
+    if (c == 45 && f.i + 1 < f.n && f.s[f.i + 1] >= 48 && f.s[f.i + 1] <= 57) {   // `-5`: one literal
+        f.i = f.i + 1;
+        AstCInt x = ast_df_unary(f, look);
+        if (f.ok == 0) {
+            return ast_df_fail(f);
+        }
+        return ast_ci_neg_lit(x.v);
+    }
     if (c == 45 || c == 43 || c == 126 || c == 33) {                           // - + ~ !
         f.i = f.i + 1;
         AstCInt x = ast_df_unary(f, look);

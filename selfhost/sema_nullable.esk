@@ -880,13 +880,12 @@ int sema_fold_int(Sema* s, *ExprNode e, int64* out) {
     return 1;
 }
 
-// An integer literal spelling (an optional '-') with its C type.
+// An integer literal spelling (an optional '-') with its type. A negative literal
+// (`-2147483648`) is one token, typed by its value as the program sees it at run time:
+// `int` when the value fits, else `int64` (mirrors the C++ foldConstIntT).
 AstCInt sema_lit_ci(string t) {
     if (t[0] == '-') {
-        AstCInt m = ast_ci_lit(sema_parse_int(sema_sub_str(t, 1, sema_slen(t))));
-        AstCInt r = m;
-        ast_ci_unary("-", m, &r);
-        return r;
+        return ast_ci_neg_lit(sema_parse_int(sema_sub_str(t, 1, sema_slen(t))));
     }
     return ast_ci_lit(sema_parse_int(t));
 }
