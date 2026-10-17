@@ -450,9 +450,8 @@ void TypeChecker::visit(AsmStmt* node) {
             std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
             auto sit = structs.find(bt);
             if (sit != structs.end())
-                for (const auto& f : sit->second.fields)
-                    if (f.name == m->member && f.bitWidth > 0)
-                        errorAt(node, "asm output operand cannot be a bitfield ('" + m->member + "')");
+                if (const auto* f = sit->second.field(m->member); f && f->bitWidth > 0)
+                    errorAt(node, "asm output operand cannot be a bitfield ('" + m->member + "')");
         }
         std::string t = getExpressionType(expr.get());
         std::string n = normalizeType(t);

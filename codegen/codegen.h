@@ -135,6 +135,22 @@ private:
     // Concrete struct registry
     std::map<std::string, llvm::StructType*> structTypes;
     std::map<std::string, std::vector<StructDecl::Field>> structFields;
+    // The index of the first field named `member` in `fields` (struct `sname`'s field
+    // list), or -1: a hash index per struct, rebuilt when the list changes, so a member
+    // access does not scan every field.
+    struct FieldIndex { const void* data = nullptr; size_t size = 0; std::unordered_map<std::string, size_t> idx; };
+    std::map<std::string, FieldIndex> fieldIndexes;
+    long fieldIndexOf(const std::string& sname, const std::vector<StructDecl::Field>& fields, const std::string& member) {
+        FieldIndex& fx = fieldIndexes[sname];
+        if (fx.data != (const void*)fields.data() || fx.size != fields.size()) {
+            fx.idx.clear();
+            for (size_t i = 0; i < fields.size(); ++i) fx.idx.emplace(fields[i].name, i);
+            fx.data = fields.data();
+            fx.size = fields.size();
+        }
+        auto it = fx.idx.find(member);
+        return it == fx.idx.end() ? -1 : (long)it->second;
+    }
 
     // Bitfield layout: for structs that contain at least one bitfield, every
     // field maps to a physical slot in the packed LLVM struct.

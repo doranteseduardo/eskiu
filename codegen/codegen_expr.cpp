@@ -1009,8 +1009,9 @@ void CodeGen::visit(MemberExpr* node) {
 
     const auto& fields = fit->second;
     bool isUnion = unionFields.count(baseType) > 0;
-    for (size_t i = 0; i < fields.size(); ++i) {
-        if (fields[i].name == node->member) {
+    if (long fi = fieldIndexOf(baseType, fields, node->member); fi >= 0) {
+        size_t i = (size_t)fi;
+        {
             llvm::Value* basePtr = baseAddr();
             llvm::Type*  fieldTy = getTypeFromString(fields[i].type);
             llvm::Value* ptr;
@@ -1356,12 +1357,10 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
                 return layoutFieldAddr(baseType, basePtr, sit->second);
             }
         }
-        for (size_t i = 0; i < fields.size(); ++i) {
-            if (fields[i].name == member->member) {
-                llvm::Value* basePtr = baseAddr();
-                if (isUnion) return basePtr; // offset 0 for all union fields
-                return builder->CreateStructGEP(structTypes[baseType], basePtr, i);
-            }
+        if (long fi = fieldIndexOf(baseType, fields, member->member); fi >= 0) {
+            llvm::Value* basePtr = baseAddr();
+            if (isUnion) return basePtr; // offset 0 for all union fields
+            return builder->CreateStructGEP(structTypes[baseType], basePtr, (unsigned)fi);
         }
         throw std::runtime_error("Struct/union '" + baseType + "' has no field '" + member->member + "'");
     }

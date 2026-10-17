@@ -220,6 +220,21 @@ private:
         std::vector<StructDecl::Pad> pads;   // unnamed bitfields (layout only)
         bool isUnion = false;
         int packAlign = 0;       // 1 = packed, N = `#pragma pack(N)`, 0 = natural
+        // name -> index in `fields` (the first field of a name), so a member lookup does
+        // not scan every field; rebuilt when `fields` has changed since (size or storage).
+        mutable std::unordered_map<std::string, size_t> fieldIdx;
+        mutable size_t idxSize = 0;
+        mutable const void* idxData = nullptr;
+        const StructDecl::Field* field(const std::string& name) const {
+            if (idxSize != fields.size() || idxData != (const void*)fields.data()) {
+                fieldIdx.clear();
+                for (size_t i = 0; i < fields.size(); ++i) fieldIdx.emplace(fields[i].name, i);
+                idxSize = fields.size();
+                idxData = fields.data();
+            }
+            auto it = fieldIdx.find(name);
+            return it == fieldIdx.end() ? nullptr : &fields[it->second];
+        }
     };
 
     // Scope management

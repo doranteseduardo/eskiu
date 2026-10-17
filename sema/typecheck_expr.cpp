@@ -760,9 +760,8 @@ void TypeChecker::visit(UnaryExpr* node) {
             std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
             auto sit = structs.find(bt);
             if (sit != structs.end())
-                for (const auto& f : sit->second.fields)
-                    if (f.name == m->member && f.bitWidth > 0)
-                        errorAt(node, "cannot take the address of bitfield '" + m->member + "'");
+                if (const auto* f = sit->second.field(m->member); f && f->bitWidth > 0)
+                    errorAt(node, "cannot take the address of bitfield '" + m->member + "'");
         }
     if (node->op == "&") warnPackedAddress(node);
     // `&p` of a narrowed `?*T` is a `*?*T` (a write through it may store null), so the
@@ -853,8 +852,7 @@ void TypeChecker::visit(IncDecExpr* node) {
             std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
             auto sit = structs.find(bt);
             if (sit != structs.end())
-                for (const auto& f : sit->second.fields)
-                    if (f.name == m->member && f.bitWidth > 0) t = f.type;
+                if (const auto* f = sit->second.field(m->member); f && f->bitWidth > 0) t = f->type;
         }
     expressionTypes[node] = t;
 }
@@ -1701,8 +1699,9 @@ void TypeChecker::visit(MemberExpr* node) {
 
         // Look for the member in struct's fields
         const auto& structInfo = it->second;
-        for (const auto& field : structInfo.fields) {
-            if (field.name == node->member) {
+        if (const StructDecl::Field* fp = structInfo.field(node->member)) {
+            const StructDecl::Field& field = *fp;
+            {
                 std::string owner = structName;
                 if (auto ti = templateInstanceArgs.find(structName); ti != templateInstanceArgs.end())
                     owner = ti->second.first;
@@ -2314,7 +2313,7 @@ void TypeChecker::visit(StructInitExpr* node) {
         // declared field types of a non-generic struct are the same in every instance.
         if (node->structName.find('<') == std::string::npos && !templateDecls.count(node->structName)) {
             std::string ft;
-            if (named) { for (const auto& f : fields) if (f.name == node->fieldInits[i].first) { ft = f.type; break; } }
+            if (named) { if (const auto* f = it->second.field(node->fieldInits[i].first)) ft = f->type; }
             else if (i < fields.size()) ft = fields[i].type;
             if (!ft.empty()) inferVariantTarget(node->fieldInits[i].second, ft, true);
         }
@@ -2324,9 +2323,7 @@ void TypeChecker::visit(StructInitExpr* node) {
 
         std::string fieldType, shownName;
         if (named) {
-            for (const auto& f : fields) {
-                if (f.name == fname) { fieldType = f.type; break; }
-            }
+            if (const auto* f = it->second.field(fname)) fieldType = f->type;
             shownName = fname;
             if (fieldType.empty())
                 errorAt(at, "struct '" + node->structName + "' has no field '" + fname + "'");

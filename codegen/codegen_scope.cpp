@@ -139,8 +139,7 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
         };
         if (named) {
             for (const auto& [fname, e] : si->fieldInits)
-                for (size_t i = 0; i < fields.size(); ++i)
-                    if (fields[i].name == fname) { if (!foldField(i, e)) return nullptr; break; }
+                if (long fi = fieldIndexOf(sname, fields, fname); fi >= 0 && !foldField((size_t)fi, e)) return nullptr;
         } else {
             for (size_t i = 0; i < si->fieldInits.size() && i < fields.size(); ++i)
                 if (!foldField(i, si->fieldInits[i].second)) return nullptr;
@@ -266,9 +265,8 @@ llvm::Constant* CodeGen::constAggregateImage(StructInitExpr* si, const std::stri
     for (size_t k = 0; k < si->fieldInits.size(); ++k) {
         size_t idx = k;
         if (named) {
-            idx = fields.size();
-            for (size_t i = 0; i < fields.size(); ++i)
-                if (fields[i].name == si->fieldInits[k].first) idx = i;
+            long fi = fieldIndexOf(sname, fields, si->fieldInits[k].first);
+            idx = fi >= 0 ? (size_t)fi : fields.size();
         }
         if (idx >= fields.size()) continue;
         const ExprPtr& e = si->fieldInits[k].second;
