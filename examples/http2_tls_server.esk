@@ -26,17 +26,27 @@ void handler(HttpRequest* req, HttpResponse* res) {
 
 int main() {
     *void ctx = tls_server_ctx("cert.pem", "key.pem");
-    if (ctx == (*void)0) { printf("could not load cert.pem / key.pem\n"); return 1; }
+    if (ctx == (*void)0) {
+        printf("could not load cert.pem / key.pem\n");
+        return 1;
+    }
 
     int lfd = net_tcp_listen((uint16)8443);
-    if (lfd < 0) { printf("listen failed\n"); return 1; }
+    if (lfd < 0) {
+        printf("listen failed\n");
+        return 1;
+    }
     printf("HTTP/2 (TLS) server on https://localhost:8443/\n");
 
     while (1 == 1) {
         int c = net_accept(lfd);
-        if (c < 0) { continue; }
+        if (c < 0) {
+            continue;
+        }
         *void ssl = tls_accept(ctx, c);                 // TLS handshake + ALPN -> h2
-        if (ssl != (*void)0) { http2_tls_serve_conn(ssl, handler); }
+        if (ssl != (*void)0) {
+            http2_tls_serve_conn(ssl, handler);
+        }
         net_close(c);
     }
     return 0;

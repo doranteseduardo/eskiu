@@ -11,7 +11,7 @@ import <future>;
 import <net_async>;
 import <eventloop>;
 import <io>;
-extern int   pipe(*int fds);
+extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
 
 uint8[64] g_buf;
@@ -32,7 +32,9 @@ int main() {
     Future<int>* f = read_once(lp, fds[0]);     // starts; parks on the read
 
     // Drive the future to completion on the event loop, then read its value.
-    if (Future_poll<int>(f, void() { EventLoop_stop(lp); }) == 0) {
+    if (Future_poll<int>(f, void() {
+        EventLoop_stop(lp);
+    }) == 0) {
         EventLoop_run(lp);
     }
     g_buf[f.value] = (uint8)0;                   // NUL-terminate what we read

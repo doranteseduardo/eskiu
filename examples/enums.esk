@@ -15,9 +15,15 @@ enum Shape {
 // area() dispatches on the variant and uses the bound payload fields.
 float area(Shape s) {
     match s {
-        Circle(r)    -> { return 3.14159 * r * r; }
-        Rect(w, h)   -> { return w * h; }
-        Point        -> { return 0.0; }
+        Circle(r) -> {
+            return 3.14159 * r * r;
+        }
+        Rect(w, h) -> {
+            return w * h;
+        }
+        Point -> {
+            return 0.0;
+        }
     }
     return 0.0;
 }

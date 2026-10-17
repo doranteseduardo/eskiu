@@ -27,20 +27,29 @@ struct Todo {
 
 // Read the list from `path` into `items`; a missing file is an empty list.
 int load(string path, List<Todo>* items) {
-    if (fs_exists(path) == 0) { return 0; }
-    let src: String; String_init(&src, 256);
+    if (fs_exists(path) == 0) {
+        return 0;
+    }
+    let src: String;
+    String_init(&src, 256);
     defer String_free(&src);
-    if (fs_read_text(path, &src) != 0) { return -1; }
+    if (fs_read_text(path, &src) != 0) {
+        return -1;
+    }
     *JsonValue doc = json_parse(src.cstr());
     if (doc == null || JsonValue_kind(doc) != JArray) {
-        if (doc != null) { JsonValue_free(doc); }
+        if (doc != null) {
+            JsonValue_free(doc);
+        }
         return -1;
     }
     for (i in 0..JsonValue_len(doc)) {
         *JsonValue it = JsonValue_at(doc, i);
         *JsonValue text = JsonValue_get(it, "text");
         *JsonValue done = JsonValue_get(it, "done");
-        if (text == null || done == null) { continue; }
+        if (text == null || done == null) {
+            continue;
+        }
         let t: Todo;
         String_from(&t.text, JsonValue_as_cstr(text));
         t.done = JsonValue_as_bool(done);
@@ -59,7 +68,8 @@ int save(string path, List<Todo>* items) {
         JsonValue_set(it, "done", JsonValue_bool(t.done));
         JsonValue_push(doc, it);
     }
-    let out: String; String_init(&out, 256);
+    let out: String;
+    String_init(&out, 256);
     JsonValue_pretty(doc, 2, &out);
     out.append("\n");
     int rc = fs_write_text(path, out.cstr());
@@ -73,7 +83,8 @@ void show(List<Todo>* items) {
         println("nothing to do");
         return;
     }
-    let line: String; String_init(&line, 64);
+    let line: String;
+    String_init(&line, 64);
     for (i in 0..items.len()) {
         Todo t = items.get(i);
         String_format(&line, "%3d ", i + 1);
@@ -92,7 +103,8 @@ void show(List<Todo>* items) {
 
 // The item number `s` (1-based) as an index into `items`, or -1.
 int item_index(string s, List<Todo>* items) {
-    let n: String; String_from(&n, s);
+    let n: String;
+    String_from(&n, s);
     int k = n.to_int();
     String_free(&n);
     if (k < 1 || k > items.len()) {
@@ -114,11 +126,13 @@ int main(int argc, string* argv) {
 
     string path = ArgParser_get(&p, "file");
     string cmd = ArgParser_get(&p, "command");
-    let rest: List<string>; List_init<string>(&rest, 4);
+    let rest: List<string>;
+    List_init<string>(&rest, 4);
     defer List_free<string>(&rest);
     ArgParser_get_all(&p, "args", &rest);
 
-    let items: List<Todo>; List_init<Todo>(&items, 8);
+    let items: List<Todo>;
+    List_init<Todo>(&items, 8);
     if (load(path, &items) != 0) {
         print_err("cannot read ");
         println_err(path);

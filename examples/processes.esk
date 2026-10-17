@@ -15,7 +15,8 @@ int main() {
     ProcessResult_free(&r);
 
     // Without a shell: each argument is passed as is (no quoting needed).
-    let argv: List<string>;  List_init<string>(&argv, 4);
+    let argv: List<string>;
+    List_init<string>(&argv, 4);
     argv.push("printf");
     argv.push("%s|%s\n");
     argv.push("one argument with spaces");
@@ -29,7 +30,8 @@ int main() {
     let opts: ProcessOptions;        // every field starts at zero
     opts.stdin_text = "banana\napple\ncherry\n";
     opts.cwd = "/";
-    let env: List<string>;  List_init<string>(&env, 2);
+    let env: List<string>;
+    List_init<string>(&env, 2);
     env.push("GREETING=hola");
     opts.env = &env;
     opts.timeout_ms = 2000;

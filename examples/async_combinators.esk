@@ -16,10 +16,11 @@ import <timer>;
 import <net_async>;
 import <eventloop>;
 import <io>;
-extern int   pipe(*int fds);
+extern int pipe(*int fds);
 extern int64 write(int fd, *void buf, int64 n);
 
-uint8[64] ba;  uint8[64] bb;
+uint8[64] ba;
+uint8[64] bb;
 EventLoop* g;
 int g_bg = 0;
 
@@ -30,8 +31,13 @@ async int read_timeout(EventLoop* lp, int fd, int64 ms) {
     Future<int>* rd = net_read_async(lp, fd, &ba[0], (int64)64);
     Future<int>* to = timer_after(lp, ms);
     int w = await select2(rd, to);
-    if (w == 0) { int n = rd.value;  Future_free<int>(rd);  return n; }   // data won
-    Future_free<int>(to);  return -1;                                     // timer won
+    if (w == 0) {   // data won
+        int n = rd.value;
+        Future_free<int>(rd);
+        return n;
+    }
+    Future_free<int>(to);                                     // timer won
+    return -1;
 }
 
 // Wait for BOTH reads to finish, then return the total bytes. join2 resumes once
@@ -41,7 +47,8 @@ async int read_both(EventLoop* lp, int fa, int fb) {
     Future<int>* rb = net_read_async(lp, fb, &bb[0], (int64)64);
     await join2(ra, rb);
     int total = ra.value + rb.value;
-    Future_free<int>(ra);  Future_free<int>(rb);
+    Future_free<int>(ra);
+    Future_free<int>(rb);
     return total;
 }
 
@@ -55,29 +62,43 @@ async void background(EventLoop* lp, int fd) {
 
 // Drive one int-returning future to completion on the loop and return its value.
 int run(Future<int>* f) {
-    if (Future_poll<int>(f, void() { EventLoop_stop(g); }) == 0) { EventLoop_run(g); }
-    int v = f.value;  Future_free<int>(f);  return v;
+    if (Future_poll<int>(f, void() {
+        EventLoop_stop(g);
+    }) == 0) {
+        EventLoop_run(g);
+    }
+    int v = f.value;
+    Future_free<int>(f);
+    return v;
 }
 
 int main() {
     g = el_new(64);
 
     // 1) Timeout: nothing is ever written to this pipe, so the timer wins.
-    int[2] empty;  pipe(&empty[0]);
+    int[2] empty;
+    pipe(&empty[0]);
     printf("read_timeout (no data): %d\n", run(read_timeout(g, empty[0], (int64)20)));   // -1
 
     // 2) Data beats the timer: the pipe already has bytes ready.
-    int[2] ready;  pipe(&ready[0]);
+    int[2] ready;
+    pipe(&ready[0]);
     write(ready[1], (*void)"hi", (int64)2);
     printf("read_timeout (data):    %d\n", run(read_timeout(g, ready[0], (int64)1000))); // 2
 
     // 3) Wait for both pipes.
-    int[2] pa;  pipe(&pa[0]);  write(pa[1], (*void)"abc", (int64)3);
-    int[2] pb;  pipe(&pb[0]);  write(pb[1], (*void)"wxyz", (int64)4);
+    int[2] pa;
+    pipe(&pa[0]);
+    write(pa[1], (*void)"abc", (int64)3);
+    int[2] pb;
+    pipe(&pb[0]);
+    write(pb[1], (*void)"wxyz", (int64)4);
     printf("read_both:              %d\n", run(read_both(g, pa[0], pb[0])));             // 7
 
     // 4) Fire-and-forget a background task with spawn (no handle kept).
-    int[2] bg;  pipe(&bg[0]);  write(bg[1], (*void)"ping", (int64)4);
+    int[2] bg;
+    pipe(&bg[0]);
+    write(bg[1], (*void)"ping", (int64)4);
     spawn(background(g, bg[0]));
     EventLoop_run(g);                                                                            // runs until background() stops it
     printf("spawn background:       %d\n", g_bg);                                         // 4

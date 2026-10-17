@@ -15,9 +15,14 @@ int main(int argc, string* argv) {
     let fp: *int = &files;
     let dp: *int = &dirs;
     if (fs_walk(root, void(string path, bool is_dir) {
-            if (is_dir) { *dp = *dp + 1; } else { *fp = *fp + 1; }
-        }) != 0) {
-        let err: String;  err.init(32);
+        if (is_dir) {
+            *dp = *dp + 1;
+        } else {
+            *fp = *fp + 1;
+        }
+    }) != 0) {
+        let err: String;
+        err.init(32);
         fs_last_error(&err);
         printf("cannot walk %s: %s\n", root, err.data);
         err.free();
@@ -26,30 +31,41 @@ int main(int argc, string* argv) {
     printf("%s: %d directories, %d files\n", root, dirs, files);
 
     // The .esk files anywhere below root, with their line counts.
-    let pattern: String;  pattern.init(32);
+    let pattern: String;
+    pattern.init(32);
     pattern.append(root);
     pattern.append("/**/*.esk");
-    let found: List<String>;  List_init<String>(&found, 16);
+    let found: List<String>;
+    List_init<String>(&found, 16);
     const int n = fs_glob(pattern.cstr(), &found);
     int64 total = 0;
     for (i in 0..n) {
         string path = List_get<String>(&found, i).data;
-        let lines: List<String>;  List_init<String>(&lines, 64);
+        let lines: List<String>;
+        List_init<String>(&lines, 64);
         if (fs_read_lines(path, &lines) == 0) {
             total += (int64)lines.size;
-            if (i < 5) { printf("  %5d  %s\n", lines.size, path); }
+            if (i < 5) {
+                printf("  %5d  %s\n", lines.size, path);
+            }
         }
         fs_list_free(&lines);
     }
-    if (n > 5) { printf("  ... and %d more\n", n - 5); }
+    if (n > 5) {
+        printf("  ... and %d more\n", n - 5);
+    }
     printf("%d .esk files, %lld lines\n", n, total);
     fs_list_free(&found);
     pattern.free();
 
     // A scratch directory: create, fill, inspect, remove.
-    let tmp: String;  tmp.init(64);
-    if (fs_temp_dir("files_example_", &tmp) != 0) { return 1; }
-    let path: String;  path.init(64);
+    let tmp: String;
+    tmp.init(64);
+    if (fs_temp_dir("files_example_", &tmp) != 0) {
+        return 1;
+    }
+    let path: String;
+    path.init(64);
     path.append(tmp.cstr());
     path.append("/notes/today");
     fs_mkdir_p(path.cstr());

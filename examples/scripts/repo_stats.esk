@@ -23,7 +23,7 @@ import <env>;
 
 struct Language {
     string name;
-    int64  bytes;
+    int64 bytes;
 }
 
 // GET `url` and parse the answer as JSON into *out. Returns an exit code.
@@ -53,11 +53,14 @@ int get_json(string url, FetchOptions* o, **JsonValue out) {
 
 // 1234567 -> "1,234,567"
 void group_digits(int64 n, String* out) {
-    let digits: String;  digits.init(24);
+    let digits: String;
+    digits.init(24);
     String_format(&digits, "%lld", n);
     out.clear();
     for (i in 0..digits.len) {
-        if (i > 0 && digits.data[0] != '-' && (digits.len - i) % 3 == 0) { out.push(','); }
+        if (i > 0 && digits.data[0] != '-' && (digits.len - i) % 3 == 0) {
+            out.push(',');
+        }
         out.push(digits.data[i]);
     }
     digits.free();
@@ -65,20 +68,26 @@ void group_digits(int64 n, String* out) {
 
 int64 json_int(JsonValue* repo, string path) {
     *JsonValue v = json_get(repo, path);
-    if (v == null || JsonValue_kind(v) != JNumber) { return 0; }
+    if (v == null || JsonValue_kind(v) != JNumber) {
+        return 0;
+    }
     return JsonValue_as_int(v);
 }
 
 string json_text(JsonValue* repo, string path, string fallback) {
     *JsonValue v = json_get(repo, path);
-    if (v == null || JsonValue_kind(v) != JString) { return fallback; }
+    if (v == null || JsonValue_kind(v) != JString) {
+        return fallback;
+    }
     return (string)JsonValue_as_cstr(v);
 }
 
 // One "  label    value" line of the summary.
 void stat_line(string label, int64 value, int64 style) {
-    let line: String;  line.from("  ");
-    let cell: String;  cell.from(label);
+    let line: String;
+    line.from("  ");
+    let cell: String;
+    cell.from(label);
     cell.pad_right(14, ' ');
     line.concat(&cell);
     group_digits(value, &cell);
@@ -89,7 +98,8 @@ void stat_line(string label, int64 value, int64 style) {
 }
 
 void print_summary(JsonValue* repo, List<Language>* langs, int64 total, int top) {
-    let line: String;  line.init(128);
+    let line: String;
+    line.init(128);
     term_style(&line, json_text(repo, "full_name", "?"), TERM_BOLD);
     println(line.cstr());
     string desc = json_text(repo, "description", "");
@@ -105,13 +115,18 @@ void print_summary(JsonValue* repo, List<Language>* langs, int64 total, int top)
     stat_line("open issues", json_int(repo, "open_issues_count"), TERM_RED);
     line.clear();
     line.append("  ");
-    let cell: String;  cell.from("license");
+    let cell: String;
+    cell.from("license");
     cell.pad_right(14, ' ');
     line.concat(&cell);
     line.append(json_text(repo, "license.spdx_id", "none"));
     println(line.cstr());
 
-    if (langs.size == 0) { line.free(); cell.free(); return; }
+    if (langs.size == 0) {
+        line.free();
+        cell.free();
+        return;
+    }
     println("");
     println("  languages");
     int shown = langs.size < top ? langs.size : top;
@@ -131,7 +146,10 @@ void print_summary(JsonValue* repo, List<Language>* langs, int64 total, int top)
         cell.clear();
         cell.push('#');
         cell.repeat((int64)(pct / 5.0 + 0.5));
-        if (pct < 2.5) { cell.clear(); cell.push('.'); }
+        if (pct < 2.5) {
+            cell.clear();
+            cell.push('.');
+        }
         term_style(&line, cell.cstr(), TERM_GREEN);
         println(line.cstr());
     }
@@ -162,7 +180,8 @@ void print_json(JsonValue* repo, List<Language>* langs, int64 total) {
         JsonValue_push(list, item);
     }
     JsonValue_set(doc, "languages", list);
-    let out: String;  out.init(256);
+    let out: String;
+    out.init(256);
     JsonValue_pretty(doc, 2, &out);
     println(out.cstr());
     out.free();
@@ -181,7 +200,8 @@ int main(int argc, string* argv) {
     ArgParser_parse_or_exit(&p, argc, argv);
 
     string repo_name = ArgParser_get(&p, "repo");
-    let name: String;  name.from(repo_name);
+    let name: String;
+    name.from(repo_name);
     defer name.free();
     int64 slash = name.find("/", 0);
     if (slash <= 0 || slash == name.len - 1 || name.find("/", slash + 1) >= 0) {
@@ -194,43 +214,55 @@ int main(int argc, string* argv) {
         return 2;
     }
 
-    let o: FetchOptions;  FetchOptions_init(&o);
+    let o: FetchOptions;
+    FetchOptions_init(&o);
     defer FetchOptions_free(&o);
     FetchOptions_header(&o, "Accept", "application/vnd.github+json");
     o.timeout_ms = timeout * 1000;
     string token = env_get("GITHUB_TOKEN");
     if (token != null) {
-        let auth: String;  auth.from("Bearer ");
+        let auth: String;
+        auth.from("Bearer ");
         auth.append(token);
         FetchOptions_header(&o, "Authorization", auth.cstr());
         auth.free();
     }
 
-    let url: String;  url.init(128);
+    let url: String;
+    url.init(128);
     defer url.free();
     String_format(&url, "%s/repos/%s", ArgParser_get(&p, "api-url"), repo_name);
     *JsonValue repo = null;
     int rc = get_json(url.cstr(), &o, &repo);
-    if (rc != 0) { return rc; }
+    if (rc != 0) {
+        return rc;
+    }
     defer JsonValue_free(repo);
 
     url.append("/languages");
     *JsonValue by_lang = null;
     rc = get_json(url.cstr(), &o, &by_lang);
-    if (rc != 0) { return rc; }
+    if (rc != 0) {
+        return rc;
+    }
     defer JsonValue_free(by_lang);
 
     // The languages object maps a name to a byte count; sort by size, largest first.
-    let langs: List<Language>;  List_init<Language>(&langs, 8);
+    let langs: List<Language>;
+    List_init<Language>(&langs, 8);
     defer List_free<Language>(&langs);
     int64 total = 0;
     for (*JsonValue m = by_lang.child; m != null; m = m.next) {
-        if (JsonValue_kind(m) != JNumber) { continue; }
+        if (JsonValue_kind(m) != JNumber) {
+            continue;
+        }
         langs.push(Language { name: (string)m.key.cstr(), bytes: JsonValue_as_int(m) });
         total += JsonValue_as_int(m);
     }
     langs.sort_by(int(*Language a, *Language b) {
-        if (a.bytes != b.bytes) { return a.bytes > b.bytes ? -1 : 1; }
+        if (a.bytes != b.bytes) {
+            return a.bytes > b.bytes ? -1 : 1;
+        }
         return strcmp(a.name, b.name);
     });
     log_debug("%d languages, %lld bytes", langs.size, total);

@@ -11,13 +11,20 @@ import <map>;
 import <sort>;
 import <io>;
 
-struct Entry { string word; int count; }
+struct Entry {
+    string word;
+    int count;
+}
 
 // Most frequent first; ties alphabetically.
 int by_count(*Entry a, *Entry b) {
-    if (a.count != b.count) { return b.count - a.count; }
+    if (a.count != b.count) {
+        return b.count - a.count;
+    }
     int i = 0;
-    while (a.word[i] != 0 && a.word[i] == b.word[i]) { i++; }
+    while (a.word[i] != 0 && a.word[i] == b.word[i]) {
+        i++;
+    }
     return (int)a.word[i] - (int)b.word[i];
 }
 
@@ -29,12 +36,14 @@ int main() {
     text.replace_all(".", "");
     text.replace_all(",", "");
 
-    let words: List<String>;  List_init<String>(&words, 16);
+    let words: List<String>;
+    List_init<String>(&words, 16);
     text.split_str(" ", &words);
     defer String_split_free(&words);
 
     // Count each word. The map keeps its own copy of every key.
-    let counts: Map<int>;  Map_init<int>(&counts, 16);
+    let counts: Map<int>;
+    Map_init<int>(&counts, 16);
     defer Map_free<int>(&counts);
     for (i in 0..words.len()) {
         let w: String = words.get(i);
@@ -45,37 +54,55 @@ int main() {
     printf("%d words, %d distinct\n", words.len(), counts.len());
 
     // Collect (word, count) pairs and rank them.
-    let keys: List<string>;  List_init<string>(&keys, 16);
+    let keys: List<string>;
+    List_init<string>(&keys, 16);
     defer List_free<string>(&keys);
     counts.keys(&keys);
     *Map<int> cm = &counts;
-    let ranked: List<Entry>;  List_init<Entry>(&ranked, 16);
+    let ranked: List<Entry>;
+    List_init<Entry>(&ranked, 16);
     defer List_free<Entry>(&ranked);
-    keys.map(Entry(string k) { return Entry{k, Map_get_or<int>(cm, k, 0)}; }, &ranked);
+    keys.map(Entry(string k) {
+        return Entry{k, Map_get_or<int>(cm, k, 0)};
+    }, &ranked);
     ranked.sort_by(by_count);
     for (i in 0..3) {
         printf("  %-6s %d\n", ranked.get(i).word, ranked.get(i).count);
     }
 
     // Words seen more than once, joined.
-    let repeated: List<Entry>;  List_init<Entry>(&repeated, 8);
+    let repeated: List<Entry>;
+    List_init<Entry>(&repeated, 8);
     defer List_free<Entry>(&repeated);
-    ranked.filter(bool(Entry e) { return e.count > 1; }, &repeated);
-    let names: List<string>;  List_init<string>(&names, 8);
+    ranked.filter(bool(Entry e) {
+        return e.count > 1;
+    }, &repeated);
+    let names: List<string>;
+    List_init<string>(&names, 8);
     defer List_free<string>(&names);
-    repeated.map(string(Entry e) { return e.word; }, &names);
-    let line: String;  line.init(32);
+    repeated.map(string(Entry e) {
+        return e.word;
+    }, &names);
+    let line: String;
+    line.init(32);
     defer line.free();
     names.join(", ", &line);
     printf("repeated: %s\n", line.cstr());
 
-    int total = ranked.reduce(0, int(int acc, Entry e) { return acc + e.count; });
-    printf("total: %d, all short: %d\n", total, keys.all(bool(string k) { return strlen(k) < 8; }));
+    int total = ranked.reduce(0, int(int acc, Entry e) {
+        return acc + e.count;
+    });
+    printf("total: %d, all short: %d\n", total, keys.all(bool(string k) {
+        return strlen(k) < 8;
+    }));
 
     // Distinct word lengths.
-    let lengths: Set<int>;  Set_init<int>(&lengths, 8, int_hash, int_eq);
+    let lengths: Set<int>;
+    Set_init<int>(&lengths, 8, int_hash, int_eq);
     defer lengths.free();
-    for (i in 0..words.len()) { lengths.add((int)words.get(i).len); }
+    for (i in 0..words.len()) {
+        lengths.add((int)words.get(i).len);
+    }
     printf("distinct lengths: %d (has 5: %d, has 9: %d)\n", lengths.len(), lengths.has(5), lengths.has(9));
 
     counts.remove("the");

@@ -19,19 +19,27 @@ import <path>;
 
 // "12.3K"-style size into `out`.
 void human_size(int64 n, String* out) {
-    if (n < 1024) { String_format(out, "%lldB", n); return; }
+    if (n < 1024) {
+        String_format(out, "%lldB", n);
+        return;
+    }
     const string[4] units = {"K", "M", "G", "T"};
     double v = (double)n / 1024.0;
     int u = 0;
-    while (v >= 1024.0 && u < 3) { v = v / 1024.0; u++; }
+    while (v >= 1024.0 && u < 3) {
+        v = v / 1024.0;
+        u++;
+    }
     String_format(out, "%.1f%s", v, units[u]);
 }
 
 int list_dir(ArgParser* p, string dir) {
-    let names: List<String>;  List_init<String>(&names, 32);
+    let names: List<String>;
+    List_init<String>(&names, 32);
     defer fs_list_free(&names);
     if (fs_list_dir(dir, &names) != 0) {
-        let err: String;  err.init(64);
+        let err: String;
+        err.init(64);
         fs_last_error(&err);
         log_error("cannot read %s: %s", dir, err.cstr());
         err.free();
@@ -41,17 +49,27 @@ int list_dir(ArgParser* p, string dir) {
     const bool all = ArgParser_get_flag(p, "all") == 1;
     const bool long_fmt = ArgParser_get_flag(p, "long") == 1;
     const int64 min_size = (int64)ArgParser_get_int(p, "min-size");
-    let path: String;  path.init(64);
-    let line: String;  line.init(128);
-    let cell: String;  cell.init(32);
+    let path: String;
+    path.init(64);
+    let line: String;
+    line.init(128);
+    let cell: String;
+    cell.init(32);
     int shown = 0;
     for (i in 0..names.size) {
         *String name = &names.data[i];
-        if (!all && name.data[0] == '.') { continue; }
+        if (!all && name.data[0] == '.') {
+            continue;
+        }
         path_join(&path, dir, name.cstr());
         let st: FileStat;
-        if (fs_lstat(path.cstr(), &st) != 0) { log_warn("cannot stat %s", path.cstr()); continue; }
-        if (!st.is_dir && st.size < min_size) { continue; }
+        if (fs_lstat(path.cstr(), &st) != 0) {
+            log_warn("cannot stat %s", path.cstr());
+            continue;
+        }
+        if (!st.is_dir && st.size < min_size) {
+            continue;
+        }
         line.clear();
         if (long_fmt) {
             human_size(st.size, &cell);
@@ -63,11 +81,19 @@ int list_dir(ArgParser* p, string dir) {
             line.append("  ");
         }
         int64 style = TERM_PLAIN;
-        if (st.is_dir) { style = TERM_BOLD | TERM_BLUE; }
-        else if (st.is_symlink) { style = TERM_CYAN; }
-        else if (st.size > 1048576) { style = TERM_YELLOW; }
+        if (st.is_dir) {
+            style = TERM_BOLD | TERM_BLUE;
+        }
+        else if (st.is_symlink) {
+            style = TERM_CYAN;
+        }
+        else if (st.size > 1048576) {
+            style = TERM_YELLOW;
+        }
         term_style(&line, name.cstr(), style);
-        if (st.is_dir) { line.push('/'); }
+        if (st.is_dir) {
+            line.push('/');
+        }
         println(line.cstr());
         shown++;
     }
@@ -89,24 +115,34 @@ int main(int argc, string* argv) {
     ArgParser_argument(&p, "dirs", "directories to list", ARGS_MANY);
     ArgParser_parse_or_exit(&p, argc, argv);
 
-    if (ArgParser_get_flag(&p, "verbose") == 1) { log_set_level(LOG_DEBUG); }
+    if (ArgParser_get_flag(&p, "verbose") == 1) {
+        log_set_level(LOG_DEBUG);
+    }
     let sw: Stopwatch;
     sw.start();
     int rc = 0;
     const int n = ArgParser_count(&p, "dirs");
-    if (n == 0) { rc = list_dir(&p, "."); }
+    if (n == 0) {
+        rc = list_dir(&p, ".");
+    }
     for (i in 0..n) {
         if (n > 1) {
-            if (i > 0) { println(""); }
-            let head: String;  head.init(32);
+            if (i > 0) {
+                println("");
+            }
+            let head: String;
+            head.init(32);
             term_style(&head, ArgParser_get_at(&p, "dirs", i), TERM_UNDERLINE);
             head.push(':');
             println(head.cstr());
             head.free();
         }
-        if (list_dir(&p, ArgParser_get_at(&p, "dirs", i)) != 0) { rc = 1; }
+        if (list_dir(&p, ArgParser_get_at(&p, "dirs", i)) != 0) {
+            rc = 1;
+        }
     }
-    let took: String;  took.init(16);
+    let took: String;
+    took.init(16);
     time_format_duration(sw.elapsed_ms(), &took);
     log_debug("done in %s", took.cstr());
     took.free();

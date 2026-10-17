@@ -29,37 +29,47 @@ struct Entry {
     String folder;    // where it goes
     String hash;      // SHA-256, hex
     String modified;  // modification time, local
-    int64  size;
+    int64 size;
     string action;    // "move", "duplicate", "exists", "error"
 }
 
 struct Folder {
     string name;
-    int    files;
-    int64  bytes;
+    int files;
+    int64 bytes;
 }
 
 // SHA-256 of a file's content into `out`; 0, or -1 if it cannot be read.
 int hash_file(string path, String* out) {
-    let data: String;  data.init(4096);
+    let data: String;
+    data.init(4096);
     defer data.free();
-    if (fs_read_text(path, &data) != 0) { return -1; }
+    if (fs_read_text(path, &data) != 0) {
+        return -1;
+    }
     hash_sha256_hex((*uint8)data.data, data.len, out);
     return 0;
 }
 
 // "1.5 KiB"-style size into `out`.
 void human_size(int64 n, String* out) {
-    if (n < 1024) { String_format(out, "%lld B", n); return; }
+    if (n < 1024) {
+        String_format(out, "%lld B", n);
+        return;
+    }
     const string[3] units = {"KiB", "MiB", "GiB"};
     double v = (double)n / 1024.0;
     int u = 0;
-    while (v >= 1024.0 && u < 2) { v = v / 1024.0; u++; }
+    while (v >= 1024.0 && u < 2) {
+        v = v / 1024.0;
+        u++;
+    }
     String_format(out, "%.1f %s", v, units[u]);
 }
 
 void report_fs_error(string what, string path) {
-    let err: String;  err.init(64);
+    let err: String;
+    err.init(64);
     fs_last_error(&err);
     log_error("%s %s: %s", what, path, err.cstr());
     err.free();
@@ -89,48 +99,74 @@ int main(int argc, string* argv) {
 
     // 1. The directory's entries. Subfolders are walked to hash the files already
     //    in them, so that a loose copy of one is recognized as a duplicate.
-    let top: List<String>;  List_init<String>(&top, 32);
+    let top: List<String>;
+    List_init<String>(&top, 32);
     defer fs_list_free(&top);
-    let pattern: String;  pattern.init(64);
+    let pattern: String;
+    pattern.init(64);
     defer pattern.free();
     path_join(&pattern, dir, "*");
     fs_glob(pattern.cstr(), &top);
-    let nested: List<String>;  List_init<String>(&nested, 32);
+    let nested: List<String>;
+    List_init<String>(&nested, 32);
     defer fs_list_free(&nested);
     *List<String> nested_p = &nested;
     for (i in 0..top.size) {
-        if (fs_is_dir(top.data[i].cstr()) == 0) { continue; }
+        if (fs_is_dir(top.data[i].cstr()) == 0) {
+            continue;
+        }
         fs_walk(top.data[i].cstr(), void(string path, bool is_dir) {
-            if (is_dir) { return; }
-            let s: String;  s.from(path);
+            if (is_dir) {
+                return;
+            }
+            let s: String;
+            s.from(path);
             nested_p.push(s);
         });
     }
-    let seen: Map<int>;  Map_init<int>(&seen, 64);
+    let seen: Map<int>;
+    Map_init<int>(&seen, 64);
     defer Map_free<int>(&seen);
-    let hex: String;  hex.init(65);
+    let hex: String;
+    hex.init(65);
     defer hex.free();
     int created = 0;
     for (i in 0..nested.size) {
         string path = nested.data[i].cstr();
-        if (fs_is_file(path) == 0) { continue; }
-        if (hash_file(path, &hex) != 0) { report_fs_error("cannot read", path); continue; }
+        if (fs_is_file(path) == 0) {
+            continue;
+        }
+        if (hash_file(path, &hex) != 0) {
+            report_fs_error("cannot read", path);
+            continue;
+        }
         *Map_at<int>(&seen, hex.cstr(), &created) = -1;
     }
     log_info("files already in folders: %d", nested.size);
 
     // 2. The loose files: plan where each one goes.
-    let entries: List<Entry>;  List_init<Entry>(&entries, 32);
-    let target: String;  target.init(128);
+    let entries: List<Entry>;
+    List_init<Entry>(&entries, 32);
+    let target: String;
+    target.init(128);
     defer target.free();
     int failures = 0;
     for (i in 0..top.size) {
         string path = top.data[i].cstr();
         let st: FileStat;
-        if (fs_lstat(path, &st) != 0) { report_fs_error("cannot stat", path); failures++; continue; }
-        if (!st.is_file) { continue; }
+        if (fs_lstat(path, &st) != 0) {
+            report_fs_error("cannot stat", path);
+            failures++;
+            continue;
+        }
+        if (!st.is_file) {
+            continue;
+        }
         let e: Entry;
-        e.name.init(32);  e.folder.init(16);  e.hash.init(65);  e.modified.init(20);
+        e.name.init(32);
+        e.folder.init(16);
+        e.hash.init(65);
+        e.modified.init(20);
         path_basename(&e.name, path);
         e.size = st.size;
         e.action = "move";
@@ -149,21 +185,26 @@ int main(int argc, string* argv) {
             } else {
                 path_extension(&e.folder, path);
                 e.folder.lower();
-                if (e.folder.len == 0) { e.folder.append("other"); }
+                if (e.folder.len == 0) {
+                    e.folder.append("other");
+                }
             }
         }
         if (e.folder.len > 0) {
             path_join(&target, dir, e.folder.cstr());
             target.push('/');
             target.append(e.name.cstr());
-            if (fs_exists(target.cstr()) == 1) { e.action = "exists"; }
+            if (fs_exists(target.cstr()) == 1) {
+                e.action = "exists";
+            }
         }
         entries.push(e);
     }
     log_info("loose files: %d", entries.size);
 
     // 3. Move them (or just say what would happen).
-    let line: String;  line.init(128);
+    let line: String;
+    line.init(128);
     defer line.free();
     for (i in 0..entries.size) {
         *Entry e = &entries.data[i];
@@ -172,35 +213,60 @@ int main(int argc, string* argv) {
             log_warn("skipped %s: %s/%s already exists", e.name.cstr(), e.folder.cstr(), e.name.cstr());
             continue;
         }
-        if (strcmp(e.action, "error") == 0) { continue; }
+        if (strcmp(e.action, "error") == 0) {
+            continue;
+        }
         String_format(&line, "%-10s  %s -> %s/", verb, e.name.cstr(), e.folder.cstr());
-        if (strcmp(e.action, "duplicate") == 0) { line.append("  (duplicate)"); }
+        if (strcmp(e.action, "duplicate") == 0) {
+            line.append("  (duplicate)");
+        }
         println(line.cstr());
-        if (dry_run) { continue; }
+        if (dry_run) {
+            continue;
+        }
         path_join(&target, dir, e.folder.cstr());
-        if (fs_mkdir_p(target.cstr()) != 0) { report_fs_error("cannot create", target.cstr()); failures++; continue; }
-        let from: String;  from.init(128);
+        if (fs_mkdir_p(target.cstr()) != 0) {
+            report_fs_error("cannot create", target.cstr());
+            failures++;
+            continue;
+        }
+        let from: String;
+        from.init(128);
         path_join(&from, dir, e.name.cstr());
         target.push('/');
         target.append(e.name.cstr());
-        if (fs_rename(from.cstr(), target.cstr()) != 0) { report_fs_error("cannot move", from.cstr()); e.action = "error"; failures++; }
+        if (fs_rename(from.cstr(), target.cstr()) != 0) {
+            report_fs_error("cannot move", from.cstr());
+            e.action = "error";
+            failures++;
+        }
         from.free();
     }
 
     // 4. Summary: files and bytes per folder, by folder name.
-    let folders: List<Folder>;  List_init<Folder>(&folders, 8);
+    let folders: List<Folder>;
+    List_init<Folder>(&folders, 8);
     defer List_free<Folder>(&folders);
     for (i in 0..entries.size) {
         *Entry e = &entries.data[i];
-        if (strcmp(e.action, "move") != 0 && strcmp(e.action, "duplicate") != 0) { continue; }
+        if (strcmp(e.action, "move") != 0 && strcmp(e.action, "duplicate") != 0) {
+            continue;
+        }
         int k = 0;
-        while (k < folders.size && strcmp(folders.data[k].name, e.folder.cstr()) != 0) { k++; }
-        if (k == folders.size) { folders.push(Folder { name: (string)e.folder.cstr(), files: 0, bytes: 0 }); }
+        while (k < folders.size && strcmp(folders.data[k].name, e.folder.cstr()) != 0) {
+            k++;
+        }
+        if (k == folders.size) {
+            folders.push(Folder { name: (string)e.folder.cstr(), files: 0, bytes: 0 });
+        }
         folders.data[k].files++;
         folders.data[k].bytes += e.size;
     }
-    folders.sort_by(int(*Folder a, *Folder b) { return strcmp(a.name, b.name); });
-    let size: String;  size.init(16);
+    folders.sort_by(int(*Folder a, *Folder b) {
+        return strcmp(a.name, b.name);
+    });
+    let size: String;
+    size.init(16);
     defer size.free();
     if (folders.size == 0) {
         println("nothing to organize");
@@ -218,35 +284,57 @@ int main(int argc, string* argv) {
     // 5. The CSV report.
     string report = ArgParser_get(&p, "report");
     if (report != null) {
-        let csv: String;  csv.init(256);
-        let row: List<string>;  List_init<string>(&row, 6);
-        row.push("file");  row.push("folder");  row.push("bytes");
-        row.push("modified");  row.push("sha256");  row.push("action");
+        let csv: String;
+        csv.init(256);
+        let row: List<string>;
+        List_init<string>(&row, 6);
+        row.push("file");
+        row.push("folder");
+        row.push("bytes");
+        row.push("modified");
+        row.push("sha256");
+        row.push("action");
         csv_write_row(&row, &csv);
         for (i in 0..entries.size) {
             *Entry e = &entries.data[i];
-            let bytes: String;  bytes.init(16);
+            let bytes: String;
+            bytes.init(16);
             String_format(&bytes, "%lld", e.size);
             row.clear();
-            row.push(e.name.cstr());  row.push(e.folder.cstr());  row.push(bytes.cstr());
-            row.push(e.modified.cstr());  row.push(e.hash.cstr());  row.push(e.action);
+            row.push(e.name.cstr());
+            row.push(e.folder.cstr());
+            row.push(bytes.cstr());
+            row.push(e.modified.cstr());
+            row.push(e.hash.cstr());
+            row.push(e.action);
             csv_write_row(&row, &csv);
             bytes.free();
         }
-        if (fs_write_text(report, csv.cstr()) != 0) { report_fs_error("cannot write", report); failures++; }
-        else { log_info("report written to %s", report); }
+        if (fs_write_text(report, csv.cstr()) != 0) {
+            report_fs_error("cannot write", report);
+            failures++;
+        }
+        else {
+            log_info("report written to %s", report);
+        }
         List_free<string>(&row);
         csv.free();
     }
 
     // 6. Disk usage from du, when it is installed.
     if (!dry_run) {
-        let du: List<string>;  List_init<string>(&du, 3);
-        du.push("du");  du.push("-sh");  du.push(dir);
+        let du: List<string>;
+        List_init<string>(&du, 3);
+        du.push("du");
+        du.push("-sh");
+        du.push(dir);
         let r: ProcessResult;
         if (process_run(&du, null, &r) == 0 && r.exit_code == 0) {
             int64 tab = r.stdout.find("\t", 0);       // "40K\t<dir>\n": keep the size
-            if (tab >= 0) { r.stdout.data[tab] = '\0';  r.stdout.len = tab; }
+            if (tab >= 0) {
+                r.stdout.data[tab] = '\0';
+                r.stdout.len = tab;
+            }
             r.stdout.trim();
             log_info("disk usage: %s", r.stdout.cstr());
         } else {
@@ -258,7 +346,10 @@ int main(int argc, string* argv) {
 
     for (i in 0..entries.size) {
         *Entry e = &entries.data[i];
-        e.name.free();  e.folder.free();  e.hash.free();  e.modified.free();
+        e.name.free();
+        e.folder.free();
+        e.hash.free();
+        e.modified.free();
     }
     List_free<Entry>(&entries);
     return failures > 0 ? 1 : 0;

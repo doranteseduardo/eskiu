@@ -5,7 +5,7 @@ import <io>;
 
 interface Shape {
     float area();
-    void  describe();
+    void describe();
 }
 
 struct Circle {
@@ -42,7 +42,7 @@ float totalArea(Shape a, Shape b) {
 }
 
 int main() {
-    let c: Circle    = Circle    { radius: 5.0 };
+    let c: Circle = Circle { radius: 5.0 };
     let r: Rectangle = Rectangle { w: 4.0, h: 6.0 };
 
     printShape(&c);

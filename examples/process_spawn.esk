@@ -17,7 +17,8 @@ int main(int argc, string* argv) {
     }
 
     println("before spawn");
-    let args: List<string>;  List_init<string>(&args, 2);
+    let args: List<string>;
+    List_init<string>(&args, 2);
     defer List_free<string>(&args);
     args.push(argv[0]);
     args.push("--child");
@@ -26,7 +27,8 @@ int main(int argc, string* argv) {
     opts.inherit_stdout = true;      // the child writes to our stdout
     let p: Process;
     if (process_spawn(&args, &opts, &p) != 0) {
-        let why: String;  String_init(&why, 64);
+        let why: String;
+        String_init(&why, 64);
         process_last_error(&why);
         println_err(why.cstr());
         return 1;

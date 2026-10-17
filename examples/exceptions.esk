@@ -8,7 +8,9 @@ import <io>;
 const int ERR_DIVIDE_BY_ZERO = 1;
 
 int checked_div(int a, int b) {
-    if (b == 0) { throw ERR_DIVIDE_BY_ZERO; }
+    if (b == 0) {
+        throw ERR_DIVIDE_BY_ZERO;
+    }
     return a / b;
 }
 

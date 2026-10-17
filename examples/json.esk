@@ -8,15 +8,18 @@ import <io>;
 
 int main() {
     // Build (separators are inserted automatically).
-    let j: Json;  Json_init(&j);
+    let j: Json;
+    Json_init(&j);
     Json_obj_begin(&j);
-        Json_key(&j, "lang");  Json_str(&j, "Eskiu");
-        Json_key(&j, "year");  Json_int(&j, 2026);
-        Json_key(&j, "tags");
-        Json_arr_begin(&j);
-            Json_str(&j, "systems");
-            Json_str(&j, "llvm");
-        Json_arr_end(&j);
+    Json_key(&j, "lang");
+    Json_str(&j, "Eskiu");
+    Json_key(&j, "year");
+    Json_int(&j, 2026);
+    Json_key(&j, "tags");
+    Json_arr_begin(&j);
+    Json_str(&j, "systems");
+    Json_str(&j, "llvm");
+    Json_arr_end(&j);
     Json_obj_end(&j);
     printf("built:  %s\n", Json_cstr(&j));
 

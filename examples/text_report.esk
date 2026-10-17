@@ -13,20 +13,26 @@ int main() {
     raw.from("name; city; amount\r\nAda Lovelace; london; 1250.5\nalan turing;Wilmslow;  980\n\ngrace hopper; NEW YORK; 2100.25\n");
     defer raw.free();
 
-    let lines: List<String>;  List_init<String>(&lines, 8);
+    let lines: List<String>;
+    List_init<String>(&lines, 8);
     raw.lines(&lines);
     defer String_split_free(&lines);
 
-    let row: String;  row.init(64);
+    let row: String;
+    row.init(64);
     defer row.free();
-    let cell: String;  cell.init(32);
+    let cell: String;
+    cell.init(32);
     defer cell.free();
     double total = 0.0;
 
     for (i in 1..lines.len()) {
         let line: String = lines.get(i);
-        if (line.len == 0) { continue; }
-        let fields: List<String>;  List_init<String>(&fields, 4);
+        if (line.len == 0) {
+            continue;
+        }
+        let fields: List<String>;
+        List_init<String>(&fields, 4);
         line.split_str(";", &fields);
 
         let name: String = fields.get(0);
@@ -34,10 +40,14 @@ int main() {
         let city: String = fields.get(1);
         city.trim();
         city.lower();
-        if (city.len > 0) { city.set(0, (char)((int)city.char_at(0) - 32)); }
+        if (city.len > 0) {
+            city.set(0, (char)((int)city.char_at(0) - 32));
+        }
         let amount: String = fields.get(2);
         double value = 0.0;
-        if (amount.parse_double(&value) == 0) { value = 0.0; }
+        if (amount.parse_double(&value) == 0) {
+            value = 0.0;
+        }
         total = total + value;
 
         String_format(&row, "%s", name.cstr());
@@ -52,7 +62,8 @@ int main() {
         String_split_free(&fields);
     }
 
-    let rule: String;  rule.from("-");
+    let rule: String;
+    rule.from("-");
     defer rule.free();
     rule.repeat(38);
     printf("%s\n", rule.cstr());
@@ -61,17 +72,22 @@ int main() {
     printf("%s\n", cell.cstr());
 
     // Replace words and check what is there.
-    let note: String;  note.from("TODO: ship it. TODO: tell everyone.");
+    let note: String;
+    note.from("TODO: ship it. TODO: tell everyone.");
     defer note.free();
     printf("%d TODOs\n", (int)note.replace_all("TODO", "DONE"));
     note.upper();
     printf("%s (contains SHIP: %d)\n", note.cstr(), note.contains("SHIP"));
 
     // Join the names back with a separator.
-    let names: List<string>;  List_init<string>(&names, 4);
+    let names: List<string>;
+    List_init<string>(&names, 4);
     defer List_free<string>(&names);
-    names.push("ada");  names.push("alan");  names.push("grace");
-    let joined: String;  joined.init(16);
+    names.push("ada");
+    names.push("alan");
+    names.push("grace");
+    let joined: String;
+    joined.init(16);
     defer joined.free();
     names.join(" & ", &joined);
     printf("%s\n", joined.cstr());

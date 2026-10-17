@@ -22,9 +22,13 @@ int main() {
     *uint8 buf = alloc<uint8>(1024);
     while (1) {
         int c = net_accept(fd);
-        if (c < 0) { continue; }
+        if (c < 0) {
+            continue;
+        }
         int64 n = net_recv(c, (*void)buf, 1024);
-        if (n > 0) { net_send(c, (*void)buf, n); }
+        if (n > 0) {
+            net_send(c, (*void)buf, n);
+        }
         net_close(c);
     }
 
