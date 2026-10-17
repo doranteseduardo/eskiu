@@ -170,6 +170,11 @@ jobs:
       - name: Compiler bootstrap (3-stage fixpoint)
         run: CLANG=clang-22 tests/selfhost/cg_bootstrap.sh
 
+      # The self-hosted compiler built with AddressSanitizer over the whole corpus: no
+      # memory error in the compiler itself.
+      - name: Self-host under ASan
+        run: CC=clang-22 tests/selfhost/asan_selfhost.sh
+
       # Self-hosted driver end to end: esk_main.esk parses/checks/codegens AND invokes
       # clang to link a native binary. Compare the resulting binaries' exit + stdout to
       # the C++ eskiuc's over a small corpus (promotion P0).
