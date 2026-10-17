@@ -2724,7 +2724,7 @@ StrTab cg_dflt_memo;   // struct name -> 1 has defaults, 2 none, 3 being compute
         if (de == null) { return null; }
         string ln = cg_array_len_const(g, t);
         if (ln[0] == 0) { return null; }
-        int n = str_to_int(ln);
+        int n = (int)cg_parse_i64(ln);
         if (n <= 0 || n > 65536) { return null; }
         *ExprNode a = ast_new_expr();
         a.kind = EK_ARRAYLIT;
