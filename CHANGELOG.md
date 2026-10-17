@@ -37,7 +37,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   `-Wdangling-pointer` (returning a pointer variable that holds a local's address, or a
   struct literal that does; with `-Wall` also storing a local's address in a global
   outside `main`), `-Wframe-larger-than` (a local over 1 MiB). New code is never
-  rejected by them: a program that compiled before still compiles.
+  rejected by them: a program that compiled before still compiles. `-Werror` reports
+  every warning as an error, `-w` prints none (both compilers).
 - An exception that no handler catches (in `main`, a thread, or across a C frame such as
   a `qsort` callback) prints `error: uncaught exception: <type> <value>` to stderr and
   aborts (exit 134), as the REPL reports it. A `std::terminate` handler installed by a

@@ -403,6 +403,17 @@ if command -v script >/dev/null 2>&1 && "$ESKIUC" "$here/run_cmd/process_tty.esk
     fi
 fi
 
+# -Werror turns the default-on warnings into errors (nonzero exit), -w silences them.
+we_file="$here/warnings/string_compare.esk"
+"$ESKIUC" -Werror --test-typechecker "$we_file" > "$work/we.out" 2>&1; we_code=$?
+"$ESKIUC" -w --test-typechecker "$we_file" > "$work/wn.out" 2>&1; wn_code=$?
+if [[ $we_code -ne 0 ]] && grep -q "^error: .*\[-Wstring-compare\]" "$work/we.out" \
+   && [[ $wn_code -eq 0 ]] && ! grep -q "warning:" "$work/wn.out"; then
+    ok "cli/werror-and-w"
+else
+    bad "cli/werror-and-w" "-Werror exit $we_code, -w exit $wn_code: $(grep -m2 -E 'error|warning' "$work/we.out" "$work/wn.out" | tr '\n' ' ')"
+fi
+
 # A successful compile prints nothing to stdout (no output-file echo).
 printf 'int main() { return 0; }\n' > "$work/quiet.esk"
 q_out="$("$ESKIUC" "$work/quiet.esk" -o "$work/quiet" 2>/dev/null)"
