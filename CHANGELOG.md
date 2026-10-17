@@ -27,6 +27,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   under 1 s).
 
 ### Added
+- Field defaults: `struct Opts { int timeout_ms = 30000; bool follow = true; }`. A constant
+  default is what the field holds when nothing sets it: an omitted field of a literal, a
+  local or global declared without an initializer (each declaration, async functions
+  too), nested structs and arrays of them. `alloc<T>` memory stays zeroed; generic
+  structs and bitfields take no default. Both compilers.
 - Binary integer literals `0b`/`0B` and `_` digit separators between two digits, in
   every numeric literal and in `#if` (both compilers, editor grammars).
 - Default-on warnings, each silenced by its `-Wno-` flag (both compilers print the same
