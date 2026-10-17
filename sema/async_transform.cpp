@@ -1319,6 +1319,15 @@ void AsyncTransform::run(Program* program) {
         // variable initializer, so it fills a temporary that is then copied to the field.
         int initTmp = 0;
         auto initField = [&](VarDecl* vd) -> StmtPtr {
+            // `T x;` resets its field to zero at each declaration (a loop iteration), as a
+            // local does: a fresh local of the type (zeroed by codegen) is copied in.
+            if (!vd->initializer) {
+                std::string tn = astwalk::freshName("__zero_t" + std::to_string(initTmp++), used);
+                std::vector<BlockItem> blk;
+                blk.push_back(DeclPtr(std::make_shared<VarDecl>(tn, vd->type, nullptr)));
+                blk.push_back(assign(fr(vd->name), ident(tn)));
+                return std::make_shared<BlockStmt>(blk);
+            }
             rewrite(vd->initializer, vars);
             if (!dynamic_cast<ArrayLitExpr*>(vd->initializer.get()))
                 return assign(fr(vd->name), vd->initializer);
@@ -1337,7 +1346,7 @@ void AsyncTransform::run(Program* program) {
                 for (auto& it : b->items) {
                     if (std::holds_alternative<DeclPtr>(it)) {
                         auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
-                        if (vd && vd->initializer) out2.push_back(initField(vd));
+                        if (vd) out2.push_back(initField(vd));
                     } else out2.push_back(rewritePlain(std::get<StmtPtr>(it)));
                 }
                 return std::make_shared<BlockStmt>(out2);
@@ -1397,7 +1406,7 @@ void AsyncTransform::run(Program* program) {
                     for (auto& it : c.stmts) {
                         if (std::holds_alternative<DeclPtr>(it)) {
                             auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
-                            if (vd && vd->initializer) nc.stmts.push_back(initField(vd));
+                            if (vd) nc.stmts.push_back(initField(vd));
                         } else nc.stmts.push_back(rewritePlain(std::get<StmtPtr>(it)));
                     }
                     out2->cases.push_back(nc);
@@ -1424,7 +1433,8 @@ void AsyncTransform::run(Program* program) {
         auto lowerItem = [&](BlockItem& it, int cur) -> int {
             if (std::holds_alternative<DeclPtr>(it)) {
                 auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
-                if (!vd || !vd->initializer) return cur;
+                if (!vd) return cur;
+                if (!vd->initializer) { states[cur].push_back(initField(vd)); return cur; }
                 if (auto* aw = dynamic_cast<AwaitExpr*>(vd->initializer.get())) {
                     int i = awIdx[aw]; std::string awf = awNames[i];
                     const std::string Tp = awType(aw);   // the future's inner type T'

@@ -852,6 +852,15 @@ int al_has_return(*StmtNode s) {
 // `let x = E` of a hoisted local: `fr.x = E`. An array literal `{...}` is only a
 // variable initializer, so it fills a temporary that is then copied to the field.
 *StmtNode al_init_field(*AlCtx c, *StmtNode vd) {
+    // `T x;` resets its field to zero at each declaration (a loop iteration), as a local
+    // does: a fresh local of the type (zeroed by codegen) is copied in (as the C++ initField).
+    if (vd.expr == null) {
+        string zn = fresh_name(str_concat("__zero_t", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
+        List<*StmtNode> zb; List_init<*StmtNode>(&zb, 2);
+        List_push<*StmtNode>(&zb, mk_vardecl(zn, vd.type, null, 0));
+        List_push<*StmtNode>(&zb, al_assign(al_fr(vd.name), mk_ident(zn)));
+        return al_block(&zb);
+    }
     al_rewrite(vd.expr, &c.vars);
     if (vd.expr.kind != EK_ARRAYLIT) { return al_assign(al_fr(vd.name), vd.expr); }
     string tn = fresh_name(str_concat("__init_t", int_to_str(c.tmpn)), c.used); c.tmpn = c.tmpn + 1;
@@ -870,7 +879,7 @@ int al_has_return(*StmtNode s) {
         while (i < List_len<*StmtNode>(&s.items)) {
             *StmtNode it = List_get<*StmtNode>(&s.items, i); i = i + 1;
             if (it.kind == SK_VARDECL) {
-                if (it.expr != null) { List_push<*StmtNode>(&out, al_init_field(c, it)); }
+                List_push<*StmtNode>(&out, al_init_field(c, it));
             } else { List_push<*StmtNode>(&out, al_rewrite_plain(c, it)); }
         }
         return al_block(&out);
@@ -923,7 +932,7 @@ int al_has_return(*StmtNode s) {
             while (j < List_len<*StmtNode>(&cs.items)) {
                 *StmtNode ci = List_get<*StmtNode>(&cs.items, j); j = j + 1;
                 if (ci.kind == SK_VARDECL) {           // a case's declaration (C scoping)
-                    if (ci.expr != null) { List_push<*StmtNode>(&nb, al_init_field(c, ci)); }
+                    List_push<*StmtNode>(&nb, al_init_field(c, ci));
                 } else { List_push<*StmtNode>(&nb, al_rewrite_plain(c, ci)); }
             }
             List_push<*StmtNode>(&ncases, al_case(cs.expr, &nb));
@@ -936,7 +945,7 @@ int al_has_return(*StmtNode s) {
 // Lower a top-level item (a decl or stmt) at state `cur`; returns the continuation state.
 int al_lower_item(*AlCtx c, *StmtNode s, int cur) {
     if (s.kind == SK_VARDECL) {
-        if (s.expr == null) { return cur; }
+        if (s.expr == null) { al_push(c, cur, al_init_field(c, s)); return cur; }
         if (s.expr.kind == EK_AWAIT) {
             int idx = c.awcount; c.awcount = idx + 1;
             string awf = fresh_name(str_concat("__aw", int_to_str(idx)), c.used);
