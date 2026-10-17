@@ -8938,8 +8938,9 @@ void cg_emit_uncaught(Codegen* g, *Program prog) {
     cg_emit(g, "int:\n  %iv = load i32, ptr %pay\n  %n1 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f1, ptr %tn, i32 %iv)\n  br label %out\n");
     cg_emit(g, "notint:\n  %e3 = icmp eq i32 %c3, 0\n  br i1 %e3, label %i64, label %noti64\n");
     cg_emit(g, "i64:\n  %lv = load i64, ptr %pay\n  %n2 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f2, ptr %tn, i64 %lv)\n  br label %out\n");
-    cg_emit(g, "noti64:\n  %sv = load ptr, ptr %pay\n  %e4 = icmp eq i32 %c4, 0\n  %nn = icmp ne ptr %sv, null\n  %isstr = and i1 %e4, %nn\n");
-    cg_emit(g, "  br i1 %isstr, label %str, label %other\n");
+    // The payload is read as a string pointer only once the type says it is one (as the C++).
+    cg_emit(g, "noti64:\n  %e4 = icmp eq i32 %c4, 0\n  br i1 %e4, label %strchk, label %other\n");
+    cg_emit(g, "strchk:\n  %sv = load ptr, ptr %pay\n  %nn = icmp ne ptr %sv, null\n  br i1 %nn, label %str, label %other\n");
     cg_emit(g, "str:\n  %n3 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f3, ptr %tn, ptr %sv)\n  br label %out\n");
     cg_emit(g, "other:\n  %n4 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f4, ptr %tn)\n  br label %out\n");
     cg_emit(g, "out:\n  %n = phi i32 [ %n1, %int ], [ %n2, %i64 ], [ %n3, %str ], [ %n4, %other ]\n");

@@ -297,9 +297,14 @@ void CodeGen::emitUncaughtReporter() {
     llvm::Value* n2 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
         b.CreateGlobalString(std::string(head) + "%s %lld\n"), tname, b.CreateLoad(i64, pay)});
     b.CreateBr(bOut);
+    // The payload is read as a string pointer only once the type says it is one (a
+    // smaller payload, such as a struct of one int, has no 8 bytes to read).
+    auto* bStrChk = llvm::BasicBlock::Create(c, "strchk", handler);
     b.SetInsertPoint(bNot64);
+    b.CreateCondBr(isStr, bStrChk, bOther);
+    b.SetInsertPoint(bStrChk);
     llvm::Value* sval = b.CreateLoad(ptrTy, pay);
-    b.CreateCondBr(b.CreateAnd(isStr, b.CreateIsNotNull(sval)), bStr, bOther);
+    b.CreateCondBr(b.CreateIsNotNull(sval), bStr, bOther);
     b.SetInsertPoint(bStr);
     llvm::Value* n3 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
         b.CreateGlobalString(std::string(head) + "%s \"%s\"\n"), tname, sval});
