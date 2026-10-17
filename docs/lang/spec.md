@@ -427,7 +427,9 @@ The one conversion that requires an explicit cast:
 
 - **Floating-point to integer** (`double`/`float` to any integer). It drops the
   fractional part, so it must be written out: `int n = (int)3.9;` gives `3`; `int n =
-  3.9;` is a compile error.
+  3.9;` is a compile error. A value outside the target's range saturates to the nearest
+  limit and NaN converts to 0: `(uint8)300.5` is 255, `(uint8)-1.0` is 0, `(int)1e20`
+  is 2147483647 (in C these are undefined behavior).
 
 Statically-known mistakes are also compile errors:
 
@@ -607,6 +609,17 @@ The same constant rule applies to a **global** variable's initializer, as in C: 
 
 Integer division truncates toward zero. Float operands use IEEE 754 semantics.
 
+Integer arithmetic has defined results at run time, the same at every optimization level
+(unlike C, where these cases are undefined behavior):
+
+- `+`, `-`, `*`, unary `-` and `++`/`--` wrap around in two's complement on overflow, for
+  signed types as for unsigned ones: `int x = 2147483647; x + 1` is `-2147483648`.
+- A zero divisor in `/` or `%` stops the program with a trap (the process ends with a
+  signal, SIGTRAP or SIGILL depending on the CPU), as `--safe` bounds checks do. A divisor
+  the compiler can see is constant (`x / 0`) is a compile error instead (3.9).
+- The most negative value divided by `-1` wraps to itself, and its remainder is 0:
+  `-2147483648 / -1` is `-2147483648`.
+
 ### 5.2 Bitwise
 
 | Operator | Description  |
@@ -619,6 +632,11 @@ Integer division truncates toward zero. Float operands use IEEE 754 semantics.
 | `a >> b` | Right shift  |
 
 Right shift on signed types is arithmetic (sign-extended).
+
+The shift count is taken modulo the width of the (promoted) value shifted: for an `int` it
+is `count & 31`, for an `int64` `count & 63`, so `1 << 32` with a run-time count of 32 is
+`1` and a negative count uses its low bits. This is what x86 and AArch64 shift instructions
+do, so it costs nothing. A constant count out of range is a compile error (3.9).
 
 ### 5.3 Comparison
 
