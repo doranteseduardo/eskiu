@@ -645,15 +645,13 @@ void Parser::buildScriptMain(std::vector<DeclPtr>& decls) {
             throw ParseError("a file with top-level statements has no 'main': the statements are its main");
         }
     std::vector<BlockItem> items;
-    auto at = [&](auto node) { node->line = first->line; node->col = first->col; return node; };
-    auto assign = [&](const std::string& name, ExprPtr value, bool script) {
-        auto lhs = at(std::make_shared<IdentExpr>(name));
-        auto be = at(std::make_shared<BinaryExpr>(lhs, "=", std::move(value)));
-        be->scriptInit = script;
-        items.push_back(StmtPtr(at(std::make_shared<ExprStmt>(be))));
-    };
-    assign("argc", at(std::make_shared<IdentExpr>("__argc")), false);
-    assign("argv", at(std::make_shared<IdentExpr>("__argv")), false);
+    // `main`, `argc`, `argv`, their assignments and the final `return 0` are implicit:
+    // no position (line 0), so the editor modes do not place them on the first statement.
+    for (const char* name : {"argc", "argv"}) {
+        auto be = std::make_shared<BinaryExpr>(std::make_shared<IdentExpr>(name), "=",
+                                               std::make_shared<IdentExpr>(std::string("__") + name));
+        items.push_back(StmtPtr(std::make_shared<ExprStmt>(be)));
+    }
     for (const auto& [stmt, vd] : scriptOrder) {
         if (stmt) {
             items.push_back(stmt);
@@ -676,13 +674,15 @@ void Parser::buildScriptMain(std::vector<DeclPtr>& decls) {
     }
     bool returns = !items.empty() && std::holds_alternative<StmtPtr>(items.back()) &&
                    dynamic_cast<ReturnStmt*>(std::get<StmtPtr>(items.back()).get());
-    if (!returns) items.push_back(StmtPtr(at(std::make_shared<ReturnStmt>(at(std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "0"))))));
-    auto body = at(std::make_shared<BlockStmt>(items));
-    auto mainFn = at(std::make_shared<FunctionDecl>(
-        "main", "int", std::vector<std::pair<std::string, std::string>>{{"int", "__argc"}, {"string*", "__argv"}}, body));
+    if (!returns) items.push_back(StmtPtr(std::make_shared<ReturnStmt>(std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "0"))));
+    auto body = std::make_shared<BlockStmt>(items);
+    body->line = first->line;
+    body->col = first->col;
+    auto mainFn = std::make_shared<FunctionDecl>(
+        "main", "int", std::vector<std::pair<std::string, std::string>>{{"int", "__argc"}, {"string*", "__argv"}}, body);
     mainFn->sourceFile = filename;
-    auto ga = at(std::make_shared<VarDecl>("argc", "int", nullptr));
-    auto gv = at(std::make_shared<VarDecl>("argv", "string*", nullptr));
+    auto ga = std::make_shared<VarDecl>("argc", "int", nullptr);
+    auto gv = std::make_shared<VarDecl>("argv", "string*", nullptr);
     ga->sourceFile = gv->sourceFile = filename;
     decls.insert(decls.begin(), {ga, gv});
     decls.push_back(mainFn);

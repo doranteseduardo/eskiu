@@ -1,0 +1,13 @@
+// A script's implicit main, argc and argv have no position: the editor modes do not
+// place them on the first statement, and argc and argv are not one symbol.
+// REFS 12:1 (no symbol at 12:1)
+// REFS 12:5 (no symbol at 12:5)
+// REFS 12:23 (no symbol at 12:23)
+// REFS 10:5 10:5 11:19 13:16
+// HOVER 12:1 (no type at 12:1)
+// HOVER 12:5 int
+extern int printf(string fmt, ...);
+int total = 0;
+void add(int n) { total += n; }
+if (argc > 1) { add(argv[1][0]); }
+printf("%d\n", total);

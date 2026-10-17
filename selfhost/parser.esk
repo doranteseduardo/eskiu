@@ -4076,8 +4076,10 @@ void p_build_script_main(Parser* p, *Program prog, int start) {
     body.line = fl;
     body.col = fc;
     List_init<*StmtNode>(&body.items, n + 4);
-    List_push<*StmtNode>(&body.items, p_script_assign("argc", p_script_ident("__argc", fl, fc), 0, fl, fc));
-    List_push<*StmtNode>(&body.items, p_script_assign("argv", p_script_ident("__argv", fl, fc), 0, fl, fc));
+    // `main`, `argc`, `argv`, their assignments and the final `return 0` are implicit:
+    // no position (line 0), so the editor modes do not place them on the first statement.
+    List_push<*StmtNode>(&body.items, p_script_assign("argc", p_script_ident("__argc", 0, 0), 0, 0, 0));
+    List_push<*StmtNode>(&body.items, p_script_assign("argv", p_script_ident("__argv", 0, 0), 0, 0, 0));
     i = 0;
     while (i < n) {
         *StmtNode s = List_get<*StmtNode>(&p.so_stmts, i);
@@ -4099,13 +4101,13 @@ void p_build_script_main(Parser* p, *Program prog, int start) {
         zero.kind = EK_LITERAL;
         zero.lit_kind = LIT_INT;
         zero.sval = "0";
-        zero.line = fl;
-        zero.col = fc;
+        zero.line = 0;
+        zero.col = 0;
         *StmtNode ret = ast_new_stmt();
         ret.kind = SK_RETURN;
         ret.expr = zero;
-        ret.line = fl;
-        ret.col = fc;
+        ret.line = 0;
+        ret.col = 0;
         List_push<*StmtNode>(&body.items, ret);
     }
     *DeclNode mainfn = new_decl(DK_FUNCTION);
@@ -4125,20 +4127,20 @@ void p_build_script_main(Parser* p, *Program prog, int start) {
     List_init<*ExprNode>(&mainfn.param_defaults, 1);
     List_init<string>(&mainfn.param_def_texts, 1);
     mainfn.body = body;
-    mainfn.line = fl;
-    mainfn.col = fc;
+    mainfn.line = 0;
+    mainfn.col = 0;
     mainfn.file = p.file;
     *DeclNode ga = new_decl(DK_VARDECL);
     ga.name = "argc";
     ga.ret_type = "int";
-    ga.line = fl;
-    ga.col = fc;
+    ga.line = 0;
+    ga.col = 0;
     ga.file = p.file;
     *DeclNode gv = new_decl(DK_VARDECL);
     gv.name = "argv";
     gv.ret_type = "string*";
-    gv.line = fl;
-    gv.col = fc;
+    gv.line = 0;
+    gv.col = 0;
     gv.file = p.file;
     List_insert<*DeclNode>(&prog.decls, start, gv);
     List_insert<*DeclNode>(&prog.decls, start, ga);

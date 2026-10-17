@@ -598,7 +598,7 @@ void print_symbols(*Program prog, string infile) {
     while (i < List_len<*DeclNode>(&prog.decls)) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         i = i + 1;
-        if (d.from_import == 1) {
+        if (d.from_import == 1 || d.line <= 0) {   // not an implicit one (a script's argc)
             continue;
         }
         if (d.file != null && d.file[0] != 0 && cg_streq(canonical_path(d.file), self) == 0) {

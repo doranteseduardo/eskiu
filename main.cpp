@@ -666,7 +666,7 @@ static int compilerMain(int argc, char** argv) {
             std::cout << kind << "\t" << name << "\t" << at << "\t" << container << "\t" << detail << "\n";
         };
         for (const auto& d : program->declarations) {
-            if (!mine(d.get())) continue;
+            if (!mine(d.get()) || d->line <= 0) continue;   // not an implicit one (a script's argc)
             if (auto* f = dynamic_cast<FunctionDecl*>(d.get())) {
                 emit("function", f->name, pos(f->line, f->col), "", sig(f, f->name));
             } else if (auto* s = dynamic_cast<StructDecl*>(d.get())) {
