@@ -87,6 +87,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   build is unchanged.
 
 ### Changed
+- The stability policy (`docs/lang/stability.md`) starts with this release: code that
+  compiles with 0.12.0 keeps compiling in every 0.12.x.
 - Integer division and remainder by a run-time zero trap (they were undefined: x86
   trapped, AArch64 returned a value, and the optimizer could drop a later check), and
   the most negative value divided by `-1` gives itself with remainder 0. A divisor known

@@ -142,8 +142,8 @@ completion, signatures and quick fixes through the
 
 ## Stability
 
-Eskiu is stable since 0.11. Code that compiles with 0.11.0 keeps compiling in every 0.11.x
-release. A later minor release (0.12, 0.13) may still change the language or the standard
+Eskiu is stable since 0.12. Code that compiles with 0.12.0 keeps compiling in every 0.12.x
+release. A later minor release (0.13, 0.14) may still change the language or the standard
 library before 1.0, but never by surprise: a renamed or removed function keeps working for a
 whole minor release, marked `deprecated`, and each use prints a warning that names its
 replacement. The rules are in [docs/lang/stability.md](docs/lang/stability.md), and

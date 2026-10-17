@@ -197,7 +197,7 @@ clang file.o -o file        # link it yourself
 */
 </code></pre>
 <h3 id="22-identifiers">2.2 Identifiers</h3>
-<p>An identifier begins with a letter (<code>a</code>–<code>z</code>, <code>A</code>–<code>Z</code>) or underscore (<code>_</code>), followed by zero or more letters, digits (<code>0</code>–<code>9</code>), or underscores. Identifiers are case-sensitive: <code>point</code> and <code>Point</code> are distinct.</p>
+<p>An identifier begins with a letter (<code>a</code>–<code>z</code>, <code>A</code>–<code>Z</code>) or underscore (<code>_</code>), followed by zero or more letters, digits (<code>0</code>–<code>9</code>), or underscores. Identifiers are case-sensitive: <code>point</code> and <code>Point</code> are distinct. Identifiers and operators are ASCII: a UTF-8 character outside a string literal, a character literal or a comment is a lexical error that names it (<code>non-ASCII character 'ñ' outside a string or comment</code>). Strings and comments may hold any UTF-8 text.</p>
 <pre><code class="language-eskiu">my_var    _internal    Count    x1
 </code></pre>
 <h3 id="23-keywords">2.3 Keywords</h3>
@@ -223,6 +223,14 @@ sizeof  free_closure  union  enum
 <p><strong>Integer hex literals</strong> are prefixed with <code>0x</code> followed by hexadecimal digits (<code>0</code>–<code>9</code>, <code>a</code>–<code>f</code>, <code>A</code>–<code>F</code>):</p>
 <pre><code class="language-eskiu">0xFF    0x0F    0xDEAD    0xBEEF
 </code></pre>
+<p><strong>Integer binary literals</strong> are prefixed with <code>0b</code> (or <code>0B</code>) followed by <code>0</code> and <code>1</code> digits:</p>
+<pre><code class="language-eskiu">0b1011    0B1000_0001    0b0
+</code></pre>
+<p><strong>Digit separators.</strong> A <code>_</code> between two digits is ignored, in every kind of numeric
+literal: <code>1_000_000</code>, <code>0xFF_FF</code>, <code>0b1111_0000</code>, <code>1_234.5</code>, <code>1e1_0</code>. One more <code>_</code> may follow
+the <code>0x</code>/<code>0b</code> prefix (<code>0x_FF</code>). A <code>_</code> that does not sit between two digits (<code>1__0</code>, <code>1_</code>)
+is a lexical error, and so is a digit other than <code>0</code> or <code>1</code> in a binary literal. The same
+forms work in a <code>#if</code> expression.</p>
 <p><strong>Negative numeric literals</strong> are written with a leading <code>-</code>:</p>
 <pre><code class="language-eskiu">-1    -42    -100
 -3.14    -0.5
@@ -605,7 +613,9 @@ C, with one exception. Implicit (no cast needed):</p>
 <ul>
 <li><strong>Floating-point to integer</strong> (<code>double</code>/<code>float</code> to any integer). It drops the
   fractional part, so it must be written out: <code>int n = (int)3.9;</code> gives <code>3</code>; <code>int n =
-  3.9;</code> is a compile error.</li>
+  3.9;</code> is a compile error. A value outside the target's range saturates to the nearest
+  limit and NaN converts to 0: <code>(uint8)300.5</code> is 255, <code>(uint8)-1.0</code> is 0, <code>(int)1e20</code>
+  is 2147483647 (in C these are undefined behavior).</li>
 </ul>
 <p>Statically-known mistakes are also compile errors:</p>
 <ul>
@@ -785,6 +795,19 @@ next();   // 3
 </tbody>
 </table></div>
 <p>Integer division truncates toward zero. Float operands use IEEE 754 semantics.</p>
+<p>Integer arithmetic has defined results at run time, the same at every optimization level
+(unlike C, where these cases are undefined behavior):</p>
+<ul>
+<li><code>+</code>, <code>-</code>, <code>*</code>, unary <code>-</code> and <code>++</code>/<code>--</code> wrap around in two's complement on overflow, for
+  signed types as for unsigned ones: <code>int x = 2147483647; x + 1</code> is <code>-2147483648</code>. Under
+  <code>--safe</code> a signed <code>+</code>, <code>-</code> or <code>*</code> on <code>int</code> or <code>int64</code> that overflows traps instead
+  (Zig's ReleaseSafe; unsigned and narrow arithmetic still wraps).</li>
+<li>A zero divisor in <code>/</code> or <code>%</code> stops the program with a trap (the process ends with a
+  signal, SIGTRAP or SIGILL depending on the CPU), as <code>--safe</code> bounds checks do. A divisor
+  the compiler can see is constant (<code>x / 0</code>) is a compile error instead (3.9).</li>
+<li>The most negative value divided by <code>-1</code> wraps to itself, and its remainder is 0:
+  <code>-2147483648 / -1</code> is <code>-2147483648</code>.</li>
+</ul>
 <h3 id="52-bitwise">5.2 Bitwise</h3>
 <div class="tablewrap"><table>
 <thead>
@@ -821,6 +844,10 @@ next();   // 3
 </tbody>
 </table></div>
 <p>Right shift on signed types is arithmetic (sign-extended).</p>
+<p>The shift count is taken modulo the width of the (promoted) value shifted: for an <code>int</code> it
+is <code>count &amp; 31</code>, for an <code>int64</code> <code>count &amp; 63</code>, so <code>1 &lt;&lt; 32</code> with a run-time count of 32 is
+<code>1</code> and a negative count uses its low bits. This is what x86 and AArch64 shift instructions
+do, so it costs nothing. A constant count out of range is a compile error (3.9).</p>
 <h3 id="53-comparison">5.3 Comparison</h3>
 <div class="tablewrap"><table>
 <thead>
@@ -994,6 +1021,12 @@ sizeof(Grid)   // 12  (3 float fields)
 <p><code>sizeof</code> is resolved entirely at compile time and produces no runtime code. As in C, <code>sizeof(x)</code> where <code>x</code> names a variable (or a parameter or global) gives the size of that variable's type; a name that is neither a type nor a variable is an error.</p>
 <p>The operand may also be an expression: <code>sizeof(*p)</code>, <code>sizeof(a[0])</code>, <code>sizeof(s.field)</code> give the size of the expression's type, and the expression is not evaluated (<code>sizeof(f())</code> does not call <code>f</code>). The operand is read as a type when it is a bare name or a spelling built over a primitive or an already declared type (<code>sizeof(*Node)</code>, <code>sizeof(int[4])</code>); otherwise it is an expression.</p>
 <p>The type checker folds <code>sizeof</code> of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and <code>#pragma pack(N)</code> included), using the target's layout (<code>--target</code>), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate <code>case</code>) and <code>enum</code> member values see it. A union declared under <code>#pragma pack(N)</code> folds too.</p>
+<h3 id="581-dbg-expression">5.8.1 dbg Expression</h3>
+<p><code>dbg(e)</code> evaluates <code>e</code> once, prints its source text and value to stderr, and yields the value, so it can wrap any subexpression:</p>
+<pre><code class="language-eskiu">int m = dbg(n + 1) * 2;     // [dbg 12:13] n + 1 = 21
+dbg(p);                     // [dbg 14:5] p = P{x: 1, y: 2.5, s: &quot;hi&quot;}
+</code></pre>
+<p>The line and column are those of <code>dbg</code>. Integers, <code>bool</code>, <code>char</code> (<code>'z'</code>), floating point (<code>%g</code>), <code>string</code> (quoted, <code>null</code> unquoted) and pointers (<code>%p</code>) print as values; a fixed array prints its first 16 elements, a struct (a generic instance by its mangled name, <code>Box_int{...}</code>) its fields by name, nested up to 4 levels; a plain enum prints as <code>Color(5)</code>; any other type (a slice, a closure, a union, a sum type, a bitfield struct) prints as <code>&lt;T&gt;</code>. The argument may not be a <code>void</code> call. <code>dbg</code> is not a reserved word: a variable or function named <code>dbg</code> hides the builtin.</p>
 <h3 id="59-conditional-ternary">5.9 Conditional (ternary)</h3>
 <p><code>cond ? a : b</code> evaluates <code>cond</code>, then evaluates and yields <strong>exactly one</strong> of the two
 arms (so side effects in the unused arm never run). The condition may be a bool,
@@ -1164,6 +1197,14 @@ int a = rect_area(&amp;r);   // warning: 'rect_area' is deprecated: use Rect_are
 only as <code>deprecated("...")</code> at the start of a top-level declaration, so a variable or
 function named <code>deprecated</code> is still valid, and it applies only to functions. The release
 policy that uses it is in <a href="stability.html">stability.md</a>.</p>
+<h3 id="613-default-parameter-values">6.1.3 Default Parameter Values</h3>
+<p>A parameter may give a default value, used when a call leaves that argument out:</p>
+<pre><code class="language-eskiu">void connect(string host, int port = 443, bool verbose = false) { ... }
+
+connect(&quot;example.com&quot;);            // port 443, verbose false
+connect(&quot;example.com&quot;, 8080);      // verbose false
+</code></pre>
+<p>Every parameter after one with a default needs a default too, and a variadic function takes none. A default is a literal (<code>"none"</code>, <code>'x'</code>, <code>true</code>, <code>null</code>, <code>-1.5</code>) or an integer constant expression over literals, enum members and top-level <code>const</code> integers (<code>BASE + 43</code>). It is folded where the function is declared, so a local of the caller with the same name does not change it. Defaults may be written on the prototype or on the definition, not on both. They apply to direct calls, to generic functions, <code>async</code> functions and inline methods of non-generic structs (<code>s.add()</code>), and to a top-level <code>T_method(self, ...)</code> called with dot syntax. Calls through a function value (<code>fn(...)-&gt;R</code>) pass every argument. <code>extern</code> and <code>intrinsic</code> prototypes, interface methods and lambdas take no defaults.</p>
 <h3 id="62-void-functions">6.2 Void Functions</h3>
 <pre><code class="language-eskiu">void log_event(string msg) {
     printf(&quot;%s\n&quot;, msg);
@@ -1174,6 +1215,16 @@ policy that uses it is in <a href="stability.html">stability.md</a>.</p>
 <p>The one function that may not be <code>void</code> is <code>main</code>: its return value is the process exit
 code, so it must return <code>int</code> (<code>int main()</code> or <code>int main(int argc, string* argv)</code>). A
 <code>void main()</code> is a compile error.</p>
+<p><strong>Scripts.</strong> A file may instead have statements at the top level, mixed with declarations. It is then a script: the compiler gives it <code>int main(int __argc, string* __argv)</code>, whose body is those statements in source order. The arguments are in the globals <code>int argc</code> and <code>string* argv</code>. A top-level variable of a script is a global that the functions see; one with an initializer starts at zero and is assigned at its place in that order, so its initializer may be any expression (a call, <code>argv[1]</code>), not only a constant. A <code>const</code> variable and an array-literal initializer keep the global rules (a constant). A <code>return n;</code> ends the script with exit code <code>n</code>; reaching the end returns 0.</p>
+<pre><code class="language-eskiu">extern int printf(string fmt, ...);
+int total = 0;
+void add(int n) { total += n; }
+add(3);
+add(4);
+string who = argc &gt; 1 ? argv[1] : &quot;world&quot;;
+printf(&quot;%d %s\n&quot;, total, who);      // 7 world
+</code></pre>
+<p>A top-level line is a statement when no declaration can start with its tokens: a statement keyword (<code>if</code>, <code>for</code>, <code>while</code>, <code>return</code>, ...), <code>{</code>, a literal or prefix operator, a call <code>f(...)</code>, or an assignment, member or postfix use of a name (<code>x = 1</code>, <code>p.x = 2</code>, <code>arr[0] = 3</code>, <code>*p = 4</code>); <code>Point[2] ps;</code> and <code>*Node p;</code> still declare. A file with top-level statements may not also define <code>main</code>, and an imported file may not have them.</p>
 <h3 id="63-variadic-functions">6.3 Variadic Functions</h3>
 <p>The ellipsis <code>...</code> marks a variadic parameter list; at least one fixed parameter
 must precede it. It is valid in both <code>extern</code> declarations and user functions:</p>
@@ -1208,7 +1259,7 @@ compile error. So is a type the promotions widen (<code>va_arg&lt;float&gt;</cod
 <pre><code class="language-eskiu">intrinsic int  atomic_load(*int cell);
 intrinsic void atomic_store(*int cell, int v);
 </code></pre>
-<p>A call to an intrinsic lowers to a specific instruction sequence chosen by codegen (the <code>&lt;atomic&gt;</code> intrinsics lower to LLVM atomic loads/stores/<code>cmpxchg</code> with fixed acquire/release ordering) instead of an ordinary <code>call</code>. Intrinsics are how the standard library exposes operations that have no portable C spelling; application code rarely declares its own.</p>
+<p>A call to an intrinsic lowers to a specific instruction sequence chosen by codegen (the <code>&lt;atomic&gt;</code> intrinsics lower to LLVM atomic loads, stores, <code>atomicrmw</code>, <code>cmpxchg</code> and <code>fence</code> with fixed orderings) instead of an ordinary <code>call</code>. The compiler knows one family: <code>atomic_&lt;op&gt;</code> on an <code>int</code> cell, <code>atomic_&lt;op&gt;64</code> on an <code>int64</code> cell and <code>atomic_&lt;op&gt;_ptr</code> on a pointer cell, where <code>&lt;op&gt;</code> is <code>load</code> (acquire), <code>store</code> (release), <code>swap</code>, <code>cas</code> (acq_rel; a failed <code>cas</code> acquire), or, for the integer cells, <code>fetch_add</code>, <code>fetch_sub</code>, <code>fetch_and</code>, <code>fetch_or</code>, <code>fetch_xor</code> (acq_rel, returning the previous value), plus <code>atomic_fence()</code> (seq_cst). Each of them except the fence also exists with a <code>_relaxed</code> suffix after the cell kind (<code>atomic_fetch_add_relaxed</code>, <code>atomic_load64_relaxed</code>, <code>atomic_cas_ptr_relaxed</code>): the same atomic operation with no ordering (LLVM <code>monotonic</code>, C's <code>memory_order_relaxed</code>), for counters and statistics that are read after a join. Any other name is an error. Intrinsics are how the standard library exposes operations that have no portable C spelling; application code rarely declares its own.</p>
 <h3 id="65-lambdas-and-closures">6.5 Lambdas and Closures</h3>
 <p>An anonymous function (lambda) is written with a C-style function body and no name. The syntax is identical to a named function declaration without the name:</p>
 <pre><code class="language-eskiu">int(int x) { return x * 2; }
@@ -1422,7 +1473,12 @@ a combinator before it resolves drops its inputs with it), and
 }
 </code></pre>
 <h4 id="unhandled-exceptions">Unhandled exceptions</h4>
-<p>If no <code>catch</code> clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler, the program terminates.</p>
+<p>If no <code>catch</code> clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler (the end of <code>main</code>, of a thread's function, or a C frame that cannot unwind), the program prints the exception's type, and its value for every primitive type (integers of every width, <code>float</code>, <code>double</code>, <code>bool</code>, <code>char</code>, <code>string</code>), to stderr and aborts (exit status 134 on Unix):</p>
+<pre><code>error: uncaught exception: string &quot;config not found&quot;
+error: uncaught exception: int 42
+error: uncaught exception: ParseError
+</code></pre>
+<p>This is the format the REPL uses. A program that never throws does not install the handler; neither does a <code>--freestanding</code> build, which has no C++ runtime.</p>
 <h4 id="linking">Linking</h4>
 <p>Exceptions use the platform C++ runtime. When a program contains <code>throw</code> or <code>try</code>, the driver links that runtime by itself: <code>-lc++</code> on macOS and <code>-lstdc++</code> on Linux and Windows (mingw). A bare-metal target gets nothing, and <code>--no-default-libs</code> turns this off (see the Linking paragraph of §16).</p>
 <pre><code class="language-bash">eskiuc file.esk -o file            # no -l flag needed
@@ -1723,7 +1779,8 @@ V3 n = -q;              // the unary operator -
 <p><strong>Positional initialization:</strong></p>
 <pre><code class="language-eskiu">Point p = Point { 1.5, 2.5 };
 </code></pre>
-<p>Fields are assigned in declaration order in the positional form. A field the literal leaves out is zero-filled (as in C), in either form. Each value is checked against its field's type (an integer literal must fit the field), and naming a field twice, naming a field the struct does not have, or giving more positional values than there are fields is an error.</p>
+<p>Fields are assigned in declaration order in the positional form. A field the literal leaves out takes its default, or zero when it has none (as in C), in either form, so <code>T{}</code> is the default value of <code>T</code>.</p>
+<p><strong>Field defaults.</strong> A field may declare a default after its name: <code>struct Opts { int timeout_ms = 30000; bool follow = true; string name = "x"; }</code>. The default is a constant of the field's type (the rule for a global's initializer: literals, <code>const</code> names, enum members, <code>sizeof</code>, operators over those). It is what the field holds whenever nothing sets it: a field a literal omits (<code>Opts{timeout_ms: 5}</code> keeps <code>follow</code> true), a local or global declared without an initializer (<code>let o: Opts;</code>, at each declaration, in a loop and in an <code>async</code> function too), and a struct with defaults nested in another struct or in an array (<code>Opts[4] all;</code>). Memory from <code>alloc&lt;T&gt;</code> or <code>alloc_with</code> is zeroed, not defaulted: write <code>*p = Opts{};</code> to apply the defaults. A field of a generic struct cannot have a default, nor can a bitfield, and an instance of a generic struct starts at zero. Assigning a literal is how a variable is reset for reuse, with no <code>memset</code>: <code>opts = ProcessOptions{};</code> clears every field, and <code>opts = ProcessOptions{timeout_ms: 200};</code> clears them and sets one. Each value is checked against its field's type (an integer literal must fit the field), and naming a field twice, naming a field the struct does not have, or giving more positional values than there are fields is an error.</p>
 <pre><code class="language-eskiu">struct P { int x; int y; double z; }
 P a = P { y: 5 };        // x = 0, y = 5, z = 0.0
 P b = P { 1 };           // x = 1, y = 0, z = 0.0
@@ -2044,7 +2101,7 @@ library remains for cases where you want to thread <code>hash</code>/<code>eq</c
 <h2 id="11-memory">11. Memory</h2>
 <h3 id="111-stack-allocation">11.1 Stack Allocation</h3>
 <p>All variables declared in a function body are allocated on the stack. Stack memory is reclaimed automatically when the enclosing function returns. There is no garbage collector.</p>
-<p>A local declared without an initializer starts at zero, like a global, a <code>static</code> local and <code>alloc&lt;T&gt;</code>: every field of a struct (pointers, strings and function values are null), every element of an array, a union and a slice. Each declaration gets a fresh zero, so a variable declared inside a loop does not keep the previous iteration's value, also in an <code>async</code> function. <code>let o: Opts;</code> is therefore the zero value of <code>Opts</code>. (Unlike C, where such a local is indeterminate.)</p>
+<p>A local declared without an initializer starts at zero, like a global, a <code>static</code> local and <code>alloc&lt;T&gt;</code>: every field of a struct (pointers, strings and function values are null), every element of an array, a union and a slice. Each declaration gets a fresh zero, so a variable declared inside a loop does not keep the previous iteration's value, also in an <code>async</code> function. <code>let o: Opts;</code> is therefore the zero value of <code>Opts</code>. (Unlike C, where such a local is indeterminate.) A sum-type value built from a variant is zero past that variant's fields, so equal values have equal bytes.</p>
 <pre><code class="language-eskiu">struct Point { float x; float y; }
 
 int main() {
@@ -2118,7 +2175,7 @@ if (p != null) {
 void  esk_free(*void ptr)  { buddy_free(ptr); }
 </code></pre>
 <p>Freestanding mode does not remove any other language features. The standard library modules (<code>stdlib/result.esk</code>, etc.) remain available but must not import libc functions that are absent from the target.</p>
-<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator. <code>n</code> must be an integer, the allocator must be a pointer to it (<code>&amp;a</code>, or a <code>*Type</code> value), its type must have the <code>alloc</code> method (a free <code>&lt;Type&gt;_alloc</code> or an inline <code>alloc</code>) of that shape (the allocator, then an integer size, returning a pointer), and <code>T</code> must be a known type with a size (not <code>void</code>); otherwise it is a compile error.</p>
+<p><strong>Custom allocators (<code>alloc_with</code>).</strong> <code>alloc_with(&amp;allocator, T, n)</code> is the explicit-allocator form of <code>alloc</code>: instead of going to <code>malloc</code>/<code>esk_alloc</code>, it calls <code>&lt;Type&gt;_alloc(&amp;allocator, n * sizeof(T))</code> and returns a <code>*T</code>. Any struct that exposes a method <code>*void &lt;Type&gt;_alloc(&lt;Type&gt;* self, int64 nbytes)</code> is a valid allocator, so allocation strategy is a plain value, not a global. When <code>n * sizeof(T)</code> does not fit a signed 64-bit size (or the allocator's narrower size parameter), or <code>n</code> is negative, <code>alloc_with</code> yields <code>null</code> without calling the allocator. <code>n</code> must be an integer, the allocator must be a pointer to it (<code>&amp;a</code>, or a <code>*Type</code> value), its type must have the <code>alloc</code> method (a free <code>&lt;Type&gt;_alloc</code> or an inline <code>alloc</code>) of that shape (the allocator, then an integer size, returning a pointer), and <code>T</code> must be a known type with a size (not <code>void</code>); otherwise it is a compile error. The returned block is zeroed, as with <code>alloc&lt;T&gt;</code>, whatever the allocator returns: memory a <code>Bump</code> hands out again after <code>Bump_reset</code>, or a reused <code>Pool</code> block, starts at zero.</p>
 <pre><code class="language-eskiu">import &lt;alloc&gt;;
 
 *uint8 backing = alloc&lt;uint8&gt;(4096);   // one slab from the host (or a static buffer in freestanding)
@@ -2398,7 +2455,11 @@ qsort((*void)&amp;arr[0], (int64)5, (int64)4, cmp);
 </tr>
 <tr>
 <td><code>stdlib/atomic.esk</code></td>
-<td>Atomic intrinsics on an <code>int</code> cell: <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_swap</code>/<code>atomic_cas</code>, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the <code>intrinsic</code> qualifier</td>
+<td>Atomic intrinsics: <code>atomic_load</code>/<code>atomic_store</code>/<code>atomic_swap</code>/<code>atomic_cas</code> and <code>atomic_fetch_add</code>/<code>_sub</code>/<code>_and</code>/<code>_or</code>/<code>_xor</code> on an <code>int</code> cell, the same with a <code>64</code> suffix on an <code>int64</code> cell, <code>atomic_load_ptr</code>/<code>_store_ptr</code>/<code>_swap_ptr</code>/<code>_cas_ptr</code> on a pointer cell, <code>atomic_fence()</code>, and a <code>_relaxed</code> form of each but the fence; lowered to LLVM atomics with fixed orderings (6.4.1). Declared with the <code>intrinsic</code> qualifier</td>
+</tr>
+<tr>
+<td><code>stdlib/libc.esk</code></td>
+<td>The common C library for ported code, opt-in: string.h (<code>strcpy</code>, <code>strncpy</code>, <code>strcat</code>, <code>strrchr</code>, <code>strspn</code>, <code>strdup</code>, <code>strerror</code>, ...), stdlib.h (<code>malloc</code>, <code>realloc</code>, <code>strtoll</code>, <code>strtod</code>, <code>atoll</code>, <code>qsort</code>, <code>bsearch</code>, <code>rand</code>, <code>system</code>, <code>atexit</code>, ...), stdio.h (<code>snprintf</code>, <code>vsnprintf</code>, <code>sscanf</code>, <code>fopen</code>, <code>fgets</code>, <code>perror</code>, <code>remove</code>, <code>rename</code>, ...), ctype.h, the rest of libm (<code>sin</code> ... <code>tanh</code>, <code>exp</code>, <code>log</code>, <code>log2</code>, <code>log10</code>, <code>cbrt</code>, <code>hypot</code>, <code>round</code>, <code>trunc</code>, <code>fmin</code>, <code>fmax</code>, <code>float</code> versions), <code>time</code>, <code>raise</code>, the POSIX unistd calls (<code>getpid</code>, <code>read</code>, <code>write</code>, <code>close</code>, <code>getcwd</code>, <code>unlink</code>, <code>access</code>, <code>sleep</code>, <code>usleep</code>, <code>signal</code>), and <code>libc_errno()</code>/<code>libc_set_errno()</code> with <code>LIBC_E*</code> codes. Imports <code>&lt;mem&gt;</code>, <code>&lt;io&gt;</code> and <code>&lt;math&gt;</code>. Each function is spelled as the other stdlib modules spell it, so it combines with all of them; the C <code>long</code> functions are left out (32 bits on Windows) in favor of the <code>long long</code> ones</td>
 </tr>
 <tr>
 <td><code>stdlib/json.esk</code></td>
@@ -2537,7 +2598,8 @@ int main() {
 </code></pre>
 <p><code>String</code> is a growable, owned, NUL-terminated buffer. Beyond append/concat it
 offers per-character access and mutation (<code>String_char_at</code>, <code>String_set</code>,
-<code>String_push</code>), comparison (<code>String_eq</code>, <code>String_eq_cstr</code>), search
+<code>String_push</code>), comparison (<code>String_eq</code>, <code>String_eq_cstr</code>, and the operators <code>==</code> / <code>!=</code>
+between two Strings or a String and a C string, which compare text), search
 (<code>String_index_of</code>), <code>String_substring</code>, <code>String_reverse</code>, <code>String_clear</code>, and
 integer conversion (<code>String_from_int</code>, <code>String_to_int</code>):</p>
 <pre><code class="language-eskiu">let n: String;
@@ -3466,7 +3528,7 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 </tr>
 <tr>
 <td><code>eskiuc fmt file.esk …</code></td>
-<td>Reformat files in place (indentation/whitespace; preserves content and comments)</td>
+<td>Reformat files in place (one statement per line, spacing, indentation; preserves tokens and comments)</td>
 </tr>
 <tr>
 <td><code>eskiuc fmt --check file.esk …</code></td>
@@ -3482,7 +3544,7 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 </tr>
 <tr>
 <td><code>eskiuc file.esk --safe -o prog</code></td>
-<td>Bounds-check every array and slice index at runtime (trap on out-of-range); off by default</td>
+<td>Run-time safety checks that trap instead of continuing: every array and slice index is bounds-checked, a signed <code>+</code>, <code>-</code> or <code>*</code> on <code>int</code>/<code>int64</code> that overflows traps (instead of wrapping), and dereferencing a null pointer (<code>*p</code>, <code>p.f</code>, <code>p[i]</code>) traps; off by default</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -Wall -o prog</code></td>
@@ -3491,6 +3553,18 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 <tr>
 <td><code>eskiuc file.esk -Wextra -o prog</code></td>
 <td>Extra warnings on top of <code>-Wall</code>: signed/unsigned comparison mismatches</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk -Wno-format -o prog</code></td>
+<td>Turn off one of the default-on warnings (see Diagnostics): <code>-Wno-string-compare</code>, <code>-Wno-format</code>, <code>-Wno-address-of-packed-member</code>, <code>-Wno-dangling-pointer</code>, <code>-Wno-frame-larger-than</code>, <code>-Wno-deprecated</code></td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk -Werror -o prog</code></td>
+<td>Report every warning (default-on, <code>-Wall</code>, <code>-Wextra</code>, deprecated) as an error: the build fails</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk -w -o prog</code></td>
+<td>Print no warnings at all</td>
 </tr>
 <tr>
 <td><code>eskiuc file.esk -O2 -o prog</code></td>
@@ -3556,6 +3630,14 @@ asm(&quot;addq $1, $0&quot; : &quot;+r&quot;(acc) : &quot;r&quot;(b));          
 <td><code>eskiuc file.esk --definition-at LINE:COL</code></td>
 <td>Print definition location of symbol</td>
 </tr>
+<tr>
+<td><code>eskiuc file.esk --complete-at LINE:COL</code></td>
+<td>Print completions at position, one <code>kind&lt;TAB&gt;name&lt;TAB&gt;detail</code> per line</td>
+</tr>
+<tr>
+<td><code>eskiuc file.esk --symbols</code></td>
+<td>Print the file's declarations (an outline)</td>
+</tr>
 </tbody>
 </table></div>
 <p><strong>Linking.</strong> When the <code>-o</code> output is not an object file (no <code>.o</code> suffix) and <code>-c</code>
@@ -3577,9 +3659,17 @@ no linking happens, so bare-metal targets are linked yourself (see the <code>ld.
 invocation in <code>kernel/Makefile</code>).</p>
 <p><strong>Running directly.</strong> <code>eskiuc run file.esk [args...]</code> compiles to a temporary executable, runs it (forwarding <code>args...</code>), then deletes it, propagating the program's exit code, handy for quick iteration. If the program is killed by a signal, <code>run</code> exits with <code>128 +</code> the signal number, as a shell does. Compiler flags (including ones that take a value, such as <code>--target TRIPLE</code>) go <em>before</em> the script and program arguments <em>after</em> it; a <code>--</code> right after the script is dropped, so <code>eskiuc run --asan file.esk -- input.txt</code> passes only <code>input.txt</code>. Because a leading <code>#!</code> line is ignored, a script can also start with <code>#!/usr/bin/env -S eskiuc run</code> and, once <code>chmod +x</code>'d, be executed directly.</p>
 <p><strong>REPL.</strong> <code>eskiuc repl</code> reads inputs from standard input and runs each one through the LLVM ORC JIT in the compiler's process (prompts <code>&gt;</code> and <code>...</code> are shown only when standard input is a terminal). An input is a group of top-level declarations (functions, structs, enums, unions, interfaces, type aliases, <code>import</code>s) or a sequence of statements; it continues on the next line while it is unfinished: a bracket, a string literal, a block comment or an <code>#if</code>/<code>#ifdef</code> is still open; the line ends with an operator (<code>1 +</code>, <code>x &gt; 3 ?</code>) or with a header whose body comes next (<code>int sq(int n)</code>, <code>for (i in 0..3)</code>, <code>struct P</code>, <code>else</code>, <code>= int(int v)</code>); or the input parses neither as declarations nor as statements only because it ends early (a <code>do { ... }</code> before its <code>while</code>). An <code>if</code> or a <code>try</code> waits one more line for an <code>else</code>, <code>catch</code> or <code>finally</code> (any other line runs it first). A blank line sends a pending input as it is, unless a bracket is open. A line that starts with an operator (<code>? 10</code>, <code>.len</code>, <code>&amp;&amp; b</code>) is reported, since the line before has already run: break a long expression after the operator instead. Statements run as the body of a fresh function. A variable declared at their top level (<code>int x = f();</code>, or <code>let x = expr;</code>, where the REPL infers the type of <code>expr</code>) becomes a session variable, a global assigned when the input runs; declaring it again with the same type assigns the same variable. When the last statement is an expression other than an assignment, an increment or a call to a variadic C function, its value is printed by type: numbers, <code>bool</code>, <code>char</code> and <code>string</code> as literals, pointers as addresses, structs field by field (<code>Point{x: 1, y: 2}</code>), enums and sum types by member (<code>Rect(2, 3)</code>), arrays, slices and <code>List&lt;T&gt;</code> as <code>[a, b]</code>, <code>String</code> as its text, other types as <code>&lt;Type&gt;</code>. Every input is type-checked together with the declarations accepted so far, and a later declaration of a name replaces the earlier one for later inputs; code compiled before keeps the function or variable it was linked against (redefining a type recompiles every function and resets the session variables of that type to zero). An input that fails to parse or type-check prints its diagnostics and leaves the session unchanged; an exception that leaves an input is reported (<code>error: uncaught exception: int 5</code>) and the session continues. A crash in an input (a bad pointer, a trap) is reported too on Unix, but the process may be left in a bad state. On Windows the JIT does not register the unwind tables exceptions need, so the REPL there refuses an input that throws or catches (run such code with <code>eskiuc run</code>). An input that contains <code>await</code> runs as the body of an <code>async</code> function, and the REPL drives its future on the session's event loop (<code>repl_loop()</code>, an <code>EventLoop*</code> created on first use, with <code>&lt;future&gt;</code> and <code>&lt;eventloop&gt;</code> imported into the session) until it completes; when nothing left on the loop could complete it (no pending timer and no watched descriptor), the input reports <code>error: the awaited future did not complete</code>. Commands: <code>:type EXPR</code> (print the type, run nothing), <code>:load FILE</code> (add the file's declarations), <code>:reset</code>, <code>:help</code>, <code>:quit</code> (or end of input). The self-hosted <code>eskiuc-esk</code> has no REPL.</p>
-<p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It is deliberately conservative: it re-indents to four spaces per brace level, trims trailing whitespace (except after a trailing <code>\</code>, where trimming would create a line continuation), drops blank lines at the end of the file, and ensures a final newline, but leaves each line's content (operator spacing, comments, every byte of a string or character literal, including every line of a string that spans lines) exactly as written and keeps every other blank line, so line numbers (<code>__LINE__</code>, diagnostics) do not move. It never alters a program's behavior and is idempotent. <code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
+<p><strong>Formatting.</strong> <code>eskiuc fmt file.esk …</code> reformats files in place. It changes only the blanks between tokens and the line breaks, so it never alters a program's tokens or behavior (only <code>__LINE__</code> and diagnostics positions move), and it is idempotent:</p>
+<ul>
+<li>One statement per line: a line is split after each statement's <code>;</code> and around block braces, so <code>if (a) { return 1; }</code> takes three lines and <code>x = 1; y = 2;</code> two. <code>} else {</code>, <code>} while (c);</code> and <code>});</code> stay together; an empty block stays <code>{}</code>; initializer braces (<code>{1, 2}</code>, <code>P{x: 1}</code>) and enum bodies stay on their line. A trailing <code>//</code> comment stays with the statement's first line.</li>
+<li>Spacing: one blank between tokens, one around assignment, comparison and logical operators (<code>=</code>, <code>+=</code>, <code>==</code>, <code>&lt;=</code>, <code>&amp;&amp;</code>, ...), after <code>,</code> and <code>;</code>, after <code>if</code>/<code>while</code>/<code>for</code>/<code>switch</code>/<code>catch</code>/<code>match</code> and before a block <code>{</code>; none before <code>,</code> <code>;</code> <code>)</code> <code>]</code> or after <code>(</code> <code>[</code>. Arithmetic operators and <code>&lt;</code> <code>&gt;</code> keep the spacing they were written with (<code>List&lt;int&gt;</code> and <code>a&lt;b</code> look alike).</li>
+<li>Indentation: four spaces per brace level. A line that continues a statement (inside open parentheses, or after a line that does not end one) keeps its indentation relative to the statement's first line, at least four more.</li>
+<li>A blank line after each top-level definition; other blank lines are kept, those at the end of the file dropped, and the file ends with one newline. Trailing whitespace is trimmed, except after a trailing <code>\</code>.</li>
+<li>Comments, every byte of a string or character literal (every line of a string that spans lines too), lines continued with <code>\</code> and preprocessor lines (at column 0) keep their bytes.</li>
+</ul>
+<p><code>--check</code> makes it report (and exit non-zero on) files that would change, without writing. Useful in CI.</p>
 <p><strong>Sanitizers.</strong> <code>--asan</code> instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; <code>--ubsan</code> inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with <code>eskiuc run</code>.</p>
-<p><code>--hover-at</code> and <code>--definition-at</code> accept the format <code>LINE:COL</code> with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.</p>
+<p><code>--hover-at</code>, <code>--definition-at</code> and <code>--complete-at</code> accept the format <code>LINE:COL</code> with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information, go-to-definition navigation and completion. The self-hosted <code>eskiuc-esk</code> implements these modes and the <code>-Wall</code>/<code>-Wextra</code> warnings with the same output.</p>
 <h3 id="cross-compilation">Cross-compilation</h3>
 <p><code>--target TRIPLE</code> sets the LLVM target triple for the output object file. The AArch64, X86 and 32-bit ARM LLVM backends are included in the Eskiu build. <code>--mcpu</code>, <code>--mattr</code> and <code>--reloc</code> select the CPU, the feature string and the relocation model. See <a href="cross-compile.html">cross-compile.md</a> for worked examples.</p>
 <pre><code class="language-bash">eskiuc kernel.esk --target x86_64-pc-linux-gnu --freestanding -o kernel.o
@@ -3631,7 +3721,38 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 <pre><code>error: file.esk:8:22: undefined variable 'foo'
 error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 </code></pre>
-<p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>. Every mode, including the <code>--test-*</code> modes, exits with a non-zero status when it reports an error.</p>
+<p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>.</p>
+<p>A few warnings are on by default, because the code they flag is almost always a mistake. Each ends with its flag and is turned off with the matching <code>-Wno-</code> option; none of them rejects a program, and code from an imported module is not checked:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Warning</th>
+<th>Flags</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-Wstring-compare</code></td>
+<td><code>==</code> / <code>!=</code> with a string literal operand: it compares two addresses, so equal text in two places compares unequal. Use <code>strcmp(a, b) == 0</code> or <code>String_eq_cstr</code></td>
+</tr>
+<tr>
+<td><code>-Wformat</code></td>
+<td>A literal format string of <code>printf</code>, <code>fprintf</code>, <code>dprintf</code>, <code>sprintf</code>, <code>snprintf</code>, <code>String_format</code>, <code>String_appendf</code> or a <code>log_*</code> function whose conversions do not match the arguments after C's default promotions (<code>%d</code> with an <code>int64</code>, <code>%s</code> with an <code>int</code> or a <code>String</code>, <code>%f</code> with an integer), a missing or extra argument, an unknown conversion. <code>%l</code> is 64 bits except on Windows targets, where <code>long</code> is 32</td>
+</tr>
+<tr>
+<td><code>-Waddress-of-packed-member</code></td>
+<td><code>&amp;s.f</code> (or <code>&amp;s.a[i]</code>) where the struct's packing aligns <code>f</code> below its type's alignment: the pointer may be unaligned, and strict-alignment CPUs (32-bit ARM) fault on a load through it</td>
+</tr>
+<tr>
+<td><code>-Wdangling-pointer</code></td>
+<td>Returning a local pointer variable whose every assignment so far stored the address of a local (<code>*int p = &amp;x; return p;</code>), or a struct literal holding a local's address (<code>return H{&amp;y};</code>). With <code>-Wall</code>, also storing a local's address in a global outside <code>main</code></td>
+</tr>
+<tr>
+<td><code>-Wframe-larger-than</code></td>
+<td>A local larger than 1 MiB: a thread's stack is 512 KiB (secondary threads on macOS) to 8 MiB, so allocate it with <code>alloc&lt;T&gt;</code> or make it <code>static</code></td>
+</tr>
+</tbody>
+</table></div>
 <p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable"), although such a local holds zero (11.1): a read nothing assigns is usually a mistake. It applies when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>
 <hr>
 <h2 id="18-preprocessor">18. Preprocessor</h2>

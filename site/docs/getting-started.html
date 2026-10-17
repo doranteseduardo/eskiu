@@ -1090,6 +1090,14 @@ import &lt;math&gt;;
 <td><code>alloc&lt;T&gt;(n)</code>, <code>free(p)</code>, <code>memcpy</code>, <code>memset</code>, <code>memmove</code>, <code>memcmp</code>, <code>strlen</code></td>
 </tr>
 <tr>
+<td><code>&lt;libc&gt;</code></td>
+<td>the common C library for ported code (opt-in): string.h, stdlib.h (<code>malloc</code>, <code>strtoll</code>, <code>qsort</code>, ...), stdio.h (<code>snprintf</code>, <code>sscanf</code>, <code>fopen</code>, ...), ctype.h, the rest of libm (<code>sin</code>, <code>log</code>, <code>round</code>, ...), POSIX unistd, <code>libc_errno()</code></td>
+</tr>
+<tr>
+<td><code>&lt;atomic&gt;</code></td>
+<td><code>atomic_load</code>/<code>store</code>/<code>swap</code>/<code>cas</code>/<code>fetch_add</code>... on <code>int</code>, <code>int64</code> (<code>...64</code>) and pointer (<code>..._ptr</code>) cells, <code>..._relaxed</code> forms, <code>atomic_fence()</code></td>
+</tr>
+<tr>
 <td><code>&lt;alloc&gt;</code></td>
 <td><code>Bump</code>, <code>Arena</code>, <code>Pool</code>, <code>FirstFit</code>: explicit allocators over a buffer you own (the Zig model; not a <code>malloc</code> replacement)</td>
 </tr>
