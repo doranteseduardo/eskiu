@@ -31,8 +31,8 @@
 // closes the handles. Reading one pipe to the end while the child fills the
 // other can block: set merge_stderr or inherit_stderr when that matters.
 //
-// A ProcessOptions or a ProcessResult is plain data: a zero value (`let o:
-// ProcessOptions;` in a zeroed allocation, or every field set) is the default.
+// A ProcessOptions or a ProcessResult is plain data: its zero value (`let o:
+// ProcessOptions;`, which starts at zero) is the default.
 // process_run fills every field of the result; free it with ProcessResult_free.
 
 import <mem>;
@@ -78,6 +78,12 @@ struct Process {
     int  stderr_fd;
     bool group;             // the child leads its own process group
 #endif
+}
+
+// A child that writes to our stdout or stderr directly would otherwise print before
+// what this process still holds in its stdio buffers.
+void _proc_flush_inherited(ProcessOptions* o) {
+    if (o.inherit_stdout || o.inherit_stderr) { fflush(null); }
 }
 
 void ProcessResult_free(ProcessResult* r) {
@@ -509,6 +515,7 @@ int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
     let def: ProcessOptions;
     memset((*void)&def, 0, sizeof(ProcessOptions));
     ProcessOptions* o = opts != null ? opts : &def;
+    _proc_flush_inherited(o);
     let cmd: String;  cmd.init(64);
     defer cmd.free();
     _proc_cmdline(argv, &cmd);
@@ -519,6 +526,7 @@ int sh_with(string command, ProcessOptions* opts, ProcessResult* out) {
     let def: ProcessOptions;
     memset((*void)&def, 0, sizeof(ProcessOptions));
     ProcessOptions* o = opts != null ? opts : &def;
+    _proc_flush_inherited(o);
     let cmd: String;  cmd.init(64);
     defer cmd.free();
     cmd.append("cmd.exe /d /s /c \"");
@@ -531,6 +539,7 @@ int process_spawn(List<string>* argv, ProcessOptions* opts, Process* p) {
     let def: ProcessOptions;
     memset((*void)&def, 0, sizeof(ProcessOptions));
     ProcessOptions* o = opts != null ? opts : &def;
+    _proc_flush_inherited(o);
     let cmd: String;  cmd.init(64);
     defer cmd.free();
     _proc_cmdline(argv, &cmd);
@@ -822,7 +831,9 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
 int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
     let def: ProcessOptions;
     memset((*void)&def, 0, sizeof(ProcessOptions));
-    return _proc_run(argv, opts != null ? opts : &def, out);
+    ProcessOptions* o = opts != null ? opts : &def;
+    _proc_flush_inherited(o);
+    return _proc_run(argv, o, out);
 }
 
 // Run `command` through the shell (/bin/sh -c, or cmd.exe /c on Windows), like
@@ -843,6 +854,7 @@ int process_spawn(List<string>* argv, ProcessOptions* opts, Process* p) {
     let def: ProcessOptions;
     memset((*void)&def, 0, sizeof(ProcessOptions));
     ProcessOptions* o = opts != null ? opts : &def;
+    _proc_flush_inherited(o);
     return _proc_start(argv, o, !o.inherit_stdin, false, p);
 }
 
