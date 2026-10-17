@@ -116,6 +116,8 @@ struct Sema {
     int cur_import;         // the top-level declaration being checked comes from an import
     List<string> depr_seen; // "file:line:col" of each deprecation warning already printed
     List<string> wno;       // -Wno-<name>: the default-on warnings turned off
+    int werror;             // -Werror: every warning is reported as an error
+    int wnone;              // -w: no warning is printed
     List<string> addr_keys; // -Wdangling-pointer: "sym index:name" of a local pointer ...
     List<string> addr_roots;// ... and the local whose address it holds ("" = something else)
     // Name indexes over the lists above (NameIdx, ast.esk), kept in step with every push
@@ -4967,6 +4969,12 @@ void sema_warn(Sema* s, string name, int line, int col, string msg) {
                           sema_i64_text((int64)col)), ":"), name);
     if (sema_in_list(&s.depr_seen, key) == 1) { return; }
     List_push<string>(&s.depr_seen, key);
+    if (s.wnone == 1) { return; }
+    if (s.werror == 1) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: %s [-W%s]\n", s.filename, line, col, msg, name);
+        return;
+    }
     dprintf(2, "%s:%d:%d: warning: %s [-W%s]\n", s.filename, line, col, msg, name);
 }
 
@@ -5059,6 +5067,12 @@ void sema_note_depr(Sema* s, string fname, int line, int col) {
     StrTab_set(&s.depr_seen_set, key, 1);
     string tail = "";
     if (sema_streq(msg, " ") == 0) { tail = sema_cat(": ", msg); }
+    if (s.wnone == 1) { return; }
+    if (s.werror == 1) {
+        s.had_error = 1;
+        dprintf(2, "error: %s:%d:%d: '%s' is deprecated%s\n", s.filename, line, col, fname, tail);
+        return;
+    }
     dprintf(2, "%s:%d:%d: warning: '%s' is deprecated%s\n", s.filename, line, col, fname, tail);
 }
 

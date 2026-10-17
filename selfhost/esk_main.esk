@@ -340,6 +340,8 @@ int esk_main(int argc, string* argv) {
     string mode = "";        // "" = compile; else --version / --test-{lexer,parser,typechecker,codegen}
     int san = 0;             // 0 = none, 1 = address, 2 = undefined
     int no_depr = 0;         // -Wno-deprecated: no warning at a use of a deprecated function
+    int werror = 0;          // -Werror
+    int wnone = 0;           // -w
     let wno: List<string>;   // -Wno-<name> of the other default-on warnings
     List_init<string>(&wno, 4);
     int safe = 0;          // --safe: opt-in runtime slice/array bounds checks
@@ -430,6 +432,8 @@ int esk_main(int argc, string* argv) {
         else if (cg_streq(a, "--ubsan") == 1) { san = 2; }
         else if (cg_streq(a, "--safe") == 1) { safe = 1; }
         else if (cg_streq(a, "-Wno-deprecated") == 1 || cg_streq(a, "--Wno-deprecated") == 1) { no_depr = 1; }
+        else if (cg_streq(a, "-Werror") == 1 || cg_streq(a, "--Werror") == 1) { werror = 1; }
+        else if (cg_streq(a, "-w") == 1) { wnone = 1; }
         else if (cg_streq(a, "-Wno-string-compare") == 1 || cg_streq(a, "-Wno-address-of-packed-member") == 1
               || cg_streq(a, "-Wno-dangling-pointer") == 1 || cg_streq(a, "-Wno-frame-larger-than") == 1
               || cg_streq(a, "-Wno-format") == 1) {
@@ -582,6 +586,8 @@ int esk_main(int argc, string* argv) {
         let sm: Sema;
         sema_init(&sm, infile);
         sm.no_depr = no_depr;
+        sm.werror = werror;
+        sm.wnone = wnone;
         for (wi in 0..List_len<string>(&wno)) { List_push<string>(&sm.wno, List_get<string>(&wno, wi)); }
         sema_set_target(&sm, triple);  // sizeof folds to the target's layout
         int ok = sema_check(&sm, prog);
