@@ -17,7 +17,9 @@ extern int64 write(int fd, *void buf, int64 n);
 // Diagnostics go to stderr (fd 2), never stdout — stdout carries only the emitted .ll.
 void eprint(string s) {
     int64 n = 0;
-    while (s[n] != 0) { n = n + 1; }
+    while (s[n] != 0) {
+        n = n + 1;
+    }
     write(2, (*void)s, n);
 }
 
@@ -76,7 +78,10 @@ int cg_main(int argc, string* argv) {
 
 // Run the driver on a thread with a large stack, so deeply nested input reaches the
 // parser's nesting limit instead of overflowing the stack (see bigstack.esk).
-void main_body() { big_rc = cg_main(big_argc, big_argv); }
+void main_body() {
+    big_rc = cg_main(big_argc, big_argv);
+}
+
 int main(int argc, string* argv) {
     big_argc = argc;
     big_argv = argv;

@@ -13,32 +13,54 @@ extern int dprintf(int fd, string fmt, ...);   // diagnostics go to stderr, like
 
 // A string -> int hash table (open addressing, linear probing, power-of-two capacity,
 // backward-shift deletion). A zeroed StrTab is empty. Keys are copied.
-struct StrTab { **uint8 keys; *int hs; *int vals; int cap; int count; }
+struct StrTab {
+    **uint8 keys;
+    *int hs;
+    *int vals;
+    int cap;
+    int count;
+}
 
 int strtab_hash(string k) {
     uint32 h = (uint32)2166136261;                      // FNV-1a, then a murmur3 finalizer
     int i = 0;
-    while (k[i] != 0) { h = (h ^ (uint32)((int)k[i] & 255)) * (uint32)16777619; i = i + 1; }
-    h = h ^ (h >> 16); h = h * (uint32)2246822507;
-    h = h ^ (h >> 13); h = h * (uint32)3266489909;
+    while (k[i] != 0) {
+        h = (h ^ (uint32)((int)k[i] & 255)) * (uint32)16777619;
+        i = i + 1;
+    }
+    h = h ^ (h >> 16);
+    h = h * (uint32)2246822507;
+    h = h ^ (h >> 13);
+    h = h * (uint32)3266489909;
     h = h ^ (h >> 16);
     return (int)(h & (uint32)2147483647);
 }
 
 int strtab_keyeq(*uint8 a, string b) {
     int i = 0;
-    while (a[i] != 0 && b[i] != 0) { if ((int)a[i] != ((int)b[i] & 255)) { return 0; } i = i + 1; }
-    if (a[i] == 0 && b[i] == 0) { return 1; }
+    while (a[i] != 0 && b[i] != 0) {
+        if ((int)a[i] != ((int)b[i] & 255)) {
+            return 0;
+        }
+        i = i + 1;
+    }
+    if (a[i] == 0 && b[i] == 0) {
+        return 1;
+    }
     return 0;
 }
 
 // Slot holding `k` (hash h), or -1.
 int StrTab_slot(StrTab* t, string k, int h) {
-    if (t.cap == 0) { return -1; }
+    if (t.cap == 0) {
+        return -1;
+    }
     int mask = t.cap - 1;
     int i = h & mask;
     while (t.keys[i] != null) {
-        if (t.hs[i] == h && strtab_keyeq(t.keys[i], k) == 1) { return i; }
+        if (t.hs[i] == h && strtab_keyeq(t.keys[i], k) == 1) {
+            return i;
+        }
         i = (i + 1) & mask;
     }
     return -1;
@@ -46,54 +68,90 @@ int StrTab_slot(StrTab* t, string k, int h) {
 
 void StrTab_grow(StrTab* t) {
     int oc = t.cap;
-    **uint8 ok = t.keys; *int oh = t.hs; *int ov = t.vals;
+    **uint8 ok = t.keys;
+    *int oh = t.hs;
+    *int ov = t.vals;
     int nc = 16;
-    if (oc > 0) { nc = oc * 2; }
-    t.keys = alloc<*uint8>(nc); t.hs = alloc<int>(nc); t.vals = alloc<int>(nc);
+    if (oc > 0) {
+        nc = oc * 2;
+    }
+    t.keys = alloc<*uint8>(nc);
+    t.hs = alloc<int>(nc);
+    t.vals = alloc<int>(nc);
     t.cap = nc;
     int mask = nc - 1;
     int i = 0;
     while (i < oc) {
         if (ok[i] != null) {
             int j = oh[i] & mask;
-            while (t.keys[j] != null) { j = (j + 1) & mask; }
-            t.keys[j] = ok[i]; t.hs[j] = oh[i]; t.vals[j] = ov[i];
+            while (t.keys[j] != null) {
+                j = (j + 1) & mask;
+            }
+            t.keys[j] = ok[i];
+            t.hs[j] = oh[i];
+            t.vals[j] = ov[i];
         }
         i = i + 1;
     }
-    if (oc > 0) { free((*void)ok); free((*void)oh); free((*void)ov); }
+    if (oc > 0) {
+        free((*void)ok);
+        free((*void)oh);
+        free((*void)ov);
+    }
 }
 
 int StrTab_get(StrTab* t, string k, int dflt) {
     int i = StrTab_slot(t, k, strtab_hash(k));
-    if (i < 0) { return dflt; }
+    if (i < 0) {
+        return dflt;
+    }
     return t.vals[i];
 }
 
 int StrTab_has(StrTab* t, string k) {
-    if (StrTab_slot(t, k, strtab_hash(k)) < 0) { return 0; }
+    if (StrTab_slot(t, k, strtab_hash(k)) < 0) {
+        return 0;
+    }
     return 1;
 }
 
 void StrTab_set(StrTab* t, string k, int v) {
     int h = strtab_hash(k);
     int i = StrTab_slot(t, k, h);
-    if (i >= 0) { t.vals[i] = v; return; }
-    if ((t.count + 1) * 4 >= t.cap * 3) { StrTab_grow(t); }   // load factor 0.75
+    if (i >= 0) {
+        t.vals[i] = v;
+        return;
+    }
+    if ((t.count + 1) * 4 >= t.cap * 3) {   // load factor 0.75
+        StrTab_grow(t);
+    }
     int mask = t.cap - 1;
     int j = h & mask;
-    while (t.keys[j] != null) { j = (j + 1) & mask; }
-    int n = 0; while (k[n] != 0) { n = n + 1; }
+    while (t.keys[j] != null) {
+        j = (j + 1) & mask;
+    }
+    int n = 0;
+    while (k[n] != 0) {
+        n = n + 1;
+    }
     *uint8 kc = alloc<uint8>(n + 1);
-    int c = 0; while (c < n) { kc[c] = (uint8)k[c]; c = c + 1; }
+    int c = 0;
+    while (c < n) {
+        kc[c] = (uint8)k[c];
+        c = c + 1;
+    }
     kc[n] = 0;
-    t.keys[j] = kc; t.hs[j] = h; t.vals[j] = v;
+    t.keys[j] = kc;
+    t.hs[j] = h;
+    t.vals[j] = v;
     t.count = t.count + 1;
 }
 
 void StrTab_remove(StrTab* t, string k) {
     int hole = StrTab_slot(t, k, strtab_hash(k));
-    if (hole < 0) { return; }
+    if (hole < 0) {
+        return;
+    }
     free((*void)t.keys[hole]);
     t.keys[hole] = null;
     t.count = t.count - 1;
@@ -103,10 +161,20 @@ void StrTab_remove(StrTab* t, string k) {
         int home = t.hs[j] & mask;
         // the entry at j stays unless its home lies cyclically outside (hole, j]
         int stays = 0;
-        if (hole <= j) { if (home > hole && home <= j) { stays = 1; } }
-        else { if (home > hole || home <= j) { stays = 1; } }
+        if (hole <= j) {
+            if (home > hole && home <= j) {
+                stays = 1;
+            }
+        }
+        else {
+            if (home > hole || home <= j) {
+                stays = 1;
+            }
+        }
         if (stays == 0) {
-            t.keys[hole] = t.keys[j]; t.hs[hole] = t.hs[j]; t.vals[hole] = t.vals[j];
+            t.keys[hole] = t.keys[j];
+            t.hs[hole] = t.hs[j];
+            t.vals[hole] = t.vals[j];
             t.keys[j] = null;
             hole = j;
         }
@@ -127,25 +195,47 @@ void StrTab_remove(StrTab* t, string k) {
 StrTab ast_fx_tab;
 StrTab ast_fx_cnt;
 string ast_fx_key(string owner, string field) {
-    int a = 0; while (owner[a] != 0) { a = a + 1; }
-    int b = 0; while (field[b] != 0) { b = b + 1; }
+    int a = 0;
+    while (owner[a] != 0) {
+        a = a + 1;
+    }
+    int b = 0;
+    while (field[b] != 0) {
+        b = b + 1;
+    }
     *uint8 k = alloc<uint8>(a + b + 2);
     int i = 0;
-    while (i < a) { k[i] = (uint8)owner[i]; i = i + 1; }
+    while (i < a) {
+        k[i] = (uint8)owner[i];
+        i = i + 1;
+    }
     k[a] = (uint8)31;
     i = 0;
-    while (i < b) { k[a + 1 + i] = (uint8)field[i]; i = i + 1; }
+    while (i < b) {
+        k[a + 1 + i] = (uint8)field[i];
+        i = i + 1;
+    }
     k[a + 1 + b] = 0;
     return (string)k;
 }
+
 // 1 when `owner`'s index was built for `count` fields.
-int ast_fx_ready(string owner, int count) { return StrTab_get(&ast_fx_cnt, owner, -1) == count; }
+int ast_fx_ready(string owner, int count) {
+    return StrTab_get(&ast_fx_cnt, owner, -1) == count;
+}
+
 void ast_fx_put(string owner, string field, int i) {
     string k = ast_fx_key(owner, field);
-    if (StrTab_has(&ast_fx_tab, k) == 0) { StrTab_set(&ast_fx_tab, k, i); }
+    if (StrTab_has(&ast_fx_tab, k) == 0) {
+        StrTab_set(&ast_fx_tab, k, i);
+    }
     free((*void)k);
 }
-void ast_fx_done(string owner, int count) { StrTab_set(&ast_fx_cnt, owner, count); }
+
+void ast_fx_done(string owner, int count) {
+    StrTab_set(&ast_fx_cnt, owner, count);
+}
+
 int ast_fx_get(string owner, string field) {
     string k = ast_fx_key(owner, field);
     int r = StrTab_get(&ast_fx_tab, k, -1);
@@ -153,7 +243,12 @@ int ast_fx_get(string owner, string field) {
     return r;
 }
 
-struct NameIdx { StrTab first; StrTab last; List<int> next; List<int> prev; }
+struct NameIdx {
+    StrTab first;
+    StrTab last;
+    List<int> next;
+    List<int> prev;
+}
 
 void NameIdx_push(NameIdx* x, string k) {
     int i = List_len<int>(&x.next);
@@ -161,14 +256,19 @@ void NameIdx_push(NameIdx* x, string k) {
     int pl = StrTab_get(&x.last, k, -1);
     List_push<int>(&x.prev, pl);
     StrTab_set(&x.last, k, i);
-    if (pl < 0) { StrTab_set(&x.first, k, i); return; }
+    if (pl < 0) {
+        StrTab_set(&x.first, k, i);
+        return;
+    }
     List_set<int>(&x.next, pl, i);
 }
 
 // Drop the index of the list's last element, whose name is `k`.
 void NameIdx_pop(NameIdx* x, string k) {
     int i = List_len<int>(&x.next) - 1;
-    if (i < 0) { return; }
+    if (i < 0) {
+        return;
+    }
     int p = List_get<int>(&x.prev, i);
     List_remove<int>(&x.next, i);
     List_remove<int>(&x.prev, i);
@@ -182,67 +282,135 @@ void NameIdx_pop(NameIdx* x, string k) {
 }
 
 // Index of the first / last element named `k`, or -1.
-int NameIdx_first(NameIdx* x, string k) { return StrTab_get(&x.first, k, -1); }
-int NameIdx_last(NameIdx* x, string k) { return StrTab_get(&x.last, k, -1); }
+int NameIdx_first(NameIdx* x, string k) {
+    return StrTab_get(&x.first, k, -1);
+}
+
+int NameIdx_last(NameIdx* x, string k) {
+    return StrTab_get(&x.last, k, -1);
+}
+
 // The next / previous element with the same name as element i, or -1.
-int NameIdx_next(NameIdx* x, int i) { return List_get<int>(&x.next, i); }
-int NameIdx_prev(NameIdx* x, int i) { return List_get<int>(&x.prev, i); }
+int NameIdx_next(NameIdx* x, int i) {
+    return List_get<int>(&x.next, i);
+}
+
+int NameIdx_prev(NameIdx* x, int i) {
+    return List_get<int>(&x.prev, i);
+}
 
 // Integer rank of `t` after promotion (32 = int/uint, 64 = int64/uint64); 0 = not an
 // integer. `*uns` is set for an unsigned rank. Mirrors the C++ ty::rangeVarType
 // (shared by sema and codegen).
 int ast_range_rank(string t, int* uns) {
     *uns = 0;
-    if (ast_streq(t, "int64") == 1) { return 64; }
-    if (ast_streq(t, "uint64") == 1) { *uns = 1; return 64; }
-    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) { *uns = 1; return 32; }
+    if (ast_streq(t, "int64") == 1) {
+        return 64;
+    }
+    if (ast_streq(t, "uint64") == 1) {
+        *uns = 1;
+        return 64;
+    }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) {
+        *uns = 1;
+        return 32;
+    }
     if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1 || ast_streq(t, "int8") == 1
         || ast_streq(t, "int16") == 1 || ast_streq(t, "uint8") == 1 || ast_streq(t, "uint16") == 1
-        || ast_streq(t, "char") == 1) { return 32; }
+        || ast_streq(t, "char") == 1) {
+        return 32;
+    }
     return 0;
 }
 
 // The loop-variable type of `for (i in a..b)` from its two bound types: C's usual
 // arithmetic conversions over integers. "" when a bound is not an integer.
 string ast_range_var_type(string a, string b) {
-    int ua = 0; int ub = 0;
+    int ua = 0;
+    int ub = 0;
     int ra = ast_range_rank(a, &ua);
     int rb = ast_range_rank(b, &ub);
-    if (ra == 0 || rb == 0) { return ""; }
-    int r = ra; if (rb > r) { r = rb; }
+    if (ra == 0 || rb == 0) {
+        return "";
+    }
+    int r = ra;
+    if (rb > r) {
+        r = rb;
+    }
     int u = ua;
-    if (ra == rb) { if (ub == 1) { u = 1; } } else if (rb > ra) { u = ub; }
-    if (r == 64) { if (u == 1) { return "uint64"; } return "int64"; }
-    if (u == 1) { return "uint"; }
+    if (ra == rb) {
+        if (ub == 1) {
+            u = 1;
+        }
+    } else if (rb > ra) {
+        u = ub;
+    }
+    if (r == 64) {
+        if (u == 1) {
+            return "uint64";
+        }
+        return "int64";
+    }
+    if (u == 1) {
+        return "uint";
+    }
     return "int";
 }
 
 // The type a bare integer-literal range bound takes: the first of int, int64, uint64
 // that holds it (mirrors the C++ rangeLiteralType: 0x hex, 0-octal, else decimal).
 string ast_range_lit_type(string v) {
-    int i = 0; int neg = 0;
-    if (v[0] == 45) { neg = 1; i = 1; }
+    int i = 0;
+    int neg = 0;
+    if (v[0] == 45) {
+        neg = 1;
+        i = 1;
+    }
     uint64 base = (uint64)10;
-    if (v[i] == 48 && (v[i + 1] == 120 || v[i + 1] == 88)) { base = (uint64)16; i = i + 2; }
-    else if (v[i] == 48) { base = (uint64)8; }
+    if (v[i] == 48 && (v[i + 1] == 120 || v[i + 1] == 88)) {
+        base = (uint64)16;
+        i = i + 2;
+    }
+    else if (v[i] == 48) {
+        base = (uint64)8;
+    }
     uint64 mag = (uint64)0;
     int done = 0;
     while (done == 0 && v[i] != 0) {
         int c = (int)v[i];
         int dv = -1;
-        if (c >= 48 && c <= 57) { dv = c - 48; }
-        else if (c >= 97 && c <= 102) { dv = c - 87; }
-        else if (c >= 65 && c <= 70) { dv = c - 55; }
-        if (dv < 0 || (uint64)dv >= base) { done = 1; }
+        if (c >= 48 && c <= 57) {
+            dv = c - 48;
+        }
+        else if (c >= 97 && c <= 102) {
+            dv = c - 87;
+        }
+        else if (c >= 65 && c <= 70) {
+            dv = c - 55;
+        }
+        if (dv < 0 || (uint64)dv >= base) {
+            done = 1;
+        }
         else {
-            if (mag > ((uint64)18446744073709551615 - (uint64)dv) / base) { return "int"; }   // overflows: not a valid literal
+            if (mag > ((uint64)18446744073709551615 - (uint64)dv) / base) {   // overflows: not a valid literal
+                return "int";
+            }
             mag = mag * base + (uint64)dv;
             i = i + 1;
         }
     }
-    if (neg == 1) { if (mag <= (uint64)2147483648) { return "int"; } return "int64"; }
-    if (mag <= (uint64)2147483647) { return "int"; }
-    if (mag <= (uint64)9223372036854775807) { return "int64"; }
+    if (neg == 1) {
+        if (mag <= (uint64)2147483648) {
+            return "int";
+        }
+        return "int64";
+    }
+    if (mag <= (uint64)2147483647) {
+        return "int";
+    }
+    if (mag <= (uint64)9223372036854775807) {
+        return "int64";
+    }
     return "uint64";
 }
 
@@ -251,39 +419,111 @@ string ast_range_lit_type(string v) {
 // name (`+`->`add`, `[]`->`index`, unary `-`->`neg`); `a op b` resolves to it by operands.
 int ast_streq(string a, string b) {
     int i = 0;
-    while (a[i] != 0 && b[i] != 0) { if (a[i] != b[i]) { return 0; } i = i + 1; }
-    if (a[i] == 0 && b[i] == 0) { return 1; }
+    while (a[i] != 0 && b[i] != 0) {
+        if (a[i] != b[i]) {
+            return 0;
+        }
+        i = i + 1;
+    }
+    if (a[i] == 0 && b[i] == 0) {
+        return 1;
+    }
     return 0;
 }
+
 string ast_op_word(string op) {
-    if (ast_streq(op, "+") == 1)  { return "add"; }   if (ast_streq(op, "-") == 1)  { return "sub"; }
-    if (ast_streq(op, "*") == 1)  { return "mul"; }   if (ast_streq(op, "/") == 1)  { return "div"; }
-    if (ast_streq(op, "%") == 1)  { return "mod"; }   if (ast_streq(op, "==") == 1) { return "eq"; }
-    if (ast_streq(op, "!=") == 1) { return "ne"; }    if (ast_streq(op, "<") == 1)  { return "lt"; }
-    if (ast_streq(op, ">") == 1)  { return "gt"; }    if (ast_streq(op, "<=") == 1) { return "le"; }
-    if (ast_streq(op, ">=") == 1) { return "ge"; }    if (ast_streq(op, "&") == 1)  { return "band"; }
-    if (ast_streq(op, "|") == 1)  { return "bor"; }   if (ast_streq(op, "^") == 1)  { return "bxor"; }
-    if (ast_streq(op, "<<") == 1) { return "shl"; }   if (ast_streq(op, ">>") == 1) { return "shr"; }
-    if (ast_streq(op, "[]") == 1) { return "index"; } if (ast_streq(op, "u-") == 1) { return "neg"; }
-    if (ast_streq(op, "!") == 1)  { return "lnot"; }  if (ast_streq(op, "~") == 1)  { return "bnot"; }
+    if (ast_streq(op, "+") == 1) {
+        return "add";
+    }
+    if (ast_streq(op, "-") == 1) {
+        return "sub";
+    }
+    if (ast_streq(op, "*") == 1) {
+        return "mul";
+    }
+    if (ast_streq(op, "/") == 1) {
+        return "div";
+    }
+    if (ast_streq(op, "%") == 1) {
+        return "mod";
+    }
+    if (ast_streq(op, "==") == 1) {
+        return "eq";
+    }
+    if (ast_streq(op, "!=") == 1) {
+        return "ne";
+    }
+    if (ast_streq(op, "<") == 1) {
+        return "lt";
+    }
+    if (ast_streq(op, ">") == 1) {
+        return "gt";
+    }
+    if (ast_streq(op, "<=") == 1) {
+        return "le";
+    }
+    if (ast_streq(op, ">=") == 1) {
+        return "ge";
+    }
+    if (ast_streq(op, "&") == 1) {
+        return "band";
+    }
+    if (ast_streq(op, "|") == 1) {
+        return "bor";
+    }
+    if (ast_streq(op, "^") == 1) {
+        return "bxor";
+    }
+    if (ast_streq(op, "<<") == 1) {
+        return "shl";
+    }
+    if (ast_streq(op, ">>") == 1) {
+        return "shr";
+    }
+    if (ast_streq(op, "[]") == 1) {
+        return "index";
+    }
+    if (ast_streq(op, "u-") == 1) {
+        return "neg";
+    }
+    if (ast_streq(op, "!") == 1) {
+        return "lnot";
+    }
+    if (ast_streq(op, "~") == 1) {
+        return "bnot";
+    }
     return "";
 }
+
 int ast_has_prefix(string s, string pfx) {
     int i = 0;
-    while (pfx[i] != 0) { if (s[i] != pfx[i]) { return 0; } i = i + 1; }
+    while (pfx[i] != 0) {
+        if (s[i] != pfx[i]) {
+            return 0;
+        }
+        i = i + 1;
+    }
     return 1;
 }
+
 int ast_has_sub(string s, string sub) {
     int i = 0;
-    while (s[i] != 0) { if (ast_has_prefix((string)((*uint8)s + i), sub) == 1) { return 1; } i = i + 1; }
+    while (s[i] != 0) {
+        if (ast_has_prefix((string)((*uint8)s + i), sub) == 1) {
+            return 1;
+        }
+        i = i + 1;
+    }
     return 0;
 }
+
 // The unnamed-bitfield layout facts of a target (C++ unnamedBitfieldsAlign and
 // Triple::isWindowsMSVCEnvironment): al[0] = 1 when an unnamed bitfield raises the
 // alignment of its struct or union (AAPCS: 32-bit ARM and AArch64, outside Darwin and
 // Windows), msvc[0] = 1 for a Windows target that is not mingw. "" is the build host.
 void ast_target_bf(string triple, int* al, int* msvc) {
-    al[0] = 0; msvc[0] = 0;
+    al[0] = 0;
+    msvc[0] = 0;
     if (triple == null || triple[0] == 0) {
 #if (defined(__aarch64__) || defined(__arm__)) && !defined(__APPLE__) && !defined(_WIN32)
         al[0] = 1;
@@ -293,85 +533,159 @@ void ast_target_bf(string triple, int* al, int* msvc) {
     int win = ast_has_sub(triple, "windows") | ast_has_sub(triple, "win32") | ast_has_sub(triple, "mingw");
     int apple = ast_has_sub(triple, "apple") | ast_has_sub(triple, "darwin") | ast_has_sub(triple, "macos") | ast_has_sub(triple, "ios");
     int arm = ast_has_prefix(triple, "aarch64") | ast_has_prefix(triple, "arm") | ast_has_prefix(triple, "thumb");
-    if (arm == 1 && win == 0 && apple == 0) { al[0] = 1; }
-    if (win == 1 && ast_has_sub(triple, "gnu") == 0 && ast_has_sub(triple, "mingw") == 0 && ast_has_sub(triple, "cygnus") == 0) { msvc[0] = 1; }
+    if (arm == 1 && win == 0 && apple == 0) {
+        al[0] = 1;
+    }
+    if (win == 1 && ast_has_sub(triple, "gnu") == 0 && ast_has_sub(triple, "mingw") == 0 && ast_has_sub(triple, "cygnus") == 0) {
+        msvc[0] = 1;
+    }
 }
+
 // Type spelling → symbol-safe fragment: a `struct:`/`union:`/`enum:`/`interface:` prefix
 // (how sema spells a nominal type) is dropped, `*`->`p_`, `[`->`_A`, `]`->`_`, other
 // non-ident chars dropped.
 string ast_ty_mangle(string tin) {
     string t = tin;
-    if (ast_has_prefix(t, "struct:") == 1)    { t = (string)((*uint8)t + 7); }
-    else if (ast_has_prefix(t, "union:") == 1)     { t = (string)((*uint8)t + 6); }
-    else if (ast_has_prefix(t, "enum:") == 1)      { t = (string)((*uint8)t + 5); }
-    else if (ast_has_prefix(t, "interface:") == 1) { t = (string)((*uint8)t + 10); }
-    let out: String; String_init(&out, 16);
+    if (ast_has_prefix(t, "struct:") == 1) {
+        t = (string)((*uint8)t + 7);
+    }
+    else if (ast_has_prefix(t, "union:") == 1) {
+        t = (string)((*uint8)t + 6);
+    }
+    else if (ast_has_prefix(t, "enum:") == 1) {
+        t = (string)((*uint8)t + 5);
+    }
+    else if (ast_has_prefix(t, "interface:") == 1) {
+        t = (string)((*uint8)t + 10);
+    }
+    let out: String;
+    String_init(&out, 16);
     int i = 0;
     while (t[i] != 0) {
         int c = (int)t[i];
-        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { String_push(&out, (char)c); }
-        else if (c == 42) { String_append(&out, "p_"); }
-        else if (c == 91) { String_append(&out, "_A"); }
-        else if (c == 93) { String_push(&out, '_'); }
+        if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
+            String_push(&out, (char)c);
+        }
+        else if (c == 42) {
+            String_append(&out, "p_");
+        }
+        else if (c == 91) {
+            String_append(&out, "_A");
+        }
+        else if (c == 93) {
+            String_push(&out, '_');
+        }
         i = i + 1;
     }
     return (string)String_cstr(&out);
 }
+
 // The atomic intrinsics (mirrors intrinsics.h parseAtomicIntrinsic): `atomic_<op>` on
 // an `int` cell, `atomic_<op>64` on an `int64` cell, `atomic_<op>_ptr` on a pointer
 // cell, and `atomic_fence()`, each with an optional `_relaxed` suffix. The op ("" when
 // `name` is none of them) and the cell kind (0 int, 1 int64, 2 pointer).
 // A trailing `_relaxed` (monotonic ordering; never on the fence).
 int ast_atomic_relaxed(string name) {
-    int n = 0; while (name[n] != 0) { n = n + 1; }
-    if (n > 15 && ast_streq((string)((*uint8)name + n - 8), "_relaxed") == 1) { return 1; }
+    int n = 0;
+    while (name[n] != 0) {
+        n = n + 1;
+    }
+    if (n > 15 && ast_streq((string)((*uint8)name + n - 8), "_relaxed") == 1) {
+        return 1;
+    }
     return 0;
 }
+
 // The name without its `_relaxed` suffix.
 string ast_atomic_base(string name) {
-    if (ast_atomic_relaxed(name) == 0) { return name; }
-    int n = 0; while (name[n] != 0) { n = n + 1; }
+    if (ast_atomic_relaxed(name) == 0) {
+        return name;
+    }
+    int n = 0;
+    while (name[n] != 0) {
+        n = n + 1;
+    }
     return ast_sub(name, 0, n - 8);
 }
+
 string ast_atomic_op(string name0) {
-    if (ast_streq(name0, "atomic_fence") == 1) { return "fence"; }
+    if (ast_streq(name0, "atomic_fence") == 1) {
+        return "fence";
+    }
     string name = ast_atomic_base(name0);
-    if (ast_has_prefix(name, "atomic_") == 0) { return ""; }
+    if (ast_has_prefix(name, "atomic_") == 0) {
+        return "";
+    }
     string rest = (string)((*uint8)name + 7);
-    int n = 0; while (rest[n] != 0) { n = n + 1; }
+    int n = 0;
+    while (rest[n] != 0) {
+        n = n + 1;
+    }
     int k = ast_atomic_kind(name);
-    if (k == 2) { n = n - 4; } else if (k == 1) { n = n - 2; }
-    if (n <= 0) { return ""; }
+    if (k == 2) {
+        n = n - 4;
+    } else if (k == 1) {
+        n = n - 2;
+    }
+    if (n <= 0) {
+        return "";
+    }
     string op = ast_sub(rest, 0, n);
-    if (ast_streq(op, "load") == 1 || ast_streq(op, "store") == 1 || ast_streq(op, "swap") == 1 || ast_streq(op, "cas") == 1) { return op; }
+    if (ast_streq(op, "load") == 1 || ast_streq(op, "store") == 1 || ast_streq(op, "swap") == 1 || ast_streq(op, "cas") == 1) {
+        return op;
+    }
     if (k != 2 && (ast_streq(op, "fetch_add") == 1 || ast_streq(op, "fetch_sub") == 1 || ast_streq(op, "fetch_and") == 1
-                   || ast_streq(op, "fetch_or") == 1 || ast_streq(op, "fetch_xor") == 1)) { return op; }
+                   || ast_streq(op, "fetch_or") == 1 || ast_streq(op, "fetch_xor") == 1)) {
+        return op;
+    }
     return "";
 }
+
 int ast_atomic_kind(string name0) {
     string name = ast_atomic_base(name0);
-    int n = 0; while (name[n] != 0) { n = n + 1; }
-    if (n > 11 && name[n - 4] == '_' && name[n - 3] == 'p' && name[n - 2] == 't' && name[n - 1] == 'r') { return 2; }
-    if (n > 9 && name[n - 2] == '6' && name[n - 1] == '4') { return 1; }
+    int n = 0;
+    while (name[n] != 0) {
+        n = n + 1;
+    }
+    if (n > 11 && name[n - 4] == '_' && name[n - 3] == 'p' && name[n - 2] == 't' && name[n - 1] == 'r') {
+        return 2;
+    }
+    if (n > 9 && name[n - 2] == '6' && name[n - 1] == '4') {
+        return 1;
+    }
     return 0;
 }
 
 // The type a bitfield of declared (dealiased) integer type `t` and `w` bits is read as:
 // `int` when every value fits an int (C promotion), else `t` (mirrors tyq::bitfieldReadType).
 string ast_bf_read_type(string t, int w) {
-    if (w <= 0) { return t; }
+    if (w <= 0) {
+        return t;
+    }
     int u32 = 0;
-    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1 || ast_streq(t, "uint64") == 1) { u32 = 1; }
-    if (u32 == 1 && w < 32) { return "int"; }
-    if (ast_streq(t, "int64") == 1 && w <= 32) { return "int"; }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1 || ast_streq(t, "uint64") == 1) {
+        u32 = 1;
+    }
+    if (u32 == 1 && w < 32) {
+        return "int";
+    }
+    if (ast_streq(t, "int64") == 1 && w <= 32) {
+        return "int";
+    }
     return t;
 }
+
 string ast_op_name(string op, List<string>* tys) {
     string w = ast_op_word(op);
-    if (w[0] == 0) { return ""; }
-    let out: String; String_init(&out, 24);
-    String_append(&out, "__op_"); String_append(&out, w);
-    int i = 0; int n = List_len<string>(tys);
+    if (w[0] == 0) {
+        return "";
+    }
+    let out: String;
+    String_init(&out, 24);
+    String_append(&out, "__op_");
+    String_append(&out, w);
+    int i = 0;
+    int n = List_len<string>(tys);
     while (i < n) {
         String_push(&out, '_');
         String_append(&out, ast_ty_mangle(List_get<string>(tys, i)));
@@ -384,59 +698,123 @@ string ast_op_name(string op, List<string>* tys) {
 // `s[a..b)` as a fresh string.
 string ast_sub(string s, int a, int b) {
     *uint8 buf = alloc<uint8>(b - a + 1);
-    int k = 0; while (a + k < b) { buf[k] = (uint8)s[a + k]; k = k + 1; }
+    int k = 0;
+    while (a + k < b) {
+        buf[k] = (uint8)s[a + k];
+        k = k + 1;
+    }
     buf[k] = 0;
     return (string)buf;
 }
+
 // Canonical spelling for unification: `const` and a `struct:` tag dropped (neither
 // changes the shape) and trailing '*' moved to the front ("const Box<T>*" -> "*Box<T>"),
 // so declared and inferred spellings compare equal.
 string ast_unify_canon(string t) {
-    int a = 0; int stars = 0;
+    int a = 0;
+    int stars = 0;
     int more = 1;
     while (more == 1) {
         more = 0;
-        while ((int)t[a] == 42 || (int)t[a] == 32) { if ((int)t[a] == 42) { stars = stars + 1; } a = a + 1; }
-        if (ast_has_prefix((string)((*uint8)t + a), "const ") == 1) { a = a + 6; more = 1; }
-        if (ast_has_prefix((string)((*uint8)t + a), "struct:") == 1) { a = a + 7; more = 1; }
+        while ((int)t[a] == 42 || (int)t[a] == 32) {
+            if ((int)t[a] == 42) {
+                stars = stars + 1;
+            }
+            a = a + 1;
+        }
+        if (ast_has_prefix((string)((*uint8)t + a), "const ") == 1) {
+            a = a + 6;
+            more = 1;
+        }
+        if (ast_has_prefix((string)((*uint8)t + a), "struct:") == 1) {
+            a = a + 7;
+            more = 1;
+        }
     }
-    int b = a; while (t[b] != 0) { b = b + 1; }
+    int b = a;
+    while (t[b] != 0) {
+        b = b + 1;
+    }
     more = 1;
     while (more == 1) {
         more = 0;
-        while (b > a && ((int)t[b - 1] == 42 || (int)t[b - 1] == 32)) { if ((int)t[b - 1] == 42) { stars = stars + 1; } b = b - 1; }
-        if (b - a >= 6 && ast_has_prefix((string)((*uint8)t + b - 6), "*const") == 1) { stars = stars + 1; b = b - 6; more = 1; }
+        while (b > a && ((int)t[b - 1] == 42 || (int)t[b - 1] == 32)) {
+            if ((int)t[b - 1] == 42) {
+                stars = stars + 1;
+            }
+            b = b - 1;
+        }
+        if (b - a >= 6 && ast_has_prefix((string)((*uint8)t + b - 6), "*const") == 1) {
+            stars = stars + 1;
+            b = b - 6;
+            more = 1;
+        }
     }
-    let out: String; String_init(&out, b - a + stars + 1);
-    int i = 0; while (i < stars) { String_push(&out, '*'); i = i + 1; }
+    let out: String;
+    String_init(&out, b - a + stars + 1);
+    int i = 0;
+    while (i < stars) {
+        String_push(&out, '*');
+        i = i + 1;
+    }
     String_append(&out, ast_sub(t, a, b));
     return (string)String_cstr(&out);
 }
+
 // The top-level comma-separated args inside the outermost <...> of `s` (nesting-aware,
 // the "->" of a fn type is not a closing '>').
 void ast_targs(string s, List<string>* out) {
     int i = 0;
-    while (s[i] != 0 && (int)s[i] != 60) { i = i + 1; }
-    if (s[i] == 0) { return; }
+    while (s[i] != 0 && (int)s[i] != 60) {
+        i = i + 1;
+    }
+    if (s[i] == 0) {
+        return;
+    }
     i = i + 1;
-    int depth = 1; int start = i;
+    int depth = 1;
+    int start = i;
     while (s[i] != 0 && depth > 0) {
         int c = (int)s[i];
-        if (c == 60 || c == 40) { depth = depth + 1; }
-        else if (c == 41) { depth = depth - 1; }
-        else if (c == 62 && (int)s[i - 1] != 45) { depth = depth - 1; if (depth == 0) { break; } }
+        if (c == 60 || c == 40) {
+            depth = depth + 1;
+        }
+        else if (c == 41) {
+            depth = depth - 1;
+        }
+        else if (c == 62 && (int)s[i - 1] != 45) {
+            depth = depth - 1;
+            if (depth == 0) {
+                break;
+            }
+        }
         else if (c == 44 && depth == 1) {
-            int a = start; while ((int)s[a] == 32) { a = a + 1; }
-            int b = i; while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
+            int a = start;
+            while ((int)s[a] == 32) {
+                a = a + 1;
+            }
+            int b = i;
+            while (b > a && (int)s[b - 1] == 32) {
+                b = b - 1;
+            }
             List_push<string>(out, ast_sub(s, a, b));
             start = i + 1;
         }
         i = i + 1;
     }
-    int a = start; while ((int)s[a] == 32) { a = a + 1; }
-    int b = i; while (b > a && (int)s[b - 1] == 32) { b = b - 1; }
-    if (b > a) { List_push<string>(out, ast_sub(s, a, b)); }
+    int a = start;
+    while ((int)s[a] == 32) {
+        a = a + 1;
+    }
+    int b = i;
+    while (b > a && (int)s[b - 1] == 32) {
+        b = b - 1;
+    }
+    if (b > a) {
+        List_push<string>(out, ast_sub(s, a, b));
+    }
 }
+
 // The binding of type parameter `tp` from unifying a parameter type `pat` against a
 // concrete argument type `arg`: matching pointer levels peel off, a bare `tp` binds the
 // whole remaining type, and `G<P1, P2>` against `G<C1, C2>` recurses into every type
@@ -446,29 +824,61 @@ string ast_unify_tparam(string pat0, string arg0, string tp) {
     string pat = ast_unify_canon(pat0);
     string arg = ast_unify_canon(arg0);
     int i = 0;
-    while ((int)pat[i] == 42 && (int)arg[i] == 42) { i = i + 1; }
+    while ((int)pat[i] == 42 && (int)arg[i] == 42) {
+        i = i + 1;
+    }
     pat = (string)((*uint8)pat + i);
     arg = ast_unify_canon((string)((*uint8)arg + i));
-    if (pat[0] == 0 || arg[0] == 0) { return ""; }
-    if (ast_streq(pat, tp) == 1) { return arg; }
-    int pn = 0; while (pat[pn] != 0) { pn = pn + 1; }
+    if (pat[0] == 0 || arg[0] == 0) {
+        return "";
+    }
+    if (ast_streq(pat, tp) == 1) {
+        return arg;
+    }
+    int pn = 0;
+    while (pat[pn] != 0) {
+        pn = pn + 1;
+    }
     if (pn > 2 && (int)pat[pn - 1] == 93 && (int)pat[pn - 2] == 91) {   // `T[]`: the element
-        int an = 0; while (arg[an] != 0) { an = an + 1; }
+        int an = 0;
+        while (arg[an] != 0) {
+            an = an + 1;
+        }
         if (an > 2 && (int)arg[an - 1] == 93 && (int)arg[an - 2] == 91) {
             return ast_unify_tparam(ast_sub(pat, 0, pn - 2), ast_sub(arg, 0, an - 2), tp);
         }
         return "";
     }
-    int pl = 0; while (pat[pl] != 0 && (int)pat[pl] != 60) { pl = pl + 1; }
-    int al = 0; while (arg[al] != 0 && (int)arg[al] != 60) { al = al + 1; }
-    if (pat[pl] == 0 || arg[al] == 0 || pl != al || (int)pat[0] == 42) { return ""; }
-    int k = 0; while (k < pl) { if (pat[k] != arg[k]) { return ""; } k = k + 1; }
-    List<string> pa; List_init<string>(&pa, 2); ast_targs(pat, &pa);
-    List<string> aa; List_init<string>(&aa, 2); ast_targs(arg, &aa);
+    int pl = 0;
+    while (pat[pl] != 0 && (int)pat[pl] != 60) {
+        pl = pl + 1;
+    }
+    int al = 0;
+    while (arg[al] != 0 && (int)arg[al] != 60) {
+        al = al + 1;
+    }
+    if (pat[pl] == 0 || arg[al] == 0 || pl != al || (int)pat[0] == 42) {
+        return "";
+    }
+    int k = 0;
+    while (k < pl) {
+        if (pat[k] != arg[k]) {
+            return "";
+        }
+        k = k + 1;
+    }
+    List<string> pa;
+    List_init<string>(&pa, 2);
+    ast_targs(pat, &pa);
+    List<string> aa;
+    List_init<string>(&aa, 2);
+    ast_targs(arg, &aa);
     k = 0;
     while (k < List_len<string>(&pa) && k < List_len<string>(&aa)) {
         string b = ast_unify_tparam(List_get<string>(&pa, k), List_get<string>(&aa, k), tp);
-        if (b[0] != 0) { return b; }
+        if (b[0] != 0) {
+            return b;
+        }
         k = k + 1;
     }
     return "";
@@ -479,12 +889,14 @@ enum DeclKind {
     DK_FUNCTION, DK_EXTERN, DK_INTRINSIC, DK_STRUCT, DK_UNION,
     DK_INTERFACE, DK_ENUM, DK_TYPEALIAS, DK_VARDECL
 }
+
 enum StmtKind {
     SK_BLOCK, SK_RETURN, SK_IF, SK_WHILE, SK_FOR, SK_FORIN,
     SK_BREAK, SK_CONTINUE, SK_EXPR, SK_VARDECL,
     SK_SWITCH, SK_CASE, SK_MATCH, SK_ARM, SK_TRY, SK_CATCH,
     SK_THROW, SK_THREADJOIN, SK_ASM, SK_ASMINPUT, SK_DOWHILE, SK_DEFER, SK_ASMOUTPUT
 }
+
 enum ExprKind {
     EK_LITERAL, EK_IDENT, EK_BINARY, EK_UNARY,
     EK_CALL, EK_INDEX, EK_MEMBER, EK_QUESTION, EK_CAST, EK_SIZEOF,
@@ -497,7 +909,12 @@ enum ExprKind {
 // printer's label (INT/FLOAT/STRING/CHAR/BOOL/NULL).
 enum LitKind { LIT_INT, LIT_FLOAT, LIT_STRING, LIT_CHAR, LIT_BOOL, LIT_NULL }
 
-struct Param { string ty; string name; int line; int col; }   // line/col: a function parameter's name (else 0)
+struct Param {   // line/col: a function parameter's name (else 0)
+    string ty;
+    string name;
+    int line;
+    int col;
+}
 
 struct ExprNode {
     int kind;
@@ -573,7 +990,7 @@ struct DeclNode {
     List<int> pad_bits;            //   type, width (0 = `: 0`) and the index of the named field it
     List<int> pad_at;              //   precedes (mirrors StructDecl::pads)
     List<*ExprNode> enum_vals;     // enum: member value expressions (parallel to params; null = a
-                                   // literal or the previous + 1), folded by sema into params' ty
+    // literal or the previous + 1), folded by sema into params' ty
     int is_async;                  // function declared `async` (1) or not (0)
     int is_mustuse;                  // function declared `must_use` (discarding result is an error)
     int is_const;                  // DK_VARDECL: declared value-const global
@@ -597,12 +1014,17 @@ struct DeclNode {
 // Does some member of enum `d` carry a payload? Memoized on the node (payloads are set
 // by the parser only), so the per-member queries do not rescan every member.
 int ast_enum_has_payload(*DeclNode d) {
-    if (d.payload_memo != 0) { return (int)(d.payload_memo == 1); }
+    if (d.payload_memo != 0) {
+        return (int)(d.payload_memo == 1);
+    }
     int r = 0;
     int i = 0;
     while (i < List_len<List<string>>(&d.payloads)) {
         List<string> pl = List_get<List<string>>(&d.payloads, i);
-        if (List_len<string>(&pl) > 0) { r = 1; i = List_len<List<string>>(&d.payloads); }
+        if (List_len<string>(&pl) > 0) {
+            r = 1;
+            i = List_len<List<string>>(&d.payloads);
+        }
         i = i + 1;
     }
     d.payload_memo = 2 - r;
@@ -614,20 +1036,31 @@ int ast_enum_has_payload(*DeclNode d) {
 // bitfield has name ""), its bitfield width (0 = none; an unnamed `: 0` is 0 too) and
 // whether it is named.
 void ast_layout_fields(*DeclNode d, List<Param>* fs, List<int>* bits, List<int>* named) {
-    List_init<Param>(fs, 8); List_init<int>(bits, 8); List_init<int>(named, 8);
+    List_init<Param>(fs, 8);
+    List_init<int>(bits, 8);
+    List_init<int>(named, 8);
     int nf = List_len<Param>(&d.params);
     int np = List_len<string>(&d.pad_tys);
     int p = 0;
     int i = 0;
     while (i <= nf) {
         while (p < np && List_get<int>(&d.pad_at, p) <= i) {
-            let pp: Param; pp.ty = List_get<string>(&d.pad_tys, p); pp.name = "";
-            List_push<Param>(fs, pp); List_push<int>(bits, List_get<int>(&d.pad_bits, p)); List_push<int>(named, 0);
+            let pp: Param;
+            pp.ty = List_get<string>(&d.pad_tys, p);
+            pp.name = "";
+            List_push<Param>(fs, pp);
+            List_push<int>(bits, List_get<int>(&d.pad_bits, p));
+            List_push<int>(named, 0);
             p = p + 1;
         }
         if (i < nf) {
-            int bw = 0; if (i < List_len<int>(&d.field_bits)) { bw = List_get<int>(&d.field_bits, i); }
-            List_push<Param>(fs, List_get<Param>(&d.params, i)); List_push<int>(bits, bw); List_push<int>(named, 1);
+            int bw = 0;
+            if (i < List_len<int>(&d.field_bits)) {
+                bw = List_get<int>(&d.field_bits, i);
+            }
+            List_push<Param>(fs, List_get<Param>(&d.params, i));
+            List_push<int>(bits, bw);
+            List_push<int>(named, 1);
         }
         i = i + 1;
     }
@@ -640,17 +1073,22 @@ int g_pos_col = 0;
 
 *ExprNode ast_new_expr() {
     *ExprNode e = alloc<ExprNode>(1);
-    e.line = g_pos_line; e.col = g_pos_col;
+    e.line = g_pos_line;
+    e.col = g_pos_col;
     return e;
 }
+
 *StmtNode ast_new_stmt() {
     *StmtNode st = alloc<StmtNode>(1);
-    st.line = g_pos_line; st.col = g_pos_col;
+    st.line = g_pos_line;
+    st.col = g_pos_col;
     return st;
 }
+
 *DeclNode ast_new_decl() {
     *DeclNode d = alloc<DeclNode>(1);
-    d.line = g_pos_line; d.col = g_pos_col;
+    d.line = g_pos_line;
+    d.col = g_pos_col;
     return d;
 }
 
@@ -659,11 +1097,21 @@ struct Program {
 }
 
 string lit_name(int k) {
-    if (k == LIT_INT) { return "INT"; }
-    if (k == LIT_FLOAT) { return "FLOAT"; }
-    if (k == LIT_STRING) { return "STRING"; }
-    if (k == LIT_CHAR) { return "CHAR"; }
-    if (k == LIT_BOOL) { return "BOOL"; }
+    if (k == LIT_INT) {
+        return "INT";
+    }
+    if (k == LIT_FLOAT) {
+        return "FLOAT";
+    }
+    if (k == LIT_STRING) {
+        return "STRING";
+    }
+    if (k == LIT_CHAR) {
+        return "CHAR";
+    }
+    if (k == LIT_BOOL) {
+        return "BOOL";
+    }
     return "NULL";
 }
 
@@ -671,7 +1119,10 @@ string lit_name(int k) {
 
 void pind(int d) {
     int i = 0;
-    while (i < d) { printf("  "); i = i + 1; }
+    while (i < d) {
+        printf("  ");
+        i = i + 1;
+    }
 }
 
 void pline(int d, string s) {
@@ -683,7 +1134,9 @@ void pline(int d, string s) {
 *ExprNode ast_field_default(*DeclNode dn, string name) {
     int i = 0;
     while (i < List_len<Param>(&dn.params) && i < List_len<*ExprNode>(&dn.field_dflts)) {
-        if (ast_streq(List_get<Param>(&dn.params, i).name, name) == 1) { return List_get<*ExprNode>(&dn.field_dflts, i); }
+        if (ast_streq(List_get<Param>(&dn.params, i).name, name) == 1) {
+            return List_get<*ExprNode>(&dn.field_dflts, i);
+        }
         i = i + 1;
     }
     return null;
@@ -703,7 +1156,8 @@ void print_expr(*ExprNode e, int d) {
     if (e.kind == EK_BINARY) {
         // A left-leaning chain (`a + b + c ...`) is printed along its left spine with a
         // loop, not one recursive call per operator (mirrors the C++ printer).
-        let spine: List<*ExprNode>; List_init<*ExprNode>(&spine, 8);
+        let spine: List<*ExprNode>;
+        List_init<*ExprNode>(&spine, 8);
         *ExprNode b = e;
         int k = 0;
         while (b.kind == EK_BINARY) {
@@ -739,8 +1193,12 @@ void print_expr(*ExprNode e, int d) {
     }
     if (e.kind == EK_ARRAYLIT) {
         pline(d, "ArrayLitExpr");
-        int i = 0; int n = List_len<*ExprNode>(&e.kids);
-        while (i < n) { print_expr(List_get<*ExprNode>(&e.kids, i), d + 1); i = i + 1; }
+        int i = 0;
+        int n = List_len<*ExprNode>(&e.kids);
+        while (i < n) {
+            print_expr(List_get<*ExprNode>(&e.kids, i), d + 1);
+            i = i + 1;
+        }
         return;
     }
     if (e.kind == EK_CALL) {
@@ -750,12 +1208,19 @@ void print_expr(*ExprNode e, int d) {
         pline(d + 1, "Args:");
         int i = 0;
         int n = List_len<*ExprNode>(&e.kids);
-        while (i < n) { print_expr(List_get<*ExprNode>(&e.kids, i), d + 2); i = i + 1; }
+        while (i < n) {
+            print_expr(List_get<*ExprNode>(&e.kids, i), d + 2);
+            i = i + 1;
+        }
         return;
     }
     if (e.kind == EK_INDEX) {
-        if (List_len<*ExprNode>(&e.kids) > 0) { pline(d, "IndexExpr (slice)"); }
-        else { pline(d, "IndexExpr"); }
+        if (List_len<*ExprNode>(&e.kids) > 0) {
+            pline(d, "IndexExpr (slice)");
+        }
+        else {
+            pline(d, "IndexExpr");
+        }
         pline(d + 1, "Base:");
         print_expr(e.a, d + 2);
         pline(d + 1, "Index:");
@@ -870,7 +1335,9 @@ void print_stmt(*StmtNode s, int d) {
     }
     if (s.kind == SK_RETURN) {
         pline(d, "ReturnStmt");
-        if (s.expr != null) { print_expr(s.expr, d + 1); }
+        if (s.expr != null) {
+            print_expr(s.expr, d + 1);
+        }
         return;
     }
     if (s.kind == SK_IF) {
@@ -886,7 +1353,11 @@ void print_stmt(*StmtNode s, int d) {
             *StmtNode next = null;
             if (n.s2 != null) {
                 pline(k + 1, "Else:");
-                if (n.s2.kind == SK_IF) { next = n.s2; } else { print_stmt(n.s2, k + 2); }
+                if (n.s2.kind == SK_IF) {
+                    next = n.s2;
+                } else {
+                    print_stmt(n.s2, k + 2);
+                }
             }
             n = next;
             k = k + 2;
@@ -894,8 +1365,13 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_WHILE) {
-        if (s.label != null && s.label[0] != 0) { pind(d); printf("WhileStmt (label: %s)\n", s.label); }
-        else { pline(d, "WhileStmt"); }
+        if (s.label != null && s.label[0] != 0) {
+            pind(d);
+            printf("WhileStmt (label: %s)\n", s.label);
+        }
+        else {
+            pline(d, "WhileStmt");
+        }
         pline(d + 1, "Condition:");
         print_expr(s.expr, d + 2);
         pline(d + 1, "Body:");
@@ -903,8 +1379,13 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_DOWHILE) {
-        if (s.label != null && s.label[0] != 0) { pind(d); printf("DoWhileStmt (label: %s)\n", s.label); }
-        else { pline(d, "DoWhileStmt"); }
+        if (s.label != null && s.label[0] != 0) {
+            pind(d);
+            printf("DoWhileStmt (label: %s)\n", s.label);
+        }
+        else {
+            pline(d, "DoWhileStmt");
+        }
         pline(d + 1, "Body:");
         print_stmt(s.s1, d + 2);
         pline(d + 1, "Condition:");
@@ -912,8 +1393,13 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_FOR) {
-        if (s.label != null && s.label[0] != 0) { pind(d); printf("ForStmt (label: %s)\n", s.label); }
-        else { pline(d, "ForStmt"); }
+        if (s.label != null && s.label[0] != 0) {
+            pind(d);
+            printf("ForStmt (label: %s)\n", s.label);
+        }
+        else {
+            pline(d, "ForStmt");
+        }
         if (s.s1 != null) {
             pline(d + 1, "Init:");
             print_stmt(s.s1, d + 2);
@@ -932,8 +1418,12 @@ void print_stmt(*StmtNode s, int d) {
     }
     if (s.kind == SK_FORIN) {
         pind(d);
-        if (s.label != null && s.label[0] != 0) { printf("ForInStmt (%s in ...) (label: %s)\n", s.name, s.label); }
-        else { printf("ForInStmt (%s in ...)\n", s.name); }
+        if (s.label != null && s.label[0] != 0) {
+            printf("ForInStmt (%s in ...) (label: %s)\n", s.name, s.label);
+        }
+        else {
+            printf("ForInStmt (%s in ...)\n", s.name);
+        }
         pline(d + 1, "Iterable:");
         print_expr(s.expr, d + 2);
         pline(d + 1, "Body:");
@@ -941,13 +1431,23 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_BREAK) {
-        if (s.label != null && s.label[0] != 0) { pind(d); printf("BreakStmt %s\n", s.label); }
-        else { pline(d, "BreakStmt"); }
+        if (s.label != null && s.label[0] != 0) {
+            pind(d);
+            printf("BreakStmt %s\n", s.label);
+        }
+        else {
+            pline(d, "BreakStmt");
+        }
         return;
     }
     if (s.kind == SK_CONTINUE) {
-        if (s.label != null && s.label[0] != 0) { pind(d); printf("ContinueStmt %s\n", s.label); }
-        else { pline(d, "ContinueStmt"); }
+        if (s.label != null && s.label[0] != 0) {
+            pind(d);
+            printf("ContinueStmt %s\n", s.label);
+        }
+        else {
+            pline(d, "ContinueStmt");
+        }
         return;
     }
     if (s.kind == SK_EXPR) {
@@ -970,7 +1470,10 @@ void print_stmt(*StmtNode s, int d) {
         print_expr(s.expr, d + 2);
         int i = 0;
         int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        while (i < n) {
+            print_stmt(List_get<*StmtNode>(&s.items, i), d + 1);
+            i = i + 1;
+        }
         return;
     }
     if (s.kind == SK_CASE) {
@@ -982,7 +1485,10 @@ void print_stmt(*StmtNode s, int d) {
         }
         int i = 0;
         int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        while (i < n) {
+            print_stmt(List_get<*StmtNode>(&s.items, i), d + 1);
+            i = i + 1;
+        }
         return;
     }
     if (s.kind == SK_MATCH) {
@@ -991,7 +1497,10 @@ void print_stmt(*StmtNode s, int d) {
         print_expr(s.expr, d + 2);
         int i = 0;
         int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        while (i < n) {
+            print_stmt(List_get<*StmtNode>(&s.items, i), d + 1);
+            i = i + 1;
+        }
         return;
     }
     if (s.kind == SK_ARM) {
@@ -1005,7 +1514,10 @@ void print_stmt(*StmtNode s, int d) {
         print_stmt(s.s1, d + 1);
         int i = 0;
         int n = List_len<*StmtNode>(&s.items);
-        while (i < n) { print_stmt(List_get<*StmtNode>(&s.items, i), d + 1); i = i + 1; }
+        while (i < n) {
+            print_stmt(List_get<*StmtNode>(&s.items, i), d + 1);
+            i = i + 1;
+        }
         if (s.s2 != null) {
             pline(d + 1, "Finally");
             print_stmt(s.s2, d + 2);
@@ -1019,13 +1531,19 @@ void print_stmt(*StmtNode s, int d) {
         return;
     }
     if (s.kind == SK_DEFER) {
-        if (s.is_err == 1) { pline(d, "DeferStmt (err)"); } else { pline(d, "DeferStmt"); }
+        if (s.is_err == 1) {
+            pline(d, "DeferStmt (err)");
+        } else {
+            pline(d, "DeferStmt");
+        }
         print_stmt(s.s1, d + 1);
         return;
     }
     if (s.kind == SK_THROW) {
         pline(d, "ThrowStmt");
-        if (s.expr != null) { print_expr(s.expr, d + 1); }
+        if (s.expr != null) {
+            print_expr(s.expr, d + 1);
+        }
         return;
     }
     if (s.kind == SK_THREADJOIN) {
@@ -1041,8 +1559,12 @@ void print_stmt(*StmtNode s, int d) {
         while (i < n) {
             *StmtNode inp = List_get<*StmtNode>(&s.items, i);
             pind(d + 1);
-            if (inp.kind == SK_ASMOUTPUT) { printf("output: \"%s\"\n", inp.name); }
-            else { printf("input: \"%s\"\n", inp.name); }
+            if (inp.kind == SK_ASMOUTPUT) {
+                printf("output: \"%s\"\n", inp.name);
+            }
+            else {
+                printf("input: \"%s\"\n", inp.name);
+            }
             print_expr(inp.expr, d + 2);
             i = i + 1;
         }
@@ -1071,7 +1593,9 @@ void print_params(*DeclNode dn, int d) {
 // `T` or `T: A + B`. Mirrors ASTPrinter::printTypeParams in ast/ast_printer.cpp.
 void print_type_params(*DeclNode dn, int d) {
     int n = List_len<TypeParam>(&dn.type_params);
-    if (n == 0) { return; }
+    if (n == 0) {
+        return;
+    }
     pline(d, "TypeParams:");
     int i = 0;
     while (i < n) {
@@ -1083,7 +1607,9 @@ void print_type_params(*DeclNode dn, int d) {
             printf(": ");
             int j = 0;
             while (j < cn) {
-                if (j > 0) { printf(" + "); }
+                if (j > 0) {
+                    printf(" + ");
+                }
                 printf("%s", List_get<string>(&tp.constraints, j));
                 j = j + 1;
             }
@@ -1097,8 +1623,12 @@ void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_FUNCTION) {
         pind(d);
         printf("FunctionDecl: %s -> %s", dn.name, dn.ret_type);
-        if (dn.is_async == 1) { printf(" (async)"); }
-        if (dn.is_mustuse == 1) { printf(" (must_use)"); }
+        if (dn.is_async == 1) {
+            printf(" (async)");
+        }
+        if (dn.is_mustuse == 1) {
+            printf(" (must_use)");
+        }
         printf("\n");
         print_type_params(dn, d + 1);
         pline(d + 1, "Parameters:");
@@ -1128,7 +1658,9 @@ void print_decl(*DeclNode dn, int d) {
         printf("StructDecl: %s\n", dn.name);
         print_type_params(dn, d + 1);
         pline(d + 1, "Fields:");
-        List<Param> lfs; List<int> lbits; List<int> lnamed;
+        List<Param> lfs;
+        List<int> lbits;
+        List<int> lnamed;
         ast_layout_fields(dn, &lfs, &lbits, &lnamed);
         int fi = 0;
         int nf = List_len<Param>(&lfs);
@@ -1136,15 +1668,24 @@ void print_decl(*DeclNode dn, int d) {
             Param pm = List_get<Param>(&lfs, fi);
             int bw = List_get<int>(&lbits, fi);
             pind(d + 2);
-            if (List_get<int>(&lnamed, fi) == 0) { printf("%s : %d", pm.ty, bw); }   // unnamed bitfield
+            if (List_get<int>(&lnamed, fi) == 0) {   // unnamed bitfield
+                printf("%s : %d", pm.ty, bw);
+            }
             else {
                 printf("%s %s", pm.ty, pm.name);
-                if (bw > 0) { printf(" : %d", bw); }     // bitfield width
+                if (bw > 0) {     // bitfield width
+                    printf(" : %d", bw);
+                }
             }
             printf("\n");
             *ExprNode fdv = null;
-            if (List_get<int>(&lnamed, fi) == 1) { fdv = ast_field_default(dn, pm.name); }
-            if (fdv != null) { pline(d + 3, "Default:"); print_expr(fdv, d + 4); }
+            if (List_get<int>(&lnamed, fi) == 1) {
+                fdv = ast_field_default(dn, pm.name);
+            }
+            if (fdv != null) {
+                pline(d + 3, "Default:");
+                print_expr(fdv, d + 4);
+            }
             fi = fi + 1;
         }
         int mn = List_len<*DeclNode>(&dn.methods);
@@ -1161,14 +1702,20 @@ void print_decl(*DeclNode dn, int d) {
     if (dn.kind == DK_UNION) {
         pind(d);
         printf("UnionDecl: %s\n", dn.name);
-        List<Param> ufs; List<int> ubits; List<int> unamed;
+        List<Param> ufs;
+        List<int> ubits;
+        List<int> unamed;
         ast_layout_fields(dn, &ufs, &ubits, &unamed);
         int ui = 0;
         while (ui < List_len<Param>(&ufs)) {
             Param up = List_get<Param>(&ufs, ui);
             pind(d + 1);
-            if (List_get<int>(&unamed, ui) == 0) { printf("%s : %d\n", up.ty, List_get<int>(&ubits, ui)); }
-            else { printf("%s %s\n", up.ty, up.name); }
+            if (List_get<int>(&unamed, ui) == 0) {
+                printf("%s : %d\n", up.ty, List_get<int>(&ubits, ui));
+            }
+            else {
+                printf("%s %s\n", up.ty, up.name);
+            }
             ui = ui + 1;
         }
         return;
@@ -1185,7 +1732,9 @@ void print_decl(*DeclNode dn, int d) {
             int pn = List_len<Param>(&m.params);
             int j = 0;
             while (j < pn) {
-                if (j > 0) { printf(", "); }
+                if (j > 0) {
+                    printf(", ");
+                }
                 printf("%s", List_get<Param>(&m.params, j).ty);
                 j = j + 1;
             }
@@ -1204,25 +1753,39 @@ void print_decl(*DeclNode dn, int d) {
         while (i < n) {
             Param pm = List_get<Param>(&dn.params, i);
             *ExprNode ve = null;
-            if (i < List_len<*ExprNode>(&dn.enum_vals)) { ve = List_get<*ExprNode>(&dn.enum_vals, i); }
+            if (i < List_len<*ExprNode>(&dn.enum_vals)) {
+                ve = List_get<*ExprNode>(&dn.enum_vals, i);
+            }
             pind(d + 1);
-            if (ve != null) { printf("%s = <expr>", pm.name); since = 0; }
-            else if (since >= 0) { since = since + 1; printf("%s = <expr>+%d", pm.name, since); }
-            else { printf("%s = %s", pm.name, pm.ty); }       // name = value
+            if (ve != null) {
+                printf("%s = <expr>", pm.name);
+                since = 0;
+            }
+            else if (since >= 0) {
+                since = since + 1;
+                printf("%s = <expr>+%d", pm.name, since);
+            }
+            else {       // name = value
+                printf("%s = %s", pm.name, pm.ty);
+            }
             List<string> pl = List_get<List<string>>(&dn.payloads, i);
             int pn = List_len<string>(&pl);
             if (pn > 0) {                            // ADT variant payload: (t1, t2)
                 printf("(");
                 int j = 0;
                 while (j < pn) {
-                    if (j > 0) { printf(", "); }
+                    if (j > 0) {
+                        printf(", ");
+                    }
                     printf("%s", List_get<string>(&pl, j));
                     j = j + 1;
                 }
                 printf(")");
             }
             printf("\n");
-            if (ve != null) { print_expr(ve, d + 2); }
+            if (ve != null) {
+                print_expr(ve, d + 2);
+            }
             i = i + 1;
         }
         return;
@@ -1257,19 +1820,38 @@ void print_program(*Program p) {
 // constant-index element of one (no call, assignment, operator overload or variable
 // index), like astwalk::isStablePlace. `for (x in E)` over anything else evaluates E once.
 int ast_stable_place(*ExprNode e) {
-    if (e == null) { return 0; }
-    if (e.kind == EK_IDENT) { return 1; }
-    if (e.kind == EK_MEMBER) { return ast_stable_place(e.a); }
+    if (e == null) {
+        return 0;
+    }
+    if (e.kind == EK_IDENT) {
+        return 1;
+    }
+    if (e.kind == EK_MEMBER) {
+        return ast_stable_place(e.a);
+    }
     if (e.kind == EK_INDEX) {
-        if (e.op_fn != null && e.op_fn[0] != 0) { return 0; }
-        if (e.b == null || e.b.kind != EK_LITERAL) { return 0; }
+        if (e.op_fn != null && e.op_fn[0] != 0) {
+            return 0;
+        }
+        if (e.b == null || e.b.kind != EK_LITERAL) {
+            return 0;
+        }
         int i = 0;
-        while (i < List_len<*ExprNode>(&e.kids)) { if (List_get<*ExprNode>(&e.kids, i).kind != EK_LITERAL) { return 0; } i = i + 1; }
+        while (i < List_len<*ExprNode>(&e.kids)) {
+            if (List_get<*ExprNode>(&e.kids, i).kind != EK_LITERAL) {
+                return 0;
+            }
+            i = i + 1;
+        }
         return ast_stable_place(e.a);
     }
     if (e.kind == EK_UNARY) {
-        if (e.op_fn != null && e.op_fn[0] != 0) { return 0; }
-        if (ast_streq(e.sval, "&") == 1) { return ast_stable_place(e.a); }
+        if (e.op_fn != null && e.op_fn[0] != 0) {
+            return 0;
+        }
+        if (ast_streq(e.sval, "&") == 1) {
+            return ast_stable_place(e.a);
+        }
     }
     return 0;
 }
@@ -1279,106 +1861,268 @@ int ast_stable_place(*ExprNode e) {
 // The fold state over a dimension's text: the parser keeps the tokens' text
 // (`(uint8)258`, `N*2`). `look`, passed down the recursion, resolves a name (a `const`
 // int or an enum member): it stores the value and returns 1, or returns 0.
-struct DimFold { string s; int i; int n; int ok; }
+struct DimFold {
+    string s;
+    int i;
+    int n;
+    int ok;
+}
 
 // A folded integer constant with its C type after promotion (mirrors ty::CInt): `rank`
 // 32 (int / uint) or 64 (int64 / uint64), `uns` 1 for the unsigned ones, `v` the value in
 // that type (a 32-bit one sign- or zero-extended). The constant folders (enum values,
 // array dimensions, `case` labels) compute with these so they follow C's usual
 // arithmetic conversions.
-struct AstCInt { int64 v; int rank; int uns; }
+struct AstCInt {
+    int64 v;
+    int rank;
+    int uns;
+}
 
 AstCInt ast_ci_make(int64 v, int rank, int uns) {
     AstCInt r;
-    r.rank = 32; if (rank == 64) { r.rank = 64; }
+    r.rank = 32;
+    if (rank == 64) {
+        r.rank = 64;
+    }
     r.uns = uns;
     r.v = v;
     if (r.rank == 32) {
-        if (uns == 1) { r.v = (int64)(uint)v; } else { r.v = (int64)(int)v; }
+        if (uns == 1) {
+            r.v = (int64)(uint)v;
+        } else {
+            r.v = (int64)(int)v;
+        }
     }
     return r;
 }
-AstCInt ast_ci_bool(int b) { if (b != 0) { return ast_ci_make((int64)1, 32, 0); } return ast_ci_make((int64)0, 32, 0); }
+
+AstCInt ast_ci_bool(int b) {
+    if (b != 0) {
+        return ast_ci_make((int64)1, 32, 0);
+    }
+    return ast_ci_make((int64)0, 32, 0);
+}
+
 // An integer literal's value (bits `v`): `int` when it fits, else `int64` (`uint64` past it).
 AstCInt ast_ci_lit(int64 v) {
-    if (v < (int64)0) { return ast_ci_make(v, 64, 1); }
-    if (v <= (int64)2147483647) { return ast_ci_make(v, 32, 0); }
+    if (v < (int64)0) {
+        return ast_ci_make(v, 64, 1);
+    }
+    if (v <= (int64)2147483647) {
+        return ast_ci_make(v, 32, 0);
+    }
     return ast_ci_make(v, 64, 0);
 }
+
 // A value known only as an int64 (an enum member, a const): `int` when it fits.
 AstCInt ast_ci_of(int64 v) {
-    if (v >= (int64)-2147483648 && v <= (int64)2147483647) { return ast_ci_make(v, 32, 0); }
+    if (v >= (int64)-2147483648 && v <= (int64)2147483647) {
+        return ast_ci_make(v, 32, 0);
+    }
     return ast_ci_make(v, 64, 0);
 }
+
 // `(t)x` for an integer type `t`; 0 when `t` is not one.
 int ast_ci_cast(string t, AstCInt x, AstCInt* out) {
     int64 v = x.v;
-    if (ast_streq(t, "bool") == 1) { *out = ast_ci_bool((int)(v != (int64)0)); return 1; }
-    if (ast_streq(t, "int8") == 1) { *out = ast_ci_make((int64)(int8)v, 32, 0); return 1; }
-    if (ast_streq(t, "uint8") == 1 || ast_streq(t, "char") == 1) { *out = ast_ci_make((int64)(uint8)v, 32, 0); return 1; }
-    if (ast_streq(t, "int16") == 1) { *out = ast_ci_make((int64)(int16)v, 32, 0); return 1; }
-    if (ast_streq(t, "uint16") == 1) { *out = ast_ci_make((int64)(uint16)v, 32, 0); return 1; }
-    if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1) { *out = ast_ci_make(v, 32, 0); return 1; }
-    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) { *out = ast_ci_make(v, 32, 1); return 1; }
-    if (ast_streq(t, "int64") == 1) { *out = ast_ci_make(v, 64, 0); return 1; }
-    if (ast_streq(t, "uint64") == 1) { *out = ast_ci_make(v, 64, 1); return 1; }
+    if (ast_streq(t, "bool") == 1) {
+        *out = ast_ci_bool((int)(v != (int64)0));
+        return 1;
+    }
+    if (ast_streq(t, "int8") == 1) {
+        *out = ast_ci_make((int64)(int8)v, 32, 0);
+        return 1;
+    }
+    if (ast_streq(t, "uint8") == 1 || ast_streq(t, "char") == 1) {
+        *out = ast_ci_make((int64)(uint8)v, 32, 0);
+        return 1;
+    }
+    if (ast_streq(t, "int16") == 1) {
+        *out = ast_ci_make((int64)(int16)v, 32, 0);
+        return 1;
+    }
+    if (ast_streq(t, "uint16") == 1) {
+        *out = ast_ci_make((int64)(uint16)v, 32, 0);
+        return 1;
+    }
+    if (ast_streq(t, "int") == 1 || ast_streq(t, "int32") == 1) {
+        *out = ast_ci_make(v, 32, 0);
+        return 1;
+    }
+    if (ast_streq(t, "uint") == 1 || ast_streq(t, "uint32") == 1) {
+        *out = ast_ci_make(v, 32, 1);
+        return 1;
+    }
+    if (ast_streq(t, "int64") == 1) {
+        *out = ast_ci_make(v, 64, 0);
+        return 1;
+    }
+    if (ast_streq(t, "uint64") == 1) {
+        *out = ast_ci_make(v, 64, 1);
+        return 1;
+    }
     return 0;
 }
+
 // Unary `-`, `~`, `!`, `+`.
 int ast_ci_unary(string op, AstCInt x, AstCInt* out) {
-    if (ast_streq(op, "-") == 1) { *out = ast_ci_make((int64)0 - x.v, x.rank, x.uns); return 1; }
-    if (ast_streq(op, "~") == 1) { *out = ast_ci_make(~x.v, x.rank, x.uns); return 1; }
-    if (ast_streq(op, "!") == 1) { *out = ast_ci_bool((int)(x.v == (int64)0)); return 1; }
-    if (ast_streq(op, "+") == 1) { *out = x; return 1; }
+    if (ast_streq(op, "-") == 1) {
+        *out = ast_ci_make((int64)0 - x.v, x.rank, x.uns);
+        return 1;
+    }
+    if (ast_streq(op, "~") == 1) {
+        *out = ast_ci_make(~x.v, x.rank, x.uns);
+        return 1;
+    }
+    if (ast_streq(op, "!") == 1) {
+        *out = ast_ci_bool((int)(x.v == (int64)0));
+        return 1;
+    }
+    if (ast_streq(op, "+") == 1) {
+        *out = x;
+        return 1;
+    }
     return 0;
 }
+
 // `x op y` (mirrors ty::cintBinary); 0 when `op` does not fold or is undefined.
 int ast_ci_binary(string op, AstCInt x, AstCInt y, AstCInt* out) {
     int64 z = (int64)0;
-    if (ast_streq(op, "&&") == 1) { *out = ast_ci_bool((int)(x.v != z && y.v != z)); return 1; }
-    if (ast_streq(op, "||") == 1) { *out = ast_ci_bool((int)(x.v != z || y.v != z)); return 1; }
+    if (ast_streq(op, "&&") == 1) {
+        *out = ast_ci_bool((int)(x.v != z && y.v != z));
+        return 1;
+    }
+    if (ast_streq(op, "||") == 1) {
+        *out = ast_ci_bool((int)(x.v != z || y.v != z));
+        return 1;
+    }
     if (ast_streq(op, "<<") == 1 || ast_streq(op, ">>") == 1) {
         // The result has the (promoted) left operand's type; the count must fit its width.
-        if (y.uns == 0 && y.v < z) { return 0; }
-        if ((uint64)y.v >= (uint64)x.rank) { return 0; }
-        if (ast_streq(op, "<<") == 1) { *out = ast_ci_make((int64)((uint64)x.v << (uint64)y.v), x.rank, x.uns); }
-        else if (x.uns == 1) { *out = ast_ci_make((int64)((uint64)x.v >> (uint64)y.v), x.rank, x.uns); }
-        else { *out = ast_ci_make(x.v >> y.v, x.rank, x.uns); }
+        if (y.uns == 0 && y.v < z) {
+            return 0;
+        }
+        if ((uint64)y.v >= (uint64)x.rank) {
+            return 0;
+        }
+        if (ast_streq(op, "<<") == 1) {
+            *out = ast_ci_make((int64)((uint64)x.v << (uint64)y.v), x.rank, x.uns);
+        }
+        else if (x.uns == 1) {
+            *out = ast_ci_make((int64)((uint64)x.v >> (uint64)y.v), x.rank, x.uns);
+        }
+        else {
+            *out = ast_ci_make(x.v >> y.v, x.rank, x.uns);
+        }
         return 1;
     }
     // The usual arithmetic conversions: the wider rank wins, unsigned at equal rank.
-    int r = x.rank; if (y.rank > r) { r = y.rank; }
+    int r = x.rank;
+    if (y.rank > r) {
+        r = y.rank;
+    }
     int u = 0;
-    if (x.rank == y.rank) { if (x.uns == 1 || y.uns == 1) { u = 1; } }
-    else if (x.rank > y.rank) { u = x.uns; } else { u = y.uns; }
-    AstCInt a = ast_ci_make(x.v, r, u);
-    AstCInt b = ast_ci_make(y.v, r, u);
-    uint64 ua = (uint64)a.v; uint64 ub = (uint64)b.v;
-    if (ast_streq(op, "==") == 1) { *out = ast_ci_bool((int)(a.v == b.v)); return 1; }
-    if (ast_streq(op, "!=") == 1) { *out = ast_ci_bool((int)(a.v != b.v)); return 1; }
-    if (ast_streq(op, "<") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua < ub)); } else { *out = ast_ci_bool((int)(a.v < b.v)); } return 1; }
-    if (ast_streq(op, ">") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua > ub)); } else { *out = ast_ci_bool((int)(a.v > b.v)); } return 1; }
-    if (ast_streq(op, "<=") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua <= ub)); } else { *out = ast_ci_bool((int)(a.v <= b.v)); } return 1; }
-    if (ast_streq(op, ">=") == 1) { if (u == 1) { *out = ast_ci_bool((int)(ua >= ub)); } else { *out = ast_ci_bool((int)(a.v >= b.v)); } return 1; }
-    int64 v = z;
-    if (ast_streq(op, "+") == 1) { v = (int64)(ua + ub); }
-    else if (ast_streq(op, "-") == 1) { v = (int64)(ua - ub); }
-    else if (ast_streq(op, "*") == 1) { v = (int64)(ua * ub); }
-    else if (ast_streq(op, "&") == 1) { v = a.v & b.v; }
-    else if (ast_streq(op, "|") == 1) { v = a.v | b.v; }
-    else if (ast_streq(op, "^") == 1) { v = a.v ^ b.v; }
-    else if (ast_streq(op, "/") == 1 || ast_streq(op, "%") == 1) {
-        if (b.v == z) { return 0; }
-        if (u == 1) {
-            if (ast_streq(op, "/") == 1) { v = (int64)(ua / ub); } else { v = (int64)(ua % ub); }
-        } else {
-            int64 mn = (int64)-2147483648;
-            if (r == 64) { mn = (int64)-9223372036854775807 - (int64)1; }
-            if (a.v == mn && b.v == (int64)-1) { return 0; }
-            if (ast_streq(op, "/") == 1) { v = a.v / b.v; } else { v = a.v % b.v; }
+    if (x.rank == y.rank) {
+        if (x.uns == 1 || y.uns == 1) {
+            u = 1;
         }
     }
-    else { return 0; }
+    else if (x.rank > y.rank) {
+        u = x.uns;
+    } else {
+        u = y.uns;
+    }
+    AstCInt a = ast_ci_make(x.v, r, u);
+    AstCInt b = ast_ci_make(y.v, r, u);
+    uint64 ua = (uint64)a.v;
+    uint64 ub = (uint64)b.v;
+    if (ast_streq(op, "==") == 1) {
+        *out = ast_ci_bool((int)(a.v == b.v));
+        return 1;
+    }
+    if (ast_streq(op, "!=") == 1) {
+        *out = ast_ci_bool((int)(a.v != b.v));
+        return 1;
+    }
+    if (ast_streq(op, "<") == 1) {
+        if (u == 1) {
+            *out = ast_ci_bool((int)(ua < ub));
+        } else {
+            *out = ast_ci_bool((int)(a.v < b.v));
+        }
+        return 1;
+    }
+    if (ast_streq(op, ">") == 1) {
+        if (u == 1) {
+            *out = ast_ci_bool((int)(ua > ub));
+        } else {
+            *out = ast_ci_bool((int)(a.v > b.v));
+        }
+        return 1;
+    }
+    if (ast_streq(op, "<=") == 1) {
+        if (u == 1) {
+            *out = ast_ci_bool((int)(ua <= ub));
+        } else {
+            *out = ast_ci_bool((int)(a.v <= b.v));
+        }
+        return 1;
+    }
+    if (ast_streq(op, ">=") == 1) {
+        if (u == 1) {
+            *out = ast_ci_bool((int)(ua >= ub));
+        } else {
+            *out = ast_ci_bool((int)(a.v >= b.v));
+        }
+        return 1;
+    }
+    int64 v = z;
+    if (ast_streq(op, "+") == 1) {
+        v = (int64)(ua + ub);
+    }
+    else if (ast_streq(op, "-") == 1) {
+        v = (int64)(ua - ub);
+    }
+    else if (ast_streq(op, "*") == 1) {
+        v = (int64)(ua * ub);
+    }
+    else if (ast_streq(op, "&") == 1) {
+        v = a.v & b.v;
+    }
+    else if (ast_streq(op, "|") == 1) {
+        v = a.v | b.v;
+    }
+    else if (ast_streq(op, "^") == 1) {
+        v = a.v ^ b.v;
+    }
+    else if (ast_streq(op, "/") == 1 || ast_streq(op, "%") == 1) {
+        if (b.v == z) {
+            return 0;
+        }
+        if (u == 1) {
+            if (ast_streq(op, "/") == 1) {
+                v = (int64)(ua / ub);
+            } else {
+                v = (int64)(ua % ub);
+            }
+        } else {
+            int64 mn = (int64)-2147483648;
+            if (r == 64) {
+                mn = (int64)-9223372036854775807 - (int64)1;
+            }
+            if (a.v == mn && b.v == (int64)-1) {
+                return 0;
+            }
+            if (ast_streq(op, "/") == 1) {
+                v = a.v / b.v;
+            } else {
+                v = a.v % b.v;
+            }
+        }
+    }
+    else {
+        return 0;
+    }
     *out = ast_ci_make(v, r, u);
     return 1;
 }
@@ -1386,34 +2130,70 @@ int ast_ci_binary(string op, AstCInt x, AstCInt y, AstCInt* out) {
 int ast_df_at(DimFold* f, string op) {
     int k = 0;
     while (op[k] != 0) {
-        if (f.i + k >= f.n || f.s[f.i + k] != op[k]) { return 0; }
+        if (f.i + k >= f.n || f.s[f.i + k] != op[k]) {
+            return 0;
+        }
         k = k + 1;
     }
     return 1;
 }
-int ast_df_ident_start(int c) { if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95) { return 1; } return 0; }
-int ast_df_ident_char(int c) { if (ast_df_ident_start(c) == 1 || (c >= 48 && c <= 57)) { return 1; } return 0; }
+
+int ast_df_ident_start(int c) {
+    if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95) {
+        return 1;
+    }
+    return 0;
+}
+
+int ast_df_ident_char(int c) {
+    if (ast_df_ident_start(c) == 1 || (c >= 48 && c <= 57)) {
+        return 1;
+    }
+    return 0;
+}
+
 string ast_df_ident(DimFold* f) {
     int b = f.i;
-    while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) { f.i = f.i + 1; }
+    while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) {
+        f.i = f.i + 1;
+    }
     int len = f.i - b;
     *uint8 buf = alloc<uint8>(len + 1);
-    int k = 0; while (k < len) { buf[k] = (uint8)f.s[b + k]; k = k + 1; }
+    int k = 0;
+    while (k < len) {
+        buf[k] = (uint8)f.s[b + k];
+        k = k + 1;
+    }
     buf[len] = 0;
     return (string)buf;
 }
+
 AstCInt ast_df_ternary(DimFold* f, fn(string, *int64)->int look);
-AstCInt ast_df_fail(DimFold* f) { f.ok = 0; return ast_ci_make((int64)0, 32, 0); }
+AstCInt ast_df_fail(DimFold* f) {
+    f.ok = 0;
+    return ast_ci_make((int64)0, 32, 0);
+}
+
 AstCInt ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
-    if (f.ok == 0 || f.i >= f.n) { return ast_df_fail(f); }
+    if (f.ok == 0 || f.i >= f.n) {
+        return ast_df_fail(f);
+    }
     int c = (int)f.s[f.i];
     if (c == 45 || c == 43 || c == 126 || c == 33) {                           // - + ~ !
         f.i = f.i + 1;
         AstCInt x = ast_df_unary(f, look);
-        if (f.ok == 0) { return ast_df_fail(f); }
+        if (f.ok == 0) {
+            return ast_df_fail(f);
+        }
         AstCInt r = x;
         string op = "-";
-        if (c == 43) { op = "+"; } else if (c == 126) { op = "~"; } else if (c == 33) { op = "!"; }
+        if (c == 43) {
+            op = "+";
+        } else if (c == 126) {
+            op = "~";
+        } else if (c == 33) {
+            op = "!";
+        }
         ast_ci_unary(op, x, &r);
         return r;
     }
@@ -1426,7 +2206,9 @@ AstCInt ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
             if (ast_df_at(f, ")") == 1 && ast_ci_cast(t, probe, &probe) == 1) {
                 f.i = f.i + 1;
                 AstCInt x = ast_df_unary(f, look);
-                if (f.ok == 0) { return ast_df_fail(f); }
+                if (f.ok == 0) {
+                    return ast_df_fail(f);
+                }
                 AstCInt r = x;
                 ast_ci_cast(t, x, &r);
                 return r;
@@ -1434,24 +2216,46 @@ AstCInt ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
             f.i = save;
         }
         AstCInt v = ast_df_ternary(f, look);
-        if (ast_df_at(f, ")") == 0) { return ast_df_fail(f); }
+        if (ast_df_at(f, ")") == 0) {
+            return ast_df_fail(f);
+        }
         f.i = f.i + 1;
         return v;
     }
     if (c >= 48 && c <= 57) {                                                   // a number
         int b = f.i;
-        while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) { f.i = f.i + 1; }
-        int64 base = (int64)10; int k = b;
-        if (f.i - b > 1 && f.s[b] == '0' && (f.s[b + 1] == 'x' || f.s[b + 1] == 'X')) { base = (int64)16; k = b + 2; }
-        else if (f.i - b > 1 && f.s[b] == '0') { base = (int64)8; k = b + 1; }
-        if (k >= f.i) { return ast_df_fail(f); }
+        while (f.i < f.n && ast_df_ident_char((int)f.s[f.i]) == 1) {
+            f.i = f.i + 1;
+        }
+        int64 base = (int64)10;
+        int k = b;
+        if (f.i - b > 1 && f.s[b] == '0' && (f.s[b + 1] == 'x' || f.s[b + 1] == 'X')) {
+            base = (int64)16;
+            k = b + 2;
+        }
+        else if (f.i - b > 1 && f.s[b] == '0') {
+            base = (int64)8;
+            k = b + 1;
+        }
+        if (k >= f.i) {
+            return ast_df_fail(f);
+        }
         int64 v = (int64)0;
         while (k < f.i) {
-            int ch = (int)f.s[k]; int64 d = (int64)99;
-            if (ch >= 48 && ch <= 57) { d = (int64)(ch - 48); }
-            else if (ch >= 97 && ch <= 102) { d = (int64)(ch - 87); }
-            else if (ch >= 65 && ch <= 70) { d = (int64)(ch - 55); }
-            if (d >= base) { return ast_df_fail(f); }
+            int ch = (int)f.s[k];
+            int64 d = (int64)99;
+            if (ch >= 48 && ch <= 57) {
+                d = (int64)(ch - 48);
+            }
+            else if (ch >= 97 && ch <= 102) {
+                d = (int64)(ch - 87);
+            }
+            else if (ch >= 65 && ch <= 70) {
+                d = (int64)(ch - 55);
+            }
+            if (d >= base) {
+                return ast_df_fail(f);
+            }
             v = (int64)((uint64)v * (uint64)base + (uint64)d);
             k = k + 1;
         }
@@ -1466,92 +2270,202 @@ AstCInt ast_df_unary(DimFold* f, fn(string, *int64)->int look) {
         if (ast_streq(nm, "sizeof") == 1 && ast_df_at(f, "(") == 1) {
             int depth = 0;
             while (f.i < f.n) {
-                if (f.s[f.i] == '(') { depth = depth + 1; }
-                else if (f.s[f.i] == ')') { depth = depth - 1; if (depth == 0) { break; } }
+                if (f.s[f.i] == '(') {
+                    depth = depth + 1;
+                }
+                else if (f.s[f.i] == ')') {
+                    depth = depth - 1;
+                    if (depth == 0) {
+                        break;
+                    }
+                }
                 f.i = f.i + 1;
             }
-            if (f.i >= f.n) { return ast_df_fail(f); }
+            if (f.i >= f.n) {
+                return ast_df_fail(f);
+            }
             f.i = f.i + 1;
             nm = ast_sub(f.s, nb, f.i);
             is_size = 1;
         }
         int64 v = (int64)0;
-        if (look(nm, &v) == 0) { return ast_df_fail(f); }
-        if (is_size == 1) { return ast_ci_make(v, 64, 1); }
+        if (look(nm, &v) == 0) {
+            return ast_df_fail(f);
+        }
+        if (is_size == 1) {
+            return ast_ci_make(v, 64, 1);
+        }
         return ast_ci_of(v);
     }
     return ast_df_fail(f);
 }
+
 // The binary operator at the cursor for precedence `level` (0 `||` .. 9 `*`), or "".
 string ast_df_op(DimFold* f, int level) {
     string two = "";
-    if (ast_df_at(f, "||") == 1) { two = "||"; } else if (ast_df_at(f, "&&") == 1) { two = "&&"; }
-    else if (ast_df_at(f, "==") == 1) { two = "=="; } else if (ast_df_at(f, "!=") == 1) { two = "!="; }
-    else if (ast_df_at(f, "<=") == 1) { two = "<="; } else if (ast_df_at(f, ">=") == 1) { two = ">="; }
-    else if (ast_df_at(f, "<<") == 1) { two = "<<"; } else if (ast_df_at(f, ">>") == 1) { two = ">>"; }
-    if (level == 0 && ast_streq(two, "||") == 1) { return two; }
-    if (level == 1 && ast_streq(two, "&&") == 1) { return two; }
-    if (level == 5 && (ast_streq(two, "==") == 1 || ast_streq(two, "!=") == 1)) { return two; }
-    if (level == 6 && (ast_streq(two, "<=") == 1 || ast_streq(two, ">=") == 1)) { return two; }
-    if (level == 7 && (ast_streq(two, "<<") == 1 || ast_streq(two, ">>") == 1)) { return two; }
-    if (two[0] != 0 || f.i >= f.n) { return ""; }
+    if (ast_df_at(f, "||") == 1) {
+        two = "||";
+    } else if (ast_df_at(f, "&&") == 1) {
+        two = "&&";
+    }
+    else if (ast_df_at(f, "==") == 1) {
+        two = "==";
+    } else if (ast_df_at(f, "!=") == 1) {
+        two = "!=";
+    }
+    else if (ast_df_at(f, "<=") == 1) {
+        two = "<=";
+    } else if (ast_df_at(f, ">=") == 1) {
+        two = ">=";
+    }
+    else if (ast_df_at(f, "<<") == 1) {
+        two = "<<";
+    } else if (ast_df_at(f, ">>") == 1) {
+        two = ">>";
+    }
+    if (level == 0 && ast_streq(two, "||") == 1) {
+        return two;
+    }
+    if (level == 1 && ast_streq(two, "&&") == 1) {
+        return two;
+    }
+    if (level == 5 && (ast_streq(two, "==") == 1 || ast_streq(two, "!=") == 1)) {
+        return two;
+    }
+    if (level == 6 && (ast_streq(two, "<=") == 1 || ast_streq(two, ">=") == 1)) {
+        return two;
+    }
+    if (level == 7 && (ast_streq(two, "<<") == 1 || ast_streq(two, ">>") == 1)) {
+        return two;
+    }
+    if (two[0] != 0 || f.i >= f.n) {
+        return "";
+    }
     int c = (int)f.s[f.i];
-    if (level == 2 && c == 124) { return "|"; }
-    if (level == 3 && c == 94) { return "^"; }
-    if (level == 4 && c == 38) { return "&"; }
-    if (level == 6 && c == 60) { return "<"; }
-    if (level == 6 && c == 62) { return ">"; }
-    if (level == 8 && c == 43) { return "+"; }
-    if (level == 8 && c == 45) { return "-"; }
-    if (level == 9 && c == 42) { return "*"; }
-    if (level == 9 && c == 47) { return "/"; }
-    if (level == 9 && c == 37) { return "%"; }
+    if (level == 2 && c == 124) {
+        return "|";
+    }
+    if (level == 3 && c == 94) {
+        return "^";
+    }
+    if (level == 4 && c == 38) {
+        return "&";
+    }
+    if (level == 6 && c == 60) {
+        return "<";
+    }
+    if (level == 6 && c == 62) {
+        return ">";
+    }
+    if (level == 8 && c == 43) {
+        return "+";
+    }
+    if (level == 8 && c == 45) {
+        return "-";
+    }
+    if (level == 9 && c == 42) {
+        return "*";
+    }
+    if (level == 9 && c == 47) {
+        return "/";
+    }
+    if (level == 9 && c == 37) {
+        return "%";
+    }
     return "";
 }
+
 AstCInt ast_df_binary(DimFold* f, int level, fn(string, *int64)->int look) {
-    if (level == 10) { return ast_df_unary(f, look); }
+    if (level == 10) {
+        return ast_df_unary(f, look);
+    }
     AstCInt l = ast_df_binary(f, level + 1, look);
     while (f.ok == 1) {
         string o = ast_df_op(f, level);
-        if (o[0] == 0) { return l; }
-        int ol = 0; while (o[ol] != 0) { ol = ol + 1; }
+        if (o[0] == 0) {
+            return l;
+        }
+        int ol = 0;
+        while (o[ol] != 0) {
+            ol = ol + 1;
+        }
         f.i = f.i + ol;
         AstCInt r = ast_df_binary(f, level + 1, look);
-        if (f.ok == 0 || ast_ci_binary(o, l, r, &l) == 0) { return ast_df_fail(f); }
+        if (f.ok == 0 || ast_ci_binary(o, l, r, &l) == 0) {
+            return ast_df_fail(f);
+        }
     }
     return ast_df_fail(f);
 }
+
 AstCInt ast_df_ternary(DimFold* f, fn(string, *int64)->int look) {
     AstCInt c = ast_df_binary(f, 0, look);
-    if (f.ok == 0 || ast_df_at(f, "?") == 0) { return c; }
+    if (f.ok == 0 || ast_df_at(f, "?") == 0) {
+        return c;
+    }
     f.i = f.i + 1;
     AstCInt a = ast_df_ternary(f, look);
-    if (ast_df_at(f, ":") == 0) { return ast_df_fail(f); }
+    if (ast_df_at(f, ":") == 0) {
+        return ast_df_fail(f);
+    }
     f.i = f.i + 1;
     AstCInt b = ast_df_ternary(f, look);
-    if (f.ok == 0) { return ast_df_fail(f); }
+    if (f.ok == 0) {
+        return ast_df_fail(f);
+    }
     // The arms meet at their common type (the usual arithmetic conversions).
-    int r = a.rank; if (b.rank > r) { r = b.rank; }
+    int r = a.rank;
+    if (b.rank > r) {
+        r = b.rank;
+    }
     int u = 0;
-    if (a.rank == b.rank) { if (a.uns == 1 || b.uns == 1) { u = 1; } }
-    else if (a.rank > b.rank) { u = a.uns; } else { u = b.uns; }
-    if (c.v != (int64)0) { return ast_ci_make(a.v, r, u); }
+    if (a.rank == b.rank) {
+        if (a.uns == 1 || b.uns == 1) {
+            u = 1;
+        }
+    }
+    else if (a.rank > b.rank) {
+        u = a.uns;
+    } else {
+        u = b.uns;
+    }
+    if (c.v != (int64)0) {
+        return ast_ci_make(a.v, r, u);
+    }
     return ast_ci_make(b.v, r, u);
 }
+
 // Fold dimension `dim` into `out`: 1 when it is an integer constant expression (numbers,
 // integer casts, unary and binary operators, `?:`, parentheses, names `look` resolves;
 // a `sizeof(T)` reaches `look` as that whole text), with C's typed integer semantics.
 int ast_fold_dim(string dim, fn(string, *int64)->int look, int64* out) {
-    int n = 0; while (dim[n] != 0) { n = n + 1; }
+    int n = 0;
+    while (dim[n] != 0) {
+        n = n + 1;
+    }
     *uint8 buf = alloc<uint8>(n + 1);
-    int k = 0; int j = 0;
-    while (j < n) { if (dim[j] != ' ' && dim[j] != '\t') { buf[k] = (uint8)dim[j]; k = k + 1; } j = j + 1; }
+    int k = 0;
+    int j = 0;
+    while (j < n) {
+        if (dim[j] != ' ' && dim[j] != '\t') {
+            buf[k] = (uint8)dim[j];
+            k = k + 1;
+        }
+        j = j + 1;
+    }
     buf[k] = 0;
-    if (k == 0) { return 0; }
+    if (k == 0) {
+        return 0;
+    }
     let f: DimFold;
-    f.s = (string)buf; f.i = 0; f.n = k; f.ok = 1;
+    f.s = (string)buf;
+    f.i = 0;
+    f.n = k;
+    f.ok = 1;
     AstCInt v = ast_df_ternary(&f, look);
-    if (f.ok == 0 || f.i != f.n) { return 0; }
+    if (f.ok == 0 || f.i != f.n) {
+        return 0;
+    }
     *out = v.v;
     return 1;
 }

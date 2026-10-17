@@ -18,8 +18,15 @@ void emit_value(*uint8 src, int type, int start, int len) {
         int endp = start + len - 1;
         while (i < endp) {
             int ch = (int)src[i];
-            if (ch == 92 && i + 1 < endp) { i = i + 1; int adv = 0; putchar(decode_escape_span(src, i, endp, &adv)); i = i + adv; }
-            else { putchar(ch); }
+            if (ch == 92 && i + 1 < endp) {
+                i = i + 1;
+                int adv = 0;
+                putchar(decode_escape_span(src, i, endp, &adv));
+                i = i + adv;
+            }
+            else {
+                putchar(ch);
+            }
             i = i + 1;
         }
         return;
@@ -29,14 +36,26 @@ void emit_value(*uint8 src, int type, int start, int len) {
         int endp = start + len - 1;
         if (i < endp) {
             int ch = (int)src[i];
-            if (ch == 92 && i + 1 < endp) { i = i + 1; int adv = 0; putchar(decode_escape_span(src, i, endp, &adv)); }
-            else { putchar(ch); }
+            if (ch == 92 && i + 1 < endp) {
+                i = i + 1;
+                int adv = 0;
+                putchar(decode_escape_span(src, i, endp, &adv));
+            }
+            else {
+                putchar(ch);
+            }
         }
         return;
     }
-    if (type == INT_LIT || type == FLOAT_LIT) { printf("%s", lx_num_text(src, start, len)); return; }   // separators dropped, binary as hex
+    if (type == INT_LIT || type == FLOAT_LIT) {   // separators dropped, binary as hex
+        printf("%s", lx_num_text(src, start, len));
+        return;
+    }
     int i = 0;
-    while (i < len) { putchar((int)src[start + i]); i = i + 1; }
+    while (i < len) {
+        putchar((int)src[start + i]);
+        i = i + 1;
+    }
 }
 
 int pp_main(int argc, string* argv) {
@@ -81,7 +100,10 @@ int pp_main(int argc, string* argv) {
 
 // Run the driver on a thread with a large stack, so deeply nested input reaches the
 // parser's nesting limit instead of overflowing the stack (see bigstack.esk).
-void main_body() { big_rc = pp_main(big_argc, big_argv); }
+void main_body() {
+    big_rc = pp_main(big_argc, big_argv);
+}
+
 int main(int argc, string* argv) {
     big_argc = argc;
     big_argv = argv;

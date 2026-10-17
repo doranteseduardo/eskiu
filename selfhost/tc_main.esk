@@ -59,7 +59,10 @@ int tc_main(int argc, string* argv) {
 
 // Run the driver on a thread with a large stack, so deeply nested input reaches the
 // parser's nesting limit instead of overflowing the stack (see bigstack.esk).
-void main_body() { big_rc = tc_main(big_argc, big_argv); }
+void main_body() {
+    big_rc = tc_main(big_argc, big_argv);
+}
+
 int main(int argc, string* argv) {
     big_argc = argc;
     big_argv = argv;

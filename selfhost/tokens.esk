@@ -43,123 +43,357 @@ struct Token {
 // parity harness so both lexers print the type by NAME. Every member returns its
 // own name except NULL_KW -> "NULL" and EOF_TOKEN -> "EOF" (as in the C++).
 string token_name(int t) {
-    if (t == LET) { return "LET"; }
-    if (t == INT) { return "INT"; }
-    if (t == FLOAT) { return "FLOAT"; }
-    if (t == DOUBLE) { return "DOUBLE"; }
-    if (t == BOOL) { return "BOOL"; }
-    if (t == CHAR) { return "CHAR"; }
-    if (t == STRING) { return "STRING"; }
-    if (t == VOID) { return "VOID"; }
-    if (t == STRUCT) { return "STRUCT"; }
-    if (t == PACKED) { return "PACKED"; }
-    if (t == UNION) { return "UNION"; }
-    if (t == INTERFACE) { return "INTERFACE"; }
-    if (t == ENUM) { return "ENUM"; }
-    if (t == FN) { return "FN"; }
-    if (t == OPERATOR) { return "OPERATOR"; }
-    if (t == ASM) { return "ASM"; }
-    if (t == VOLATILE) { return "VOLATILE"; }
-    if (t == STATIC) { return "STATIC"; }
-    if (t == ESCAPING) { return "ESCAPING"; }
-    if (t == MUST_USE) { return "MUST_USE"; }
-    if (t == ASYNC) { return "ASYNC"; }
-    if (t == AWAIT) { return "AWAIT"; }
-    if (t == CONST) { return "CONST"; }
-    if (t == THREAD_CREATE) { return "THREAD_CREATE"; }
-    if (t == THREAD_JOIN) { return "THREAD_JOIN"; }
-    if (t == FOR) { return "FOR"; }
-    if (t == IN) { return "IN"; }
-    if (t == WHILE) { return "WHILE"; }
-    if (t == DO) { return "DO"; }
-    if (t == IF) { return "IF"; }
-    if (t == ELSE) { return "ELSE"; }
-    if (t == SWITCH) { return "SWITCH"; }
-    if (t == MATCH) { return "MATCH"; }
-    if (t == CASE) { return "CASE"; }
-    if (t == DEFAULT) { return "DEFAULT"; }
-    if (t == BREAK) { return "BREAK"; }
-    if (t == RETURN) { return "RETURN"; }
-    if (t == IMPORT) { return "IMPORT"; }
-    if (t == EXTERN) { return "EXTERN"; }
-    if (t == INTRINSIC) { return "INTRINSIC"; }
-    if (t == ALLOC_WITH) { return "ALLOC_WITH"; }
-    if (t == NULL_KW) { return "NULL"; }
-    if (t == TRUE) { return "TRUE"; }
-    if (t == FALSE) { return "FALSE"; }
-    if (t == SIZEOF) { return "SIZEOF"; }
-    if (t == FREE_CLOSURE) { return "FREE_CLOSURE"; }
-    if (t == TRY) { return "TRY"; }
-    if (t == CATCH) { return "CATCH"; }
-    if (t == FINALLY) { return "FINALLY"; }
-    if (t == THROW) { return "THROW"; }
-    if (t == DEFER) { return "DEFER"; }
-    if (t == ERRDEFER) { return "ERRDEFER"; }
-    if (t == CONTINUE) { return "CONTINUE"; }
-    if (t == INT8) { return "INT8"; }
-    if (t == INT16) { return "INT16"; }
-    if (t == INT32) { return "INT32"; }
-    if (t == INT64) { return "INT64"; }
-    if (t == UINT) { return "UINT"; }
-    if (t == UINT8) { return "UINT8"; }
-    if (t == UINT16) { return "UINT16"; }
-    if (t == UINT32) { return "UINT32"; }
-    if (t == UINT64) { return "UINT64"; }
-    if (t == PLUS) { return "PLUS"; }
-    if (t == MINUS) { return "MINUS"; }
-    if (t == STAR) { return "STAR"; }
-    if (t == SLASH) { return "SLASH"; }
-    if (t == PERCENT) { return "PERCENT"; }
-    if (t == PLUS_PLUS) { return "PLUS_PLUS"; }
-    if (t == MINUS_MINUS) { return "MINUS_MINUS"; }
-    if (t == PLUS_EQ) { return "PLUS_EQ"; }
-    if (t == MINUS_EQ) { return "MINUS_EQ"; }
-    if (t == STAR_EQ) { return "STAR_EQ"; }
-    if (t == SLASH_EQ) { return "SLASH_EQ"; }
-    if (t == PERCENT_EQ) { return "PERCENT_EQ"; }
-    if (t == EQ) { return "EQ"; }
-    if (t == EQEQ) { return "EQEQ"; }
-    if (t == NE) { return "NE"; }
-    if (t == LT) { return "LT"; }
-    if (t == GT) { return "GT"; }
-    if (t == LE) { return "LE"; }
-    if (t == GE) { return "GE"; }
-    if (t == AND) { return "AND"; }
-    if (t == OR) { return "OR"; }
-    if (t == NOT) { return "NOT"; }
-    if (t == AMPERSAND) { return "AMPERSAND"; }
-    if (t == PIPE) { return "PIPE"; }
-    if (t == CARET) { return "CARET"; }
-    if (t == TILDE) { return "TILDE"; }
-    if (t == LSHIFT) { return "LSHIFT"; }
-    if (t == RSHIFT) { return "RSHIFT"; }
-    if (t == AMP_EQ) { return "AMP_EQ"; }
-    if (t == PIPE_EQ) { return "PIPE_EQ"; }
-    if (t == CARET_EQ) { return "CARET_EQ"; }
-    if (t == LSHIFT_EQ) { return "LSHIFT_EQ"; }
-    if (t == RSHIFT_EQ) { return "RSHIFT_EQ"; }
-    if (t == LBRACE) { return "LBRACE"; }
-    if (t == RBRACE) { return "RBRACE"; }
-    if (t == LPAREN) { return "LPAREN"; }
-    if (t == RPAREN) { return "RPAREN"; }
-    if (t == LBRACKET) { return "LBRACKET"; }
-    if (t == RBRACKET) { return "RBRACKET"; }
-    if (t == SEMICOLON) { return "SEMICOLON"; }
-    if (t == COMMA) { return "COMMA"; }
-    if (t == DOT) { return "DOT"; }
-    if (t == RANGE) { return "RANGE"; }
-    if (t == COLON) { return "COLON"; }
-    if (t == ARROW) { return "ARROW"; }
-    if (t == ELLIPSIS) { return "ELLIPSIS"; }
-    if (t == QUESTION) { return "QUESTION"; }
-    if (t == INT_LIT) { return "INT_LIT"; }
-    if (t == FLOAT_LIT) { return "FLOAT_LIT"; }
-    if (t == STRING_LIT) { return "STRING_LIT"; }
-    if (t == CHAR_LIT) { return "CHAR_LIT"; }
-    if (t == IDENT) { return "IDENT"; }
-    if (t == PRAGMA) { return "PRAGMA"; }
-    if (t == EOF_TOKEN) { return "EOF"; }
-    if (t == UNKNOWN) { return "UNKNOWN"; }
+    if (t == LET) {
+        return "LET";
+    }
+    if (t == INT) {
+        return "INT";
+    }
+    if (t == FLOAT) {
+        return "FLOAT";
+    }
+    if (t == DOUBLE) {
+        return "DOUBLE";
+    }
+    if (t == BOOL) {
+        return "BOOL";
+    }
+    if (t == CHAR) {
+        return "CHAR";
+    }
+    if (t == STRING) {
+        return "STRING";
+    }
+    if (t == VOID) {
+        return "VOID";
+    }
+    if (t == STRUCT) {
+        return "STRUCT";
+    }
+    if (t == PACKED) {
+        return "PACKED";
+    }
+    if (t == UNION) {
+        return "UNION";
+    }
+    if (t == INTERFACE) {
+        return "INTERFACE";
+    }
+    if (t == ENUM) {
+        return "ENUM";
+    }
+    if (t == FN) {
+        return "FN";
+    }
+    if (t == OPERATOR) {
+        return "OPERATOR";
+    }
+    if (t == ASM) {
+        return "ASM";
+    }
+    if (t == VOLATILE) {
+        return "VOLATILE";
+    }
+    if (t == STATIC) {
+        return "STATIC";
+    }
+    if (t == ESCAPING) {
+        return "ESCAPING";
+    }
+    if (t == MUST_USE) {
+        return "MUST_USE";
+    }
+    if (t == ASYNC) {
+        return "ASYNC";
+    }
+    if (t == AWAIT) {
+        return "AWAIT";
+    }
+    if (t == CONST) {
+        return "CONST";
+    }
+    if (t == THREAD_CREATE) {
+        return "THREAD_CREATE";
+    }
+    if (t == THREAD_JOIN) {
+        return "THREAD_JOIN";
+    }
+    if (t == FOR) {
+        return "FOR";
+    }
+    if (t == IN) {
+        return "IN";
+    }
+    if (t == WHILE) {
+        return "WHILE";
+    }
+    if (t == DO) {
+        return "DO";
+    }
+    if (t == IF) {
+        return "IF";
+    }
+    if (t == ELSE) {
+        return "ELSE";
+    }
+    if (t == SWITCH) {
+        return "SWITCH";
+    }
+    if (t == MATCH) {
+        return "MATCH";
+    }
+    if (t == CASE) {
+        return "CASE";
+    }
+    if (t == DEFAULT) {
+        return "DEFAULT";
+    }
+    if (t == BREAK) {
+        return "BREAK";
+    }
+    if (t == RETURN) {
+        return "RETURN";
+    }
+    if (t == IMPORT) {
+        return "IMPORT";
+    }
+    if (t == EXTERN) {
+        return "EXTERN";
+    }
+    if (t == INTRINSIC) {
+        return "INTRINSIC";
+    }
+    if (t == ALLOC_WITH) {
+        return "ALLOC_WITH";
+    }
+    if (t == NULL_KW) {
+        return "NULL";
+    }
+    if (t == TRUE) {
+        return "TRUE";
+    }
+    if (t == FALSE) {
+        return "FALSE";
+    }
+    if (t == SIZEOF) {
+        return "SIZEOF";
+    }
+    if (t == FREE_CLOSURE) {
+        return "FREE_CLOSURE";
+    }
+    if (t == TRY) {
+        return "TRY";
+    }
+    if (t == CATCH) {
+        return "CATCH";
+    }
+    if (t == FINALLY) {
+        return "FINALLY";
+    }
+    if (t == THROW) {
+        return "THROW";
+    }
+    if (t == DEFER) {
+        return "DEFER";
+    }
+    if (t == ERRDEFER) {
+        return "ERRDEFER";
+    }
+    if (t == CONTINUE) {
+        return "CONTINUE";
+    }
+    if (t == INT8) {
+        return "INT8";
+    }
+    if (t == INT16) {
+        return "INT16";
+    }
+    if (t == INT32) {
+        return "INT32";
+    }
+    if (t == INT64) {
+        return "INT64";
+    }
+    if (t == UINT) {
+        return "UINT";
+    }
+    if (t == UINT8) {
+        return "UINT8";
+    }
+    if (t == UINT16) {
+        return "UINT16";
+    }
+    if (t == UINT32) {
+        return "UINT32";
+    }
+    if (t == UINT64) {
+        return "UINT64";
+    }
+    if (t == PLUS) {
+        return "PLUS";
+    }
+    if (t == MINUS) {
+        return "MINUS";
+    }
+    if (t == STAR) {
+        return "STAR";
+    }
+    if (t == SLASH) {
+        return "SLASH";
+    }
+    if (t == PERCENT) {
+        return "PERCENT";
+    }
+    if (t == PLUS_PLUS) {
+        return "PLUS_PLUS";
+    }
+    if (t == MINUS_MINUS) {
+        return "MINUS_MINUS";
+    }
+    if (t == PLUS_EQ) {
+        return "PLUS_EQ";
+    }
+    if (t == MINUS_EQ) {
+        return "MINUS_EQ";
+    }
+    if (t == STAR_EQ) {
+        return "STAR_EQ";
+    }
+    if (t == SLASH_EQ) {
+        return "SLASH_EQ";
+    }
+    if (t == PERCENT_EQ) {
+        return "PERCENT_EQ";
+    }
+    if (t == EQ) {
+        return "EQ";
+    }
+    if (t == EQEQ) {
+        return "EQEQ";
+    }
+    if (t == NE) {
+        return "NE";
+    }
+    if (t == LT) {
+        return "LT";
+    }
+    if (t == GT) {
+        return "GT";
+    }
+    if (t == LE) {
+        return "LE";
+    }
+    if (t == GE) {
+        return "GE";
+    }
+    if (t == AND) {
+        return "AND";
+    }
+    if (t == OR) {
+        return "OR";
+    }
+    if (t == NOT) {
+        return "NOT";
+    }
+    if (t == AMPERSAND) {
+        return "AMPERSAND";
+    }
+    if (t == PIPE) {
+        return "PIPE";
+    }
+    if (t == CARET) {
+        return "CARET";
+    }
+    if (t == TILDE) {
+        return "TILDE";
+    }
+    if (t == LSHIFT) {
+        return "LSHIFT";
+    }
+    if (t == RSHIFT) {
+        return "RSHIFT";
+    }
+    if (t == AMP_EQ) {
+        return "AMP_EQ";
+    }
+    if (t == PIPE_EQ) {
+        return "PIPE_EQ";
+    }
+    if (t == CARET_EQ) {
+        return "CARET_EQ";
+    }
+    if (t == LSHIFT_EQ) {
+        return "LSHIFT_EQ";
+    }
+    if (t == RSHIFT_EQ) {
+        return "RSHIFT_EQ";
+    }
+    if (t == LBRACE) {
+        return "LBRACE";
+    }
+    if (t == RBRACE) {
+        return "RBRACE";
+    }
+    if (t == LPAREN) {
+        return "LPAREN";
+    }
+    if (t == RPAREN) {
+        return "RPAREN";
+    }
+    if (t == LBRACKET) {
+        return "LBRACKET";
+    }
+    if (t == RBRACKET) {
+        return "RBRACKET";
+    }
+    if (t == SEMICOLON) {
+        return "SEMICOLON";
+    }
+    if (t == COMMA) {
+        return "COMMA";
+    }
+    if (t == DOT) {
+        return "DOT";
+    }
+    if (t == RANGE) {
+        return "RANGE";
+    }
+    if (t == COLON) {
+        return "COLON";
+    }
+    if (t == ARROW) {
+        return "ARROW";
+    }
+    if (t == ELLIPSIS) {
+        return "ELLIPSIS";
+    }
+    if (t == QUESTION) {
+        return "QUESTION";
+    }
+    if (t == INT_LIT) {
+        return "INT_LIT";
+    }
+    if (t == FLOAT_LIT) {
+        return "FLOAT_LIT";
+    }
+    if (t == STRING_LIT) {
+        return "STRING_LIT";
+    }
+    if (t == CHAR_LIT) {
+        return "CHAR_LIT";
+    }
+    if (t == IDENT) {
+        return "IDENT";
+    }
+    if (t == PRAGMA) {
+        return "PRAGMA";
+    }
+    if (t == EOF_TOKEN) {
+        return "EOF";
+    }
+    if (t == UNKNOWN) {
+        return "UNKNOWN";
+    }
     return "???";
 }
 
@@ -169,25 +403,53 @@ string token_name(int t) {
 // Decode one backslash escape (mirrors the C++ lexer's decodeEscape); strings
 // and chars share the same set. The lexer rejects an unknown escape.
 int decode_str_escape(int e) {
-    if (e == 97) { return 7; }     // \a
-    if (e == 98) { return 8; }     // \b
-    if (e == 110) { return 10; }   // \n
-    if (e == 116) { return 9; }    // \t
-    if (e == 114) { return 13; }   // \r
-    if (e == 102) { return 12; }   // \f
-    if (e == 118) { return 11; }   // \v
-    if (e == 48) { return 0; }     // \0  -> NUL
-    if (e == 92) { return 92; }    // backslash
-    if (e == 34) { return 34; }    // "
-    if (e == 39) { return 39; }    // '
+    if (e == 97) {     // \a
+        return 7;
+    }
+    if (e == 98) {     // \b
+        return 8;
+    }
+    if (e == 110) {   // \n
+        return 10;
+    }
+    if (e == 116) {    // \t
+        return 9;
+    }
+    if (e == 114) {   // \r
+        return 13;
+    }
+    if (e == 102) {   // \f
+        return 12;
+    }
+    if (e == 118) {   // \v
+        return 11;
+    }
+    if (e == 48) {     // \0  -> NUL
+        return 0;
+    }
+    if (e == 92) {    // backslash
+        return 92;
+    }
+    if (e == 34) {    // "
+        return 34;
+    }
+    if (e == 39) {    // '
+        return 39;
+    }
     return e;
 }
 
 // Hex value of a byte, or -1 if not a hex digit. For `\xNN` escapes.
 int hex_val(int c) {
-    if (c >= 48 && c <= 57) { return c - 48; }        // 0-9
-    if (c >= 97 && c <= 102) { return c - 97 + 10; }  // a-f
-    if (c >= 65 && c <= 70) { return c - 65 + 10; }   // A-F
+    if (c >= 48 && c <= 57) {        // 0-9
+        return c - 48;
+    }
+    if (c >= 97 && c <= 102) {  // a-f
+        return c - 97 + 10;
+    }
+    if (c >= 65 && c <= 70) {   // A-F
+        return c - 65 + 10;
+    }
     return -1;
 }
 
@@ -200,20 +462,31 @@ int decode_escape_span(*uint8 src, int i, int hi, *int adv) {
     adv[0] = 0;
     int e = (int)src[i];
     if (e >= 48 && e <= 55) {               // octal: one to three digits
-        int v = e - 48; int k = 0;
+        int v = e - 48;
+        int k = 0;
         while (k < 2 && i + 1 + k < hi && (int)src[i + 1 + k] >= 48 && (int)src[i + 1 + k] <= 55) {
-            v = v * 8 + ((int)src[i + 1 + k] - 48); k = k + 1;
+            v = v * 8 + ((int)src[i + 1 + k] - 48);
+            k = k + 1;
         }
-        adv[0] = k; return v & 255;
+        adv[0] = k;
+        return v & 255;
     }
     if (e == 120) {                         // 'x'
         int h1 = -1;
-        if (i + 1 < hi) { h1 = hex_val((int)src[i + 1]); }
+        if (i + 1 < hi) {
+            h1 = hex_val((int)src[i + 1]);
+        }
         if (h1 >= 0) {
             int h2 = -1;
-            if (i + 2 < hi) { h2 = hex_val((int)src[i + 2]); }
-            if (h2 >= 0) { adv[0] = 2; return h1 * 16 + h2; }
-            adv[0] = 1; return h1;
+            if (i + 2 < hi) {
+                h2 = hex_val((int)src[i + 2]);
+            }
+            if (h2 >= 0) {
+                adv[0] = 2;
+                return h1 * 16 + h2;
+            }
+            adv[0] = 1;
+            return h1;
         }
         return 120;                         // `\x` with no hex digit → literal 'x'
     }

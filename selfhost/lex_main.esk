@@ -23,14 +23,20 @@ int lex_main(int argc, string* argv) {
         return 1;
     }
     // A leading UTF-8 byte order mark is not part of the program (as in the preprocessor).
-    if (n >= (int64)3 && (int)src[0] == 239 && (int)src[1] == 187 && (int)src[2] == 191) { src = src + 3; n = n - (int64)3; }
+    if (n >= (int64)3 && (int)src[0] == 239 && (int)src[1] == 187 && (int)src[2] == 191) {
+        src = src + 3;
+        n = n - (int64)3;
+    }
     lex_dump(src, (int)n);
     return 0;
 }
 
 // Run the driver on a thread with a large stack, so deeply nested input reaches the
 // parser's nesting limit instead of overflowing the stack (see bigstack.esk).
-void main_body() { big_rc = lex_main(big_argc, big_argv); }
+void main_body() {
+    big_rc = lex_main(big_argc, big_argv);
+}
+
 int main(int argc, string* argv) {
     big_argc = argc;
     big_argv = argv;

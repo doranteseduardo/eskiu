@@ -32,16 +32,24 @@ extern int dprintf(int fd, string fmt, ...);   // diagnostics go to stderr, like
 
 void lx_puts_err(string s) {
     int64 n = 0;
-    while (s[n] != 0) { n = n + 1; }
+    while (s[n] != 0) {
+        n = n + 1;
+    }
     write(2, (*void)s, n);
 }
 
 void lx_error(int line, int col, string msg) {
     uint8[32] nb;
     lx_puts_err("error: ");
-    if (g_lex_file == null) { lx_puts_err("<input>"); }
-    else if (g_lex_file[0] == 0) { lx_puts_err("<input>"); }
-    else { lx_puts_err(g_lex_file); }
+    if (g_lex_file == null) {
+        lx_puts_err("<input>");
+    }
+    else if (g_lex_file[0] == 0) {
+        lx_puts_err("<input>");
+    }
+    else {
+        lx_puts_err(g_lex_file);
+    }
     sprintf((string)&nb[0], ":%d:%d: ", line, col);
     lx_puts_err((string)&nb[0]);
     lx_puts_err(msg);
@@ -50,7 +58,9 @@ void lx_error(int line, int col, string msg) {
 }
 
 int lx_at_end(Lexer* lx) {
-    if (lx.pos >= lx.len) { return 1; }
+    if (lx.pos >= lx.len) {
+        return 1;
+    }
     return 0;
 }
 
@@ -66,13 +76,17 @@ Token lx_finish(Token t, int sp, int pos, int sl, int sc) {
 
 // Current byte (0 at end), as an int — matches the C++ `peek()` returning '\0'.
 int lx_peek(Lexer* lx) {
-    if (lx_at_end(lx) == 1) { return 0; }
+    if (lx_at_end(lx) == 1) {
+        return 0;
+    }
     return (int)lx.src[lx.pos];
 }
 
 // Next byte after the cursor (0 if none) — matches the C++ `peek_next()`.
 int lx_peek_next(Lexer* lx) {
-    if (lx.pos + 1 >= lx.len) { return 0; }
+    if (lx.pos + 1 >= lx.len) {
+        return 0;
+    }
     return (int)lx.src[lx.pos + 1];
 }
 
@@ -122,20 +136,43 @@ void lx_skip_comment(Lexer* lx) {
 string lx_span(*uint8 src, int a, int b) {
     *uint8 buf = alloc<uint8>(b - a + 1);
     int i = a;
-    while (i < b) { buf[i - a] = src[i]; i = i + 1; }
+    while (i < b) {
+        buf[i - a] = src[i];
+        i = i + 1;
+    }
     buf[b - a] = 0;
     return (string)buf;
 }
 
 string lx_cat3(string a, string b, string c) {
-    int la = 0; while (a[la] != 0) { la = la + 1; }
-    int lb = 0; while (b[lb] != 0) { lb = lb + 1; }
-    int lc = 0; while (c[lc] != 0) { lc = lc + 1; }
+    int la = 0;
+    while (a[la] != 0) {
+        la = la + 1;
+    }
+    int lb = 0;
+    while (b[lb] != 0) {
+        lb = lb + 1;
+    }
+    int lc = 0;
+    while (c[lc] != 0) {
+        lc = lc + 1;
+    }
     *uint8 buf = alloc<uint8>(la + lb + lc + 1);
     int i = 0;
-    while (i < la) { buf[i] = (uint8)a[i]; i = i + 1; }
-    i = 0; while (i < lb) { buf[la + i] = (uint8)b[i]; i = i + 1; }
-    i = 0; while (i < lc) { buf[la + lb + i] = (uint8)c[i]; i = i + 1; }
+    while (i < la) {
+        buf[i] = (uint8)a[i];
+        i = i + 1;
+    }
+    i = 0;
+    while (i < lb) {
+        buf[la + i] = (uint8)b[i];
+        i = i + 1;
+    }
+    i = 0;
+    while (i < lc) {
+        buf[la + lb + i] = (uint8)c[i];
+        i = i + 1;
+    }
     buf[la + lb + lc] = 0;
     return (string)buf;
 }
@@ -143,16 +180,31 @@ string lx_cat3(string a, string b, string c) {
 // Consume a run of digits of `base` (10, 16 or 2). A `_` between two digits is a
 // separator (mirrors Lexer::readDigits); one that is not is an error.
 int lx_is_base_digit(int c, int base) {
-    if (base == 2) { if (c == 48 || c == 49) { return 1; } return 0; }
-    if (base == 16) { return is_hex(c); }
+    if (base == 2) {
+        if (c == 48 || c == 49) {
+            return 1;
+        }
+        return 0;
+    }
+    if (base == 16) {
+        return is_hex(c);
+    }
     return is_digit(c);
 }
+
 void lx_digits(Lexer* lx, int base, int sl, int sc) {
     int any = 0;
     while (lx_at_end(lx) == 0) {
         int c = lx_peek(lx);
-        if (lx_is_base_digit(c, base) == 1) { lx_advance(lx); any = 1; continue; }
-        if (c == 95 && any == 1 && lx_is_base_digit(lx_peek_next(lx), base) == 1) { lx_advance(lx); continue; }
+        if (lx_is_base_digit(c, base) == 1) {
+            lx_advance(lx);
+            any = 1;
+            continue;
+        }
+        if (c == 95 && any == 1 && lx_is_base_digit(lx_peek_next(lx), base) == 1) {
+            lx_advance(lx);
+            continue;
+        }
         if (c == 95 && any == 1) {
             lx_advance(lx);
             lx_error(sl, sc, "digit separator '_' must be between two digits");
@@ -167,7 +219,13 @@ string lx_num_shown(*uint8 src, int start, int end) {
     *uint8 buf = alloc<uint8>(end - start + 1);
     int n = 0;
     int i = start;
-    while (i < end) { if ((int)src[i] != 95) { buf[n] = src[i]; n = n + 1; } i = i + 1; }
+    while (i < end) {
+        if ((int)src[i] != 95) {
+            buf[n] = src[i];
+            n = n + 1;
+        }
+        i = i + 1;
+    }
     buf[n] = 0;
     return (string)buf;
 }
@@ -179,28 +237,49 @@ string lx_num_text(*uint8 src, int start, int len) {
     int n = 0;
     int i = start;
     while (i < start + len) {
-        if ((int)src[i] != 95) { buf[n] = src[i]; n = n + 1; }
+        if ((int)src[i] != 95) {
+            buf[n] = src[i];
+            n = n + 1;
+        }
         i = i + 1;
     }
     buf[n] = 0;
-    if (n < 2 || (int)buf[0] != 48 || ((int)buf[1] != 98 && (int)buf[1] != 66)) { return (string)buf; }
+    if (n < 2 || (int)buf[0] != 48 || ((int)buf[1] != 98 && (int)buf[1] != 66)) {
+        return (string)buf;
+    }
     int b = 2;
-    while (b < n && (int)buf[b] == 48) { b = b + 1; }
-    if (n == 2) { return "0"; }
+    while (b < n && (int)buf[b] == 48) {
+        b = b + 1;
+    }
+    if (n == 2) {
+        return "0";
+    }
     *uint8 out = alloc<uint8>(n + 4);
-    out[0] = (uint8)48; out[1] = (uint8)120;
+    out[0] = (uint8)48;
+    out[1] = (uint8)120;
     int o = 2;
     int nb = n - b;
-    if (nb == 0) { out[2] = (uint8)48; out[3] = 0; return (string)out; }
+    if (nb == 0) {
+        out[2] = (uint8)48;
+        out[3] = 0;
+        return (string)out;
+    }
     int pad = (4 - nb % 4) % 4;
-    int acc = 0; int cnt = pad;
+    int acc = 0;
+    int cnt = pad;
     int k = b;
     while (k < n) {
         acc = acc * 2 + ((int)buf[k] - 48);
         cnt = cnt + 1;
         if (cnt == 4) {
-            if (acc < 10) { out[o] = (uint8)(48 + acc); } else { out[o] = (uint8)(55 + acc); }
-            o = o + 1; acc = 0; cnt = 0;
+            if (acc < 10) {
+                out[o] = (uint8)(48 + acc);
+            } else {
+                out[o] = (uint8)(55 + acc);
+            }
+            o = o + 1;
+            acc = 0;
+            cnt = 0;
         }
         k = k + 1;
     }
@@ -212,9 +291,13 @@ string lx_num_text(*uint8 src, int start, int len) {
 // report it and consume the tail (mirrors checkNumberSuffix). The token ends before
 // the tail, like the C++.
 void lx_check_suffix(Lexer* lx, int sp, int sl, int sc) {
-    if (lx_at_end(lx) == 1 || is_ident_cont(lx_peek(lx)) == 0) { return; }
+    if (lx_at_end(lx) == 1 || is_ident_cont(lx_peek(lx)) == 0) {
+        return;
+    }
     int end = lx.pos;
-    while (lx_at_end(lx) == 0 && is_ident_cont(lx_peek(lx)) == 1) { lx_advance(lx); }
+    while (lx_at_end(lx) == 0 && is_ident_cont(lx_peek(lx)) == 1) {
+        lx_advance(lx);
+    }
     lx_error(sl, sc, lx_cat3(lx_cat3("invalid suffix '", lx_span(lx.src, end, lx.pos), "' on numeric literal '"),
                              lx_num_shown(lx.src, sp, end), "'"));
 }
@@ -225,17 +308,31 @@ void lx_check_int_range(Lexer* lx, int sp, int sl, int sc) {
     int i = sp;
     int base = 10;
     int n = lx.pos - sp;
-    if (n > 2 && (int)lx.src[sp] == 48 && ((int)lx.src[sp + 1] == 120 || (int)lx.src[sp + 1] == 88)) { base = 16; i = sp + 2; }
-    else if (n > 1 && (int)lx.src[sp] == 48) { base = 8; }
+    if (n > 2 && (int)lx.src[sp] == 48 && ((int)lx.src[sp + 1] == 120 || (int)lx.src[sp + 1] == 88)) {
+        base = 16;
+        i = sp + 2;
+    }
+    else if (n > 1 && (int)lx.src[sp] == 48) {
+        base = 8;
+    }
     uint64 v = 0;
     uint64 umax = (uint64)0 - (uint64)1;
     while (i < lx.pos) {
         int c = (int)lx.src[i];
-        if (c == 95) { i = i + 1; continue; }
+        if (c == 95) {
+            i = i + 1;
+            continue;
+        }
         int d = 0;
-        if (c >= 48 && c <= 57) { d = c - 48; }
-        else if (c >= 97 && c <= 102) { d = c - 87; }
-        else { d = c - 55; }
+        if (c >= 48 && c <= 57) {
+            d = c - 48;
+        }
+        else if (c >= 97 && c <= 102) {
+            d = c - 87;
+        }
+        else {
+            d = c - 55;
+        }
         if (v > (umax - (uint64)d) / (uint64)base) {
             lx_error(sl, sc, lx_cat3("integer literal '", lx_num_shown(lx.src, sp, lx.pos), "' does not fit in 64 bits"));
             return;
@@ -249,79 +346,209 @@ void lx_check_int_range(Lexer* lx, int sp, int sl, int sc) {
 int lexeme_eq(*uint8 src, int start, int len, string kw) {
     int i = 0;
     while (i < len) {
-        if (kw[i] == 0) { return 0; }                     // kw shorter than lexeme
-        if ((int)src[start + i] != (int)kw[i]) { return 0; }
+        if (kw[i] == 0) {                     // kw shorter than lexeme
+            return 0;
+        }
+        if ((int)src[start + i] != (int)kw[i]) {
+            return 0;
+        }
         i = i + 1;
     }
-    if (kw[len] == 0) { return 1; }                       // kw ends exactly at len
+    if (kw[len] == 0) {                       // kw ends exactly at len
+        return 1;
+    }
     return 0;
 }
 
 // Classify an identifier lexeme: keyword TokenType if it matches the table
 // (mirrors Lexer::keywords in lexer/lexer.cpp), else IDENT.
 int keyword_type(*uint8 src, int start, int len) {
-    if (lexeme_eq(src, start, len, "let") == 1) { return LET; }
-    if (lexeme_eq(src, start, len, "int") == 1) { return INT; }
-    if (lexeme_eq(src, start, len, "float") == 1) { return FLOAT; }
-    if (lexeme_eq(src, start, len, "double") == 1) { return DOUBLE; }
-    if (lexeme_eq(src, start, len, "bool") == 1) { return BOOL; }
-    if (lexeme_eq(src, start, len, "char") == 1) { return CHAR; }
-    if (lexeme_eq(src, start, len, "string") == 1) { return STRING; }
-    if (lexeme_eq(src, start, len, "void") == 1) { return VOID; }
-    if (lexeme_eq(src, start, len, "struct") == 1) { return STRUCT; }
-    if (lexeme_eq(src, start, len, "packed") == 1) { return PACKED; }
-    if (lexeme_eq(src, start, len, "union") == 1) { return UNION; }
-    if (lexeme_eq(src, start, len, "interface") == 1) { return INTERFACE; }
-    if (lexeme_eq(src, start, len, "enum") == 1) { return ENUM; }
-    if (lexeme_eq(src, start, len, "fn") == 1) { return FN; }
-    if (lexeme_eq(src, start, len, "operator") == 1) { return OPERATOR; }
-    if (lexeme_eq(src, start, len, "asm") == 1) { return ASM; }
-    if (lexeme_eq(src, start, len, "volatile") == 1) { return VOLATILE; }
-    if (lexeme_eq(src, start, len, "static") == 1) { return STATIC; }
-    if (lexeme_eq(src, start, len, "escaping") == 1) { return ESCAPING; }
-    if (lexeme_eq(src, start, len, "must_use") == 1) { return MUST_USE; }
-    if (lexeme_eq(src, start, len, "async") == 1) { return ASYNC; }
-    if (lexeme_eq(src, start, len, "await") == 1) { return AWAIT; }
-    if (lexeme_eq(src, start, len, "const") == 1) { return CONST; }
-    if (lexeme_eq(src, start, len, "sizeof") == 1) { return SIZEOF; }
-    if (lexeme_eq(src, start, len, "free_closure") == 1) { return FREE_CLOSURE; }
-    if (lexeme_eq(src, start, len, "thread_create") == 1) { return THREAD_CREATE; }
-    if (lexeme_eq(src, start, len, "thread_join") == 1) { return THREAD_JOIN; }
-    if (lexeme_eq(src, start, len, "for") == 1) { return FOR; }
-    if (lexeme_eq(src, start, len, "in") == 1) { return IN; }
-    if (lexeme_eq(src, start, len, "while") == 1) { return WHILE; }
-    if (lexeme_eq(src, start, len, "do") == 1) { return DO; }
-    if (lexeme_eq(src, start, len, "if") == 1) { return IF; }
-    if (lexeme_eq(src, start, len, "else") == 1) { return ELSE; }
-    if (lexeme_eq(src, start, len, "switch") == 1) { return SWITCH; }
-    if (lexeme_eq(src, start, len, "match") == 1) { return MATCH; }
-    if (lexeme_eq(src, start, len, "case") == 1) { return CASE; }
-    if (lexeme_eq(src, start, len, "default") == 1) { return DEFAULT; }
-    if (lexeme_eq(src, start, len, "break") == 1) { return BREAK; }
-    if (lexeme_eq(src, start, len, "return") == 1) { return RETURN; }
-    if (lexeme_eq(src, start, len, "import") == 1) { return IMPORT; }
-    if (lexeme_eq(src, start, len, "extern") == 1) { return EXTERN; }
-    if (lexeme_eq(src, start, len, "intrinsic") == 1) { return INTRINSIC; }
-    if (lexeme_eq(src, start, len, "alloc_with") == 1) { return ALLOC_WITH; }
-    if (lexeme_eq(src, start, len, "null") == 1) { return NULL_KW; }
-    if (lexeme_eq(src, start, len, "true") == 1) { return TRUE; }
-    if (lexeme_eq(src, start, len, "false") == 1) { return FALSE; }
-    if (lexeme_eq(src, start, len, "try") == 1) { return TRY; }
-    if (lexeme_eq(src, start, len, "catch") == 1) { return CATCH; }
-    if (lexeme_eq(src, start, len, "finally") == 1) { return FINALLY; }
-    if (lexeme_eq(src, start, len, "throw") == 1) { return THROW; }
-    if (lexeme_eq(src, start, len, "defer") == 1) { return DEFER; }
-    if (lexeme_eq(src, start, len, "errdefer") == 1) { return ERRDEFER; }
-    if (lexeme_eq(src, start, len, "continue") == 1) { return CONTINUE; }
-    if (lexeme_eq(src, start, len, "int8") == 1) { return INT8; }
-    if (lexeme_eq(src, start, len, "int16") == 1) { return INT16; }
-    if (lexeme_eq(src, start, len, "int32") == 1) { return INT32; }
-    if (lexeme_eq(src, start, len, "int64") == 1) { return INT64; }
-    if (lexeme_eq(src, start, len, "uint") == 1) { return UINT; }
-    if (lexeme_eq(src, start, len, "uint8") == 1) { return UINT8; }
-    if (lexeme_eq(src, start, len, "uint16") == 1) { return UINT16; }
-    if (lexeme_eq(src, start, len, "uint32") == 1) { return UINT32; }
-    if (lexeme_eq(src, start, len, "uint64") == 1) { return UINT64; }
+    if (lexeme_eq(src, start, len, "let") == 1) {
+        return LET;
+    }
+    if (lexeme_eq(src, start, len, "int") == 1) {
+        return INT;
+    }
+    if (lexeme_eq(src, start, len, "float") == 1) {
+        return FLOAT;
+    }
+    if (lexeme_eq(src, start, len, "double") == 1) {
+        return DOUBLE;
+    }
+    if (lexeme_eq(src, start, len, "bool") == 1) {
+        return BOOL;
+    }
+    if (lexeme_eq(src, start, len, "char") == 1) {
+        return CHAR;
+    }
+    if (lexeme_eq(src, start, len, "string") == 1) {
+        return STRING;
+    }
+    if (lexeme_eq(src, start, len, "void") == 1) {
+        return VOID;
+    }
+    if (lexeme_eq(src, start, len, "struct") == 1) {
+        return STRUCT;
+    }
+    if (lexeme_eq(src, start, len, "packed") == 1) {
+        return PACKED;
+    }
+    if (lexeme_eq(src, start, len, "union") == 1) {
+        return UNION;
+    }
+    if (lexeme_eq(src, start, len, "interface") == 1) {
+        return INTERFACE;
+    }
+    if (lexeme_eq(src, start, len, "enum") == 1) {
+        return ENUM;
+    }
+    if (lexeme_eq(src, start, len, "fn") == 1) {
+        return FN;
+    }
+    if (lexeme_eq(src, start, len, "operator") == 1) {
+        return OPERATOR;
+    }
+    if (lexeme_eq(src, start, len, "asm") == 1) {
+        return ASM;
+    }
+    if (lexeme_eq(src, start, len, "volatile") == 1) {
+        return VOLATILE;
+    }
+    if (lexeme_eq(src, start, len, "static") == 1) {
+        return STATIC;
+    }
+    if (lexeme_eq(src, start, len, "escaping") == 1) {
+        return ESCAPING;
+    }
+    if (lexeme_eq(src, start, len, "must_use") == 1) {
+        return MUST_USE;
+    }
+    if (lexeme_eq(src, start, len, "async") == 1) {
+        return ASYNC;
+    }
+    if (lexeme_eq(src, start, len, "await") == 1) {
+        return AWAIT;
+    }
+    if (lexeme_eq(src, start, len, "const") == 1) {
+        return CONST;
+    }
+    if (lexeme_eq(src, start, len, "sizeof") == 1) {
+        return SIZEOF;
+    }
+    if (lexeme_eq(src, start, len, "free_closure") == 1) {
+        return FREE_CLOSURE;
+    }
+    if (lexeme_eq(src, start, len, "thread_create") == 1) {
+        return THREAD_CREATE;
+    }
+    if (lexeme_eq(src, start, len, "thread_join") == 1) {
+        return THREAD_JOIN;
+    }
+    if (lexeme_eq(src, start, len, "for") == 1) {
+        return FOR;
+    }
+    if (lexeme_eq(src, start, len, "in") == 1) {
+        return IN;
+    }
+    if (lexeme_eq(src, start, len, "while") == 1) {
+        return WHILE;
+    }
+    if (lexeme_eq(src, start, len, "do") == 1) {
+        return DO;
+    }
+    if (lexeme_eq(src, start, len, "if") == 1) {
+        return IF;
+    }
+    if (lexeme_eq(src, start, len, "else") == 1) {
+        return ELSE;
+    }
+    if (lexeme_eq(src, start, len, "switch") == 1) {
+        return SWITCH;
+    }
+    if (lexeme_eq(src, start, len, "match") == 1) {
+        return MATCH;
+    }
+    if (lexeme_eq(src, start, len, "case") == 1) {
+        return CASE;
+    }
+    if (lexeme_eq(src, start, len, "default") == 1) {
+        return DEFAULT;
+    }
+    if (lexeme_eq(src, start, len, "break") == 1) {
+        return BREAK;
+    }
+    if (lexeme_eq(src, start, len, "return") == 1) {
+        return RETURN;
+    }
+    if (lexeme_eq(src, start, len, "import") == 1) {
+        return IMPORT;
+    }
+    if (lexeme_eq(src, start, len, "extern") == 1) {
+        return EXTERN;
+    }
+    if (lexeme_eq(src, start, len, "intrinsic") == 1) {
+        return INTRINSIC;
+    }
+    if (lexeme_eq(src, start, len, "alloc_with") == 1) {
+        return ALLOC_WITH;
+    }
+    if (lexeme_eq(src, start, len, "null") == 1) {
+        return NULL_KW;
+    }
+    if (lexeme_eq(src, start, len, "true") == 1) {
+        return TRUE;
+    }
+    if (lexeme_eq(src, start, len, "false") == 1) {
+        return FALSE;
+    }
+    if (lexeme_eq(src, start, len, "try") == 1) {
+        return TRY;
+    }
+    if (lexeme_eq(src, start, len, "catch") == 1) {
+        return CATCH;
+    }
+    if (lexeme_eq(src, start, len, "finally") == 1) {
+        return FINALLY;
+    }
+    if (lexeme_eq(src, start, len, "throw") == 1) {
+        return THROW;
+    }
+    if (lexeme_eq(src, start, len, "defer") == 1) {
+        return DEFER;
+    }
+    if (lexeme_eq(src, start, len, "errdefer") == 1) {
+        return ERRDEFER;
+    }
+    if (lexeme_eq(src, start, len, "continue") == 1) {
+        return CONTINUE;
+    }
+    if (lexeme_eq(src, start, len, "int8") == 1) {
+        return INT8;
+    }
+    if (lexeme_eq(src, start, len, "int16") == 1) {
+        return INT16;
+    }
+    if (lexeme_eq(src, start, len, "int32") == 1) {
+        return INT32;
+    }
+    if (lexeme_eq(src, start, len, "int64") == 1) {
+        return INT64;
+    }
+    if (lexeme_eq(src, start, len, "uint") == 1) {
+        return UINT;
+    }
+    if (lexeme_eq(src, start, len, "uint8") == 1) {
+        return UINT8;
+    }
+    if (lexeme_eq(src, start, len, "uint16") == 1) {
+        return UINT16;
+    }
+    if (lexeme_eq(src, start, len, "uint32") == 1) {
+        return UINT32;
+    }
+    if (lexeme_eq(src, start, len, "uint64") == 1) {
+        return UINT64;
+    }
     return IDENT;
 }
 
@@ -332,20 +559,33 @@ int lx_is_simple_esc(int e) {
     return e == 110 || e == 116 || e == 114 || e == 102 || e == 118 || e == 97 || e == 98
         || e == 92 || e == 34 || e == 39 || e == 63;
 }
+
 void lx_scan_escape(Lexer* lx) {
-    int el = lx.line; int ec = lx.col;
+    int el = lx.line;
+    int ec = lx.col;
     lx_advance(lx);                                  // backslash
     int e = lx_advance(lx);
     if (e == 120) {                                  // \x
-        if (is_hex(lx_peek(lx)) == 0) { lx_error(el, ec, "\\x used with no following hex digits"); return; }
+        if (is_hex(lx_peek(lx)) == 0) {
+            lx_error(el, ec, "\\x used with no following hex digits");
+            return;
+        }
         lx_advance(lx);
-        if (is_hex(lx_peek(lx)) == 1) { lx_advance(lx); }
+        if (is_hex(lx_peek(lx)) == 1) {
+            lx_advance(lx);
+        }
         return;
     }
     if (e >= 48 && e <= 55) {                        // octal
-        int v = e - 48; int k = 0;
-        while (k < 2 && lx_peek(lx) >= 48 && lx_peek(lx) <= 55) { v = v * 8 + (lx_advance(lx) - 48); k = k + 1; }
-        if (v > 255) { lx_error(el, ec, "octal escape sequence out of range"); }
+        int v = e - 48;
+        int k = 0;
+        while (k < 2 && lx_peek(lx) >= 48 && lx_peek(lx) <= 55) {
+            v = v * 8 + (lx_advance(lx) - 48);
+            k = k + 1;
+        }
+        if (v > 255) {
+            lx_error(el, ec, "octal escape sequence out of range");
+        }
         return;
     }
     if (lx_is_simple_esc(e) == 0) {
@@ -366,8 +606,11 @@ Token lx_next(Lexer* lx) {
 
     let t: Token;
     if (lx_at_end(lx) == 1) {
-        t.type = EOF_TOKEN; t.start = lx.pos; t.len = 0;
-        t.line = lx.line; t.col = lx.col;
+        t.type = EOF_TOKEN;
+        t.start = lx.pos;
+        t.len = 0;
+        t.line = lx.line;
+        t.col = lx.col;
         return t;
     }
 
@@ -383,8 +626,10 @@ Token lx_next(Lexer* lx) {
             lx_advance(lx);
         }
         t.type = keyword_type(lx.src, sp, lx.pos - sp);
-        t.start = sp; t.len = lx.pos - sp;
-        t.line = sl; t.col = sc;
+        t.start = sp;
+        t.len = lx.pos - sp;
+        t.line = sl;
+        t.col = sc;
         return t;
     }
 
@@ -398,28 +643,40 @@ Token lx_next(Lexer* lx) {
             int px = lx_peek(lx);
             if (lx_at_end(lx) == 0 && (px == 120 || px == 88)) {   // 'x' 'X'
                 lx_advance(lx);
-                if (lx_peek(lx) == 95 && is_hex(lx_peek_next(lx)) == 1) { lx_advance(lx); }
+                if (lx_peek(lx) == 95 && is_hex(lx_peek_next(lx)) == 1) {
+                    lx_advance(lx);
+                }
                 lx_digits(lx, 16, sl, sc);
                 if (lx.pos - sp == 2) {
                     lx_error(sl, sc, lx_cat3("hexadecimal literal '", lx_span(lx.src, sp, lx.pos), "' has no digits"));
                 } else {
                     lx_check_int_range(lx, sp, sl, sc);
                 }
-                t.type = INT_LIT; t.start = sp; t.len = lx.pos - sp;
-                t.line = sl; t.col = sc;
+                t.type = INT_LIT;
+                t.start = sp;
+                t.len = lx.pos - sp;
+                t.line = sl;
+                t.col = sc;
                 lx_check_suffix(lx, sp, sl, sc);
                 return t;
             }
             // Binary: 0b/0B then 0/1 digits; the token text is the value in hex (lx_num_text).
             if (lx_at_end(lx) == 0 && (px == 98 || px == 66)) {   // 'b' 'B'
                 lx_advance(lx);
-                if (lx_peek(lx) == 95 && lx_is_base_digit(lx_peek_next(lx), 2) == 1) { lx_advance(lx); }
+                if (lx_peek(lx) == 95 && lx_is_base_digit(lx_peek_next(lx), 2) == 1) {
+                    lx_advance(lx);
+                }
                 int bits_at = lx.pos;
                 lx_digits(lx, 2, sl, sc);
-                t.type = INT_LIT; t.line = sl; t.col = sc; t.start = sp;
+                t.type = INT_LIT;
+                t.line = sl;
+                t.col = sc;
+                t.start = sp;
                 if (lx.pos == bits_at) {
                     if (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) {
-                        uint8[2] bd; bd[0] = (uint8)lx_peek(lx); bd[1] = 0;
+                        uint8[2] bd;
+                        bd[0] = (uint8)lx_peek(lx);
+                        bd[1] = 0;
                         lx_error(sl, sc, lx_cat3(lx_cat3("invalid digit '", (string)&bd[0], "' in binary literal '"),
                                                  lx_num_shown(lx.src, sp, lx.pos), "'"));
                     } else {
@@ -430,14 +687,21 @@ Token lx_next(Lexer* lx) {
                     return t;
                 }
                 if (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) {
-                    uint8[2] bd2; bd2[0] = (uint8)lx_peek(lx); bd2[1] = 0;
+                    uint8[2] bd2;
+                    bd2[0] = (uint8)lx_peek(lx);
+                    bd2[1] = 0;
                     lx_error(sl, sc, lx_cat3(lx_cat3("invalid digit '", (string)&bd2[0], "' in binary literal '"),
                                              lx_num_shown(lx.src, sp, lx.pos), "'"));
-                    while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) { lx_advance(lx); }
+                    while (lx_at_end(lx) == 0 && is_digit(lx_peek(lx)) == 1) {
+                        lx_advance(lx);
+                    }
                 }
                 t.len = lx.pos - sp;
                 string hx = lx_num_text(lx.src, sp, t.len);
-                int hl = 0; while (hx[hl] != 0) { hl = hl + 1; }
+                int hl = 0;
+                while (hx[hl] != 0) {
+                    hl = hl + 1;
+                }
                 if (hl > 18) {
                     lx_error(sl, sc, lx_cat3("integer literal '", lx_num_shown(lx.src, sp, lx.pos), "' does not fit in 64 bits"));
                 }
@@ -459,7 +723,9 @@ Token lx_next(Lexer* lx) {
                 if (is_digit(pn) == 1 || pn == 43 || pn == 45) {   // digit / '+' / '-'
                     isfloat = 1;
                     lx_advance(lx);                          // e / E
-                    if (lx_at_end(lx) == 0 && (lx_peek(lx) == 43 || lx_peek(lx) == 45)) { lx_advance(lx); }
+                    if (lx_at_end(lx) == 0 && (lx_peek(lx) == 43 || lx_peek(lx) == 45)) {
+                        lx_advance(lx);
+                    }
                     int digits_at = lx.pos;
                     lx_digits(lx, 10, sl, sc);
                     if (lx.pos == digits_at) {
@@ -469,26 +735,38 @@ Token lx_next(Lexer* lx) {
                 }
             }
         }
-        if (isfloat == 1) { t.type = FLOAT_LIT; } else { t.type = INT_LIT; }
-        t.start = sp; t.len = lx.pos - sp;
-        t.line = sl; t.col = sc;
+        if (isfloat == 1) {
+            t.type = FLOAT_LIT;
+        } else {
+            t.type = INT_LIT;
+        }
+        t.start = sp;
+        t.len = lx.pos - sp;
+        t.line = sl;
+        t.col = sc;
         // A leading 0 makes an integer octal (C rule): every digit must be 0-7.
         int octal_bad = 0;
         if (isfloat == 0 && t.len > 1 && (int)lx.src[sp] == 48) {
             int k = sp;
             int bad = 0;
             while (k < lx.pos && bad == 0) {
-                if ((int)lx.src[k] == 56 || (int)lx.src[k] == 57) { bad = (int)lx.src[k]; }
+                if ((int)lx.src[k] == 56 || (int)lx.src[k] == 57) {
+                    bad = (int)lx.src[k];
+                }
                 k = k + 1;
             }
             if (bad != 0) {
-                uint8[2] bd; bd[0] = (uint8)bad; bd[1] = 0;
+                uint8[2] bd;
+                bd[0] = (uint8)bad;
+                bd[1] = 0;
                 lx_error(sl, sc, lx_cat3(lx_cat3("invalid digit '", (string)&bd[0], "' in octal literal '"),
                                          lx_num_shown(lx.src, sp, lx.pos), "'"));
                 octal_bad = 1;
             }
         }
-        if (isfloat == 0 && octal_bad == 0) { lx_check_int_range(lx, sp, sl, sc); }
+        if (isfloat == 0 && octal_bad == 0) {
+            lx_check_int_range(lx, sp, sl, sc);
+        }
         lx_check_suffix(lx, sp, sl, sc);
         return t;
     }
@@ -509,8 +787,11 @@ Token lx_next(Lexer* lx) {
         } else {
             lx_error(sl, sc, "unterminated string literal");
         }
-        t.type = STRING_LIT; t.start = sp; t.len = lx.pos - sp;
-        t.line = sl; t.col = sc;
+        t.type = STRING_LIT;
+        t.start = sp;
+        t.len = lx.pos - sp;
+        t.line = sl;
+        t.col = sc;
         return t;
     }
 
@@ -520,15 +801,21 @@ Token lx_next(Lexer* lx) {
         lx_advance(lx);                              // opening '
         if (lx_at_end(lx) == 1) {
             lx_error(sl, sc, "unterminated character literal");
-            t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
-            t.line = sl; t.col = sc;
+            t.type = CHAR_LIT;
+            t.start = sp;
+            t.len = lx.pos - sp;
+            t.line = sl;
+            t.col = sc;
             return t;
         }
         if (lx_peek(lx) == 39) {                     // empty ''
             lx_error(sl, sc, "empty character literal");
             lx_advance(lx);                          // closing '
-            t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
-            t.line = sl; t.col = sc;
+            t.type = CHAR_LIT;
+            t.start = sp;
+            t.len = lx.pos - sp;
+            t.line = sl;
+            t.col = sc;
             return t;
         }
         if (lx_peek(lx) == 92) {                     // backslash escape
@@ -539,8 +826,12 @@ Token lx_next(Lexer* lx) {
         if (lx_at_end(lx) == 0 && lx_peek(lx) == 39) {
             lx_advance(lx);                          // closing '
         } else {
-            if (lx_at_end(lx) == 1 || lx_peek(lx) == 10) { lx_error(sl, sc, "unterminated character literal"); }
-            else { lx_error(sl, sc, "character literal must contain a single character"); }
+            if (lx_at_end(lx) == 1 || lx_peek(lx) == 10) {
+                lx_error(sl, sc, "unterminated character literal");
+            }
+            else {
+                lx_error(sl, sc, "character literal must contain a single character");
+            }
             while (lx_at_end(lx) == 0 && lx_peek(lx) != 39 && lx_peek(lx) != 10) {
                 lx_advance(lx);
             }
@@ -548,8 +839,11 @@ Token lx_next(Lexer* lx) {
                 lx_advance(lx);
             }
         }
-        t.type = CHAR_LIT; t.start = sp; t.len = lx.pos - sp;
-        t.line = sl; t.col = sc;
+        t.type = CHAR_LIT;
+        t.start = sp;
+        t.len = lx.pos - sp;
+        t.line = sl;
+        t.col = sc;
         return t;
     }
 
@@ -560,8 +854,11 @@ Token lx_next(Lexer* lx) {
         while (lx_at_end(lx) == 0 && lx_peek(lx) != 10) {
             lx_advance(lx);
         }
-        t.type = PRAGMA; t.start = sp + 1; t.len = lx.pos - (sp + 1);
-        t.line = sl; t.col = sc;
+        t.type = PRAGMA;
+        t.start = sp + 1;
+        t.len = lx.pos - (sp + 1);
+        t.line = sl;
+        t.col = sc;
         return t;
     }
 
@@ -570,104 +867,231 @@ Token lx_next(Lexer* lx) {
     lx_advance(lx);
 
     if (c == 43) {                                   // '+'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 43) { lx_advance(lx); t.type = PLUS_PLUS; }
-        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PLUS_EQ; }
-        else { t.type = PLUS; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 43) {
+            lx_advance(lx);
+            t.type = PLUS_PLUS;
+        }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = PLUS_EQ;
+        }
+        else {
+            t.type = PLUS;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 45) {                                   // '-'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 45) { lx_advance(lx); t.type = MINUS_MINUS; }
-        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = MINUS_EQ; }
-        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 62) { lx_advance(lx); t.type = ARROW; }
-        else { t.type = MINUS; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 45) {
+            lx_advance(lx);
+            t.type = MINUS_MINUS;
+        }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = MINUS_EQ;
+        }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 62) {
+            lx_advance(lx);
+            t.type = ARROW;
+        }
+        else {
+            t.type = MINUS;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 42) {                                   // '*'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = STAR_EQ; }
-        else { t.type = STAR; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = STAR_EQ;
+        }
+        else {
+            t.type = STAR;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 47) {                                   // '/'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = SLASH_EQ; }
-        else { t.type = SLASH; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = SLASH_EQ;
+        }
+        else {
+            t.type = SLASH;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 37) {                                   // '%'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PERCENT_EQ; }
-        else { t.type = PERCENT; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = PERCENT_EQ;
+        }
+        else {
+            t.type = PERCENT;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 61) {                                   // '='
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = EQEQ; }
-        else { t.type = EQ; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = EQEQ;
+        }
+        else {
+            t.type = EQ;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 33) {                                   // '!'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = NE; }
-        else { t.type = NOT; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = NE;
+        }
+        else {
+            t.type = NOT;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 60) {                                   // '<'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = LE; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = LE;
+        }
         else if (lx_at_end(lx) == 0 && lx_peek(lx) == 60) {
             lx_advance(lx);
-            if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = LSHIFT_EQ; }
-            else { t.type = LSHIFT; }
+            if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+                lx_advance(lx);
+                t.type = LSHIFT_EQ;
+            }
+            else {
+                t.type = LSHIFT;
+            }
         }
-        else { t.type = LT; }
+        else {
+            t.type = LT;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 62) {                                   // '>'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = GE; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = GE;
+        }
         else if (lx_at_end(lx) == 0 && lx_peek(lx) == 62) {
             lx_advance(lx);
-            if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = RSHIFT_EQ; }
-            else { t.type = RSHIFT; }
+            if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+                lx_advance(lx);
+                t.type = RSHIFT_EQ;
+            }
+            else {
+                t.type = RSHIFT;
+            }
         }
-        else { t.type = GT; }
+        else {
+            t.type = GT;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 38) {                                   // '&'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 38) { lx_advance(lx); t.type = AND; }
-        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = AMP_EQ; }
-        else { t.type = AMPERSAND; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 38) {
+            lx_advance(lx);
+            t.type = AND;
+        }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = AMP_EQ;
+        }
+        else {
+            t.type = AMPERSAND;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 124) {                                  // '|'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 124) { lx_advance(lx); t.type = OR; }
-        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = PIPE_EQ; }
-        else { t.type = PIPE; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 124) {
+            lx_advance(lx);
+            t.type = OR;
+        }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = PIPE_EQ;
+        }
+        else {
+            t.type = PIPE;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 94) {                                   // '^'
-        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) { lx_advance(lx); t.type = CARET_EQ; }
-        else { t.type = CARET; }
+        if (lx_at_end(lx) == 0 && lx_peek(lx) == 61) {
+            lx_advance(lx);
+            t.type = CARET_EQ;
+        }
+        else {
+            t.type = CARET;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
     if (c == 46) {                                   // '.'
         if (lx_at_end(lx) == 0 && lx_peek(lx) == 46 && lx_peek_next(lx) == 46) {
-            lx_advance(lx); lx_advance(lx); t.type = ELLIPSIS;
+            lx_advance(lx);
+            lx_advance(lx);
+            t.type = ELLIPSIS;
         }
-        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 46) { lx_advance(lx); t.type = RANGE; }
-        else { t.type = DOT; }
+        else if (lx_at_end(lx) == 0 && lx_peek(lx) == 46) {
+            lx_advance(lx);
+            t.type = RANGE;
+        }
+        else {
+            t.type = DOT;
+        }
         return lx_finish(t, sp, lx.pos, sl, sc);
     }
-    if (c == 126) { t.type = TILDE;     return lx_finish(t, sp, lx.pos, sl, sc); }   // '~'
-    if (c == 123) { t.type = LBRACE;    return lx_finish(t, sp, lx.pos, sl, sc); }   // '{'
-    if (c == 125) { t.type = RBRACE;    return lx_finish(t, sp, lx.pos, sl, sc); }   // '}'
-    if (c == 40)  { t.type = LPAREN;    return lx_finish(t, sp, lx.pos, sl, sc); }   // '('
-    if (c == 41)  { t.type = RPAREN;    return lx_finish(t, sp, lx.pos, sl, sc); }   // ')'
-    if (c == 91)  { t.type = LBRACKET;  return lx_finish(t, sp, lx.pos, sl, sc); }   // '['
-    if (c == 93)  { t.type = RBRACKET;  return lx_finish(t, sp, lx.pos, sl, sc); }   // ']'
-    if (c == 59)  { t.type = SEMICOLON; return lx_finish(t, sp, lx.pos, sl, sc); }   // ';'
-    if (c == 44)  { t.type = COMMA;     return lx_finish(t, sp, lx.pos, sl, sc); }   // ','
-    if (c == 58)  { t.type = COLON;     return lx_finish(t, sp, lx.pos, sl, sc); }   // ':'
-    if (c == 63)  { t.type = QUESTION;  return lx_finish(t, sp, lx.pos, sl, sc); }   // '?'
+    if (c == 126) {   // '~'
+        t.type = TILDE;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 123) {   // '{'
+        t.type = LBRACE;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 125) {   // '}'
+        t.type = RBRACE;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 40) {   // '('
+        t.type = LPAREN;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 41) {   // ')'
+        t.type = RPAREN;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 91) {   // '['
+        t.type = LBRACKET;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 93) {   // ']'
+        t.type = RBRACKET;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 59) {   // ';'
+        t.type = SEMICOLON;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 44) {   // ','
+        t.type = COMMA;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 58) {   // ':'
+        t.type = COLON;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
+    if (c == 63) {   // '?'
+        t.type = QUESTION;
+        return lx_finish(t, sp, lx.pos, sl, sc);
+    }
 
     // A UTF-8 character outside a string or comment: one error for the whole sequence
     // (identifiers are ASCII), as the C++ lexer.
     if (c >= 192) {
-        while (lx_at_end(lx) == 0 && (lx_peek(lx) & 192) == 128) { lx_advance(lx); }
+        while (lx_at_end(lx) == 0 && (lx_peek(lx) & 192) == 128) {
+            lx_advance(lx);
+        }
         lx_error(sl, sc, lx_cat3("non-ASCII character '", lx_span(lx.src, sp, lx.pos),
                                  "' outside a string or comment (identifiers and operators are ASCII)"));
         t.type = UNKNOWN;
@@ -675,8 +1099,12 @@ Token lx_next(Lexer* lx) {
     }
     // Anything else: a single-byte UNKNOWN token (matches the switch default).
     uint8[48] ub;
-    if (c >= 32 && c < 127) { sprintf((string)&ub[0], "unexpected character '%c'", c); }
-    else { sprintf((string)&ub[0], "unexpected byte 0x%02X", c); }
+    if (c >= 32 && c < 127) {
+        sprintf((string)&ub[0], "unexpected character '%c'", c);
+    }
+    else {
+        sprintf((string)&ub[0], "unexpected byte 0x%02X", c);
+    }
     lx_error(sl, sc, (string)&ub[0]);
     t.type = UNKNOWN;
     return lx_finish(t, sp, lx.pos, sl, sc);
@@ -693,10 +1121,14 @@ int lx_str_end(*uint8 src, int start, int len) {
     int i = start + 1;
     int end = start + len;
     while (i < end && (int)src[i] != 34) {
-        if ((int)src[i] == 92 && i + 1 < end) { i = i + 1; }
+        if ((int)src[i] == 92 && i + 1 < end) {
+            i = i + 1;
+        }
         i = i + 1;
     }
-    if (i > end) { return end; }
+    if (i > end) {
+        return end;
+    }
     return i;
 }
 
@@ -733,7 +1165,10 @@ void lex_emit_value(*uint8 src, int type, int start, int len) {
         }
         return;
     }
-    if (type == INT_LIT || type == FLOAT_LIT) { printf("%s", lx_num_text(src, start, len)); return; }
+    if (type == INT_LIT || type == FLOAT_LIT) {
+        printf("%s", lx_num_text(src, start, len));
+        return;
+    }
     int i = 0;
     while (i < len) {
         putchar((int)src[start + i]);

@@ -21,41 +21,73 @@ void fmt_scan(*uint8 tb, int tlen, int from, *int depth, *int in_block, *int in_
         int c = (int)tb[j];
         if (in_str[0] == 1 || c == 34 || c == 39) {           // string / char literal
             int q = c;
-            if (in_str[0] == 1) { q = 34; } else { j = j + 1; }
-            in_str[0] = 0;
-            while (j < tlen && (int)tb[j] != q) {
-                if (tb[j] == 92 && j + 1 < tlen) { j = j + 1; }  // skip the escaped char
+            if (in_str[0] == 1) {
+                q = 34;
+            } else {
                 j = j + 1;
             }
-            if (j >= tlen && q == 34) { in_str[0] = 1; }
+            in_str[0] = 0;
+            while (j < tlen && (int)tb[j] != q) {
+                if (tb[j] == 92 && j + 1 < tlen) {  // skip the escaped char
+                    j = j + 1;
+                }
+                j = j + 1;
+            }
+            if (j >= tlen && q == 34) {
+                in_str[0] = 1;
+            }
             j = j + 1;                      // move past the closing quote
             continue;
         }
-        if (c == 47 && j + 1 < tlen && tb[j + 1] == 47) { j = tlen; continue; }  // '//' line comment
+        if (c == 47 && j + 1 < tlen && tb[j + 1] == 47) {  // '//' line comment
+            j = tlen;
+            continue;
+        }
         if (c == 47 && j + 1 < tlen && tb[j + 1] == 42) {   // '/*' block comment
             in_block[0] = 1;
             int m = j + 2;
             while (m + 1 < tlen) {
-                if (tb[m] == 42 && tb[m + 1] == 47) { in_block[0] = 0; j = m + 1; m = tlen; }
-                else { m = m + 1; }
+                if (tb[m] == 42 && tb[m + 1] == 47) {
+                    in_block[0] = 0;
+                    j = m + 1;
+                    m = tlen;
+                }
+                else {
+                    m = m + 1;
+                }
             }
-            if (in_block[0] == 1) { j = tlen; continue; }   // runs onto the next line
+            if (in_block[0] == 1) {   // runs onto the next line
+                j = tlen;
+                continue;
+            }
             j = j + 1;
             continue;
         }
-        if (c == 123) { depth[0] = depth[0] + 1; }
-        else { if (c == 125) { depth[0] = depth[0] - 1; } }
+        if (c == 123) {
+            depth[0] = depth[0] + 1;
+        }
+        else {
+            if (c == 125) {
+                depth[0] = depth[0] - 1;
+            }
+        }
         j = j + 1;
     }
-    if (depth[0] < 0) { depth[0] = 0; }
+    if (depth[0] < 0) {
+        depth[0] = 0;
+    }
 }
 
 // The end of b[s, e) with trailing spaces and tabs dropped, unless that exposes a
 // trailing `\` (trimming there would create a continuation).
 int fmt_rtrim(*uint8 b, int s, int e) {
     int te = e;
-    while (te > s && (b[te - 1] == 32 || b[te - 1] == 9)) { te = te - 1; }
-    if (te > s && b[te - 1] == 92) { te = e; }
+    while (te > s && (b[te - 1] == 32 || b[te - 1] == 9)) {
+        te = te - 1;
+    }
+    if (te > s && b[te - 1] == 92) {
+        te = e;
+    }
     return te;
 }
 
@@ -67,15 +99,26 @@ int fmt_dir_opens(*uint8 b, int n) {
         int c = (int)b[i];
         if (c == 34 || c == 39) {
             i = i + 1;
-            while (i < n && (int)b[i] != c) { if (b[i] == 92 && i + 1 < n) { i = i + 1; } i = i + 1; }
+            while (i < n && (int)b[i] != c) {
+                if (b[i] == 92 && i + 1 < n) {
+                    i = i + 1;
+                }
+                i = i + 1;
+            }
             i = i + 1;
             continue;
         }
-        if (c == 47 && i + 1 < n && b[i + 1] == 47) { return 0; }
+        if (c == 47 && i + 1 < n && b[i + 1] == 47) {
+            return 0;
+        }
         if (c == 47 && i + 1 < n && b[i + 1] == 42) {
             int e = i + 2;
-            while (e + 1 < n && !(b[e] == 42 && b[e + 1] == 47)) { e = e + 1; }
-            if (e + 1 >= n) { return 1; }
+            while (e + 1 < n && !(b[e] == 42 && b[e + 1] == 47)) {
+                e = e + 1;
+            }
+            if (e + 1 >= n) {
+                return 1;
+            }
             i = e + 2;
             continue;
         }
@@ -87,14 +130,20 @@ int fmt_dir_opens(*uint8 b, int n) {
 // 1 when the C strings `a` and `b` are equal.
 int fmt_eq(string a, string b) {
     int i = 0;
-    while (a[i] != 0 && a[i] == b[i]) { i = i + 1; }
-    if (a[i] == b[i]) { return 1; }
+    while (a[i] != 0 && a[i] == b[i]) {
+        i = i + 1;
+    }
+    if (a[i] == b[i]) {
+        return 1;
+    }
     return 0;
 }
 
 // Append the line ending: CRLF when `crlf` is set, else LF.
 void fmt_eol(String* out, int crlf) {
-    if (crlf == 1) { String_push(out, (char)13); }
+    if (crlf == 1) {
+        String_push(out, (char)13);
+    }
     String_push(out, (char)10);
 }
 
@@ -110,14 +159,18 @@ struct FmtLay {
 }
 
 int fmt_ident(int c) {
-    if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) { return 1; }
+    if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95) {
+        return 1;
+    }
     return 0;
 }
 
 // 1 for a character of an overloadable operator's spelling: + - * / % = ! < > & | ^ ~ [ ]
 int fmt_op_char(int c) {
     if (c == 43 || c == 45 || c == 42 || c == 47 || c == 37 || c == 61 || c == 33 || c == 60 || c == 62
-        || c == 38 || c == 124 || c == 94 || c == 126 || c == 91 || c == 93) { return 1; }
+        || c == 38 || c == 124 || c == 94 || c == 126 || c == 91 || c == 93) {
+        return 1;
+    }
     return 0;
 }
 
@@ -125,30 +178,43 @@ int fmt_op_char(int c) {
 int fmt_at(*uint8 t, int n, int i, string o) {
     int k = 0;
     while (o[k] != 0) {
-        if (i + k >= n || (int)t[i + k] != (int)o[k]) { return 0; }
+        if (i + k >= n || (int)t[i + k] != (int)o[k]) {
+            return 0;
+        }
         k = k + 1;
     }
     return 1;
 }
 
 int fmt_skip_blanks(*uint8 t, int n, int j) {
-    while (j < n && (t[j] == 32 || t[j] == 9)) { j = j + 1; }
+    while (j < n && (t[j] == 32 || t[j] == 9)) {
+        j = j + 1;
+    }
     return j;
 }
 
 int fmt_rest_is_code(*uint8 t, int n, int j) {
     j = fmt_skip_blanks(t, n, j);
-    if (j >= n) { return 0; }
-    if (t[j] == 47 && j + 1 < n && (t[j + 1] == 47 || t[j + 1] == 42)) { return 0; }
+    if (j >= n) {
+        return 0;
+    }
+    if (t[j] == 47 && j + 1 < n && (t[j + 1] == 47 || t[j + 1] == 42)) {
+        return 0;
+    }
     return 1;
 }
 
 void fmt_rtrim_str(String* s) {
-    while (s.len > 0 && s.data[s.len - 1] == 32) { s.len = s.len - 1; s.data[s.len] = 0; }
+    while (s.len > 0 && s.data[s.len - 1] == 32) {
+        s.len = s.len - 1;
+        s.data[s.len] = 0;
+    }
 }
 
 int fmt_back(String* s) {
-    if (s.len == 0) { return 0; }
+    if (s.len == 0) {
+        return 0;
+    }
     return (int)s.data[s.len - 1];
 }
 
@@ -164,7 +230,10 @@ string fmt_copy(String* s) {
 string fmt_word_at(*uint8 t, int n, int j) {
     let w: String;
     String_init(&w, 16);
-    while (j < n && fmt_ident((int)t[j]) == 1) { String_push(&w, (char)t[j]); j = j + 1; }
+    while (j < n && fmt_ident((int)t[j]) == 1) {
+        String_push(&w, (char)t[j]);
+        j = j + 1;
+    }
     return (string)String_cstr(&w);
 }
 
@@ -176,14 +245,18 @@ void fmt_open(FmtLay* st, int kind) {
 
 int fmt_top_block(FmtLay* st) {
     int k = List_len<int>(&st.kinds);
-    if (k == 0 || List_get<int>(&st.kinds, k - 1) == 66) { return 1; }
+    if (k == 0 || List_get<int>(&st.kinds, k - 1) == 66) {
+        return 1;
+    }
     return 0;
 }
 
 // Pop the innermost brace: its kind (73 when none is open).
 int fmt_close(FmtLay* st) {
     int k = List_len<int>(&st.kinds);
-    if (k == 0) { return 73; }
+    if (k == 0) {
+        return 73;
+    }
     int kind = List_get<int>(&st.kinds, k - 1);
     List_remove<int>(&st.kinds, k - 1);
     st.paren = List_get<int>(&st.parens, k - 1);
@@ -199,15 +272,31 @@ void fmt_count_brackets(FmtLay* st, *uint8 t, int n, int from) {
         int c = (int)t[i];
         if (c == 34 || c == 39) {
             int j = i + 1;
-            while (j < n && (int)t[j] != c) { if (t[j] == 92 && j + 1 < n) { j = j + 1; } j = j + 1; }
+            while (j < n && (int)t[j] != c) {
+                if (t[j] == 92 && j + 1 < n) {
+                    j = j + 1;
+                }
+                j = j + 1;
+            }
             i = j + 1;
             continue;
         }
-        if (c == 47 && i + 1 < n && (t[i + 1] == 47 || t[i + 1] == 42)) { i = n; continue; }
-        if (c == 40 || c == 91) { st.paren = st.paren + 1; }
-        else if (c == 41 || c == 93) { st.paren = st.paren - 1; }
-        else if (c == 123) { fmt_open(st, 73); }
-        else if (c == 125 && List_len<int>(&st.kinds) > 0) { fmt_close(st); }
+        if (c == 47 && i + 1 < n && (t[i + 1] == 47 || t[i + 1] == 42)) {
+            i = n;
+            continue;
+        }
+        if (c == 40 || c == 91) {
+            st.paren = st.paren + 1;
+        }
+        else if (c == 41 || c == 93) {
+            st.paren = st.paren - 1;
+        }
+        else if (c == 123) {
+            fmt_open(st, 73);
+        }
+        else if (c == 125 && List_len<int>(&st.kinds) > 0) {
+            fmt_close(st);
+        }
         i = i + 1;
     }
 }
@@ -223,17 +312,23 @@ struct FmtLine {
 }
 
 void fmt_emit(FmtLine* ln, string s) {
-    if (ln.need_space == 1 && ln.cur.len > 0 && fmt_back(&ln.cur) != 32) { String_push(&ln.cur, (char)32); }
+    if (ln.need_space == 1 && ln.cur.len > 0 && fmt_back(&ln.cur) != 32) {
+        String_push(&ln.cur, (char)32);
+    }
     ln.need_space = 0;
     String_append(&ln.cur, s);
     int k = 0;
-    while (s[k] != 0) { k = k + 1; }
+    while (s[k] != 0) {
+        k = k + 1;
+    }
     ln.last = (int)s[k - 1];
 }
 
 void fmt_flush(FmtLine* ln) {
     fmt_rtrim_str(&ln.cur);
-    if (ln.cur.len > 0) { List_push<string>(&ln.pieces, fmt_copy(&ln.cur)); }
+    if (ln.cur.len > 0) {
+        List_push<string>(&ln.pieces, fmt_copy(&ln.cur));
+    }
     String_clear(&ln.cur);
     ln.need_space = 0;
     ln.last_word = "";
@@ -243,15 +338,22 @@ void fmt_flush(FmtLine* ln) {
 // its line; anything else starts a new one.
 void fmt_after_close(FmtLine* ln, *uint8 t, int n) {
     int j = fmt_skip_blanks(t, n, ln.i);
-    if (j >= n) { return; }
+    if (j >= n) {
+        return;
+    }
     string w = fmt_word_at(t, n, j);
     if (fmt_eq(w, "else") == 1 || fmt_eq(w, "while") == 1 || fmt_eq(w, "catch") == 1 || fmt_eq(w, "finally") == 1) {
         String_push(&ln.cur, (char)32);
         ln.i = j;
         return;
     }
-    if (t[j] == 59 || t[j] == 41 || t[j] == 44 || t[j] == 93) { ln.i = j; return; }
-    if (fmt_rest_is_code(t, n, j) == 1) { fmt_flush(ln); }
+    if (t[j] == 59 || t[j] == 41 || t[j] == 44 || t[j] == 93) {
+        ln.i = j;
+        return;
+    }
+    if (fmt_rest_is_code(t, n, j) == 1) {
+        fmt_flush(ln);
+    }
 }
 
 // The substring t[a, b) as a C string.
@@ -259,7 +361,10 @@ string fmt_sub(*uint8 t, int a, int b) {
     let s: String;
     String_init(&s, b - a + 1);
     int k = a;
-    while (k < b) { String_push(&s, (char)t[k]); k = k + 1; }
+    while (k < b) {
+        String_push(&s, (char)t[k]);
+        k = k + 1;
+    }
     return (string)String_cstr(&s);
 }
 
@@ -275,14 +380,24 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
     List_init<string>(&ln.pieces, 4);
     string comment = "";
     int ok = 1;
-    if (n > 0 && t[n - 1] == 92) { ok = 0; }
+    if (n > 0 && t[n - 1] == 92) {
+        ok = 0;
+    }
     while (ok == 1 && ln.i < n) {
         int i = ln.i;
         int c = (int)t[i];
         if (c == 34 || c == 39) {
             int j = i + 1;
-            while (j < n && (int)t[j] != c) { if (t[j] == 92 && j + 1 < n) { j = j + 1; } j = j + 1; }
-            if (j >= n) { ok = 0; continue; }
+            while (j < n && (int)t[j] != c) {
+                if (t[j] == 92 && j + 1 < n) {
+                    j = j + 1;
+                }
+                j = j + 1;
+            }
+            if (j >= n) {
+                ok = 0;
+                continue;
+            }
             fmt_emit(&ln, fmt_sub(t, i, j + 1));
             ln.last_word = "";
             ln.i = j + 1;
@@ -290,15 +405,22 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
         }
         if (c == 47 && i + 1 < n && t[i + 1] == 47) {
             int g = i;
-            while (g > 0 && (t[g - 1] == 32 || t[g - 1] == 9)) { g = g - 1; }
+            while (g > 0 && (t[g - 1] == 32 || t[g - 1] == 9)) {
+                g = g - 1;
+            }
             comment = fmt_sub(t, g, n);
             ln.i = n;
             continue;
         }
         if (c == 47 && i + 1 < n && t[i + 1] == 42) {
             int e = i + 2;
-            while (e + 1 < n && !(t[e] == 42 && t[e + 1] == 47)) { e = e + 1; }
-            if (e + 1 >= n) { ok = 0; continue; }
+            while (e + 1 < n && !(t[e] == 42 && t[e + 1] == 47)) {
+                e = e + 1;
+            }
+            if (e + 1 >= n) {
+                ok = 0;
+                continue;
+            }
             int keep = ln.last;
             fmt_emit(&ln, fmt_sub(t, i, e + 2));
             ln.last = keep;
@@ -307,14 +429,18 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
         }
         if (c == 32 || c == 9) {
             int b = fmt_back(&ln.cur);
-            if (ln.cur.len > 0 && b != 32 && b != 40 && b != 91) { String_push(&ln.cur, (char)32); }
+            if (ln.cur.len > 0 && b != 32 && b != 40 && b != 91) {
+                String_push(&ln.cur, (char)32);
+            }
             ln.i = i + 1;
             continue;
         }
         if (fmt_ident(c) == 1) {
             string w = fmt_word_at(t, n, i);
             int j = i;
-            while (w[j - i] != 0) { j = j + 1; }
+            while (w[j - i] != 0) {
+                j = j + 1;
+            }
             fmt_emit(&ln, w);
             ln.i = j;
             if ((fmt_eq(w, "if") == 1 || fmt_eq(w, "while") == 1 || fmt_eq(w, "for") == 1 || fmt_eq(w, "switch") == 1
@@ -327,7 +453,9 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
         }
         if (fmt_eq(ln.last_word, "operator") == 1 && fmt_op_char(c) == 1) {   // `operator ==` as written
             int j = i;
-            while (j < n && fmt_op_char((int)t[j]) == 1) { j = j + 1; }
+            while (j < n && fmt_op_char((int)t[j]) == 1) {
+                j = j + 1;
+            }
             fmt_emit(&ln, fmt_sub(t, i, j));
             ln.last_word = "";
             ln.i = j;
@@ -335,33 +463,71 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
         }
         string op = "";
         if (fmt_eq(ln.last_word, "operator") == 0) {
-            if (fmt_at(t, n, i, "<<=") == 1) { op = "<<="; }
-            else if (fmt_at(t, n, i, ">>=") == 1) { op = ">>="; }
-            else if (fmt_at(t, n, i, "==") == 1) { op = "=="; }
-            else if (fmt_at(t, n, i, "!=") == 1) { op = "!="; }
-            else if (fmt_at(t, n, i, "<=") == 1) { op = "<="; }
-            else if (fmt_at(t, n, i, ">=") == 1) { op = ">="; }
-            else if (fmt_at(t, n, i, "&&") == 1) { op = "&&"; }
-            else if (fmt_at(t, n, i, "||") == 1) { op = "||"; }
-            else if (fmt_at(t, n, i, "+=") == 1) { op = "+="; }
-            else if (fmt_at(t, n, i, "-=") == 1) { op = "-="; }
-            else if (fmt_at(t, n, i, "*=") == 1) { op = "*="; }
-            else if (fmt_at(t, n, i, "/=") == 1) { op = "/="; }
-            else if (fmt_at(t, n, i, "%=") == 1) { op = "%="; }
-            else if (fmt_at(t, n, i, "&=") == 1) { op = "&="; }
-            else if (fmt_at(t, n, i, "|=") == 1) { op = "|="; }
-            else if (fmt_at(t, n, i, "^=") == 1) { op = "^="; }
-            else if (c == 61) { op = "="; }
+            if (fmt_at(t, n, i, "<<=") == 1) {
+                op = "<<=";
+            }
+            else if (fmt_at(t, n, i, ">>=") == 1) {
+                op = ">>=";
+            }
+            else if (fmt_at(t, n, i, "==") == 1) {
+                op = "==";
+            }
+            else if (fmt_at(t, n, i, "!=") == 1) {
+                op = "!=";
+            }
+            else if (fmt_at(t, n, i, "<=") == 1) {
+                op = "<=";
+            }
+            else if (fmt_at(t, n, i, ">=") == 1) {
+                op = ">=";
+            }
+            else if (fmt_at(t, n, i, "&&") == 1) {
+                op = "&&";
+            }
+            else if (fmt_at(t, n, i, "||") == 1) {
+                op = "||";
+            }
+            else if (fmt_at(t, n, i, "+=") == 1) {
+                op = "+=";
+            }
+            else if (fmt_at(t, n, i, "-=") == 1) {
+                op = "-=";
+            }
+            else if (fmt_at(t, n, i, "*=") == 1) {
+                op = "*=";
+            }
+            else if (fmt_at(t, n, i, "/=") == 1) {
+                op = "/=";
+            }
+            else if (fmt_at(t, n, i, "%=") == 1) {
+                op = "%=";
+            }
+            else if (fmt_at(t, n, i, "&=") == 1) {
+                op = "&=";
+            }
+            else if (fmt_at(t, n, i, "|=") == 1) {
+                op = "|=";
+            }
+            else if (fmt_at(t, n, i, "^=") == 1) {
+                op = "^=";
+            }
+            else if (c == 61) {
+                op = "=";
+            }
         }
         if (op[0] != 0) {
             fmt_rtrim_str(&ln.cur);
-            if (ln.cur.len > 0) { String_push(&ln.cur, (char)32); }
+            if (ln.cur.len > 0) {
+                String_push(&ln.cur, (char)32);
+            }
             String_append(&ln.cur, op);
             ln.last = 61;
             ln.need_space = 1;
             ln.last_word = "";
             int ol = 0;
-            while (op[ol] != 0) { ol = ol + 1; }
+            while (op[ol] != 0) {
+                ol = ol + 1;
+            }
             ln.i = i + ol;
             continue;
         }
@@ -380,8 +546,12 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
             ln.last = 59;
             ln.last_word = "";
             ln.i = i + 1;
-            if (st.paren == 0 && fmt_top_block(st) == 1 && fmt_rest_is_code(t, n, ln.i) == 1) { fmt_flush(&ln); }
-            else { ln.need_space = 1; }
+            if (st.paren == 0 && fmt_top_block(st) == 1 && fmt_rest_is_code(t, n, ln.i) == 1) {
+                fmt_flush(&ln);
+            }
+            else {
+                ln.need_space = 1;
+            }
             continue;
         }
         if (c == 40 || c == 91) {
@@ -409,11 +579,15 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
             *uint8 hb = (*uint8)String_cstr(&head);
             int hn = (int)head.len;
             int fs = 0;
-            while (fs < hn && hb[fs] == 32) { fs = fs + 1; }
+            while (fs < hn && hb[fs] == 32) {
+                fs = fs + 1;
+            }
             string fw = fmt_word_at(hb, hn, fs);
             int block = 0;
             if (hn == 0) {
-                if (fmt_top_block(st) == 1 && st.paren == 0 && ln.last != 61 && ln.last != 44 && ln.last != 40 && ln.last != 91) { block = 1; }
+                if (fmt_top_block(st) == 1 && st.paren == 0 && ln.last != 61 && ln.last != 44 && ln.last != 40 && ln.last != 91) {
+                    block = 1;
+                }
             } else if (fmt_eq(fw, "enum") == 1) {
                 block = 0;
             } else {
@@ -423,7 +597,9 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
                     || fmt_eq(ln.last_word, "finally") == 1 || fmt_eq(ln.last_word, "defer") == 1 || fmt_eq(ln.last_word, "errdefer") == 1
                     || fmt_eq(fw, "struct") == 1 || fmt_eq(fw, "union") == 1 || fmt_eq(fw, "interface") == 1
                     || fmt_eq(fw, "packed") == 1 || fmt_eq(fw, "match") == 1
-                    || (hl == 58 && (fmt_eq(fw, "case") == 1 || fmt_eq(fw, "default") == 1))) { block = 1; }
+                    || (hl == 58 && (fmt_eq(fw, "case") == 1 || fmt_eq(fw, "default") == 1))) {
+                    block = 1;
+                }
             }
             ln.last_word = "";
             if (block == 0) {
@@ -433,7 +609,9 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
                 continue;
             }
             fmt_rtrim_str(&ln.cur);
-            if (ln.cur.len > 0) { String_push(&ln.cur, (char)32); }
+            if (ln.cur.len > 0) {
+                String_push(&ln.cur, (char)32);
+            }
             int j = fmt_skip_blanks(t, n, i + 1);
             if (j < n && t[j] == 125) {            // an empty block stays `{}`
                 String_append(&ln.cur, "{}");
@@ -448,7 +626,9 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
             ln.need_space = 0;
             fmt_open(st, 66);
             ln.i = i + 1;
-            if (fmt_rest_is_code(t, n, ln.i) == 1) { fmt_flush(&ln); }
+            if (fmt_rest_is_code(t, n, ln.i) == 1) {
+                fmt_flush(&ln);
+            }
             continue;
         }
         if (c == 125) {
@@ -478,12 +658,18 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
         return;
     }
     fmt_rtrim_str(&ln.cur);
-    if (ln.cur.len > 0) { List_push<string>(&ln.pieces, fmt_copy(&ln.cur)); }
+    if (ln.cur.len > 0) {
+        List_push<string>(&ln.pieces, fmt_copy(&ln.cur));
+    }
     // A trailing comment stays with the statement's first line (`while (x) {  // why`).
     if (comment[0] != 0) {
         int a = 0;
-        while (comment[a] == 32 || comment[a] == 9) { a = a + 1; }
-        if (List_len<string>(&ln.pieces) == 0) { List_push<string>(&ln.pieces, (string)((*uint8)comment + a)); }
+        while (comment[a] == 32 || comment[a] == 9) {
+            a = a + 1;
+        }
+        if (List_len<string>(&ln.pieces) == 0) {
+            List_push<string>(&ln.pieces, (string)((*uint8)comment + a));
+        }
         else {
             let joined: String;
             String_init(&joined, 64);
@@ -492,9 +678,14 @@ void fmt_layout_line(FmtLay* st, *uint8 t, int n, *int last, List<string>* out) 
             List_set<string>(&ln.pieces, 0, (string)String_cstr(&joined));
         }
     }
-    if (List_len<string>(&ln.pieces) == 0) { List_push<string>(&ln.pieces, fmt_sub(t, 0, n)); }
+    if (List_len<string>(&ln.pieces) == 0) {
+        List_push<string>(&ln.pieces, fmt_sub(t, 0, n));
+    }
     int k = 0;
-    while (k < List_len<string>(&ln.pieces)) { List_push<string>(out, List_get<string>(&ln.pieces, k)); k = k + 1; }
+    while (k < List_len<string>(&ln.pieces)) {
+        List_push<string>(out, List_get<string>(&ln.pieces, k));
+        k = k + 1;
+    }
 }
 
 // Reindent `src` (n bytes) and return the formatted text. Mirrors the C++ line split
@@ -515,7 +706,8 @@ String format_source(*uint8 src, int n) {
     // the string state at the `#if`, and a directive that leaves a `/*` open opens a
     // comment for the following lines. In a string opened inside a conditional (maybe a
     // branch that is not compiled) a `#` line keeps its bytes but counts as a directive.
-    List<int> condStr; List_init<int>(&condStr, 4);
+    List<int> condStr;
+    List_init<int>(&condStr, 4);
     int strSeen = 0;       // inStr was already set at the start of the previous line
     int strInCond = 0;     // the open string began inside a conditional
     let ppLine: String;    // the directive's logical line (continuations joined)
@@ -533,8 +725,12 @@ String format_source(*uint8 src, int n) {
     int sepNext = 0;       // the last line closed a top-level block
     int crlf = 0;
     int fnl = 0;
-    while (fnl < n && src[fnl] != 10) { fnl = fnl + 1; }
-    if (fnl < n && fnl > 0 && src[fnl - 1] == 13) { crlf = 1; }
+    while (fnl < n && src[fnl] != 10) {
+        fnl = fnl + 1;
+    }
+    if (fnl < n && fnl > 0 && src[fnl - 1] == 13) {
+        crlf = 1;
+    }
 
     let raw: String;       // one source line, `\r` stripped, not yet trimmed
     String_init(&raw, 128);
@@ -545,35 +741,56 @@ String format_source(*uint8 src, int n) {
     int done = 0;
     while (done == 0) {
         String_clear(&raw);
-        while (i < n && src[i] != 10) { String_push(&raw, (char)src[i]); i = i + 1; }
+        while (i < n && src[i] != 10) {
+            String_push(&raw, (char)src[i]);
+            i = i + 1;
+        }
         if (i < n) {                // consume the '\n', and a CRLF ending's '\r'
             i = i + 1;
             int rl = (int)String_len(&raw);
-            if (rl > 0 && (int)String_char_at(&raw, rl - 1) == 13) { raw.len = raw.len - 1; raw.data[raw.len] = 0; }
+            if (rl > 0 && (int)String_char_at(&raw, rl - 1) == 13) {
+                raw.len = raw.len - 1;
+                raw.data[raw.len] = 0;
+            }
         }
-        else { done = 1; }          // final remainder line: process it, then stop
+        else {          // final remainder line: process it, then stop
+            done = 1;
+        }
 
         int rlen = (int)String_len(&raw);
         *uint8 rb = (*uint8)String_cstr(&raw);
         int cont = prevCont;
         int shebang = 0;
-        if (firstLine == 1 && rlen >= 2 && rb[0] == 35 && rb[1] == 33) { shebang = 1; }
+        if (firstLine == 1 && rlen >= 2 && rb[0] == 35 && rb[1] == 33) {
+            shebang = 1;
+        }
         firstLine = 0;
         prevCont = 0;
-        if (rlen > 0 && rb[rlen - 1] == 92) { prevCont = 1; }
+        if (rlen > 0 && rb[rlen - 1] == 92) {
+            prevCont = 1;
+        }
         if (inStr == 1 && strSeen == 0) {
             strInCond = 0;
-            if (List_len<int>(&condStr) > 0) { strInCond = 1; }
+            if (List_len<int>(&condStr) > 0) {
+                strInCond = 1;
+            }
         }
         strSeen = inStr;
         int h0 = 0;
-        while (h0 < rlen && (rb[h0] == 32 || rb[h0] == 9)) { h0 = h0 + 1; }
+        while (h0 < rlen && (rb[h0] == 32 || rb[h0] == 9)) {
+            h0 = h0 + 1;
+        }
         int directive = 0;
-        if (inBlock == 0 && cont == 0 && (inStr == 0 || strInCond == 1) && h0 < rlen && rb[h0] == 35) { directive = 1; }
+        if (inBlock == 0 && cont == 0 && (inStr == 0 || strInCond == 1) && h0 < rlen && rb[h0] == 35) {
+            directive = 1;
+        }
 
         if (inBlock == 1) {         // verbatim until the comment closes
             int a = 0;
-            while (a < rlen) { String_push(&out, (char)rb[a]); a = a + 1; }
+            while (a < rlen) {
+                String_push(&out, (char)rb[a]);
+                a = a + 1;
+            }
             fmt_eol(&out, crlf);
             int b = 0;
             while (b + 1 < rlen) {
@@ -582,7 +799,9 @@ String format_source(*uint8 src, int n) {
                     fmt_scan(rb, rlen, b + 2, &depth, &inBlock, &inStr);   // code after the `*/` still nests
                     b = rlen;
                 }
-                else { b = b + 1; }
+                else {
+                    b = b + 1;
+                }
             }
             continue;
         }
@@ -592,61 +811,119 @@ String format_source(*uint8 src, int n) {
             int ve = rlen;
             if (inStr == 0) {
                 ve = fmt_rtrim(rb, 0, rlen);
-                if (ve > 0) { last = (int)rb[ve - 1]; }
+                if (ve > 0) {
+                    last = (int)rb[ve - 1];
+                }
                 int q = 0;                         // the string's closing quote
-                while (q < ve && rb[q] != 34) { if (rb[q] == 92 && q + 1 < ve) { q = q + 1; } q = q + 1; }
+                while (q < ve && rb[q] != 34) {
+                    if (rb[q] == 92 && q + 1 < ve) {
+                        q = q + 1;
+                    }
+                    q = q + 1;
+                }
                 fmt_count_brackets(&layout, rb, ve, q + 1);
             }
             int a = 0;
-            while (a < ve) { String_push(&out, (char)rb[a]); a = a + 1; }
+            while (a < ve) {
+                String_push(&out, (char)rb[a]);
+                a = a + 1;
+            }
             fmt_eol(&out, crlf);
             continue;
         }
 
         if (cont == 1) {            // a continuation line: bytes verbatim
             int a = 0;
-            while (a < rlen) { String_push(&out, (char)rb[a]); a = a + 1; }
+            while (a < rlen) {
+                String_push(&out, (char)rb[a]);
+                a = a + 1;
+            }
             fmt_eol(&out, crlf);
-            if (ppCont == 0) { fmt_scan(rb, rlen, 0, &depth, &inBlock, &inStr); }
+            if (ppCont == 0) {
+                fmt_scan(rb, rlen, 0, &depth, &inBlock, &inStr);
+            }
             else {
-                int a2 = 0; int ae = rlen; if (prevCont == 1) { ae = rlen - 1; }
-                while (a2 < ae) { String_push(&ppLine, (char)rb[a2]); a2 = a2 + 1; }
-                if (prevCont == 0) { inBlock = fmt_dir_opens((*uint8)String_cstr(&ppLine), (int)String_len(&ppLine)); }
+                int a2 = 0;
+                int ae = rlen;
+                if (prevCont == 1) {
+                    ae = rlen - 1;
+                }
+                while (a2 < ae) {
+                    String_push(&ppLine, (char)rb[a2]);
+                    a2 = a2 + 1;
+                }
+                if (prevCont == 0) {
+                    inBlock = fmt_dir_opens((*uint8)String_cstr(&ppLine), (int)String_len(&ppLine));
+                }
             }
             continue;
         }
 
         // drop leading spaces and tabs into `t` (trailing ones go after the scan)
         int ts = 0;
-        while (ts < rlen && (rb[ts] == 32 || rb[ts] == 9)) { ts = ts + 1; }
-        if (ts == rlen) { pendingBlank = pendingBlank + 1; continue; }
+        while (ts < rlen && (rb[ts] == 32 || rb[ts] == 9)) {
+            ts = ts + 1;
+        }
+        if (ts == rlen) {
+            pendingBlank = pendingBlank + 1;
+            continue;
+        }
         String_clear(&t);
         int cp = ts;
-        while (cp < rlen) { String_push(&t, (char)rb[cp]); cp = cp + 1; }
+        while (cp < rlen) {
+            String_push(&t, (char)rb[cp]);
+            cp = cp + 1;
+        }
         int tlen = (int)String_len(&t);
         *uint8 tb = (*uint8)String_cstr(&t);
 
         // A top-level definition is set apart from what follows it.
-        if (sepNext == 1 && pendingBlank == 0 && tb[0] != 125 && tb[0] != 35) { fmt_eol(&out, crlf); }
+        if (sepNext == 1 && pendingBlank == 0 && tb[0] != 125 && tb[0] != 35) {
+            fmt_eol(&out, crlf);
+        }
         sepNext = 0;
-        while (pendingBlank > 0) { fmt_eol(&out, crlf); pendingBlank = pendingBlank - 1; }   // keep every blank line
+        while (pendingBlank > 0) {   // keep every blank line
+            fmt_eol(&out, crlf);
+            pendingBlank = pendingBlank - 1;
+        }
 
         ppCont = 0;
-        if (tb[0] == 35) { ppCont = 1; }
+        if (tb[0] == 35) {
+            ppCont = 1;
+        }
         if (tb[0] == 35) {          // '#' preprocessor line: column 0, no nesting change
             int full = tlen;
             tlen = fmt_rtrim(tb, 0, tlen);
             int a = 0;
-            if (inStr == 1) { while (a < rlen) { String_push(&out, (char)rb[a]); a = a + 1; } }
-            else { while (a < tlen) { String_push(&out, (char)tb[a]); a = a + 1; } }
+            if (inStr == 1) {
+                while (a < rlen) {
+                    String_push(&out, (char)rb[a]);
+                    a = a + 1;
+                }
+            }
+            else {
+                while (a < tlen) {
+                    String_push(&out, (char)tb[a]);
+                    a = a + 1;
+                }
+            }
             fmt_eol(&out, crlf);
             int k2 = 1;
-            while (k2 < full && (tb[k2] == 32 || tb[k2] == 9)) { k2 = k2 + 1; }
+            while (k2 < full && (tb[k2] == 32 || tb[k2] == 9)) {
+                k2 = k2 + 1;
+            }
             int ks = k2;
             while (k2 < full && ((tb[k2] >= 97 && tb[k2] <= 122) || (tb[k2] >= 65 && tb[k2] <= 90)
-                                 || (tb[k2] >= 48 && tb[k2] <= 57) || tb[k2] == 95)) { k2 = k2 + 1; }
-            String kws; String_init(&kws, 8);
-            int q = ks; while (q < k2) { String_push(&kws, (char)tb[q]); q = q + 1; }
+                                 || (tb[k2] >= 48 && tb[k2] <= 57) || tb[k2] == 95)) {
+                k2 = k2 + 1;
+            }
+            String kws;
+            String_init(&kws, 8);
+            int q = ks;
+            while (q < k2) {
+                String_push(&kws, (char)tb[q]);
+                q = q + 1;
+            }
             string kw = (string)String_cstr(&kws);
             int nc = List_len<int>(&condStr);
             // Each branch, and the code after `#endif`, starts from the state at the `#if`.
@@ -666,8 +943,14 @@ String format_source(*uint8 src, int n) {
             }
             if (prevCont == 1) {
                 String_clear(&ppLine);
-                int a3 = 0; while (a3 < full - 1) { String_push(&ppLine, (char)tb[a3]); a3 = a3 + 1; }
-            } else if (shebang == 0) { inBlock = fmt_dir_opens(tb, full); }
+                int a3 = 0;
+                while (a3 < full - 1) {
+                    String_push(&ppLine, (char)tb[a3]);
+                    a3 = a3 + 1;
+                }
+            } else if (shebang == 0) {
+                inBlock = fmt_dir_opens(tb, full);
+            }
             continue;
         }
 
@@ -676,51 +959,94 @@ String format_source(*uint8 src, int n) {
         // indentation relative to the statement's first line, at least 4 more (an item
         // of a multi-line list after a `,` keeps its own). Mirrors the C++.
         int contLine = 0;
-        if (tb[0] != 125 && (layout.paren > 0 || (last != 0 && last != 59 && last != 123 && last != 125 && last != 58))) { contLine = 1; }
+        if (tb[0] != 125 && (layout.paren > 0 || (last != 0 && last != 59 && last != 123 && last != 125 && last != 58))) {
+            contLine = 1;
+        }
         int listItem = 0;
-        if (last == 44 && layout.paren == 0) { listItem = 1; }
+        if (last == 44 && layout.paren == 0) {
+            listItem = 1;
+        }
         let pieces: List<string>;
         List_init<string>(&pieces, 4);
         int has_nul = 0;
         int z = 0;
-        while (z < tlen) { if (tb[z] == 0) { has_nul = 1; } z = z + 1; }
-        if (has_nul == 0) { fmt_layout_line(&layout, tb, tlen, &last, &pieces); }
-        else { List_push<string>(&pieces, ""); }     // a NUL byte: the line is left alone
+        while (z < tlen) {
+            if (tb[z] == 0) {
+                has_nul = 1;
+            }
+            z = z + 1;
+        }
+        if (has_nul == 0) {
+            fmt_layout_line(&layout, tb, tlen, &last, &pieces);
+        }
+        else {     // a NUL byte: the line is left alone
+            List_push<string>(&pieces, "");
+        }
         int pi = 0;
         while (pi < List_len<string>(&pieces)) {
             *uint8 pb = (*uint8)List_get<string>(&pieces, pi);
             int plen = 0;
-            while (pb[plen] != 0) { plen = plen + 1; }
-            if (has_nul == 1) { pb = tb; plen = tlen; }
+            while (pb[plen] != 0) {
+                plen = plen + 1;
+            }
+            if (has_nul == 1) {
+                pb = tb;
+                plen = tlen;
+            }
             int ind = 0;
             if (pi == 0 && contLine == 1) {
                 int diff = ts - stmtOrig;
-                if (listItem == 1) { if (diff < 0) { diff = 0; } }
-                else { if (diff < 4) { diff = 4; } }
+                if (listItem == 1) {
+                    if (diff < 0) {
+                        diff = 0;
+                    }
+                }
+                else {
+                    if (diff < 4) {
+                        diff = 4;
+                    }
+                }
                 ind = stmtNew + diff;
             } else {
                 int lead = depth;          // a statement's indent dedents for each leading '}'
                 int k = 0;
                 while (k < plen) {
-                    if (pb[k] == 125) { lead = lead - 1; k = k + 1; }
-                    else { k = plen; }
+                    if (pb[k] == 125) {
+                        lead = lead - 1;
+                        k = k + 1;
+                    }
+                    else {
+                        k = plen;
+                    }
                 }
-                if (lead < 0) { lead = 0; }
+                if (lead < 0) {
+                    lead = 0;
+                }
                 ind = lead * 4;
                 stmtOrig = ts;
                 stmtNew = ind;
             }
             fmt_scan(pb, plen, 0, &depth, &inBlock, &inStr);   // update nesting from this piece's code
-            if (inStr == 0) { plen = fmt_rtrim(pb, 0, plen); }  // blanks inside an open string are its bytes
+            if (inStr == 0) {  // blanks inside an open string are its bytes
+                plen = fmt_rtrim(pb, 0, plen);
+            }
             int sp = 0;
-            while (sp < ind) { String_push(&out, (char)32); sp = sp + 1; }
+            while (sp < ind) {
+                String_push(&out, (char)32);
+                sp = sp + 1;
+            }
             int a = 0;
-            while (a < plen) { String_push(&out, (char)pb[a]); a = a + 1; }
+            while (a < plen) {
+                String_push(&out, (char)pb[a]);
+                a = a + 1;
+            }
             fmt_eol(&out, crlf);
             pi = pi + 1;
         }
         int np = List_len<string>(&pieces);
-        if (depth == 0 && List_get<string>(&pieces, np - 1)[0] == 125) { sepNext = 1; }
+        if (depth == 0 && List_get<string>(&pieces, np - 1)[0] == 125) {
+            sepNext = 1;
+        }
     }
     return out;
 }
