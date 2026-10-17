@@ -601,6 +601,9 @@ private:
     void emitAssignment(BinaryExpr* node);
     llvm::Value* emitBuiltinBinary(BinaryExpr* node, llvm::Value* left);
     llvm::Value* emitIntDivRem(llvm::Value* left, llvm::Value* right, bool uns, bool rem);
+    llvm::Value* safeArith(llvm::Intrinsic::ID id, llvm::Value* l, llvm::Value* r, bool uns);
+    void emitSafeTrap(llvm::Value* cond, const char* name);
+    llvm::Value* safeNonNull(llvm::Value* p);
     llvm::Value* maskShiftCount(llvm::Value* count);
     llvm::Value* emitFloatToInt(llvm::Value* val, llvm::Type* target, bool uns);
     void visit(UnaryExpr* node) override;

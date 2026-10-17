@@ -246,6 +246,40 @@ void CodeGen::emitAssignment(BinaryExpr* node) {
     exprValueStack.push(rhs);
 }
 
+// Under --safe, trap when the pointer about to be dereferenced is null.
+llvm::Value* CodeGen::safeNonNull(llvm::Value* p) {
+    if (!safe || !p->getType()->isPointerTy() || llvm::isa<llvm::AllocaInst>(p) || llvm::isa<llvm::GlobalValue>(p)) return p;
+    emitSafeTrap(builder->CreateIsNull(p), "null");
+    return p;
+}
+
+// Trap when `cond` holds (a --safe check).
+void CodeGen::emitSafeTrap(llvm::Value* cond, const char* name) {
+    llvm::Function* fn = builder->GetInsertBlock()->getParent();
+    auto* trapBB = llvm::BasicBlock::Create(*context, std::string(name) + ".fail", fn);
+    auto* contBB = llvm::BasicBlock::Create(*context, std::string(name) + ".ok", fn);
+    builder->CreateCondBr(cond, trapBB, contBB);
+    builder->SetInsertPoint(trapBB);
+    builder->CreateCall(llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::trap));
+    builder->CreateUnreachable();
+    builder->SetInsertPoint(contBB);
+}
+
+// A signed `+ - *`: wrapping by default; under --safe an overflow traps (as Zig's
+// ReleaseSafe and -fsanitize=signed-integer-overflow -fsanitize-trap). `id` is the
+// matching llvm.s*.with.overflow intrinsic.
+llvm::Value* CodeGen::safeArith(llvm::Intrinsic::ID id, llvm::Value* l, llvm::Value* r, bool uns) {
+    if (!safe || uns || !l->getType()->isIntegerTy() || l->getType()->getIntegerBitWidth() < 32) {
+        if (id == llvm::Intrinsic::sadd_with_overflow) return builder->CreateAdd(l, r);
+        if (id == llvm::Intrinsic::ssub_with_overflow) return builder->CreateSub(l, r);
+        return builder->CreateMul(l, r);
+    }
+    llvm::Function* f = llvm::Intrinsic::getOrInsertDeclaration(module.get(), id, {l->getType()});
+    llvm::Value* pr = builder->CreateCall(f, {l, r});
+    emitSafeTrap(builder->CreateExtractValue(pr, {1}), "overflow");
+    return builder->CreateExtractValue(pr, {0});
+}
+
 // Integer `/` and `%` with defined results: a zero divisor traps, and a signed
 // division of the minimum value by -1 wraps (the quotient is the minimum, the
 // remainder 0), as signed overflow wraps elsewhere. A constant divisor other than
@@ -427,7 +461,7 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
             widenForArith();
             result = left->getType()->isFloatingPointTy()
                 ? builder->CreateFAdd(left, right)
-                : builder->CreateAdd(left, right);
+                : safeArith(llvm::Intrinsic::sadd_with_overflow, left, right, opUnsigned);
         }
     } else if (node->op == "-") {
         if (left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
@@ -441,13 +475,13 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
             promoteToFloat(); widenForArith();
             result = left->getType()->isFloatingPointTy()
                 ? builder->CreateFSub(left, right)
-                : builder->CreateSub(left, right);
+                : safeArith(llvm::Intrinsic::ssub_with_overflow, left, right, opUnsigned);
         }
     } else if (node->op == "*") {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFMul(left, right)
-            : builder->CreateMul(left, right);
+            : safeArith(llvm::Intrinsic::smul_with_overflow, left, right, opUnsigned);
     } else if (node->op == "/") {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
@@ -714,7 +748,7 @@ void CodeGen::visit(UnaryExpr* node) {
             if (!elemStr.empty() && elemStr != "void")
                 elemType = getTypeFromString(elemStr);
         }
-        result = volLoad(builder->CreateLoad(elemType, val), node);
+        result = volLoad(builder->CreateLoad(elemType, safeNonNull(val)), node);
     } else {
         throw std::runtime_error("Unknown unary operator: " + node->op);
     }
@@ -817,7 +851,7 @@ llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx, bool 
     std::string baseType = getExprEskiuType(base);
     ty::Type bt = ty::Type::parse(baseType);
     if (baseType == "string")
-        return builder->CreateGEP(llvm::Type::getInt8Ty(*context), evaluateExpr(base), idx);
+        return builder->CreateGEP(llvm::Type::getInt8Ty(*context), safeNonNull(evaluateExpr(base)), idx);
     if (bt.kind == ty::Type::Kind::Array) {
         llvm::Value* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
         uint64_t n = 0;
@@ -834,7 +868,7 @@ llvm::Value* CodeGen::indexElemAddr(const ExprPtr& base, llvm::Value* idx, bool 
     if (isPointerType(baseType)) {
         std::string elemStr = (!baseType.empty() && baseType.front() == '*')
             ? baseType.substr(1) : baseType.substr(0, baseType.size() - 1);
-        return builder->CreateGEP(getTypeFromString(elemStr), evaluateExpr(base), idx);
+        return builder->CreateGEP(getTypeFromString(elemStr), safeNonNull(evaluateExpr(base)), idx);
     }
     throw std::runtime_error("Cannot index into type: " + baseType);
 }
@@ -981,7 +1015,7 @@ void CodeGen::visit(MemberExpr* node) {
     // A struct-valued rvalue base (a call result, `a + b`, a struct literal, a field of
     // one) has no address: evaluateAddress materializes it into a temporary to GEP.
     auto baseAddr = [&]() -> llvm::Value* {
-        if (baseIsPtr) return evaluateExpr(node->base);
+        if (baseIsPtr) return safeNonNull(evaluateExpr(node->base));
         return evaluateAddress(node->base);
     };
 
@@ -1095,7 +1129,7 @@ llvm::Value* CodeGen::bitfieldWordPtr(MemberExpr* m, const BitfieldSlot*& slotOu
     // stack slot instead of the pointee.
     std::string rawBaseTy = getExprEskiuType(m->base);
     bool baseIsPtr = (!rawBaseTy.empty() && (rawBaseTy.front() == '*' || rawBaseTy.back() == '*'));
-    llvm::Value* basePtr = baseIsPtr ? evaluateExpr(m->base) : evaluateLValue(m->base);
+    llvm::Value* basePtr = baseIsPtr ? safeNonNull(evaluateExpr(m->base)) : evaluateLValue(m->base);
     return layoutFieldAddr(baseType, basePtr, slot);
 }
 
@@ -1325,7 +1359,7 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
     if (auto unary = dynamic_cast<UnaryExpr*>(expr.get())) {
         if (unary->op == "*") {
             // evaluateExpr gives us the pointer value; that IS the lvalue address
-            return evaluateExpr(unary->operand);
+            return safeNonNull(evaluateExpr(unary->operand));
         }
     }
 
@@ -1336,7 +1370,7 @@ llvm::Value* CodeGen::evaluateLValue(const ExprPtr& expr) {
         // whereas a value-struct base uses its *address* (evaluateLValue).
         bool baseIsPtr = (!baseType.empty() && (baseType.front() == '*' || baseType.back() == '*'));
         auto baseAddr = [&]() -> llvm::Value* {
-            return baseIsPtr ? evaluateExpr(member->base) : evaluateLValue(member->base);
+            return baseIsPtr ? safeNonNull(evaluateExpr(member->base)) : evaluateLValue(member->base);
         };
         baseType = stripToStructKey(baseType);
         auto fit = structFields.find(baseType);
