@@ -497,7 +497,7 @@ enum ExprKind {
 // printer's label (INT/FLOAT/STRING/CHAR/BOOL/NULL).
 enum LitKind { LIT_INT, LIT_FLOAT, LIT_STRING, LIT_CHAR, LIT_BOOL, LIT_NULL }
 
-struct Param { string ty; string name; }
+struct Param { string ty; string name; int line; int col; }   // line/col: a function parameter's name (else 0)
 
 struct ExprNode {
     int kind;

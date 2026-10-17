@@ -2021,10 +2021,12 @@ void check_name_not_keyword(Parser* p) {
         p_adv(p);                          // 'catch'
         p_expect(p, LPAREN, "Expected '('");
         string cty = parse_type(p);
-        string cnm = tok_text(p.src, p_expect_ident(p, "Expected variable name in catch"));   // exception variable name
+        Token cnt = p_expect_ident(p, "Expected variable name in catch");
+        string cnm = tok_text(p.src, cnt);   // exception variable name
         p_expect(p, RPAREN, "Expected ')'");
         *StmtNode cat = ast_new_stmt();
         cat.kind = SK_CATCH;
+        cat.line = cnt.line; cat.col = cnt.col;
         cat.name = str_concat(str_concat(cty, " "), cnm);
         cat.s1 = parse_block(p);
         List_push<*StmtNode>(&s.items, cat);
@@ -2243,8 +2245,8 @@ void parse_params(Parser* p, *DeclNode d) {
     if (p_at(p) != RPAREN) {
         while (1 == 1) {
             if (p_at(p) == ELLIPSIS) {
-                p_adv(p);
-                let pm: Param; pm.ty = "..."; pm.name = "...";
+                Token et = p_adv(p);
+                let pm: Param; pm.ty = "..."; pm.name = "..."; pm.line = et.line; pm.col = et.col;
                 List_push<Param>(&d.params, pm);
                 List_push<int>(&d.param_escaping, 0);
                 break;                     // variadic must be last
@@ -2253,7 +2255,9 @@ void parse_params(Parser* p, *DeclNode d) {
             if (p_at(p) == ESCAPING) { p_adv(p); esc = 1; }
             let pm: Param;
             pm.ty = parse_type(p);
-            pm.name = tok_text(p.src, p_expect_ident(p, "Expected parameter name"));
+            Token pnt = p_expect_ident(p, "Expected parameter name");
+            pm.name = tok_text(p.src, pnt);
+            pm.line = pnt.line; pm.col = pnt.col;
             List_push<Param>(&d.params, pm);
             List_push<int>(&d.param_escaping, esc);
             *ExprNode def = null;
