@@ -87,6 +87,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   instead of left over stack contents, and two equal values have equal bytes.
 - The self-hosted compiler looks names up through hash indexes: it was quadratic in the
   number of declarations (4000 structs and functions took 15 s to compile, now 0.3 s).
+- Both compilers look a struct's fields up through a hash index: a member access scanned
+  every field, so a struct of 8000 fields used throughout a function took 6.5 s (C++) to
+  compile, now 2.4 s, and the self-host's duplicate-field check was quadratic in the
+  field count (16000 fields: 1.3 s, now 0.55 s).
 - The self-hosted compiler accepts a top-level function named after a generic
   instance (`int Ctr_int_next(*Ctr<int> self)`) as that instance's interface method, as
   the C++ compiler does.
