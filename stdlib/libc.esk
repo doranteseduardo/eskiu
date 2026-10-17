@@ -24,56 +24,58 @@ import <io>;
 import <math>;
 
 // ── string.h ─────────────────────────────────────────────────────────────────
-extern *char  strcpy(*char dst, string src);
-extern *char  strncpy(*char dst, string src, int64 n);
-extern *char  strcat(*char dst, string src);
-extern *char  strncat(*char dst, string src, int64 n);
-extern *char  strrchr(string s, int c);
-extern *char  strpbrk(string s, string accept);
-extern int64  strspn(string s, string accept);
-extern int64  strcspn(string s, string reject);
+extern *char strcpy(*char dst, string src);
+extern *char strncpy(*char dst, string src, int64 n);
+extern *char strcat(*char dst, string src);
+extern *char strncat(*char dst, string src, int64 n);
+extern *char strrchr(string s, int c);
+extern *char strpbrk(string s, string accept);
+extern int64 strspn(string s, string accept);
+extern int64 strcspn(string s, string reject);
 extern string strerror(int e);
 #ifdef _WIN32
-extern *char  _strdup(string s);
-*char strdup(string s) { return _strdup(s); }
+extern *char _strdup(string s);
+*char strdup(string s) {
+    return _strdup(s);
+}
 #else
-extern *char  strdup(string s);
-extern int    strcasecmp(string a, string b);
-extern int    strncasecmp(string a, string b, int64 n);
+extern *char strdup(string s);
+extern int strcasecmp(string a, string b);
+extern int strncasecmp(string a, string b, int64 n);
 #endif
 
 // ── stdlib.h ─────────────────────────────────────────────────────────────────
-extern *void  malloc(int64 n);
-extern *void  realloc(*void p, int64 n);
-extern int    atoi(string s);
-extern int64  atoll(string s);
+extern *void malloc(int64 n);
+extern *void realloc(*void p, int64 n);
+extern int atoi(string s);
+extern int64 atoll(string s);
 extern double atof(string s);
-extern int64  strtoll(string s, *string end, int base);
+extern int64 strtoll(string s, *string end, int base);
 extern uint64 strtoull(string s, *string end, int base);
 extern double strtod(string s, *string end);
-extern int64  llabs(int64 x);
-extern int    rand();
-extern void   srand(uint32 seed);
-extern void   exit(int code);
-extern void   abort();
-extern int    system(string command);
-extern int    atexit(fn()->void f);
-extern void   qsort(*void base, int64 n, int64 size, fn(*void, *void)->int cmp);
-extern *void  bsearch(*void key, *void base, int64 n, int64 size, fn(*void, *void)->int cmp);
+extern int64 llabs(int64 x);
+extern int rand();
+extern void srand(uint32 seed);
+extern void exit(int code);
+extern void abort();
+extern int system(string command);
+extern int atexit(fn()->void f);
+extern void qsort(*void base, int64 n, int64 size, fn(*void, *void)->int cmp);
+extern *void bsearch(*void key, *void base, int64 n, int64 size, fn(*void, *void)->int cmp);
 
 // ── stdio.h ──────────────────────────────────────────────────────────────────
-extern int    snprintf(*char buf, int64 n, string fmt, ...);
-extern int    vsnprintf(*char buf, int64 n, string fmt, va_list ap);
-extern int    sscanf(string s, string fmt, ...);
-extern *void  fopen(string path, string mode);
-extern int    fclose(*void fp);
+extern int snprintf(*char buf, int64 n, string fmt, ...);
+extern int vsnprintf(*char buf, int64 n, string fmt, va_list ap);
+extern int sscanf(string s, string fmt, ...);
+extern *void fopen(string path, string mode);
+extern int fclose(*void fp);
 extern *uint8 fgets(*uint8 buf, int n, *void fp);
-extern int    fputc(int c, *void fp);
-extern int    feof(*void fp);
-extern int    ferror(*void fp);
-extern void   perror(string s);
-extern int    remove(string path);
-extern int    rename(string from, string to);
+extern int fputc(int c, *void fp);
+extern int feof(*void fp);
+extern int ferror(*void fp);
+extern void perror(string s);
+extern int remove(string path);
+extern int rename(string from, string to);
 
 // ── ctype.h ──────────────────────────────────────────────────────────────────
 extern int isalpha(int c);
@@ -111,40 +113,55 @@ extern double trunc(double x);
 extern double fmin(double a, double b);
 extern double fmax(double a, double b);
 extern double copysign(double x, double y);
-extern float  sqrtf(float x);
-extern float  fabsf(float x);
-extern float  powf(float base, float exp);
-extern float  floorf(float x);
-extern float  ceilf(float x);
-extern float  roundf(float x);
-extern float  sinf(float x);
-extern float  cosf(float x);
-extern float  tanf(float x);
-extern float  atan2f(float y, float x);
-extern float  expf(float x);
-extern float  logf(float x);
+extern float sqrtf(float x);
+extern float fabsf(float x);
+extern float powf(float base, float exp);
+extern float floorf(float x);
+extern float ceilf(float x);
+extern float roundf(float x);
+extern float sinf(float x);
+extern float cosf(float x);
+extern float tanf(float x);
+extern float atan2f(float y, float x);
+extern float expf(float x);
+extern float logf(float x);
 const double LIBC_PI = 3.14159265358979323846;
 const double LIBC_E = 2.71828182845904523536;
 
 // ── time.h, signal.h ─────────────────────────────────────────────────────────
 extern int64 time(*int64 t);
-extern int   raise(int sig);
+extern int raise(int sig);
 
 // ── errno ────────────────────────────────────────────────────────────────────
 // The calling thread's errno, read and set through the C library's per-thread cell.
 #ifdef _WIN32
 extern *int _errno();
-int  libc_errno() { return *_errno(); }
-void libc_set_errno(int e) { *_errno() = e; }
+int libc_errno() {
+    return *_errno();
+}
+
+void libc_set_errno(int e) {
+    *_errno() = e;
+}
 #else
 #ifdef __APPLE__
 extern *int __error();
-int  libc_errno() { return *__error(); }
-void libc_set_errno(int e) { *__error() = e; }
+int libc_errno() {
+    return *__error();
+}
+
+void libc_set_errno(int e) {
+    *__error() = e;
+}
 #else
 extern *int __errno_location();
-int  libc_errno() { return *__errno_location(); }
-void libc_set_errno(int e) { *__errno_location() = e; }
+int libc_errno() {
+    return *__errno_location();
+}
+
+void libc_set_errno(int e) {
+    *__errno_location() = e;
+}
 #endif
 #endif
 const int LIBC_EPERM = 1;
@@ -170,18 +187,18 @@ const int LIBC_ERANGE = 34;
 
 // ── unistd.h (POSIX) ─────────────────────────────────────────────────────────
 #ifndef _WIN32
-extern int    getpid();
-extern int    getppid();
-extern int    close(int fd);
-extern int64  read(int fd, *void buf, int64 n);
-extern int64  write(int fd, *void buf, int64 n);
-extern int    isatty(int fd);
-extern int    dup2(int from, int to);
-extern int    chdir(string path);
-extern *char  getcwd(*char buf, int64 size);
-extern int    unlink(string path);
-extern int    access(string path, int mode);
+extern int getpid();
+extern int getppid();
+extern int close(int fd);
+extern int64 read(int fd, *void buf, int64 n);
+extern int64 write(int fd, *void buf, int64 n);
+extern int isatty(int fd);
+extern int dup2(int from, int to);
+extern int chdir(string path);
+extern *char getcwd(*char buf, int64 size);
+extern int unlink(string path);
+extern int access(string path, int mode);
 extern uint32 sleep(uint32 seconds);
-extern int    usleep(uint32 microseconds);
-extern *void  signal(int sig, *void handler);
+extern int usleep(uint32 microseconds);
+extern *void signal(int sig, *void handler);
 #endif

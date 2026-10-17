@@ -17,16 +17,16 @@ import <atomic>;
 
 // Type-erased view of the first three fields — same offsets for any Future<T>.
 struct FutureHdr {
-    int        state;
+    int state;
     fn()->void waker;
     fn()->void on_drop;
 }
 
 struct Future<T> {
-    int        state;
+    int state;
     fn()->void waker;
     fn()->void on_drop;
-    T          value;
+    T value;
 }
 
 // State constants — the locked compiler↔generated-code contract. The async
@@ -35,18 +35,18 @@ struct Future<T> {
 // these names just make the handshake below readable. Note: a `Future_poll`
 // return of 0/1 (parked / already-ready) and a `select`/`join` completion value
 // (winner index / count) are NOT states — they stay as literals.
-const int PENDING   = 0;
-const int WAITING   = 1;
-const int READY     = 2;
+const int PENDING = 0;
+const int WAITING = 1;
+const int READY = 2;
 const int CANCELLED = 3;
 // A coroutine future whose drop-time cleanup suspends (an `await` in a pending defer or
 // finally) outlives Future_drop. Its on_drop sets DETACHED before the cleanup starts;
 // Future_drop then hands the frame over (ORPHANED) instead of freeing it, and the cleanup
 // frees the frame when it ends. A cleanup that ends while Future_drop is still running
 // sets CLEANED, and Future_drop frees the frame as usual.
-const int DETACHED  = 4;
-const int ORPHANED  = 5;
-const int CLEANED   = 6;
+const int DETACHED = 4;
+const int ORPHANED = 5;
+const int CLEANED = 6;
 
 // Releases an exception object that was allocated but never thrown: the async lowering
 // keeps a copy of an exception while an awaiting finally runs, and frees the copy when
@@ -60,7 +60,7 @@ Future<T>* future_new<T>() {
     f.state = PENDING;
     // waker/on_drop default to no-ops (null env) so Future_free/Future_drop can
     // always free_closure them safely, even if no one sets them.
-    f.waker   = void() {};
+    f.waker = void() {};
     f.on_drop = void() {};
     return f;
 }
@@ -88,8 +88,12 @@ int Future_poll<T>(Future<T>* f, escaping fn()->void resume) {
 // parked (state was WAITING).
 void Future_complete<T>(Future<T>* f, T v) {
     f.value = v;
-    if (atomic_cas(&f.state, PENDING, READY)) { return; }   // PENDING -> READY (awaiter not parked yet)
-    if (atomic_cas(&f.state, WAITING, READY)) { f.waker(); } // WAITING -> READY: wake the awaiter
+    if (atomic_cas(&f.state, PENDING, READY)) {   // PENDING -> READY (awaiter not parked yet)
+        return;
+    }
+    if (atomic_cas(&f.state, WAITING, READY)) { // WAITING -> READY: wake the awaiter
+        f.waker();
+    }
     // else: already terminal -> ignore (drop/cancel won the race)
 }
 
@@ -105,14 +109,18 @@ void Future_complete<T>(Future<T>* f, T v) {
 void _spawn_hdr(FutureHdr* f) {
     let reap: fn()->void = void() {
         let self: fn()->void = f.waker;       // this closure (f.waker == this)
-        free_closure(f.on_drop);  free((*void)f);   // == Future_free, type-agnostic
+        free_closure(f.on_drop);   // == Future_free, type-agnostic
+        free((*void)f);
         free_closure(self);                   // free this closure's env (last act)
     };
     f.waker = reap;
-    if (atomic_cas(&f.state, PENDING, WAITING)) { return; }      // PENDING -> WAITING: parked
+    if (atomic_cas(&f.state, PENDING, WAITING)) {      // PENDING -> WAITING: parked
+        return;
+    }
     // Already terminal (READY): the waker never fires — free it and the future now.
     free_closure(reap);
-    free_closure(f.on_drop);  free((*void)f);
+    free_closure(f.on_drop);
+    free((*void)f);
 }
 
 // _select2_hdr: complete with the index (0 or 1) of whichever of `a`/`b` finishes
@@ -155,7 +163,10 @@ Future<int>* _select2_hdr(FutureHdr* a, FutureHdr* b) {
     // both inputs (their wakers onA/onB are freed by Future_drop), so a later
     // completion can never reach the freed `sel`.
     free_closure(sel.on_drop);
-    sel.on_drop = void() { Future_drop(a); Future_drop(b); };
+    sel.on_drop = void() {
+        Future_drop(a);
+        Future_drop(b);
+    };
     return sel;
 }
 
@@ -173,26 +184,48 @@ Future<int>* _join2_hdr(FutureHdr* a, FutureHdr* b) {
         let self: fn()->void = a.waker;
         a.waker = void() {};
         (*cnt)++;
-        if (*cnt == 2) { free((*void)cnt); Future_complete<int>(j, 2); }
+        if (*cnt == 2) {
+            free((*void)cnt);
+            Future_complete<int>(j, 2);
+        }
         free_closure(self);
     };
     let onB: fn()->void = void() {
         let self: fn()->void = b.waker;
         b.waker = void() {};
         (*cnt)++;
-        if (*cnt == 2) { free((*void)cnt); Future_complete<int>(j, 2); }
+        if (*cnt == 2) {
+            free((*void)cnt);
+            Future_complete<int>(j, 2);
+        }
         free_closure(self);
     };
     a.waker = onA;
-    if (!atomic_cas(&a.state, PENDING, WAITING)) { (*cnt)++; free_closure(onA); a.waker = void() {}; }  // a already done
+    if (!atomic_cas(&a.state, PENDING, WAITING)) {  // a already done
+        (*cnt)++;
+        free_closure(onA);
+        a.waker = void() {};
+    }
     b.waker = onB;
-    if (!atomic_cas(&b.state, PENDING, WAITING)) { (*cnt)++; free_closure(onB); b.waker = void() {}; }  // b already done
-    if (*cnt == 2) { free((*void)cnt); Future_complete<int>(j, 2); return j; }   // both already done
+    if (!atomic_cas(&b.state, PENDING, WAITING)) {  // b already done
+        (*cnt)++;
+        free_closure(onB);
+        b.waker = void() {};
+    }
+    if (*cnt == 2) {   // both already done
+        free((*void)cnt);
+        Future_complete<int>(j, 2);
+        return j;
+    }
     // Dropping `j` before both finish cascades: the counter and both inputs are
     // released (a pending input is cancelled, a finished one just freed), since
     // the cancelled awaiter will not free them.
     free_closure(j.on_drop);
-    j.on_drop = void() { free((*void)cnt); Future_drop(a); Future_drop(b); };
+    j.on_drop = void() {
+        free((*void)cnt);
+        Future_drop(a);
+        Future_drop(b);
+    };
     return j;
 }
 
@@ -219,14 +252,18 @@ void Future_free_polled<T>(Future<T>* f) {
 // A coroutine whose cleanup suspended (it set DETACHED) keeps its frame: the cleanup
 // frees it when it ends. Dropping it again while that cleanup runs is a no-op.
 void Future_drop(FutureHdr* f) {
-    if (atomic_load(&f.state) >= DETACHED) { return; }   // already dropped, cleanup still running
+    if (atomic_load(&f.state) >= DETACHED) {   // already dropped, cleanup still running
+        return;
+    }
     int old = atomic_swap(&f.state, CANCELLED);  // -> CANCELLED
     if (old != READY) {                      // not already READY: release resources + cascade
         f.on_drop();                     // (must NOT free f — Future_drop owns the free)
     }
     free_closure(f.waker);               // a parked awaiter's resume will never fire now
     free_closure(f.on_drop);             // free the on_drop env (it has returned)
-    if (atomic_cas(&f.state, DETACHED, ORPHANED)) { return; }   // the cleanup frees the frame
+    if (atomic_cas(&f.state, DETACHED, ORPHANED)) {   // the cleanup frees the frame
+        return;
+    }
     free((*void)f);
 }
 
@@ -240,7 +277,9 @@ void Future_drop(FutureHdr* f) {
 
 // spawn<T>: detach a typed future as a fire-and-forget task.
 //   spawn(task);            // T inferred
-void spawn<T>(Future<T>* f) { _spawn_hdr((FutureHdr*)f); }
+void spawn<T>(Future<T>* f) {
+    _spawn_hdr((FutureHdr*)f);
+}
 
 // select2<A,B>: await the first of two futures; the loser is dropped. Completes
 // with the winner's index (0 or 1). The awaiter reads the winner's typed value

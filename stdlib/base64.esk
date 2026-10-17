@@ -8,19 +8,35 @@
 
 // 6-bit value of a Base64 character, or -1 if it is not a Base64 digit.
 int base64_value(uint8 c) {
-    if (c >= 'A' && c <= 'Z') { return (int)c - 'A'; }        // 0..25
-    if (c >= 'a' && c <= 'z') { return (int)c - 'a' + 26; }   // 26..51
-    if (c >= '0' && c <= '9') { return (int)c - '0' + 52; }   // 52..61
-    if (c == '+') { return 62; }
-    if (c == '/') { return 63; }
+    if (c >= 'A' && c <= 'Z') {        // 0..25
+        return (int)c - 'A';
+    }
+    if (c >= 'a' && c <= 'z') {   // 26..51
+        return (int)c - 'a' + 26;
+    }
+    if (c >= '0' && c <= '9') {   // 52..61
+        return (int)c - '0' + 52;
+    }
+    if (c == '+') {
+        return 62;
+    }
+    if (c == '/') {
+        return 63;
+    }
     return -1;
 }
 
 // The 'digit'-th Base64 character.
 uint8 base64_digit(int v) {
-    if (v < 26) { return (uint8)('A' + v); }
-    if (v < 52) { return (uint8)('a' + v - 26); }
-    if (v < 62) { return (uint8)('0' + v - 52); }
+    if (v < 26) {
+        return (uint8)('A' + v);
+    }
+    if (v < 52) {
+        return (uint8)('a' + v - 26);
+    }
+    if (v < 62) {
+        return (uint8)('0' + v - 52);
+    }
     return v == 62 ? '+' : '/';
 }
 
@@ -44,7 +60,7 @@ int base64_encode(*uint8 src, int n, *uint8 out) {
         const int b0 = (int)src[i];
         const int b1 = (int)src[i + 1];
         const int b2 = (int)src[i + 2];
-        out[o]     = base64_digit(b0 >> 2);
+        out[o] = base64_digit(b0 >> 2);
         out[o + 1] = base64_digit(((b0 & 3) << 4) | (b1 >> 4));
         out[o + 2] = base64_digit(((b1 & 15) << 2) | (b2 >> 6));
         out[o + 3] = base64_digit(b2 & 63);
@@ -55,7 +71,7 @@ int base64_encode(*uint8 src, int n, *uint8 out) {
         // One or two bytes left: emit their digits, then '=' up to a full group.
         const int b0 = (int)src[i];
         const int b1 = rem == 2 ? (int)src[i + 1] : 0;
-        out[o]     = base64_digit(b0 >> 2);
+        out[o] = base64_digit(b0 >> 2);
         out[o + 1] = base64_digit(((b0 & 3) << 4) | (b1 >> 4));
         out[o + 2] = rem == 2 ? base64_digit((b1 & 15) << 2) : '=';
         out[o + 3] = '=';
@@ -72,28 +88,43 @@ int base64_encode(*uint8 src, int n, *uint8 out) {
 // sign of a truncated input). Unpadded input is accepted. Whitespace is ignored.
 // out must hold base64_decoded_len(n) bytes.
 int base64_decode(*uint8 src, int n, *uint8 out) {
-    int acc  = 0;   // bit accumulator
+    int acc = 0;   // bit accumulator
     int bits = 0;   // bits currently in acc
-    int o    = 0;
+    int o = 0;
     int data = 0;   // Base64 digits seen
-    int pad  = 0;   // '=' seen (only trailing padding is valid)
+    int pad = 0;   // '=' seen (only trailing padding is valid)
     for (i in 0..n) {
         const uint8 c = src[i];
-        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') { continue; }
-        if (c == '=') { pad++; continue; }
-        if (pad > 0) { return -1; }                                 // data after padding
+        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+            continue;
+        }
+        if (c == '=') {
+            pad++;
+            continue;
+        }
+        if (pad > 0) {                                 // data after padding
+            return -1;
+        }
         const int v = base64_value(c);
-        if (v < 0) { return -1; }
+        if (v < 0) {
+            return -1;
+        }
         data++;
-        acc  = ((acc << 6) | v) & 16777215;
+        acc = ((acc << 6) | v) & 16777215;
         bits += 6;
         if (bits >= 8) {
             bits -= 8;
             out[o++] = (uint8)((acc >> bits) & 255);
         }
     }
-    if (data % 4 == 1) { return -1; }                               // truncated: a lone 6-bit digit
-    if (pad > 2) { return -1; }
-    if (pad > 0 && (data + pad) % 4 != 0) { return -1; }            // padding must complete the group
+    if (data % 4 == 1) {                               // truncated: a lone 6-bit digit
+        return -1;
+    }
+    if (pad > 2) {
+        return -1;
+    }
+    if (pad > 0 && (data + pad) % 4 != 0) {            // padding must complete the group
+        return -1;
+    }
     return o;
 }

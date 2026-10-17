@@ -19,32 +19,45 @@ import <base64>;
 
 struct Bytes {
     *uint8 data;
-    int64  len;
-    int64  cap;     // owned capacity; 0 == non-owning view (see Bytes_slice)
+    int64 len;
+    int64 cap;     // owned capacity; 0 == non-owning view (see Bytes_slice)
 }
 
 void Bytes_init(Bytes* self, int64 cap) {
-    if (cap < 8) { cap = 8; }
+    if (cap < 8) {
+        cap = 8;
+    }
     self.data = alloc<uint8>(cap);
-    self.len  = 0;
-    self.cap  = cap;
+    self.len = 0;
+    self.cap = cap;
     self.data[0] = 0;
 }
 
 void Bytes_free(Bytes* self) {
-    if (self.cap > 0 && self.data != null) { free((*void)self.data); }
-    self.data = null;  self.len = 0;  self.cap = 0;
+    if (self.cap > 0 && self.data != null) {
+        free((*void)self.data);
+    }
+    self.data = null;
+    self.len = 0;
+    self.cap = 0;
 }
 
 // Ensure room for `extra` more bytes plus the trailing NUL.
 void Bytes_reserve(Bytes* self, int64 extra) {
     const int64 need = self.len + extra + 1;
-    if (need <= self.cap) { return; }
+    if (need <= self.cap) {
+        return;
+    }
     const int64 nc = self.cap * 2 < need ? need : self.cap * 2;
     *uint8 nb = alloc<uint8>(nc);
-    if (self.len > 0) { memcpy((*void)nb, (*void)self.data, self.len); }
-    if (self.cap > 0 && self.data != null) { free((*void)self.data); }
-    self.data = nb;  self.cap = nc;
+    if (self.len > 0) {
+        memcpy((*void)nb, (*void)self.data, self.len);
+    }
+    if (self.cap > 0 && self.data != null) {
+        free((*void)self.data);
+    }
+    self.data = nb;
+    self.cap = nc;
 }
 
 void Bytes_push(Bytes* self, uint8 b) {
@@ -55,13 +68,17 @@ void Bytes_push(Bytes* self, uint8 b) {
 }
 
 void Bytes_append_raw(Bytes* self, *uint8 src, int64 n) {
-    if (n <= 0) { return; }
+    if (n <= 0) {
+        return;
+    }
     // `src` may point into our own buffer (Bytes_append(&b, &b)); growing frees
     // it, so re-derive the pointer from its offset after the reserve.
     const int64 so = (int64)src - (int64)self.data;
     const bool inside = self.data != null && so >= 0 && so < self.len;
     self.reserve(n);
-    if (inside) { src = self.data + so; }
+    if (inside) {
+        src = self.data + so;
+    }
     memmove((*void)(self.data + self.len), (*void)src, n);
     self.len += n;
     self.data[self.len] = 0;
@@ -77,9 +94,13 @@ void Bytes_from_str(Bytes* self, string s) {
 }
 
 int Bytes_eq(Bytes* a, Bytes* b) {
-    if (a.len != b.len) { return 0; }
+    if (a.len != b.len) {
+        return 0;
+    }
     for (int64 i = 0; i < a.len; i++) {
-        if (a.data[i] != b.data[i]) { return 0; }
+        if (a.data[i] != b.data[i]) {
+            return 0;
+        }
     }
     return 1;
 }
@@ -89,13 +110,15 @@ int Bytes_eq(Bytes* a, Bytes* b) {
 Bytes Bytes_slice(Bytes* self, int64 start, int64 n) {
     let v: Bytes;
     v.data = self.data + start;
-    v.len  = n;
-    v.cap  = 0;                 // view → Bytes_free is a no-op
+    v.len = n;
+    v.cap = 0;                 // view → Bytes_free is a no-op
     return v;
 }
 
 // The buffer as a C string (valid when the data has no embedded NUL).
-*char Bytes_cstr(Bytes* self) { return (*char)self.data; }
+*char Bytes_cstr(Bytes* self) {
+    return (*char)self.data;
+}
 
 // ── base64 convenience (the common reason you hold raw bytes) ──────────────────
 
@@ -105,7 +128,9 @@ Bytes Bytes_from_base64(string s) {
     const int n = strlen(s);
     out.init((int64)(base64_decoded_len(n) + 1));
     int got = base64_decode((*uint8)s, n, out.data);
-    if (got < 0) { got = 0; }
+    if (got < 0) {
+        got = 0;
+    }
     out.len = (int64)got;
     out.data[out.len] = 0;
     return out;

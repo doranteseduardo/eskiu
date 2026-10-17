@@ -23,19 +23,19 @@ import <mem>;
 import <future>;
 
 struct Chan<T> {
-    *T          buf;       // ring buffer (capacity `cap`)
-    int         cap;
-    int         head;      // index of the oldest buffered item
-    int         count;     // items currently buffered
-    Future<T>*  waiter;    // a parked receiver's future, or null
+    *T buf;       // ring buffer (capacity `cap`)
+    int cap;
+    int head;      // index of the oldest buffered item
+    int count;     // items currently buffered
+    Future<T>* waiter;    // a parked receiver's future, or null
 }
 
 Chan<T>* chan_new<T>(int cap) {
     Chan<T>* ch = alloc<Chan<T>>(1);
-    ch.buf    = alloc<T>(cap);
-    ch.cap    = cap;
-    ch.head   = 0;
-    ch.count  = 0;
+    ch.buf = alloc<T>(cap);
+    ch.cap = cap;
+    ch.head = 0;
+    ch.count = 0;
     ch.waiter = null;
     return ch;
 }
@@ -49,9 +49,13 @@ bool Chan_send<T>(Chan<T>* ch, T v) {
         Future_complete<T>(w, v);           // awaiter that immediately recvs again
         return true;
     }
-    if (ch.count >= ch.cap) { return false; }       // full, no receiver
+    if (ch.count >= ch.cap) {       // full, no receiver
+        return false;
+    }
     int tail = ch.head + ch.count;
-    if (tail >= ch.cap) { tail = tail - ch.cap; }
+    if (tail >= ch.cap) {
+        tail = tail - ch.cap;
+    }
     ch.buf[tail] = v;
     ch.count++;
     return true;
@@ -66,14 +70,20 @@ Future<T>* Chan_recv<T>(Chan<T>* ch) {
     if (ch.count > 0) {
         T v = ch.buf[ch.head];
         ch.head++;
-        if (ch.head >= ch.cap) { ch.head = 0; }
+        if (ch.head >= ch.cap) {
+            ch.head = 0;
+        }
         ch.count--;
         Future_complete<T>(f, v);           // ready immediately (fast path)
     } else {
         ch.waiter = f;                      // park; a future Chan_send hands off
         // Cancel path (e.g. the losing side of a select2 timeout): unpark, so a
         // later Chan_send buffers its value instead of completing freed memory.
-        f.on_drop = void() { if (ch.waiter == f) { ch.waiter = null; } };
+        f.on_drop = void() {
+            if (ch.waiter == f) {
+                ch.waiter = null;
+            }
+        };
     }
     return f;
 }

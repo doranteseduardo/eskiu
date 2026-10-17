@@ -34,42 +34,42 @@ extern int WSAStartup(int version, *void data);
 // Windows the other way round, and Windows' ai_addrlen is a size_t.
 #ifdef __linux__
 struct _dns_addrinfo {
-    int    ai_flags;
-    int    ai_family;
-    int    ai_socktype;
-    int    ai_protocol;
+    int ai_flags;
+    int ai_family;
+    int ai_socktype;
+    int ai_protocol;
     uint32 ai_addrlen;
-    *void  ai_addr;
+    *void ai_addr;
     string ai_canonname;
     *_dns_addrinfo ai_next;
 }
 #else
 #ifdef _WIN32
 struct _dns_addrinfo {
-    int    ai_flags;
-    int    ai_family;
-    int    ai_socktype;
-    int    ai_protocol;
-    int64  ai_addrlen;
+    int ai_flags;
+    int ai_family;
+    int ai_socktype;
+    int ai_protocol;
+    int64 ai_addrlen;
     string ai_canonname;
-    *void  ai_addr;
+    *void ai_addr;
     *_dns_addrinfo ai_next;
 }
 #else
 struct _dns_addrinfo {
-    int    ai_flags;
-    int    ai_family;
-    int    ai_socktype;
-    int    ai_protocol;
+    int ai_flags;
+    int ai_family;
+    int ai_socktype;
+    int ai_protocol;
     uint32 ai_addrlen;
     string ai_canonname;
-    *void  ai_addr;
+    *void ai_addr;
     *_dns_addrinfo ai_next;
 }
 #endif
 #endif
 
-extern int  getaddrinfo(string node, string service, *_dns_addrinfo hints, **_dns_addrinfo res);
+extern int getaddrinfo(string node, string service, *_dns_addrinfo hints, **_dns_addrinfo res);
 extern void freeaddrinfo(*_dns_addrinfo ai);
 #ifdef _WIN32
 extern string inet_ntop(int af, *void src, *char dst, int64 size);
@@ -90,7 +90,7 @@ void _dns_wsa_init() {
     }
 }
 #else
-void _dns_wsa_init() { }
+void _dns_wsa_init() {}
 #endif
 
 // Look up `host` for TCP (`port` as a decimal string, or null) into *res
@@ -115,12 +115,22 @@ int _dns_getaddrinfo(string host, string port, **_dns_addrinfo res) {
 
 // A readable message for the last failed lookup.
 string dns_last_error() {
-    if (_dns_last == 0) { return "no error"; }
+    if (_dns_last == 0) {
+        return "no error";
+    }
 #ifdef _WIN32
-    if (_dns_last == 11001) { return "No such host is known"; }
-    if (_dns_last == 11002) { return "Temporary failure in name resolution"; }
-    if (_dns_last == 11003) { return "Non-recoverable failure in name resolution"; }
-    if (_dns_last == 11004) { return "No address for this name"; }
+    if (_dns_last == 11001) {
+        return "No such host is known";
+    }
+    if (_dns_last == 11002) {
+        return "Temporary failure in name resolution";
+    }
+    if (_dns_last == 11003) {
+        return "Non-recoverable failure in name resolution";
+    }
+    if (_dns_last == 11004) {
+        return "No address for this name";
+    }
     return "Name resolution failed";
 #else
     return gai_strerror(_dns_last);
@@ -139,7 +149,9 @@ extern *char if_indextoname(uint32 index, *char name);
 int _dns_numeric(*_dns_addrinfo ai, *char dst) {
     *uint8 sa = (*uint8)ai.ai_addr;
     string r = null;
-    if (ai.ai_family == DNS_AF_INET) { r = inet_ntop(DNS_AF_INET, (*void)(sa + 4), dst, 64); }
+    if (ai.ai_family == DNS_AF_INET) {
+        r = inet_ntop(DNS_AF_INET, (*void)(sa + 4), dst, 64);
+    }
     else if (ai.ai_family == DNS_AF_INET6) {
         r = inet_ntop(DNS_AF_INET6, (*void)(sa + 8), dst, 46);
         let scope: uint32 = (uint32)0;
@@ -149,13 +161,23 @@ int _dns_numeric(*_dns_addrinfo ai, *char dst) {
             dst[n] = '%';
             n++;
 #ifndef _WIN32
-            if (if_indextoname(scope, dst + n) != null) { return 1; }
+            if (if_indextoname(scope, dst + n) != null) {
+                return 1;
+            }
 #endif
             int64 v = (int64)scope;
             char[12] digits;
             int k = 0;
-            while (v > 0 || k == 0) { digits[k] = (char)(48 + (int)(v % 10)); v = v / 10; k++; }
-            while (k > 0) { k--; dst[n] = digits[k]; n++; }
+            while (v > 0 || k == 0) {
+                digits[k] = (char)(48 + (int)(v % 10));
+                v = v / 10;
+                k++;
+            }
+            while (k > 0) {
+                k--;
+                dst[n] = digits[k];
+                n++;
+            }
             dst[n] = 0;
         }
     }
@@ -168,16 +190,24 @@ extern int strcmp(string a, string b);
 // number added, or -1 when the name does not resolve.
 int dns_resolve(string host, List<string>* out) {
     *_dns_addrinfo res = null;
-    if (_dns_lookup(host, null, &res) != 0) { return -1; }
+    if (_dns_lookup(host, null, &res) != 0) {
+        return -1;
+    }
     const int first = List_len<string>(out);
     *char buf = alloc<char>(64);
     for (*_dns_addrinfo ai = res; ai != null; ai = ai.ai_next) {
-        if (_dns_numeric(ai, buf) == 0) { continue; }
+        if (_dns_numeric(ai, buf) == 0) {
+            continue;
+        }
         bool dup = false;
         for (int i = first; i < List_len<string>(out); i++) {
-            if (strcmp(List_get<string>(out, i), (string)buf) == 0) { dup = true; }
+            if (strcmp(List_get<string>(out, i), (string)buf) == 0) {
+                dup = true;
+            }
         }
-        if (dup) { continue; }
+        if (dup) {
+            continue;
+        }
         const int64 n = strlen((string)buf);
         *char copy = alloc<char>(n + 1);
         memcpy((*void)copy, (*void)buf, n + 1);
@@ -190,6 +220,8 @@ int dns_resolve(string host, List<string>* out) {
 
 // Free every string in a list filled by dns_resolve, then the list.
 void dns_free_list(List<string>* list) {
-    for (i in 0..List_len<string>(list)) { free((*void)List_get<string>(list, i)); }
+    for (i in 0..List_len<string>(list)) {
+        free((*void)List_get<string>(list, i));
+    }
     List_free<string>(list);
 }

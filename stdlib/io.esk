@@ -28,33 +28,57 @@ extern int putchar(int c);
 
 import <string>;
 
-extern int    fflush(*void fp);
-extern int    fputs(string s, *void fp);
-extern int    fgetc(*void fp);
-extern int64  fread(*void buf, int64 size, int64 count, *void fp);
-extern int64  fwrite(*void buf, int64 size, int64 count, *void fp);
+extern int fflush(*void fp);
+extern int fputs(string s, *void fp);
+extern int fgetc(*void fp);
+extern int64 fread(*void buf, int64 size, int64 count, *void fp);
+extern int64 fwrite(*void buf, int64 size, int64 count, *void fp);
 
 #ifdef _WIN32
 extern *void __acrt_iob_func(uint32 index);
-extern int   _setmode(int fd, int mode);
-*void io_stdin()  { return __acrt_iob_func(0); }
-*void io_stdout() { return __acrt_iob_func(1); }
-*void io_stderr() { return __acrt_iob_func(2); }
+extern int _setmode(int fd, int mode);
+*void io_stdin() {
+    return __acrt_iob_func(0);
+}
+
+*void io_stdout() {
+    return __acrt_iob_func(1);
+}
+
+*void io_stderr() {
+    return __acrt_iob_func(2);
+}
 #else
 #ifdef __APPLE__
 extern *void __stdinp;
 extern *void __stdoutp;
 extern *void __stderrp;
-*void io_stdin()  { return __stdinp; }
-*void io_stdout() { return __stdoutp; }
-*void io_stderr() { return __stderrp; }
+*void io_stdin() {
+    return __stdinp;
+}
+
+*void io_stdout() {
+    return __stdoutp;
+}
+
+*void io_stderr() {
+    return __stderrp;
+}
 #else
 extern *void stdin;
 extern *void stdout;
 extern *void stderr;
-*void io_stdin()  { return stdin; }
-*void io_stdout() { return stdout; }
-*void io_stderr() { return stderr; }
+*void io_stdin() {
+    return stdin;
+}
+
+*void io_stdout() {
+    return stdout;
+}
+
+*void io_stderr() {
+    return stderr;
+}
 #endif
 #endif
 
@@ -93,7 +117,9 @@ int read_line(String* out) {
     out.clear();
     *void src = io_stdin();
     int c = fgetc(src);
-    if (c < 0) { return -1; }
+    if (c < 0) {
+        return -1;
+    }
     while (c >= 0 && c != 10) {
         out.push((char)c);
         c = fgetc(src);
@@ -123,10 +149,14 @@ int64 read_all_stdin(String* out) {
     *void src = io_stdin();
     String_reserve(out, 65536);
     while (true) {
-        if (out.cap - out.len < 32768) { String_reserve(out, out.cap * 2); }
+        if (out.cap - out.len < 32768) {
+            String_reserve(out, out.cap * 2);
+        }
         const int64 room = out.cap - out.len - 1;
         const int64 n = fread((*void)(out.data + out.len), 1, room, src);
-        if (n <= 0) { break; }
+        if (n <= 0) {
+            break;
+        }
         out.len = out.len + n;
     }
     out.data[out.len] = 0;

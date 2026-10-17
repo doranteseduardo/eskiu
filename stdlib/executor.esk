@@ -23,28 +23,28 @@ import <net>;
 extern int ioctlsocket(int fd, int cmd, *int argp);
 extern int getsockname(int fd, *void addr, *int len);
 #else
-extern int   pipe(*int fds);
+extern int pipe(*int fds);
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
-extern int   close(int fd);
-extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
+extern int close(int fd);
+extern int fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
 #endif
 
 // A queued waker. Wakers are escaping closures (they outlive the call that
 // scheduled them), owned by the node until run, then released.
 struct _RQNode {
     fn()->void waker;
-    *_RQNode    next;
+    *_RQNode next;
 }
 
 struct Executor {
     EventLoop* lp;
-    int        wake_r;     // self-pipe read end (registered on lp)
-    int        wake_w;     // self-pipe write end (written by schedulers); on Windows both are the one socket
-    *_RQNode    head;
-    *_RQNode    tail;
-    Mutex      lock;       // guards head/tail/signaled against cross-thread schedule
-    int        signaled;   // 1 while a wake byte is in the pipe and not yet drained
+    int wake_r;     // self-pipe read end (registered on lp)
+    int wake_w;     // self-pipe write end (written by schedulers); on Windows both are the one socket
+    *_RQNode head;
+    *_RQNode tail;
+    Mutex lock;       // guards head/tail/signaled against cross-thread schedule
+    int signaled;   // 1 while a wake byte is in the pipe and not yet drained
 }
 
 // The wake channel: open it (0, or -1 on failure), write one wake byte, read
@@ -53,7 +53,9 @@ struct Executor {
 int _ex_wake_open(Executor* ex) {
     _net_wsa_init();
     const int s = socket(AF_INET, 2, 0);              // SOCK_DGRAM
-    if (s < 0) { return -1; }
+    if (s < 0) {
+        return -1;
+    }
     let a: sockaddr_in;
     _net_fill_addr(&a, inet_addr("127.0.0.1"), 0);    // any free port
     int len = 16;
@@ -68,13 +70,26 @@ int _ex_wake_open(Executor* ex) {
     ex.wake_w = s;
     return 0;
 }
-void _ex_wake_send(Executor* ex) { uint8 one = 1; send(ex.wake_w, (*void)&one, 1, 0); }
-void _ex_wake_recv(Executor* ex) { uint8[64] sink; recv(ex.wake_r, (*void)&sink[0], 64, 0); }
-void _ex_wake_close(Executor* ex) { closesocket(ex.wake_r); }
+
+void _ex_wake_send(Executor* ex) {
+    uint8 one = 1;
+    send(ex.wake_w, (*void)&one, 1, 0);
+}
+
+void _ex_wake_recv(Executor* ex) {
+    uint8[64] sink;
+    recv(ex.wake_r, (*void)&sink[0], 64, 0);
+}
+
+void _ex_wake_close(Executor* ex) {
+    closesocket(ex.wake_r);
+}
 #else
 int _ex_wake_open(Executor* ex) {
     int[2] fds;
-    if (pipe(&fds[0]) != 0) { return -1; }
+    if (pipe(&fds[0]) != 0) {
+        return -1;
+    }
     ex.wake_r = fds[0];
     ex.wake_w = fds[1];
     // The write end never blocks a scheduler (O_NONBLOCK; F_GETFL = 3, F_SETFL = 4).
@@ -86,9 +101,21 @@ int _ex_wake_open(Executor* ex) {
 #endif
     return 0;
 }
-void _ex_wake_send(Executor* ex) { uint8 one = 1; write(ex.wake_w, (*void)&one, 1); }
-void _ex_wake_recv(Executor* ex) { uint8[64] sink; read(ex.wake_r, (*void)&sink[0], 64); }
-void _ex_wake_close(Executor* ex) { close(ex.wake_r); close(ex.wake_w); }
+
+void _ex_wake_send(Executor* ex) {
+    uint8 one = 1;
+    write(ex.wake_w, (*void)&one, 1);
+}
+
+void _ex_wake_recv(Executor* ex) {
+    uint8[64] sink;
+    read(ex.wake_r, (*void)&sink[0], 64);
+}
+
+void _ex_wake_close(Executor* ex) {
+    close(ex.wake_r);
+    close(ex.wake_w);
+}
 #endif
 
 // Drain the ready-queue and run each waker on the loop thread. Wakers run with
@@ -115,7 +142,7 @@ void _ex_drain(Executor* ex, int fd) {
 // Create an executor over an existing event loop.
 Executor* executor_new(EventLoop* lp) {
     Executor* ex = alloc<Executor>(1);
-    ex.lp   = lp;
+    ex.lp = lp;
     ex.head = null;
     ex.tail = null;
     ex.lock.init();
@@ -126,7 +153,9 @@ Executor* executor_new(EventLoop* lp) {
         free((*void)ex);
         return null;
     }
-    EventLoop_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) { _ex_drain(ex, fd); });
+    EventLoop_add_read(lp, ex.wake_r, void(EventLoop* l, int fd) {
+        _ex_drain(ex, fd);
+    });
     return ex;
 }
 
@@ -135,21 +164,34 @@ Executor* executor_new(EventLoop* lp) {
 void Executor_schedule(Executor* ex, escaping fn()->void w) {
     *_RQNode n = alloc<_RQNode>(1);
     n.waker = w;
-    n.next  = null;
+    n.next = null;
 
     ex.lock.lock();
-    if (ex.tail == null) { ex.head = n; ex.tail = n; }
-    else                 { ex.tail.next = n; ex.tail = n; }
+    if (ex.tail == null) {
+        ex.head = n;
+        ex.tail = n;
+    }
+    else {
+        ex.tail.next = n;
+        ex.tail = n;
+    }
     const bool wake = ex.signaled == 0;       // one pending wake byte covers the whole queue
     ex.signaled = 1;
     ex.lock.unlock();
 
-    if (wake) { _ex_wake_send(ex); }           // wake the loop thread
+    if (wake) {           // wake the loop thread
+        _ex_wake_send(ex);
+    }
 }
 
 // Run until Executor_stop: dispatch I/O readiness and scheduled wakers.
-void Executor_run(Executor* ex)  { EventLoop_run(ex.lp); }
-void Executor_stop(Executor* ex) { EventLoop_stop(ex.lp); }
+void Executor_run(Executor* ex) {
+    EventLoop_run(ex.lp);
+}
+
+void Executor_stop(Executor* ex) {
+    EventLoop_stop(ex.lp);
+}
 
 void Executor_free(Executor* ex) {
     ex.lp.del_free(ex.wake_r);       // free the drain-callback env too

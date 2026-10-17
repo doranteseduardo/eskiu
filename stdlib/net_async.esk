@@ -26,13 +26,22 @@ import <timer>;
 #ifdef _WIN32
 extern int ioctlsocket(int fd, int cmd, *int argp);
 // FIONBIO = 0x8004667E as a signed 32-bit value (its top bit is set).
-void net_set_nonblocking(int fd) { int one = 1; ioctlsocket(fd, 0 - 2147195266, &one); }
-int64 _net_read(int fd, *void buf, int64 n)  { return net_recv(fd, buf, n); }
-int64 _net_write(int fd, *void buf, int64 n) { return net_send(fd, buf, n); }
+void net_set_nonblocking(int fd) {
+    int one = 1;
+    ioctlsocket(fd, 0 - 2147195266, &one);
+}
+
+int64 _net_read(int fd, *void buf, int64 n) {
+    return net_recv(fd, buf, n);
+}
+
+int64 _net_write(int fd, *void buf, int64 n) {
+    return net_send(fd, buf, n);
+}
 #else
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
-extern int   fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
+extern int fcntl(int fd, int cmd, ...);        // variadic in C: arm64 Apple passes `...` on the stack
 
 #ifdef __APPLE__
 const int _NET_NONBLOCK = 4;     // O_NONBLOCK
@@ -48,12 +57,18 @@ void net_set_nonblocking(int fd) {
     const int fl = fcntl(fd, 3, 0);
     fcntl(fd, 4, fl | _NET_NONBLOCK);
 }
-int64 _net_read(int fd, *void buf, int64 n)  { return read(fd, buf, n); }
+
+int64 _net_read(int fd, *void buf, int64 n) {
+    return read(fd, buf, n);
+}
+
 // A socket goes through net_send (no SIGPIPE on a closed peer); any other
 // descriptor (a pipe) falls back to write.
 int64 _net_write(int fd, *void buf, int64 n) {
     const int64 w = net_send(fd, buf, n);
-    if (w < 0 && _net_errno() == _NET_ENOTSOCK) { return write(fd, buf, n); }
+    if (w < 0 && _net_errno() == _NET_ENOTSOCK) {
+        return write(fd, buf, n);
+    }
     return w;
 }
 #endif
@@ -67,13 +82,25 @@ Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
     *int64 sent = alloc<int64>(1);   // bytes written so far (alloc zeroes it)
     // on_drop (cancel before completion): release the loop registration and the
     // counter. On completion the callback frees the counter itself.
-    f.on_drop = void() { EventLoop_del_free(lp, fd); free((*void)sent); };
+    f.on_drop = void() {
+        EventLoop_del_free(lp, fd);
+        free((*void)sent);
+    };
     EventLoop_add_write(lp, fd, void(EventLoop* l, int wfd) {
         while (*sent < len) {
             const int64 w = _net_write(wfd, (*void)(buf + *sent), len - *sent);
-            if (w > 0) { *sent += w; }
-            else if (w < 0 && _net_errno() == _NET_EAGAIN) { return; }  // buffer full: wait
-            else { EventLoop_del(l, wfd); free((*void)sent); Future_complete<int>(f, -1); return; }   // hard error / 0
+            if (w > 0) {
+                *sent += w;
+            }
+            else if (w < 0 && _net_errno() == _NET_EAGAIN) {  // buffer full: wait
+                return;
+            }
+            else {   // hard error / 0
+                EventLoop_del(l, wfd);
+                free((*void)sent);
+                Future_complete<int>(f, -1);
+                return;
+            }
         }
         EventLoop_del(l, wfd);                          // all sent; one-shot
         free((*void)sent);                       // completed: on_drop will not run, so free it here
@@ -87,14 +114,25 @@ Future<int>* net_write_async(EventLoop* lp, int fd, *uint8 buf, int64 len) {
 // to retry based on WANT_READ / WANT_WRITE.
 Future<int>* net_readable_async(EventLoop* lp, int fd) {
     Future<int>* f = future_new<int>();
-    f.on_drop = void() { EventLoop_del_free(lp, fd); };
-    EventLoop_add_read(lp, fd, void(EventLoop* l, int rfd) { EventLoop_del(l, rfd); Future_complete<int>(f, 0); });
+    f.on_drop = void() {
+        EventLoop_del_free(lp, fd);
+    };
+    EventLoop_add_read(lp, fd, void(EventLoop* l, int rfd) {
+        EventLoop_del(l, rfd);
+        Future_complete<int>(f, 0);
+    });
     return f;
 }
+
 Future<int>* net_writable_async(EventLoop* lp, int fd) {
     Future<int>* f = future_new<int>();
-    f.on_drop = void() { EventLoop_del_free(lp, fd); };
-    EventLoop_add_write(lp, fd, void(EventLoop* l, int wfd) { EventLoop_del(l, wfd); Future_complete<int>(f, 0); });
+    f.on_drop = void() {
+        EventLoop_del_free(lp, fd);
+    };
+    EventLoop_add_write(lp, fd, void(EventLoop* l, int wfd) {
+        EventLoop_del(l, wfd);
+        Future_complete<int>(f, 0);
+    });
     return f;
 }
 
@@ -104,7 +142,9 @@ Future<int>* net_read_async(EventLoop* lp, int fd, *uint8 buf, int64 cap) {
     Future<int>* f = future_new<int>();
     // on_drop (cancel path, callback never fired): release the loop registration
     // and its callback env. Future_drop frees the future struct itself.
-    f.on_drop = void() { EventLoop_del_free(lp, fd); };
+    f.on_drop = void() {
+        EventLoop_del_free(lp, fd);
+    };
     EventLoop_add_read(lp, fd, void(EventLoop* l, int rfd) {
         const int64 n = _net_read(rfd, (*void)buf, cap);
         EventLoop_del(l, rfd);                          // one-shot; EventLoop_run frees this env on return
@@ -123,7 +163,9 @@ async int net_read_deadline_async(EventLoop* lp, int fd, *uint8 buf, int64 cap, 
         return n;
     }
     int64 left = deadline - time_monotonic_ms();
-    if (left <= 0) { return NET_TIMED_OUT; }
+    if (left <= 0) {
+        return NET_TIMED_OUT;
+    }
     Future<int>* rd = net_read_async(lp, fd, buf, cap);
     Future<int>* tm = timer_after(lp, left);
     int w = await select2(rd, tm);
@@ -145,7 +187,9 @@ async int net_write_deadline_async(EventLoop* lp, int fd, *uint8 buf, int64 len,
         return n;
     }
     int64 left = deadline - time_monotonic_ms();
-    if (left <= 0) { return NET_TIMED_OUT; }
+    if (left <= 0) {
+        return NET_TIMED_OUT;
+    }
     Future<int>* wr = net_write_async(lp, fd, buf, len);
     Future<int>* tm = timer_after(lp, left);
     int w = await select2(wr, tm);
@@ -163,12 +207,17 @@ async int net_write_deadline_async(EventLoop* lp, int fd, *uint8 buf, int64 len,
 // non-blocking TLS pump that must not wait forever.
 async int net_ready_deadline_async(EventLoop* lp, int fd, int writable, int64 deadline) {
     if (deadline == 0) {
-        if (writable != 0) { int x = await net_writable_async(lp, fd); return x; }
+        if (writable != 0) {
+            int x = await net_writable_async(lp, fd);
+            return x;
+        }
         int y = await net_readable_async(lp, fd);
         return y;
     }
     int64 left = deadline - time_monotonic_ms();
-    if (left <= 0) { return NET_TIMED_OUT; }
+    if (left <= 0) {
+        return NET_TIMED_OUT;
+    }
     Future<int>* rd = writable != 0 ? net_writable_async(lp, fd) : net_readable_async(lp, fd);
     Future<int>* tm = timer_after(lp, left);
     int w = await select2(rd, tm);
@@ -183,7 +232,9 @@ async int net_ready_deadline_async(EventLoop* lp, int fd, int writable, int64 de
 // Complete with an accepted client fd once `listen_fd` has a pending connection.
 Future<int>* net_accept_async(EventLoop* lp, int listen_fd) {
     Future<int>* f = future_new<int>();
-    f.on_drop = void() { EventLoop_del_free(lp, listen_fd); };
+    f.on_drop = void() {
+        EventLoop_del_free(lp, listen_fd);
+    };
     EventLoop_add_read(lp, listen_fd, void(EventLoop* l, int sfd) {
         const int c = net_accept(sfd);
         EventLoop_del(l, sfd);
@@ -203,7 +254,9 @@ async int net_accept_retry_async(EventLoop* lp, int listen_fd) {
         c = await net_accept_async(lp, listen_fd);
         if (c < 0) {
             int slept = await timer_after(lp, backoff);
-            if (backoff < 128) { backoff = backoff * 2; }
+            if (backoff < 128) {
+                backoff = backoff * 2;
+            }
         }
     }
     return c;

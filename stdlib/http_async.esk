@@ -41,18 +41,27 @@ async void http_conn_async_with(EventLoop* lp, int c,
                                 escaping fn(HttpRequest*, HttpResponse*)->void handler,
                                 Chan<int>* done, HttpLimits lim, *int open) {
     net_set_nonblocking(c);                     // never block the loop thread
-    let b: HttpConnBuf;  b.init();
-    let req: HttpRequest;  req.init();
+    let b: HttpConnBuf;
+    b.init();
+    let req: HttpRequest;
+    req.init();
     int64 head_dl = net_deadline(lim.header_ms);
     int64 body_dl = 0;
     bool body_armed = false;
     int st = -1;
     while (st == -1) {
-        if (b.hend > 0 && !body_armed) { body_dl = net_deadline(lim.body_ms);  body_armed = true; }
+        if (b.hend > 0 && !body_armed) {
+            body_dl = net_deadline(lim.body_ms);
+            body_armed = true;
+        }
         int64 dl = b.hend > 0 ? body_dl : head_dl;
         int n = await net_read_deadline_async(lp, c, b.data + b.len, b.cap - b.len, dl);
-        if (n == NET_TIMED_OUT) { st = b.len == 0 ? -2 : 408; }
-        else if (n <= 0) { st = b.len == 0 ? -2 : 400; }   // closed: nothing sent, or a cut request
+        if (n == NET_TIMED_OUT) {
+            st = b.len == 0 ? -2 : 408;
+        }
+        else if (n <= 0) {   // closed: nothing sent, or a cut request
+            st = b.len == 0 ? -2 : 400;
+        }
         else {
             b.len += n;
             st = b.feed(&req);
@@ -61,7 +70,8 @@ async void http_conn_async_with(EventLoop* lp, int c,
     if (st != -2) {
         // Written as the socket drains: a client that does not read a large
         // answer parks only this connection, not the loop.
-        let out: String;  out.init(256);
+        let out: String;
+        out.init(256);
         _http_conn_render(&req, st, handler, &out);
         int64 wdl = net_deadline(lim.write_ms);
         int w = await net_write_deadline_async(lp, c, (*uint8)out.data, out.len, wdl);
@@ -70,7 +80,9 @@ async void http_conn_async_with(EventLoop* lp, int c,
     req.free();
     net_close(c);
     b.free();
-    if (open != null) { *open = *open - 1; }
+    if (open != null) {
+        *open = *open - 1;
+    }
     Chan_send<int>(done, 1);            // wait-group: this connection is done
 }
 

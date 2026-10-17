@@ -58,9 +58,17 @@ Future<Pair<A, B>>* join2v<A, B>(Future<A>* a, Future<B>* b) {
         free_closure(self);
     };
     a.waker = onA;
-    if (!atomic_cas(&a.state, PENDING, WAITING)) { (*cnt)++; free_closure(onA); a.waker = void() {}; }   // a already done
+    if (!atomic_cas(&a.state, PENDING, WAITING)) {   // a already done
+        (*cnt)++;
+        free_closure(onA);
+        a.waker = void() {};
+    }
     b.waker = onB;
-    if (!atomic_cas(&b.state, PENDING, WAITING)) { (*cnt)++; free_closure(onB); b.waker = void() {}; }   // b already done
+    if (!atomic_cas(&b.state, PENDING, WAITING)) {   // b already done
+        (*cnt)++;
+        free_closure(onB);
+        b.waker = void() {};
+    }
     if (*cnt == 2) {
         free((*void)cnt);
         Future_complete<Pair<A, B>>(j, Pair<A, B>{ first: a.value, second: b.value });
@@ -68,7 +76,11 @@ Future<Pair<A, B>>* join2v<A, B>(Future<A>* a, Future<B>* b) {
     }
     // Dropping `j` before both finish releases the counter and drops both inputs.
     free_closure(j.on_drop);
-    j.on_drop = void() { free((*void)cnt); Future_drop((FutureHdr*)a); Future_drop((FutureHdr*)b); };
+    j.on_drop = void() {
+        free((*void)cnt);
+        Future_drop((FutureHdr*)a);
+        Future_drop((FutureHdr*)b);
+    };
     return j;
 }
 
@@ -97,7 +109,9 @@ Future<Either<A, B>>* select2v<A, B>(Future<A>* a, Future<B>* b) {
     if (!atomic_cas(&a.state, PENDING, WAITING)) {            // a already READY -> a wins
         free_closure(onA);                                // onA never fires
         free_closure(onB);                                // onB never armed
-        A av = a.value;  Future_free<A>(a);  Future_drop((FutureHdr*)b);
+        A av = a.value;
+        Future_free<A>(a);
+        Future_drop((FutureHdr*)b);
         Future_complete<Either<A, B>>(sel, Left<A, B>(av));
         return sel;
     }
@@ -105,12 +119,16 @@ Future<Either<A, B>>* select2v<A, B>(Future<A>* a, Future<B>* b) {
     if (!atomic_cas(&b.state, PENDING, WAITING)) {            // b already READY -> b wins
         free_closure(onB);                                // onB never fires
         Future_drop((FutureHdr*)a);                       // a armed -> drop frees onA
-        B bv = b.value;  Future_free<B>(b);
+        B bv = b.value;
+        Future_free<B>(b);
         Future_complete<Either<A, B>>(sel, Right<A, B>(bv));
         return sel;
     }
     // Both parked: first to finish wins. Dropping `sel` before then drops both inputs.
     free_closure(sel.on_drop);
-    sel.on_drop = void() { Future_drop((FutureHdr*)a); Future_drop((FutureHdr*)b); };
+    sel.on_drop = void() {
+        Future_drop((FutureHdr*)a);
+        Future_drop((FutureHdr*)b);
+    };
     return sel;
 }

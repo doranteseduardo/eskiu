@@ -17,9 +17,9 @@ import <list>;   // Map_keys / Map_values / Set_items fill a List
 
 struct Map<V> {
     **char keys;    // owned key copies; null marks an empty slot
-    *V     vals;
-    int    cap;     // bucket count
-    int    count;   // live entries
+    *V vals;
+    int cap;     // bucket count
+    int count;   // live entries
 }
 
 // djb2 in wrapping uint32 arithmetic, folded to a non-negative int (used only
@@ -32,14 +32,18 @@ int _map_hash(string s) {
     for (int i = 0; s[i] != 0; i++) {
         h = h * (uint32)33 + (uint32)((int)s[i] & 255);
     }
-    if ((h & (uint32)2147483648) != (uint32)0) { h = (uint32)0 - h; }
+    if ((h & (uint32)2147483648) != (uint32)0) {
+        h = (uint32)0 - h;
+    }
     return (int)(h & (uint32)2147483647);
 }
 
 int _map_streq(*char a, string b) {
     int i = 0;
     while (a[i] != 0 && b[i] != 0) {
-        if (a[i] != b[i]) { return 0; }
+        if (a[i] != b[i]) {
+            return 0;
+        }
         i++;
     }
     return a[i] == b[i] ? 1 : 0;
@@ -53,41 +57,52 @@ int _map_streq(*char a, string b) {
 }
 
 void Map_init<V>(Map<V>* m, int cap) {
-    if (cap < 8) { cap = 8; }
-    m.keys  = alloc<*char>(cap);   // zeroed: every slot starts empty (null)
-    m.vals  = alloc<V>(cap);
-    m.cap   = cap;
+    if (cap < 8) {
+        cap = 8;
+    }
+    m.keys = alloc<*char>(cap);   // zeroed: every slot starts empty (null)
+    m.vals = alloc<V>(cap);
+    m.cap = cap;
     m.count = 0;
 }
 
 void Map_free<V>(Map<V>* m) {
     for (i in 0..m.cap) {
-        if (m.keys[i] != null) { free((*void)m.keys[i]); }
+        if (m.keys[i] != null) {
+            free((*void)m.keys[i]);
+        }
     }
     free((*void)m.keys);
     free((*void)m.vals);
-    m.keys = null;  m.vals = null;  m.cap = 0;  m.count = 0;
+    m.keys = null;
+    m.vals = null;
+    m.cap = 0;
+    m.count = 0;
 }
 
 // Double the table and rehash. Keys are moved (not re-duplicated).
 void _Map_grow<V>(Map<V>* m) {
     const int oldcap = m.cap;
     **char oldk = m.keys;
-    *V     oldv = m.vals;
+    *V oldv = m.vals;
     const int newcap = oldcap < 4 ? 8 : oldcap * 2;   // a freed map (cap 0) starts over
     **char nk = alloc<*char>(newcap);   // zeroed: all slots empty
-    *V     nv = alloc<V>(newcap);
+    *V nv = alloc<V>(newcap);
     for (i in 0..oldcap) {
         if (oldk[i] != null) {
             int j = _map_hash(oldk[i]) % newcap;
-            while (nk[j] != null) { j = (j + 1) % newcap; }
+            while (nk[j] != null) {
+                j = (j + 1) % newcap;
+            }
             nk[j] = oldk[i];
             nv[j] = oldv[i];
         }
     }
     free((*void)oldk);
     free((*void)oldv);
-    m.keys = nk;  m.vals = nv;  m.cap = newcap;
+    m.keys = nk;
+    m.vals = nv;
+    m.cap = newcap;
 }
 
 // Get-or-insert. Returns a pointer to the value slot for `key`; sets
@@ -95,10 +110,15 @@ void _Map_grow<V>(Map<V>* m) {
 // the caller must initialise it) or 0 if it already existed. The pointer is
 // valid until the next insert that grows the map.
 *V Map_at<V>(Map<V>* m, string key, *int created) {
-    if ((m.count + 1) * 4 >= m.cap * 3) { _Map_grow<V>(m); }   // load factor 0.75
+    if ((m.count + 1) * 4 >= m.cap * 3) {   // load factor 0.75
+        _Map_grow<V>(m);
+    }
     int i = _map_hash(key) % m.cap;
     while (m.keys[i] != null) {
-        if (_map_streq(m.keys[i], key) == 1) { created[0] = 0; return &m.vals[i]; }
+        if (_map_streq(m.keys[i], key) == 1) {
+            created[0] = 0;
+            return &m.vals[i];
+        }
         i = (i + 1) % m.cap;
     }
     m.keys[i] = map_dup(key);
@@ -109,10 +129,15 @@ void _Map_grow<V>(Map<V>* m) {
 
 // Read-only lookup. Copies the value into *out and returns 1, or returns 0.
 int Map_get<V>(Map<V>* m, string key, *V out) {
-    if (m.cap == 0) { return 0; }                     // freed (or never grown): empty
+    if (m.cap == 0) {                     // freed (or never grown): empty
+        return 0;
+    }
     int i = _map_hash(key) % m.cap;
     for (int n = 0; m.keys[i] != null && n < m.cap; n++) {
-        if (_map_streq(m.keys[i], key) == 1) { out[0] = m.vals[i]; return 1; }
+        if (_map_streq(m.keys[i], key) == 1) {
+            out[0] = m.vals[i];
+            return 1;
+        }
         i = (i + 1) % m.cap;
     }
     return 0;
@@ -120,10 +145,14 @@ int Map_get<V>(Map<V>* m, string key, *V out) {
 
 // Slot index of `key`, or -1.
 int _map_slot<V>(Map<V>* m, string key) {
-    if (m.cap == 0) { return -1; }
+    if (m.cap == 0) {
+        return -1;
+    }
     int i = _map_hash(key) % m.cap;
     for (int n = 0; m.keys[i] != null && n < m.cap; n++) {
-        if (_map_streq(m.keys[i], key) == 1) { return i; }
+        if (_map_streq(m.keys[i], key) == 1) {
+            return i;
+        }
         i = (i + 1) % m.cap;
     }
     return -1;
@@ -137,7 +166,9 @@ int Map_has<V>(Map<V>* m, string key) {
 // The value for `key`, or `dflt` when it is absent.
 V Map_get_or<V>(Map<V>* m, string key, V dflt) {
     const int i = _map_slot<V>(m, key);
-    if (i < 0) { return dflt; }
+    if (i < 0) {
+        return dflt;
+    }
     return m.vals[i];
 }
 
@@ -149,7 +180,9 @@ int Map_len<V>(Map<V>* m) {
 // 1 if slot `home` lies cyclically in (hole, j]: the entry at j, whose probe
 // started at `home`, cannot move back into `hole`.
 int _map_home_between(int home, int hole, int j) {
-    if (hole <= j) { return (home > hole && home <= j) ? 1 : 0; }
+    if (hole <= j) {
+        return (home > hole && home <= j) ? 1 : 0;
+    }
     return (home > hole || home <= j) ? 1 : 0;
 }
 
@@ -159,7 +192,9 @@ int _map_home_between(int home, int hole, int j) {
 // deletion, no tombstones), so a pointer from Map_at is invalid after a remove.
 int Map_remove<V>(Map<V>* m, string key) {
     int hole = _map_slot<V>(m, key);
-    if (hole < 0) { return 0; }
+    if (hole < 0) {
+        return 0;
+    }
     free((*void)m.keys[hole]);
     m.keys[hole] = null;
     m.count--;
@@ -182,7 +217,9 @@ int Map_remove<V>(Map<V>* m, string key) {
 // freed.
 void Map_keys<V>(Map<V>* m, List<string>* out) {
     for (i in 0..m.cap) {
-        if (m.keys[i] != null) { List_push<string>(out, (string)m.keys[i]); }
+        if (m.keys[i] != null) {
+            List_push<string>(out, (string)m.keys[i]);
+        }
     }
 }
 
@@ -190,7 +227,9 @@ void Map_keys<V>(Map<V>* m, List<string>* out) {
 // same order as Map_keys).
 void Map_values<V>(Map<V>* m, List<V>* out) {
     for (i in 0..m.cap) {
-        if (m.keys[i] != null) { List_push<V>(out, m.vals[i]); }
+        if (m.keys[i] != null) {
+            List_push<V>(out, m.vals[i]);
+        }
     }
 }
 
@@ -198,7 +237,9 @@ void Map_values<V>(Map<V>* m, List<V>* out) {
 // remove from the map.
 void Map_each<V>(Map<V>* m, fn(string, V)->void f) {
     for (i in 0..m.cap) {
-        if (m.keys[i] != null) { f((string)m.keys[i], m.vals[i]); }
+        if (m.keys[i] != null) {
+            f((string)m.keys[i], m.vals[i]);
+        }
     }
 }
 
@@ -219,66 +260,86 @@ void Map_each<V>(Map<V>* m, fn(string, V)->void f) {
 //   HashMap_free<int,int>(&m);
 
 struct HashMap<K, V> {
-    *K     keys;
-    *V     vals;
+    *K keys;
+    *V vals;
     *uint8 used;            // 0 = empty slot, 1 = occupied
-    int    cap;
-    int    count;
-    fn(*K)->uint64    hash;
-    fn(*K, *K)->int   eq;
+    int cap;
+    int count;
+    fn(*K)->uint64 hash;
+    fn(*K, *K)->int eq;
 }
 
 void HashMap_init<K, V>(HashMap<K, V>* m, int cap,
                         fn(*K)->uint64 hash, fn(*K, *K)->int eq) {
-    if (cap < 8) { cap = 8; }
-    m.keys  = alloc<K>(cap);
-    m.vals  = alloc<V>(cap);
-    m.used  = alloc<uint8>(cap);   // zeroed: every slot starts empty
-    m.cap   = cap;
+    if (cap < 8) {
+        cap = 8;
+    }
+    m.keys = alloc<K>(cap);
+    m.vals = alloc<V>(cap);
+    m.used = alloc<uint8>(cap);   // zeroed: every slot starts empty
+    m.cap = cap;
     m.count = 0;
-    m.hash  = hash;
-    m.eq    = eq;
+    m.hash = hash;
+    m.eq = eq;
 }
 
 void HashMap_free<K, V>(HashMap<K, V>* m) {
     free((*void)m.keys);
     free((*void)m.vals);
     free((*void)m.used);
-    m.keys = null;  m.vals = null;  m.used = null;  m.cap = 0;  m.count = 0;
+    m.keys = null;
+    m.vals = null;
+    m.used = null;
+    m.cap = 0;
+    m.count = 0;
 }
 
 void _HashMap_grow<K, V>(HashMap<K, V>* m) {
     const int oldcap = m.cap;
-    *K     ok = m.keys;
-    *V     ov = m.vals;
+    *K ok = m.keys;
+    *V ov = m.vals;
     *uint8 ou = m.used;
     const int newcap = oldcap < 4 ? 8 : oldcap * 2;   // a freed map (cap 0) starts over
-    *K     nk = alloc<K>(newcap);
-    *V     nv = alloc<V>(newcap);
+    *K nk = alloc<K>(newcap);
+    *V nv = alloc<V>(newcap);
     *uint8 nu = alloc<uint8>(newcap);   // zeroed: all slots empty
     let hashfn: fn(*K)->uint64 = m.hash;
     for (i in 0..oldcap) {
         if (ou[i] == 1) {
             const uint64 h = hashfn(&ok[i]);
             int j = (int)(h % (uint64)newcap);
-            while (nu[j] == 1) { j = (j + 1) % newcap; }
-            nu[j] = 1;  nk[j] = ok[i];  nv[j] = ov[i];
+            while (nu[j] == 1) {
+                j = (j + 1) % newcap;
+            }
+            nu[j] = 1;
+            nk[j] = ok[i];
+            nv[j] = ov[i];
         }
     }
-    free((*void)ok);  free((*void)ov);  free((*void)ou);
-    m.keys = nk;  m.vals = nv;  m.used = nu;  m.cap = newcap;
+    free((*void)ok);
+    free((*void)ov);
+    free((*void)ou);
+    m.keys = nk;
+    m.vals = nv;
+    m.used = nu;
+    m.cap = newcap;
 }
 
 // Get-or-insert. Returns a pointer to the value slot; *created = 1 if the key
 // was just inserted (value slot uninitialised — caller initialises it).
 *V HashMap_at<K, V>(HashMap<K, V>* m, K key, *int created) {
-    if ((m.count + 1) * 4 >= m.cap * 3) { _HashMap_grow<K, V>(m); }
-    let hashfn: fn(*K)->uint64    = m.hash;
-    let eqfn:   fn(*K, *K)->int   = m.eq;
+    if ((m.count + 1) * 4 >= m.cap * 3) {
+        _HashMap_grow<K, V>(m);
+    }
+    let hashfn: fn(*K)->uint64 = m.hash;
+    let eqfn: fn(*K, *K)->int = m.eq;
     const uint64 h = hashfn(&key);
     int i = (int)(h % (uint64)m.cap);
     while (m.used[i] == 1) {
-        if (eqfn(&key, &m.keys[i]) == 1) { created[0] = 0; return &m.vals[i]; }
+        if (eqfn(&key, &m.keys[i]) == 1) {
+            created[0] = 0;
+            return &m.vals[i];
+        }
         i = (i + 1) % m.cap;
     }
     m.used[i] = 1;
@@ -290,21 +351,31 @@ void _HashMap_grow<K, V>(HashMap<K, V>* m) {
 
 // Read-only lookup. Copies the value into *out and returns 1, or returns 0.
 int HashMap_get<K, V>(HashMap<K, V>* m, K key, *V out) {
-    if (m.cap == 0) { return 0; }                     // freed: empty
-    let hashfn: fn(*K)->uint64    = m.hash;
-    let eqfn:   fn(*K, *K)->int   = m.eq;
+    if (m.cap == 0) {                     // freed: empty
+        return 0;
+    }
+    let hashfn: fn(*K)->uint64 = m.hash;
+    let eqfn: fn(*K, *K)->int = m.eq;
     const uint64 h = hashfn(&key);
     int i = (int)(h % (uint64)m.cap);
     for (int n = 0; m.used[i] == 1 && n < m.cap; n++) {
-        if (eqfn(&key, &m.keys[i]) == 1) { out[0] = m.vals[i];  return 1; }
+        if (eqfn(&key, &m.keys[i]) == 1) {
+            out[0] = m.vals[i];
+            return 1;
+        }
         i = (i + 1) % m.cap;
     }
     return 0;
 }
 
 // Built-in hash/eq for int keys (Knuth multiplicative hash).
-uint64 int_hash(*int k) { return (uint64)k[0] * 2654435761; }
-int    int_eq(*int a, *int b) { return a[0] == b[0] ? 1 : 0; }
+uint64 int_hash(*int k) {
+    return (uint64)k[0] * 2654435761;
+}
+
+int int_eq(*int a, *int b) {
+    return a[0] == b[0] ? 1 : 0;
+}
 
 // Hash/eq for `string` keys by content (FNV-1a). The map stores the pointer,
 // not a copy: the text must outlive its entry (use Map<V> for owned keys).
@@ -316,16 +387,23 @@ uint64 cstr_hash(*string k) {
     }
     return h;
 }
-int cstr_eq(*string a, *string b) { return _map_streq((*char)a[0], b[0]); }
+
+int cstr_eq(*string a, *string b) {
+    return _map_streq((*char)a[0], b[0]);
+}
 
 // Slot index of `key`, or -1.
 int _hashmap_slot<K, V>(HashMap<K, V>* m, K key) {
-    if (m.cap == 0) { return -1; }
-    let hashfn: fn(*K)->uint64  = m.hash;
-    let eqfn:   fn(*K, *K)->int = m.eq;
+    if (m.cap == 0) {
+        return -1;
+    }
+    let hashfn: fn(*K)->uint64 = m.hash;
+    let eqfn: fn(*K, *K)->int = m.eq;
     int i = (int)(hashfn(&key) % (uint64)m.cap);
     for (int n = 0; m.used[i] == 1 && n < m.cap; n++) {
-        if (eqfn(&key, &m.keys[i]) == 1) { return i; }
+        if (eqfn(&key, &m.keys[i]) == 1) {
+            return i;
+        }
         i = (i + 1) % m.cap;
     }
     return -1;
@@ -339,7 +417,9 @@ int HashMap_has<K, V>(HashMap<K, V>* m, K key) {
 // The value for `key`, or `dflt` when it is absent.
 V HashMap_get_or<K, V>(HashMap<K, V>* m, K key, V dflt) {
     const int i = _hashmap_slot<K, V>(m, key);
-    if (i < 0) { return dflt; }
+    if (i < 0) {
+        return dflt;
+    }
     return m.vals[i];
 }
 
@@ -353,7 +433,9 @@ int HashMap_len<K, V>(HashMap<K, V>* m) {
 // from HashMap_at is invalid after a remove.
 int HashMap_remove<K, V>(HashMap<K, V>* m, K key) {
     int hole = _hashmap_slot<K, V>(m, key);
-    if (hole < 0) { return 0; }
+    if (hole < 0) {
+        return 0;
+    }
     let hashfn: fn(*K)->uint64 = m.hash;
     m.used[hole] = 0;
     m.count--;
@@ -375,7 +457,9 @@ int HashMap_remove<K, V>(HashMap<K, V>* m, K key) {
 // Append every key to `out` (an initialised List<K>), in table order.
 void HashMap_keys<K, V>(HashMap<K, V>* m, List<K>* out) {
     for (i in 0..m.cap) {
-        if (m.used[i] == 1) { List_push<K>(out, m.keys[i]); }
+        if (m.used[i] == 1) {
+            List_push<K>(out, m.keys[i]);
+        }
     }
 }
 
@@ -383,7 +467,9 @@ void HashMap_keys<K, V>(HashMap<K, V>* m, List<K>* out) {
 // order as HashMap_keys).
 void HashMap_values<K, V>(HashMap<K, V>* m, List<V>* out) {
     for (i in 0..m.cap) {
-        if (m.used[i] == 1) { List_push<V>(out, m.vals[i]); }
+        if (m.used[i] == 1) {
+            List_push<V>(out, m.vals[i]);
+        }
     }
 }
 
@@ -391,7 +477,9 @@ void HashMap_values<K, V>(HashMap<K, V>* m, List<V>* out) {
 // remove from the map.
 void HashMap_each<K, V>(HashMap<K, V>* m, fn(K, V)->void f) {
     for (i in 0..m.cap) {
-        if (m.used[i] == 1) { f(m.keys[i], m.vals[i]); }
+        if (m.used[i] == 1) {
+            f(m.keys[i], m.vals[i]);
+        }
     }
 }
 
@@ -443,7 +531,9 @@ int Set_len<T>(Set<T>* s) {
 // Call f(item) for every element, in table order. f must not add or remove.
 void Set_each<T>(Set<T>* s, fn(T)->void f) {
     for (i in 0..s.table.cap) {
-        if (s.table.used[i] == 1) { f(s.table.keys[i]); }
+        if (s.table.used[i] == 1) {
+            f(s.table.keys[i]);
+        }
     }
 }
 

@@ -135,61 +135,61 @@ struct _ReNode {
 }
 
 struct Regex {
-    *_ReInst      inst;
-    int        ninst;
+    *_ReInst inst;
+    int ninst;
     *_ReClassInfo classes;
-    int        nclass;
-    *_ReRange     ranges;
-    int        nrange;
-    *_ReProp      props;
-    int        nprop;
-    int        ngroup;      // number of capturing groups (group 0 is the whole match)
-    int        ok;
-    string     err;         // null when ok
+    int nclass;
+    *_ReRange ranges;
+    int nrange;
+    *_ReProp props;
+    int nprop;
+    int ngroup;      // number of capturing groups (group 0 is the whole match)
+    int ok;
+    string err;         // null when ok
 }
 
 struct _ReComp {
     string pat;
-    int    len;
-    int    pos;
-    int    ngroup;
+    int len;
+    int pos;
+    int ngroup;
     string err;
     Regex* re;
-    *_ReNode  nodes;
-    int    nnode;
-    int    depth;   // groups currently open (the parser recurses once per group)
-    int    flags;   // RF_* in effect
-    int    inquote; // inside \Q...\E
+    *_ReNode nodes;
+    int nnode;
+    int depth;   // groups currently open (the parser recurses once per group)
+    int flags;   // RF_* in effect
+    int inquote; // inside \Q...\E
 }
 
 struct Match {
-    int  ok;
-    int  ngroup;
-    int  start;     // group 0 start (== cap[0])
-    int  end;       // group 0 end   (== cap[1])
+    int ok;
+    int ngroup;
+    int start;     // group 0 start (== cap[0])
+    int end;       // group 0 end   (== cap[1])
     *int cap;       // 2*(ngroup+1) ints: [start,end] per group, -1 if unset
 }
 
 struct _ReThread {
-    int  pc;
+    int pc;
     *int caps;
 }
 
 struct _ReVm {
-    Regex*   prog;
-    string   text;
-    int      len;
-    int      ncap;
-    *int     visited;       // ninst ints, holds the generation each pc was last added under
-    *_ReThread  la;
-    *_ReThread  lb;
-    int      nA;
-    int      nB;
+    Regex* prog;
+    string text;
+    int len;
+    int ncap;
+    *int visited;       // ninst ints, holds the generation each pc was last added under
+    *_ReThread la;
+    *_ReThread lb;
+    int nA;
+    int nB;
     // Capture storage: thread slot i of list A owns capsA[i*ncap .. (i+1)*ncap),
     // likewise for B. Enqueueing a thread copies its captures into its slot, so
     // the storage is recycled every step: O(threads * ncap) for the whole search.
-    *int     capsA;
-    *int     capsB;
+    *int capsA;
+    *int capsB;
 }
 
 // =========================== Unicode =======================================
@@ -201,31 +201,48 @@ struct _ReVm {
 int _re_decode(string s, int n, int i, *int w) {
     const int b0 = (int)((uint8)s[i]);
     w[0] = 1;
-    if (b0 < 0x80) { return b0; }
+    if (b0 < 0x80) {
+        return b0;
+    }
     int need = 0;
     int lo = 0x80;
     int hi = 0xBF;
     int r = 0;
-    if (b0 >= 0xC2 && b0 <= 0xDF) { need = 1; r = b0 & 0x1F; }
+    if (b0 >= 0xC2 && b0 <= 0xDF) {
+        need = 1;
+        r = b0 & 0x1F;
+    }
     else if (b0 >= 0xE0 && b0 <= 0xEF) {
         need = 2;
         r = b0 & 0x0F;
-        if (b0 == 0xE0) { lo = 0xA0; }
-        if (b0 == 0xED) { hi = 0x9F; }
+        if (b0 == 0xE0) {
+            lo = 0xA0;
+        }
+        if (b0 == 0xED) {
+            hi = 0x9F;
+        }
     } else if (b0 >= 0xF0 && b0 <= 0xF4) {
         need = 3;
         r = b0 & 0x07;
-        if (b0 == 0xF0) { lo = 0x90; }
-        if (b0 == 0xF4) { hi = 0x8F; }
+        if (b0 == 0xF0) {
+            lo = 0x90;
+        }
+        if (b0 == 0xF4) {
+            hi = 0x8F;
+        }
     } else {
         return -1;
     }
     for (int k = 1; k <= need; k++) {
-        if (i + k >= n) { return -1; }
+        if (i + k >= n) {
+            return -1;
+        }
         const int b = (int)((uint8)s[i + k]);
         const int blo = k == 1 ? lo : 0x80;
         const int bhi = k == 1 ? hi : 0xBF;
-        if (b < blo || b > bhi) { return -1; }
+        if (b < blo || b > bhi) {
+            return -1;
+        }
         r = (r << 6) | (b & 0x3F);
     }
     w[0] = need + 1;
@@ -239,11 +256,17 @@ int _re_simple_fold(int r) {
     int hi = RE_NFOLD - 1;
     while (lo <= hi) {
         const int mid = (lo + hi) / 2;
-        if (r < RE_FOLD[3 * mid]) { hi = mid - 1; }
-        else if (r > RE_FOLD[3 * mid + 1]) { lo = mid + 1; }
+        if (r < RE_FOLD[3 * mid]) {
+            hi = mid - 1;
+        }
+        else if (r > RE_FOLD[3 * mid + 1]) {
+            lo = mid + 1;
+        }
         else {
             const int d = RE_FOLD[3 * mid + 2];
-            if (d != 0) { return r + d; }
+            if (d != 0) {
+                return r + d;
+            }
             return (r - RE_FOLD[3 * mid]) % 2 == 0 ? r + 1 : r - 1;
         }
     }
@@ -255,7 +278,9 @@ int _re_simple_fold(int r) {
 int _re_orbit(int r, int fold, *int orb) {
     orb[0] = r;
     int n = 1;
-    if (fold == 0) { return n; }
+    if (fold == 0) {
+        return n;
+    }
     int f = _re_simple_fold(r);
     while (f != r && n < 8) {
         orb[n++] = f;
@@ -270,7 +295,11 @@ int _re_run_id(*int runs, int nruns, int r) {
     int hi = nruns - 1;
     while (lo < hi) {
         const int mid = (lo + hi + 1) / 2;
-        if ((runs[mid] >> 8) <= r) { lo = mid; } else { hi = mid - 1; }
+        if ((runs[mid] >> 8) <= r) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
     }
     return runs[lo] & 255;
 }
@@ -299,11 +328,15 @@ int _re_peek_at(_ReComp* c, int off) {
 // Read the code point at c.pos and step past it: -1 at the end of the pattern,
 // -2 (with c.err set) for bytes that are not valid UTF-8.
 int _re_next_rune(_ReComp* c) {
-    if (c.pos >= c.len) { return -1; }
+    if (c.pos >= c.len) {
+        return -1;
+    }
     int[1] w;
     const int r = _re_decode(c.pat, c.len, c.pos, &w[0]);
     if (r < 0) {
-        if (c.err == null) { c.err = "invalid UTF-8"; }
+        if (c.err == null) {
+            c.err = "invalid UTF-8";
+        }
         return -2;
     }
     c.pos += w[0];
@@ -312,7 +345,9 @@ int _re_next_rune(_ReComp* c) {
 
 _ReNode* _re_node(_ReComp* c, int kind) {
     if (c.nnode >= RE_MAX_NODES) {
-        if (c.err == null) { c.err = "regex pattern too complex"; }
+        if (c.err == null) {
+            c.err = "regex pattern too complex";
+        }
         return &c.nodes[0];
     }
     _ReNode* n = &c.nodes[c.nnode++];
@@ -341,7 +376,9 @@ _ReNode* _re_lit(_ReComp* c, int r) {
 int _re_class_begin(_ReComp* c, int negate) {
     Regex* re = c.re;
     if (re.nclass >= RE_MAX_CLASS) {
-        if (c.err == null) { c.err = "too many character classes"; }
+        if (c.err == null) {
+            c.err = "too many character classes";
+        }
         return 0;
     }
     const int id = re.nclass++;
@@ -357,7 +394,9 @@ int _re_class_begin(_ReComp* c, int negate) {
 void _re_range(_ReComp* c, int id, int lo, int hi) {
     Regex* re = c.re;
     if (re.nrange >= RE_MAX_RANGE) {
-        if (c.err == null) { c.err = "too many class ranges"; }
+        if (c.err == null) {
+            c.err = "too many class ranges";
+        }
         return;
     }
     re.ranges[re.nrange].lo = lo;
@@ -369,7 +408,9 @@ void _re_range(_ReComp* c, int id, int lo, int hi) {
 void _re_prop(_ReComp* c, int id, int kind, int val, int neg) {
     Regex* re = c.re;
     if (re.nprop >= RE_MAX_PROP) {
-        if (c.err == null) { c.err = "too many class ranges"; }
+        if (c.err == null) {
+            c.err = "too many class ranges";
+        }
         return;
     }
     re.props[re.nprop].kind = kind;
@@ -390,7 +431,9 @@ const string[14] RE_POSIX_NAMES = {"alnum", "alpha", "ascii", "blank", "cntrl", 
 // \s is [\t\n\f\r ] as in RE2, without \v) or RE_POSIX + k for the POSIX class
 // RE_POSIX_NAMES[k]. All of them are ASCII only, as in RE2.
 int _re_class_has(int kind, int i) {
-    if (i < 0 || i >= 128) { return 0; }
+    if (i < 0 || i >= 128) {
+        return 0;
+    }
     const bool digit = i >= '0' && i <= '9';
     const bool upper = i >= 'A' && i <= 'Z';
     const bool lower = i >= 'a' && i <= 'z';
@@ -398,23 +441,40 @@ int _re_class_has(int kind, int i) {
     const bool punct = (i >= '!' && i <= '/') || (i >= ':' && i <= '@') || (i >= '[' && i <= '`') || (i >= '{' && i <= '~');
     bool r = false;
     switch (kind) {
-        case 'd': r = digit; break;
-        case 'w': r = digit || alpha || i == '_'; break;
-        case 's': r = i == '\t' || i == '\n' || i == '\f' || i == '\r' || i == ' '; break;
-        case RE_POSIX + 0: r = digit || alpha; break;
-        case RE_POSIX + 1: r = alpha; break;
-        case RE_POSIX + 2: r = true; break;
-        case RE_POSIX + 3: r = i == '\t' || i == ' '; break;
-        case RE_POSIX + 4: r = i < 32 || i == 127; break;
-        case RE_POSIX + 5: r = digit; break;
-        case RE_POSIX + 6: r = i >= '!' && i <= '~'; break;
-        case RE_POSIX + 7: r = lower; break;
-        case RE_POSIX + 8: r = i >= ' ' && i <= '~'; break;
-        case RE_POSIX + 9: r = punct; break;
-        case RE_POSIX + 10: r = (i >= '\t' && i <= '\r') || i == ' '; break;
-        case RE_POSIX + 11: r = upper; break;
-        case RE_POSIX + 12: r = digit || alpha || i == '_'; break;
-        case RE_POSIX + 13: r = digit || (i >= 'A' && i <= 'F') || (i >= 'a' && i <= 'f'); break;
+        case 'd': r = digit;
+        break;
+        case 'w': r = digit || alpha || i == '_';
+        break;
+        case 's': r = i == '\t' || i == '\n' || i == '\f' || i == '\r' || i == ' ';
+        break;
+        case RE_POSIX + 0: r = digit || alpha;
+        break;
+        case RE_POSIX + 1: r = alpha;
+        break;
+        case RE_POSIX + 2: r = true;
+        break;
+        case RE_POSIX + 3: r = i == '\t' || i == ' ';
+        break;
+        case RE_POSIX + 4: r = i < 32 || i == 127;
+        break;
+        case RE_POSIX + 5: r = digit;
+        break;
+        case RE_POSIX + 6: r = i >= '!' && i <= '~';
+        break;
+        case RE_POSIX + 7: r = lower;
+        break;
+        case RE_POSIX + 8: r = i >= ' ' && i <= '~';
+        break;
+        case RE_POSIX + 9: r = punct;
+        break;
+        case RE_POSIX + 10: r = (i >= '\t' && i <= '\r') || i == ' ';
+        break;
+        case RE_POSIX + 11: r = upper;
+        break;
+        case RE_POSIX + 12: r = digit || alpha || i == '_';
+        break;
+        case RE_POSIX + 13: r = digit || (i >= 'A' && i <= 'F') || (i >= 'a' && i <= 'f');
+        break;
     }
     return r ? 1 : 0;
 }
@@ -424,31 +484,45 @@ int _re_class_has(int kind, int i) {
 // if no ":]" follows, so the '[' is a literal member, as in RE2; an unknown
 // name is an error (-1 with c.err set).
 int _re_posix_class(_ReComp* c, int id) {
-    if (_re_peek_at(c, 1) != ':') { return 0; }
+    if (_re_peek_at(c, 1) != ':') {
+        return 0;
+    }
     int e = c.pos + 2;
-    while (e + 1 < c.len && !(c.pat[e] == ':' && c.pat[e + 1] == ']')) { e++; }
-    if (e + 1 >= c.len) { return 0; }
+    while (e + 1 < c.len && !(c.pat[e] == ':' && c.pat[e + 1] == ']')) {
+        e++;
+    }
+    if (e + 1 >= c.len) {
+        return 0;
+    }
     int s = c.pos + 2;
     const bool negate = s < e && c.pat[s] == '^';
-    if (negate) { s++; }
+    if (negate) {
+        s++;
+    }
     for (k in 0..RE_NPOSIX) {
         const string name = RE_POSIX_NAMES[k];
         int j = 0;
-        while (s + j < e && name[j] != 0 && c.pat[s + j] == name[j]) { j++; }
+        while (s + j < e && name[j] != 0 && c.pat[s + j] == name[j]) {
+            j++;
+        }
         if (s + j == e && name[j] == 0) {
             _re_prop(c, id, P_ASCII, RE_POSIX + k, negate ? 1 : 0);
             c.pos = e + 2;
             return 1;
         }
     }
-    if (c.err == null) { c.err = "invalid character class range"; }
+    if (c.err == null) {
+        c.err = "invalid character class range";
+    }
     return -1;
 }
 
 // 1 if pat[s..e) spells `name`.
 int _re_span_is(string pat, int s, int e, string name) {
     int j = 0;
-    while (s + j < e && name[j] != 0 && pat[s + j] == name[j]) { j++; }
+    while (s + j < e && name[j] != 0 && pat[s + j] == name[j]) {
+        j++;
+    }
     return s + j == e && name[j] == 0 ? 1 : 0;
 }
 
@@ -461,9 +535,13 @@ int _re_unicode_class(_ReComp* c, int id) {
     int e = c.pos;
     if (_re_peek(c) == '{') {
         int p = c.pos;
-        while (p < c.len && c.pat[p] != '}') { p++; }
+        while (p < c.len && c.pat[p] != '}') {
+            p++;
+        }
         if (p >= c.len) {
-            if (c.err == null) { c.err = "invalid character class range"; }
+            if (c.err == null) {
+                c.err = "invalid character class range";
+            }
             return -1;
         }
         s = c.pos + 1;
@@ -471,28 +549,49 @@ int _re_unicode_class(_ReComp* c, int id) {
         c.pos = p + 1;
     } else {
         if (_re_next_rune(c) < 0) {
-            if (c.err == null) { c.err = "invalid character class range"; }
+            if (c.err == null) {
+                c.err = "invalid character class range";
+            }
             return -1;
         }
         e = c.pos;
     }
-    if (s < e && c.pat[s] == '^') { neg = 1 - neg; s++; }
-    if (_re_span_is(c.pat, s, e, "Any") == 1) { _re_prop(c, id, P_ANY, 0, neg); return 0; }
+    if (s < e && c.pat[s] == '^') {
+        neg = 1 - neg;
+        s++;
+    }
+    if (_re_span_is(c.pat, s, e, "Any") == 1) {
+        _re_prop(c, id, P_ANY, 0, neg);
+        return 0;
+    }
     if (e == s + 1) {
         // A one-letter name is the group of the categories that start with it.
         int mask = 0;
         for (k in 0..RE_NCAT) {
-            if (RE_CAT_NAMES[k][0] == c.pat[s]) { mask = mask | (1 << k); }
+            if (RE_CAT_NAMES[k][0] == c.pat[s]) {
+                mask = mask | (1 << k);
+            }
         }
-        if (mask != 0) { _re_prop(c, id, P_CAT, mask, neg); return 0; }
+        if (mask != 0) {
+            _re_prop(c, id, P_CAT, mask, neg);
+            return 0;
+        }
     }
     for (k in 0..RE_NCAT) {
-        if (_re_span_is(c.pat, s, e, RE_CAT_NAMES[k]) == 1) { _re_prop(c, id, P_CAT, 1 << k, neg); return 0; }
+        if (_re_span_is(c.pat, s, e, RE_CAT_NAMES[k]) == 1) {
+            _re_prop(c, id, P_CAT, 1 << k, neg);
+            return 0;
+        }
     }
     for (k in 0..RE_NSCRIPT) {
-        if (_re_span_is(c.pat, s, e, RE_SCRIPT_NAMES[k]) == 1) { _re_prop(c, id, P_SCRIPT, k, neg); return 0; }
+        if (_re_span_is(c.pat, s, e, RE_SCRIPT_NAMES[k]) == 1) {
+            _re_prop(c, id, P_SCRIPT, k, neg);
+            return 0;
+        }
     }
-    if (c.err == null) { c.err = "invalid character class range"; }
+    if (c.err == null) {
+        c.err = "invalid character class range";
+    }
     return -1;
 }
 
@@ -508,14 +607,22 @@ void _re_shorthand(_ReComp* c, int id, int e) {
 }
 
 int _re_hex_digit(int ch) {
-    if (ch >= '0' && ch <= '9') { return ch - '0'; }
-    if (ch >= 'a' && ch <= 'f') { return ch - 'a' + 10; }
-    if (ch >= 'A' && ch <= 'F') { return ch - 'A' + 10; }
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
     return -1;
 }
 
 int _re_bad_escape(_ReComp* c) {
-    if (c.err == null) { c.err = "invalid escape sequence"; }
+    if (c.err == null) {
+        c.err = "invalid escape sequence";
+    }
     return -1;
 }
 
@@ -537,7 +644,9 @@ int _re_escape_char(_ReComp* c, int e) {
     }
     if (e >= '0' && e <= '7') {
         // \1-\7 alone would be a backreference, which RE2 does not have.
-        if (e != '0' && (_re_peek(c) < '0' || _re_peek(c) > '7')) { return _re_bad_escape(c); }
+        if (e != '0' && (_re_peek(c) < '0' || _re_peek(c) > '7')) {
+            return _re_bad_escape(c);
+        }
         int v = e - '0';
         for (int k = 0; k < 2 && _re_peek(c) >= '0' && _re_peek(c) <= '7'; k++) {
             v = v * 8 + (_re_peek(c) - '0');
@@ -551,22 +660,30 @@ int _re_escape_char(_ReComp* c, int e) {
             int v = 0;
             int nd = 0;
             while (_re_hex_digit(_re_peek(c)) >= 0) {
-                if (v <= 0x10FFFF) { v = v * 16 + _re_hex_digit(_re_peek(c)); }
+                if (v <= 0x10FFFF) {
+                    v = v * 16 + _re_hex_digit(_re_peek(c));
+                }
                 c.pos++;
                 nd++;
             }
-            if (nd == 0 || _re_peek(c) != '}' || v > 0x10FFFF) { return _re_bad_escape(c); }
+            if (nd == 0 || _re_peek(c) != '}' || v > 0x10FFFF) {
+                return _re_bad_escape(c);
+            }
             c.pos++;
             return v;
         }
         const int h1 = _re_hex_digit(_re_peek(c));
         const int h2 = _re_hex_digit(_re_peek_at(c, 1));
-        if (h1 < 0 || h2 < 0) { return _re_bad_escape(c); }
+        if (h1 < 0 || h2 < 0) {
+            return _re_bad_escape(c);
+        }
         c.pos += 2;
         return h1 * 16 + h2;
     }
     const bool alnum = (e >= '0' && e <= '9') || (e >= 'a' && e <= 'z') || (e >= 'A' && e <= 'Z');
-    if (e < 0 || e >= 128 || alnum) { return _re_bad_escape(c); }
+    if (e < 0 || e >= 128 || alnum) {
+        return _re_bad_escape(c);
+    }
     return e;
 }
 
@@ -576,7 +693,9 @@ int _re_class_char(_ReComp* c) {
         c.pos++;
         const int e = _re_peek(c);
         if (e == -1) {
-            if (c.err == null) { c.err = "unterminated character class"; }
+            if (c.err == null) {
+                c.err = "unterminated character class";
+            }
             return -1;
         }
         c.pos++;
@@ -590,7 +709,10 @@ int _re_class_char(_ReComp* c) {
 _ReNode* _re_parse_class(_ReComp* c) {
     c.pos++;   // consume '['
     int negate = 0;
-    if (_re_peek(c) == '^') { c.pos++; negate = 1; }
+    if (_re_peek(c) == '^') {
+        c.pos++;
+        negate = 1;
+    }
     const int id = _re_class_begin(c, negate);
 
     // A ']' right after '[' or '[^' is a literal member (POSIX), not the end.
@@ -598,16 +720,22 @@ _ReNode* _re_parse_class(_ReComp* c) {
     while (_re_peek(c) != ']' || first) {
         first = false;
         if (_re_peek(c) == -1) {
-            if (c.err == null) { c.err = "unterminated character class"; }
+            if (c.err == null) {
+                c.err = "unterminated character class";
+            }
             return _re_node(c, N_CLASS);
         }
         if (_re_peek(c) == '[' && _re_posix_class(c, id) != 0) {
             // A '-' after a POSIX class is the next member, as after \d.
-            if (c.err != null) { return _re_node(c, N_CLASS); }
+            if (c.err != null) {
+                return _re_node(c, N_CLASS);
+            }
             continue;
         }
         if (_re_peek(c) == '\\' && (_re_peek_at(c, 1) == 'p' || _re_peek_at(c, 1) == 'P')) {
-            if (_re_unicode_class(c, id) < 0) { return _re_node(c, N_CLASS); }
+            if (_re_unicode_class(c, id) < 0) {
+                return _re_node(c, N_CLASS);
+            }
             continue;
         }
         if (_re_peek(c) == '\\' && _re_is_shorthand(_re_peek_at(c, 1)) == 1) {
@@ -618,19 +746,27 @@ _ReNode* _re_parse_class(_ReComp* c) {
             continue;
         }
         const int lo = _re_class_char(c);
-        if (lo < 0) { return _re_node(c, N_CLASS); }
+        if (lo < 0) {
+            return _re_node(c, N_CLASS);
+        }
         // range 'a-z'?  ('-' not immediately before the closing ']')
         if (_re_peek(c) == '-' && _re_peek_at(c, 1) != ']' && _re_peek_at(c, 1) != -1) {
             c.pos++;   // consume '-'
             if (_re_peek(c) == '\\' && (_re_is_shorthand(_re_peek_at(c, 1)) == 1 || _re_peek_at(c, 1) == 'p' || _re_peek_at(c, 1) == 'P')) {
-                if (c.err == null) { c.err = "invalid character class range"; }
+                if (c.err == null) {
+                    c.err = "invalid character class range";
+                }
                 return _re_node(c, N_CLASS);
             }
             const int hi = _re_class_char(c);
-            if (hi < 0) { return _re_node(c, N_CLASS); }
+            if (hi < 0) {
+                return _re_node(c, N_CLASS);
+            }
             // A range whose end is below its start ([z-a]) is an error (RE2).
             if (hi < lo) {
-                if (c.err == null) { c.err = "invalid character class range"; }
+                if (c.err == null) {
+                    c.err = "invalid character class range";
+                }
                 return _re_node(c, N_CLASS);
             }
             _re_range(c, id, lo, hi);
@@ -651,20 +787,31 @@ _ReNode* _re_parse_escape(_ReComp* c) {
     const int e = _re_peek_at(c, 1);
     if (e == -1) {
         c.pos++;
-        if (c.err == null) { c.err = "trailing backslash"; }
+        if (c.err == null) {
+            c.err = "trailing backslash";
+        }
         return _re_node(c, N_EMPTY);
     }
     if (e == 'p' || e == 'P' || _re_is_shorthand(e) == 1) {
         const int id = _re_class_begin(c, 0);
-        if (e == 'p' || e == 'P') { _re_unicode_class(c, id); }
-        else { _re_shorthand(c, id, e); c.pos += 2; }
+        if (e == 'p' || e == 'P') {
+            _re_unicode_class(c, id);
+        }
+        else {
+            _re_shorthand(c, id, e);
+            c.pos += 2;
+        }
         _ReNode* n = _re_node(c, N_CLASS);
         n.cls = id;
         return n;
     }
     c.pos += 2;
-    if (e == 'A') { return _re_node(c, N_BOL); }
-    if (e == 'z') { return _re_node(c, N_EOL); }
+    if (e == 'A') {
+        return _re_node(c, N_BOL);
+    }
+    if (e == 'z') {
+        return _re_node(c, N_EOL);
+    }
     if (e == 'b' || e == 'B') {
         _ReNode* n = _re_node(c, N_WORDB);
         n.ch = e == 'B' ? 1 : 0;
@@ -675,19 +822,27 @@ _ReNode* _re_parse_escape(_ReComp* c) {
         // character is this atom, the rest follow as their own atoms.
         c.inquote = 1;
         const int r = _re_next_rune(c);
-        if (r < 0) { return _re_node(c, N_EMPTY); }
+        if (r < 0) {
+            return _re_node(c, N_EMPTY);
+        }
         return _re_lit(c, r);
     }
     const int ch = _re_escape_char(c, e);
-    if (ch < 0) { return _re_node(c, N_EMPTY); }
+    if (ch < 0) {
+        return _re_node(c, N_EMPTY);
+    }
     return _re_lit(c, ch);
 }
 
 // 1 if "(?" at c.pos starts a named group, (?P<name> or (?<name>.
 int _re_named_ahead(_ReComp* c) {
     const int left = c.len - c.pos;
-    if (left > 4 && c.pat[c.pos + 2] == 'P' && c.pat[c.pos + 3] == '<') { return 1; }
-    if (left > 3 && c.pat[c.pos + 2] == '<') { return 1; }
+    if (left > 4 && c.pat[c.pos + 2] == 'P' && c.pat[c.pos + 3] == '<') {
+        return 1;
+    }
+    if (left > 3 && c.pat[c.pos + 2] == '<') {
+        return 1;
+    }
     return 0;
 }
 
@@ -704,29 +859,47 @@ int _re_parse_flags(_ReComp* c, *int out) {
         const int ch = (int)((uint8)c.pat[c.pos]);
         c.pos++;
         int f = 0;
-        if (ch == 'i') { f = RF_FOLD; }
-        else if (ch == 'm') { f = RF_MULTI; }
-        else if (ch == 's') { f = RF_DOTNL; }
-        else if (ch == 'U') { f = RF_UNGREEDY; }
+        if (ch == 'i') {
+            f = RF_FOLD;
+        }
+        else if (ch == 'm') {
+            f = RF_MULTI;
+        }
+        else if (ch == 's') {
+            f = RF_DOTNL;
+        }
+        else if (ch == 'U') {
+            f = RF_UNGREEDY;
+        }
         if (f != 0) {
-            if (neg) { del = del | f; } else { add = add | f; }
+            if (neg) {
+                del = del | f;
+            } else {
+                add = add | f;
+            }
             saw = true;
             continue;
         }
         if (ch == '-') {
-            if (neg) { break; }
+            if (neg) {
+                break;
+            }
             neg = true;
             saw = false;
             continue;
         }
         if (ch == ':' || ch == ')') {
-            if (neg && !saw) { break; }
+            if (neg && !saw) {
+                break;
+            }
             out[0] = (c.flags | add) & ~del;
             return ch;
         }
         break;
     }
-    if (c.err == null) { c.err = "invalid or unsupported Perl syntax"; }
+    if (c.err == null) {
+        c.err = "invalid or unsupported Perl syntax";
+    }
     return -1;
 }
 
@@ -739,16 +912,30 @@ int _re_skip_nops(_ReComp* c) {
     while (c.err == null && c.inquote == 0) {
         const int pk = _re_peek(c);
         if (pk == '\\' && _re_peek_at(c, 1) == 'Q') {
-            if (c.pos + 2 >= c.len) { c.pos = c.len; n++; continue; }
-            if (_re_peek_at(c, 2) == '\\' && _re_peek_at(c, 3) == 'E') { c.pos += 4; n++; continue; }
+            if (c.pos + 2 >= c.len) {
+                c.pos = c.len;
+                n++;
+                continue;
+            }
+            if (_re_peek_at(c, 2) == '\\' && _re_peek_at(c, 3) == 'E') {
+                c.pos += 4;
+                n++;
+                continue;
+            }
             break;
         }
         if (pk == '(' && _re_peek_at(c, 1) == '?' && _re_named_ahead(c) == 0) {
             const int save = c.pos;
             int[1] nf;
             const int t = _re_parse_flags(c, &nf[0]);
-            if (t == ')') { c.flags = nf[0]; n++; continue; }
-            if (t == ':') { c.pos = save; }
+            if (t == ')') {
+                c.flags = nf[0];
+                n++;
+                continue;
+            }
+            if (t == ':') {
+                c.pos = save;
+            }
             break;
         }
         break;
@@ -764,7 +951,9 @@ _ReNode* _re_parse_group(_ReComp* c) {
     // Nesting is bounded so a pattern of many '(' fails cleanly instead of
     // recursing until the stack overflows.
     if (c.depth >= RE_MAX_DEPTH) {
-        if (c.err == null) { c.err = "regex nesting too deep"; }
+        if (c.err == null) {
+            c.err = "regex nesting too deep";
+        }
         return _re_node(c, N_EMPTY);
     }
     const int saved = c.flags;
@@ -773,21 +962,27 @@ _ReNode* _re_parse_group(_ReComp* c) {
         if (_re_named_ahead(c) == 1) {
             const int s = c.pos + (c.pat[c.pos + 2] == 'P' ? 4 : 3);
             int e = s;
-            while (e < c.len && c.pat[e] != '>') { e++; }
+            while (e < c.len && c.pat[e] != '>') {
+                e++;
+            }
             bool valid = e < c.len && e > s;
             for (int k = s; valid && k < e; k++) {
                 const int ch = (int)((uint8)c.pat[k]);
                 valid = ch == '_' || (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
             }
             if (!valid) {
-                if (c.err == null) { c.err = "invalid named capture"; }
+                if (c.err == null) {
+                    c.err = "invalid named capture";
+                }
                 return _re_node(c, N_EMPTY);
             }
             c.pos = e + 1;
             g = ++c.ngroup;
         } else {
             int[1] nf;
-            if (_re_parse_flags(c, &nf[0]) != ':') { return _re_node(c, N_EMPTY); }
+            if (_re_parse_flags(c, &nf[0]) != ':') {
+                return _re_node(c, N_EMPTY);
+            }
             c.flags = nf[0];
         }
     } else {
@@ -798,13 +993,19 @@ _ReNode* _re_parse_group(_ReComp* c) {
     _ReNode* inner = _re_parse_alt(c);
     c.depth--;
     c.flags = saved;
-    if (c.err != null) { return inner; }
+    if (c.err != null) {
+        return inner;
+    }
     if (_re_peek(c) != ')') {
-        if (c.err == null) { c.err = "missing )"; }
+        if (c.err == null) {
+            c.err = "missing )";
+        }
         return _re_node(c, N_EMPTY);
     }
     c.pos++;
-    if (g == 0) { return inner; }
+    if (g == 0) {
+        return inner;
+    }
     _ReNode* n = _re_node(c, N_GROUP);
     n.grp = g;
     n.left = inner;
@@ -814,12 +1015,18 @@ _ReNode* _re_parse_group(_ReComp* c) {
 _ReNode* _re_parse_atom(_ReComp* c) {
     if (c.inquote == 1) {
         const int r = _re_next_rune(c);
-        if (r < 0) { return _re_node(c, N_EMPTY); }
+        if (r < 0) {
+            return _re_node(c, N_EMPTY);
+        }
         return _re_lit(c, r);
     }
     const int pk = _re_peek(c);
-    if (pk == '(') { return _re_parse_group(c); }
-    if (pk == '[') { return _re_parse_class(c); }
+    if (pk == '(') {
+        return _re_parse_group(c);
+    }
+    if (pk == '[') {
+        return _re_parse_class(c);
+    }
     if (pk == '.') {
         c.pos++;
         _ReNode* n = _re_node(c, N_ANY);
@@ -832,18 +1039,26 @@ _ReNode* _re_parse_atom(_ReComp* c) {
         n.ch = (c.flags & RF_MULTI) != 0 ? 1 : 0;
         return n;
     }
-    if (pk == '\\') { return _re_parse_escape(c); }
+    if (pk == '\\') {
+        return _re_parse_escape(c);
+    }
     if (pk == '*' || pk == '+' || pk == '?' || (pk == '{' && _re_repeat_ahead(c) == 1)) {
-        if (c.err == null) { c.err = "nothing to repeat"; }
+        if (c.err == null) {
+            c.err = "nothing to repeat";
+        }
         return _re_node(c, N_EMPTY);
     }
     if (pk == -1) {
-        if (c.err == null) { c.err = "unexpected end of pattern"; }
+        if (c.err == null) {
+            c.err = "unexpected end of pattern";
+        }
         return _re_node(c, N_EMPTY);
     }
     // ordinary literal
     const int r = _re_next_rune(c);
-    if (r < 0) { return _re_node(c, N_EMPTY); }
+    if (r < 0) {
+        return _re_node(c, N_EMPTY);
+    }
     return _re_lit(c, r);
 }
 
@@ -853,10 +1068,14 @@ int _re_read_int(_ReComp* c) {
     const int start = c.pos;
     int v = 0;
     while (_re_peek(c) >= '0' && _re_peek(c) <= '9') {
-        if (v <= RE_MAX_REPEAT) { v = v * 10 + (_re_peek(c) - '0'); }
+        if (v <= RE_MAX_REPEAT) {
+            v = v * 10 + (_re_peek(c) - '0');
+        }
         c.pos++;
     }
-    if (c.pos == start) { return -1; }
+    if (c.pos == start) {
+        return -1;
+    }
     return v > RE_MAX_REPEAT ? -2 : v;
 }
 
@@ -865,11 +1084,17 @@ int _re_read_int(_ReComp* c) {
 int _re_repeat_ahead(_ReComp* c) {
     int p = c.pos + 1;
     const int s = p;
-    while (p < c.len && c.pat[p] >= '0' && c.pat[p] <= '9') { p++; }
-    if (p == s) { return 0; }
+    while (p < c.len && c.pat[p] >= '0' && c.pat[p] <= '9') {
+        p++;
+    }
+    if (p == s) {
+        return 0;
+    }
     if (p < c.len && c.pat[p] == ',') {
         p++;
-        while (p < c.len && c.pat[p] >= '0' && c.pat[p] <= '9') { p++; }
+        while (p < c.len && c.pat[p] >= '0' && c.pat[p] <= '9') {
+            p++;
+        }
     }
     return p < c.len && c.pat[p] == '}' ? 1 : 0;
 }
@@ -880,24 +1105,42 @@ int _re_quantifier(_ReComp* c, *int out) {
     const int pk = _re_peek(c);
     int rmin = 0;
     int rmax = 0;
-    if (pk == '*') { c.pos++; rmin = 0; rmax = -1; }
-    else if (pk == '+') { c.pos++; rmin = 1; rmax = -1; }
-    else if (pk == '?') { c.pos++; rmin = 0; rmax = 1; }
+    if (pk == '*') {
+        c.pos++;
+        rmin = 0;
+        rmax = -1;
+    }
+    else if (pk == '+') {
+        c.pos++;
+        rmin = 1;
+        rmax = -1;
+    }
+    else if (pk == '?') {
+        c.pos++;
+        rmin = 0;
+        rmax = 1;
+    }
     else if (pk == '{' && _re_repeat_ahead(c) == 1) {
         c.pos++;
         const int m1 = _re_read_int(c);
         if (m1 == -2) {
-            if (c.err == null) { c.err = "invalid repeat count"; }
+            if (c.err == null) {
+                c.err = "invalid repeat count";
+            }
             return -1;
         }
         rmin = m1;
         if (_re_peek(c) == ',') {
             c.pos++;
-            if (_re_peek(c) == '}') { rmax = -1; }
+            if (_re_peek(c) == '}') {
+                rmax = -1;
+            }
             else {
                 const int m2 = _re_read_int(c);
                 if (m2 == -2) {
-                    if (c.err == null) { c.err = "invalid repeat count"; }
+                    if (c.err == null) {
+                        c.err = "invalid repeat count";
+                    }
                     return -1;
                 }
                 rmax = m2;
@@ -906,7 +1149,9 @@ int _re_quantifier(_ReComp* c, *int out) {
             rmax = rmin;
         }
         if (rmax != -1 && rmax < rmin) {
-            if (c.err == null) { c.err = "invalid {n,m}: max below min"; }
+            if (c.err == null) {
+                c.err = "invalid {n,m}: max below min";
+            }
             return -1;
         }
         c.pos++;   // '}' (_re_repeat_ahead checked it is there)
@@ -914,8 +1159,13 @@ int _re_quantifier(_ReComp* c, *int out) {
         return 0;
     }
     int greedy = 1;
-    if (_re_peek(c) == '?') { c.pos++; greedy = 0; }
-    if ((c.flags & RF_UNGREEDY) != 0) { greedy = 1 - greedy; }
+    if (_re_peek(c) == '?') {
+        c.pos++;
+        greedy = 0;
+    }
+    if ((c.flags & RF_UNGREEDY) != 0) {
+        greedy = 1 - greedy;
+    }
     out[0] = rmin;
     out[1] = rmax;
     out[2] = greedy;
@@ -924,23 +1174,40 @@ int _re_quantifier(_ReComp* c, *int out) {
 
 _ReNode* _re_parse_repeat(_ReComp* c) {
     _ReNode* a = _re_parse_atom(c);
-    if (c.err != null) { return a; }
+    if (c.err != null) {
+        return a;
+    }
     if (c.inquote == 1) {
         // Only the last quoted character takes a quantifier (\Qab\E* is ab*).
-        if (_re_peek(c) == '\\' && _re_peek_at(c, 1) == 'E') { c.pos += 2; c.inquote = 0; }
-        else if (c.pos >= c.len) { c.inquote = 0; }
-        else { return a; }
+        if (_re_peek(c) == '\\' && _re_peek_at(c, 1) == 'E') {
+            c.pos += 2;
+            c.inquote = 0;
+        }
+        else if (c.pos >= c.len) {
+            c.inquote = 0;
+        }
+        else {
+            return a;
+        }
     }
     bool applied = false;
     while (true) {
         const int skipped = _re_skip_nops(c);
-        if (c.err != null) { return a; }
+        if (c.err != null) {
+            return a;
+        }
         // a** is an error (RE2): the second '*' is left for _re_parse_atom.
-        if (applied && skipped == 0) { break; }
+        if (applied && skipped == 0) {
+            break;
+        }
         int[3] q;
         const int got = _re_quantifier(c, &q[0]);
-        if (got < 0) { return a; }
-        if (got == 0) { break; }
+        if (got < 0) {
+            return a;
+        }
+        if (got == 0) {
+            break;
+        }
         _ReNode* n = _re_node(c, N_REPEAT);
         n.left = a;
         n.rmin = q[0];
@@ -956,12 +1223,20 @@ _ReNode* _re_parse_concat(_ReComp* c) {
     _ReNode* left = null;
     while (c.err == null) {
         _re_skip_nops(c);
-        if (c.err != null) { break; }
+        if (c.err != null) {
+            break;
+        }
         const int pk = _re_peek(c);
-        if (pk == -1) { break; }
-        if (c.inquote == 0 && (pk == '|' || pk == ')')) { break; }
+        if (pk == -1) {
+            break;
+        }
+        if (c.inquote == 0 && (pk == '|' || pk == ')')) {
+            break;
+        }
         _ReNode* atom = _re_parse_repeat(c);
-        if (left == null) { left = atom; }
+        if (left == null) {
+            left = atom;
+        }
         else {
             _ReNode* n = _re_node(c, N_CONCAT);
             n.left = left;
@@ -988,7 +1263,9 @@ _ReNode* _re_parse_alt(_ReComp* c) {
 // =========================== compilation ===================================
 
 int _re_emit(_ReComp* c, int op, int a, int b) {
-    if (c.err != null) { return 0; }
+    if (c.err != null) {
+        return 0;
+    }
     Regex* re = c.re;
     if (re.ninst >= RE_MAX_INST) {
         c.err = "regex program too large";
@@ -1005,7 +1282,9 @@ void _re_compile_node(_ReComp* c, _ReNode* n);
 
 // Can `n` match the empty string?
 bool _re_nullable(_ReNode* n) {
-    if (n == null) { return true; }
+    if (n == null) {
+        return true;
+    }
     switch (n.kind) {
         case N_LIT: return false;
         case N_ANY: return false;
@@ -1031,23 +1310,41 @@ void _re_compile_repeat(_ReComp* c, _ReNode* n) {
     for (int i = 0; i < copies && c.err == null; i++) {
         _re_compile_node(c, child);
     }
-    if (c.err != null) { return; }
+    if (c.err != null) {
+        return;
+    }
 
     if (rmax == -1 && (rmin > 0 || _re_nullable(child))) {
         // x+:     body: child; l: split(body, end); end:
         // (x+)?:  q: split(body, end); then x+
         int q = -1;
-        if (rmin == 0) { q = _re_emit(c, OP_SPLIT, 0, 0); }
+        if (rmin == 0) {
+            q = _re_emit(c, OP_SPLIT, 0, 0);
+        }
         const int body = c.re.ninst;
         _re_compile_node(c, child);
         const int l = _re_emit(c, OP_SPLIT, 0, 0);
         const int end = c.re.ninst;
-        if (c.err != null) { return; }
-        if (greedy) { c.re.inst[l].a = body; c.re.inst[l].b = end; }
-        else { c.re.inst[l].a = end; c.re.inst[l].b = body; }
+        if (c.err != null) {
+            return;
+        }
+        if (greedy) {
+            c.re.inst[l].a = body;
+            c.re.inst[l].b = end;
+        }
+        else {
+            c.re.inst[l].a = end;
+            c.re.inst[l].b = body;
+        }
         if (q >= 0) {
-            if (greedy) { c.re.inst[q].a = body; c.re.inst[q].b = end; }
-            else { c.re.inst[q].a = end; c.re.inst[q].b = body; }
+            if (greedy) {
+                c.re.inst[q].a = body;
+                c.re.inst[q].b = end;
+            }
+            else {
+                c.re.inst[q].a = end;
+                c.re.inst[q].b = body;
+            }
         }
         return;
     }
@@ -1058,15 +1355,26 @@ void _re_compile_repeat(_ReComp* c, _ReNode* n) {
         _re_compile_node(c, child);
         _re_emit(c, OP_JMP, lsplit, 0);
         const int end = c.re.ninst;
-        if (greedy) { c.re.inst[lsplit].a = body; c.re.inst[lsplit].b = end; }
-        else { c.re.inst[lsplit].a = end; c.re.inst[lsplit].b = body; }
+        if (greedy) {
+            c.re.inst[lsplit].a = body;
+            c.re.inst[lsplit].b = end;
+        }
+        else {
+            c.re.inst[lsplit].a = end;
+            c.re.inst[lsplit].b = body;
+        }
         return;
     }
 
     // Each optional copy: split(body, end); body: child. All splits exit to end.
     const int reps = rmax - rmin;
-    if (reps <= 0) { return; }
-    if (reps > RE_MAX_INST) { c.err = "regex program too large"; return; }
+    if (reps <= 0) {
+        return;
+    }
+    if (reps > RE_MAX_INST) {
+        c.err = "regex program too large";
+        return;
+    }
     *int splits = alloc<int>(reps);
     defer free(splits);
     for (int i = 0; i < reps && c.err == null; i++) {
@@ -1074,32 +1382,50 @@ void _re_compile_repeat(_ReComp* c, _ReNode* n) {
         splits[i] = s;
         const int body = c.re.ninst;
         _re_compile_node(c, child);
-        if (greedy) { c.re.inst[s].a = body; }
-        else { c.re.inst[s].b = body; }
+        if (greedy) {
+            c.re.inst[s].a = body;
+        }
+        else {
+            c.re.inst[s].b = body;
+        }
     }
     const int end = c.re.ninst;
     for (i in 0..reps) {
         const int s = splits[i];
-        if (greedy) { c.re.inst[s].b = end; }
-        else { c.re.inst[s].a = end; }
+        if (greedy) {
+            c.re.inst[s].b = end;
+        }
+        else {
+            c.re.inst[s].a = end;
+        }
     }
 }
 
 void _re_compile_node(_ReComp* c, _ReNode* n) {
-    if (n == null || c.err != null) { return; }
+    if (n == null || c.err != null) {
+        return;
+    }
     switch (n.kind) {
-        case N_LIT:    _re_emit(c, OP_CHAR, n.ch, n.fold); break;
-        case N_ANY:    _re_emit(c, OP_ANY, n.ch, 0); break;
-        case N_CLASS:  _re_emit(c, OP_CLASS, n.cls, 0); break;
-        case N_BOL:    _re_emit(c, OP_BOL, n.ch, 0); break;
-        case N_EOL:    _re_emit(c, OP_EOL, n.ch, 0); break;
-        case N_WORDB:  _re_emit(c, OP_WORDB, n.ch, 0); break;
-        case N_CONCAT: _re_compile_node(c, n.left); _re_compile_node(c, n.right); break;
+        case N_LIT: _re_emit(c, OP_CHAR, n.ch, n.fold);
+        break;
+        case N_ANY: _re_emit(c, OP_ANY, n.ch, 0);
+        break;
+        case N_CLASS: _re_emit(c, OP_CLASS, n.cls, 0);
+        break;
+        case N_BOL: _re_emit(c, OP_BOL, n.ch, 0);
+        break;
+        case N_EOL: _re_emit(c, OP_EOL, n.ch, 0);
+        break;
+        case N_WORDB: _re_emit(c, OP_WORDB, n.ch, 0);
+        break;
+        case N_CONCAT: _re_compile_node(c, n.left);
+        _re_compile_node(c, n.right);
+        break;
         case N_GROUP:
-            _re_emit(c, OP_SAVE, 2 * n.grp, 0);
-            _re_compile_node(c, n.left);
-            _re_emit(c, OP_SAVE, 2 * n.grp + 1, 0);
-            break;
+        _re_emit(c, OP_SAVE, 2 * n.grp, 0);
+        _re_compile_node(c, n.left);
+        _re_emit(c, OP_SAVE, 2 * n.grp + 1, 0);
+        break;
         case N_ALT: {
             // split(a, b); a: left; jmp end; b: right; end:
             const int s = _re_emit(c, OP_SPLIT, 0, 0);
@@ -1112,8 +1438,10 @@ void _re_compile_node(_ReComp* c, _ReNode* n) {
             c.re.inst[s].a = a;
             c.re.inst[s].b = b;
             c.re.inst[j].a = end;
-        } break;
-        case N_REPEAT: _re_compile_repeat(c, n); break;
+        }
+        break;
+        case N_REPEAT: _re_compile_repeat(c, n);
+        break;
         default: break;                // N_EMPTY emits nothing
     }
 }
@@ -1149,7 +1477,9 @@ Regex regex_compile(string pattern) {
     defer free(c.nodes);
 
     _ReNode* ast = _re_parse_alt(&c);
-    if (c.err == null && c.pos != c.len) { c.err = "unexpected trailing characters"; }
+    if (c.err == null && c.pos != c.len) {
+        c.err = "unexpected trailing characters";
+    }
     if (c.err != null) {
         re.err = c.err;
         return re;
@@ -1161,7 +1491,10 @@ Regex regex_compile(string pattern) {
     _re_emit(&c, OP_SAVE, 1, 0);
     _re_emit(&c, OP_MATCH, 0, 0);
 
-    if (c.err != null) { re.err = c.err; return re; }
+    if (c.err != null) {
+        re.err = c.err;
+        return re;
+    }
     re.ok = 1;
     return re;
 }
@@ -1203,14 +1536,22 @@ int _re_in_class(Regex* re, int id, int ch) {
     bool found = false;
     for (k in 0..no) {
         for (i in ci.start..ci.start + ci.count) {
-            if (orb[k] >= re.ranges[i].lo && orb[k] <= re.ranges[i].hi) { found = true; break; }
+            if (orb[k] >= re.ranges[i].lo && orb[k] <= re.ranges[i].hi) {
+                found = true;
+                break;
+            }
         }
-        if (found) { break; }
+        if (found) {
+            break;
+        }
     }
     for (int i = ci.pstart; !found && i < ci.pstart + ci.pcount; i++) {
         bool any = false;
         for (k in 0..no) {
-            if (_re_prop_has(&re.props[i], orb[k])) { any = true; break; }
+            if (_re_prop_has(&re.props[i], orb[k])) {
+                any = true;
+                break;
+            }
         }
         found = any != (re.props[i].neg == 1);
     }
@@ -1219,11 +1560,17 @@ int _re_in_class(Regex* re, int id, int ch) {
 
 // 1 if code point `ch` matches the literal `lit`, folded when `fold` is set.
 int _re_char_eq(int lit, int fold, int ch) {
-    if (ch == lit) { return 1; }
-    if (fold == 0) { return 0; }
+    if (ch == lit) {
+        return 1;
+    }
+    if (fold == 0) {
+        return 0;
+    }
     int f = _re_simple_fold(lit);
     while (f != lit) {
-        if (f == ch) { return 1; }
+        if (f == ch) {
+            return 1;
+        }
         f = _re_simple_fold(f);
     }
     return 0;
@@ -1232,7 +1579,9 @@ int _re_char_eq(int lit, int fold, int ch) {
 // Copy `src` into the capture slot of thread `slot` in list `which`.
 *int _re_slotcaps(_ReVm* vm, int which, int slot, *int src) {
     *int dst = which == 0 ? &vm.capsA[slot * vm.ncap] : &vm.capsB[slot * vm.ncap];
-    for (i in 0..vm.ncap) { dst[i] = src[i]; }
+    for (i in 0..vm.ncap) {
+        dst[i] = src[i];
+    }
     return dst;
 }
 
@@ -1240,45 +1589,55 @@ int _re_char_eq(int lit, int fold, int ch) {
 // a working array: SAVE writes it in place and restores it on the way back, and
 // only a thread that is enqueued gets its own copy.
 void _re_addthread(_ReVm* vm, int which, int gen, int pc, *int caps, int sp) {
-    if (vm.visited[pc] == gen) { return; }
+    if (vm.visited[pc] == gen) {
+        return;
+    }
     vm.visited[pc] = gen;
     _ReInst* ins = &vm.prog.inst[pc];
     switch (ins.op) {
         case OP_JMP:
-            _re_addthread(vm, which, gen, ins.a, caps, sp);
-            break;
+        _re_addthread(vm, which, gen, ins.a, caps, sp);
+        break;
         case OP_SPLIT:
-            _re_addthread(vm, which, gen, ins.a, caps, sp);
-            _re_addthread(vm, which, gen, ins.b, caps, sp);
-            break;
+        _re_addthread(vm, which, gen, ins.a, caps, sp);
+        _re_addthread(vm, which, gen, ins.b, caps, sp);
+        break;
         case OP_SAVE: {
             const int old = caps[ins.a];
             caps[ins.a] = sp;
             _re_addthread(vm, which, gen, pc + 1, caps, sp);
             caps[ins.a] = old;
-        } break;
+        }
+        break;
         case OP_BOL:
-            if (sp == 0 || (ins.a == 1 && vm.text[sp - 1] == '\n')) { _re_addthread(vm, which, gen, pc + 1, caps, sp); }
-            break;
+        if (sp == 0 || (ins.a == 1 && vm.text[sp - 1] == '\n')) {
+            _re_addthread(vm, which, gen, pc + 1, caps, sp);
+        }
+        break;
         case OP_EOL:
-            if (sp == vm.len || (ins.a == 1 && vm.text[sp] == '\n')) { _re_addthread(vm, which, gen, pc + 1, caps, sp); }
-            break;
+        if (sp == vm.len || (ins.a == 1 && vm.text[sp] == '\n')) {
+            _re_addthread(vm, which, gen, pc + 1, caps, sp);
+        }
+        break;
         case OP_WORDB: {
             const bool before = sp > 0 && _re_is_word((int)((uint8)vm.text[sp - 1]));
             const bool after = sp < vm.len && _re_is_word((int)((uint8)vm.text[sp]));
-            if ((before != after) != (ins.a == 1)) { _re_addthread(vm, which, gen, pc + 1, caps, sp); }
-        } break;
-        default:
-            // CHAR / ANY / CLASS / MATCH: a thread that consumes (or accepts)
-            if (which == 0) {
-                vm.la[vm.nA].pc = pc;
-                vm.la[vm.nA].caps = _re_slotcaps(vm, 0, vm.nA, caps);
-                vm.nA++;
-            } else {
-                vm.lb[vm.nB].pc = pc;
-                vm.lb[vm.nB].caps = _re_slotcaps(vm, 1, vm.nB, caps);
-                vm.nB++;
+            if ((before != after) != (ins.a == 1)) {
+                _re_addthread(vm, which, gen, pc + 1, caps, sp);
             }
+        }
+        break;
+        default:
+        // CHAR / ANY / CLASS / MATCH: a thread that consumes (or accepts)
+        if (which == 0) {
+            vm.la[vm.nA].pc = pc;
+            vm.la[vm.nA].caps = _re_slotcaps(vm, 0, vm.nA, caps);
+            vm.nA++;
+        } else {
+            vm.lb[vm.nB].pc = pc;
+            vm.lb[vm.nB].caps = _re_slotcaps(vm, 1, vm.nB, caps);
+            vm.nB++;
+        }
     }
 }
 
@@ -1290,7 +1649,9 @@ int Regex_search(Regex* re, string text, Match* m) {
     m.start = -1;
     m.end = -1;
     m.cap = null;
-    if (re.ok == 0) { return 0; }
+    if (re.ok == 0) {
+        return 0;
+    }
 
     let vm: _ReVm;
     vm.prog = re;
@@ -1300,7 +1661,9 @@ int Regex_search(Regex* re, string text, Match* m) {
     const int ninst = re.ninst;
     vm.visited = alloc<int>(ninst);
     defer free(vm.visited);
-    for (i in 0..ninst) { vm.visited[i] = -1; }
+    for (i in 0..ninst) {
+        vm.visited[i] = -1;
+    }
     vm.la = alloc<_ReThread>(ninst + 2);
     vm.lb = alloc<_ReThread>(ninst + 2);
     defer free(vm.la);
@@ -1321,7 +1684,9 @@ int Regex_search(Regex* re, string text, Match* m) {
     defer free(emptycaps);
     defer free(workcaps);
     defer free(bestcaps);
-    for (i in 0..vm.ncap) { emptycaps[i] = -1; }
+    for (i in 0..vm.ncap) {
+        emptycaps[i] = -1;
+    }
 
     bool matched = false;
     int cur = 0;
@@ -1337,18 +1702,28 @@ int Regex_search(Regex* re, string text, Match* m) {
         w[0] = 1;
         if (sp < vm.len) {
             ch = _re_decode(text, vm.len, sp, &w[0]);
-            if (ch < 0) { ch = 0xFFFD; }
+            if (ch < 0) {
+                ch = 0xFFFD;
+            }
         }
         // Until a match is found, start a new thread at every position.
         if (!matched) {
-            for (k in 0..vm.ncap) { workcaps[k] = emptycaps[k]; }
+            for (k in 0..vm.ncap) {
+                workcaps[k] = emptycaps[k];
+            }
             _re_addthread(&vm, cur, curgen, 0, workcaps, sp);
         }
         const int cn = cur == 0 ? vm.nA : vm.nB;
-        if (cn == 0 && matched) { break; }
+        if (cn == 0 && matched) {
+            break;
+        }
         const int oth = 1 - cur;
         const int nextgen = ++glob;
-        if (oth == 0) { vm.nA = 0; } else { vm.nB = 0; }
+        if (oth == 0) {
+            vm.nA = 0;
+        } else {
+            vm.nB = 0;
+        }
 
         for (ci in 0..cn) {
             const int tpc = cur == 0 ? vm.la[ci].pc : vm.lb[ci].pc;
@@ -1356,16 +1731,28 @@ int Regex_search(Regex* re, string text, Match* m) {
             _ReInst* ins = &re.inst[tpc];
             const int op = ins.op;
             if (op == OP_MATCH) {
-                for (j in 0..vm.ncap) { bestcaps[j] = tcaps[j]; }
+                for (j in 0..vm.ncap) {
+                    bestcaps[j] = tcaps[j];
+                }
                 matched = true;
                 break;                          // cut lower-priority threads
             }
-            if (sp >= vm.len) { continue; }
+            if (sp >= vm.len) {
+                continue;
+            }
             bool step = false;
-            if (op == OP_CHAR)       { step = _re_char_eq(ins.a, ins.b, ch) == 1; }
-            else if (op == OP_ANY)   { step = ch != '\n' || ins.a == 1; }
-            else if (op == OP_CLASS) { step = _re_in_class(re, ins.a, ch) == 1; }
-            if (step) { _re_addthread(&vm, oth, nextgen, tpc + 1, tcaps, sp + w[0]); }
+            if (op == OP_CHAR) {
+                step = _re_char_eq(ins.a, ins.b, ch) == 1;
+            }
+            else if (op == OP_ANY) {
+                step = ch != '\n' || ins.a == 1;
+            }
+            else if (op == OP_CLASS) {
+                step = _re_in_class(re, ins.a, ch) == 1;
+            }
+            if (step) {
+                _re_addthread(&vm, oth, nextgen, tpc + 1, tcaps, sp + w[0]);
+            }
         }
         cur = oth;
         curgen = nextgen;
@@ -1375,7 +1762,9 @@ int Regex_search(Regex* re, string text, Match* m) {
     if (matched) {
         m.ok = 1;
         m.cap = alloc<int>(vm.ncap);
-        for (j in 0..vm.ncap) { m.cap[j] = bestcaps[j]; }
+        for (j in 0..vm.ncap) {
+            m.cap[j] = bestcaps[j];
+        }
         m.start = m.cap[0];
         m.end = m.cap[1];
     }
@@ -1383,25 +1772,39 @@ int Regex_search(Regex* re, string text, Match* m) {
 }
 
 void Match_free(Match* m) {
-    if (m.cap != null) { free(m.cap); m.cap = null; }
+    if (m.cap != null) {
+        free(m.cap);
+        m.cap = null;
+    }
 }
 
 // Append capture group `i` (0 = whole match) of the last search into `out`,
 // which must already be String_init'd. Does nothing if the group is unset.
 void Match_group(Match* m, string text, int i, String* out) {
-    if (m.ok == 0) { return; }
-    if (i < 0 || i > m.ngroup) { return; }
+    if (m.ok == 0) {
+        return;
+    }
+    if (i < 0 || i > m.ngroup) {
+        return;
+    }
     const int s = m.cap[2 * i];
     const int e = m.cap[2 * i + 1];
-    if (s < 0 || e < 0 || e < s) { return; }
-    for (k in s..e) { out.push(text[k]); }
+    if (s < 0 || e < 0 || e < s) {
+        return;
+    }
+    for (k in s..e) {
+        out.push(text[k]);
+    }
 }
 
 // Convenience: does `pattern` match anywhere in `text`? Returns 1/0. Compiles
 // and frees internally, so for repeated use prefer regex_compile + Regex_search.
 int regex_match(string pattern, string text) {
     Regex re = regex_compile(pattern);
-    if (re.ok == 0) { Regex_free(&re); return 0; }
+    if (re.ok == 0) {
+        Regex_free(&re);
+        return 0;
+    }
     let m: Match;
     const int r = Regex_search(&re, text, &m);
     Match_free(&m);

@@ -4,7 +4,7 @@
 import <mem>;
 
 struct List<T> {
-    *T  data;
+    *T data;
     int size;
     int cap;
 }
@@ -13,17 +13,19 @@ void List_init<T>(List<T>* self, int initial_cap) {
     const int cap = initial_cap < 4 ? 4 : initial_cap;
     self.data = alloc<T>(cap);
     self.size = 0;
-    self.cap  = cap;
+    self.cap = cap;
 }
 
 void List_push<T>(List<T>* self, T item) {
     if (self.size >= self.cap) {
         const int new_cap = self.cap * 2 < 4 ? 4 : self.cap * 2;
         let new_data: *T = alloc<T>(new_cap);
-        for (i in 0..self.size) { new_data[i] = self.data[i]; }
+        for (i in 0..self.size) {
+            new_data[i] = self.data[i];
+        }
         free(self.data);
         self.data = new_data;
-        self.cap  = new_cap;
+        self.cap = new_cap;
     }
     self.data[self.size] = item;
     self.size++;
@@ -40,7 +42,9 @@ void List_set<T>(List<T>* self, int i, T item) {
 // Remove the element at index i, shifting the tail down one slot. Out-of-range
 // indices are ignored. O(n) in the number of trailing elements.
 void List_remove<T>(List<T>* self, int i) {
-    if (i < 0 || i >= self.size) { return; }
+    if (i < 0 || i >= self.size) {
+        return;
+    }
     for (int j = i; j + 1 < self.size; j++) {
         self.data[j] = self.data[j + 1];
     }
@@ -56,7 +60,7 @@ void List_free<T>(List<T>* self) {
     free(self.data);
     self.data = null;
     self.size = 0;
-    self.cap  = 0;
+    self.cap = 0;
 }
 
 // ── Scripting helpers ─────────────────────────────────────────────────────────
@@ -89,8 +93,12 @@ T List_pop<T>(List<T>* self) {
 // Insert `item` before index i, shifting the tail up. An index past the end
 // appends; a negative one inserts at the front.
 void List_insert<T>(List<T>* self, int i, T item) {
-    if (i < 0) { i = 0; }
-    if (i > self.size) { i = self.size; }
+    if (i < 0) {
+        i = 0;
+    }
+    if (i > self.size) {
+        i = self.size;
+    }
     List_push<T>(self, item);
     for (int j = self.size - 1; j > i; j--) {
         self.data[j] = self.data[j - 1];
@@ -114,34 +122,48 @@ void List_reverse<T>(List<T>* self) {
 // Append the elements in [start, end) to `out`. Indices are clamped to the list,
 // so an empty or reversed range appends nothing.
 void List_slice<T>(List<T>* self, int start, int end, List<T>* out) {
-    if (start < 0) { start = 0; }
-    if (end > self.size) { end = self.size; }
-    for (int i = start; i < end; i++) { List_push<T>(out, self.data[i]); }
+    if (start < 0) {
+        start = 0;
+    }
+    if (end > self.size) {
+        end = self.size;
+    }
+    for (int i = start; i < end; i++) {
+        List_push<T>(out, self.data[i]);
+    }
 }
 
 // Append f(x) for every element x to `out`, in order.
 void List_map<T, U>(List<T>* self, fn(T)->U f, List<U>* out) {
-    for (i in 0..self.size) { List_push<U>(out, f(self.data[i])); }
+    for (i in 0..self.size) {
+        List_push<U>(out, f(self.data[i]));
+    }
 }
 
 // Append every element for which `keep` returns true to `out`, in order.
 void List_filter<T>(List<T>* self, fn(T)->bool keep, List<T>* out) {
     for (i in 0..self.size) {
-        if (keep(self.data[i])) { List_push<T>(out, self.data[i]); }
+        if (keep(self.data[i])) {
+            List_push<T>(out, self.data[i]);
+        }
     }
 }
 
 // Fold left: acc = f(acc, x) for every element, starting from `init`.
 A List_reduce<T, A>(List<T>* self, A init, fn(A, T)->A f) {
     A acc = init;
-    for (i in 0..self.size) { acc = f(acc, self.data[i]); }
+    for (i in 0..self.size) {
+        acc = f(acc, self.data[i]);
+    }
     return acc;
 }
 
 // Index of the first element for which `pred` is true, or -1.
 int List_find<T>(List<T>* self, fn(T)->bool pred) {
     for (i in 0..self.size) {
-        if (pred(self.data[i])) { return i; }
+        if (pred(self.data[i])) {
+            return i;
+        }
     }
     return -1;
 }
@@ -154,7 +176,9 @@ int List_any<T>(List<T>* self, fn(T)->bool pred) {
 // 1 if `pred` is true for every element, else 0 (1 on an empty list).
 int List_all<T>(List<T>* self, fn(T)->bool pred) {
     for (i in 0..self.size) {
-        if (!pred(self.data[i])) { return 0; }
+        if (!pred(self.data[i])) {
+            return 0;
+        }
     }
     return 1;
 }
@@ -162,7 +186,9 @@ int List_all<T>(List<T>* self, fn(T)->bool pred) {
 // Index of the first element equal to `item` under `eq`, or -1.
 int List_index_of<T>(List<T>* self, T item, fn(*T, *T)->int eq) {
     for (i in 0..self.size) {
-        if (eq(&self.data[i], &item) == 1) { return i; }
+        if (eq(&self.data[i], &item) == 1) {
+            return i;
+        }
     }
     return -1;
 }
@@ -179,7 +205,9 @@ void List_unique<T>(List<T>* self, fn(*T, *T)->int eq) {
     for (i in 0..self.size) {
         int dup = 0;
         for (int j = 0; j < kept && dup == 0; j++) {
-            if (eq(&self.data[j], &self.data[i]) == 1) { dup = 1; }
+            if (eq(&self.data[j], &self.data[i]) == 1) {
+                dup = 1;
+            }
         }
         if (dup == 0) {
             self.data[kept] = self.data[i];

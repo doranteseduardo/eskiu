@@ -32,46 +32,66 @@ import <time>;
 
 const int LOG_TRACE = 0;
 const int LOG_DEBUG = 1;
-const int LOG_INFO  = 2;
-const int LOG_WARN  = 3;
+const int LOG_INFO = 2;
+const int LOG_WARN = 3;
 const int LOG_ERROR = 4;
-const int LOG_OFF   = 5;
+const int LOG_OFF = 5;
 
-const int LOG_TIME_UTC   = 0;
+const int LOG_TIME_UTC = 0;
 const int LOG_TIME_LOCAL = 1;
-const int LOG_TIME_NONE  = 2;
+const int LOG_TIME_NONE = 2;
 
 const string[5] LOG_LEVEL_TAGS = {"TRACE", "DEBUG", "INFO ", "WARN ", "ERROR"};
 
 extern *void fopen(string path, string mode);
-extern int   fclose(*void fp);
+extern int fclose(*void fp);
 
-int   _log_level = -1;         // -1: from LOG_LEVEL
+int _log_level = -1;         // -1: from LOG_LEVEL
 *void _log_fp = null;          // null: stderr
-int   _log_time = 0;
-int   _log_color = 0;          // TERM_AUTO / TERM_ALWAYS / TERM_NEVER
-bool  _log_frozen = false;
+int _log_time = 0;
+int _log_color = 0;          // TERM_AUTO / TERM_ALWAYS / TERM_NEVER
+bool _log_frozen = false;
 int64 _log_frozen_ms = 0;
 
-char _log_lower(char c) { return c >= 'A' && c <= 'Z' ? (char)((int)c + 32) : c; }
+char _log_lower(char c) {
+    return c >= 'A' && c <= 'Z' ? (char)((int)c + 32) : c;
+}
 
 bool _log_name_is(string s, string name) {
     int i = 0;
-    while (s[i] != 0 && name[i] != 0 && _log_lower(s[i]) == name[i]) { i++; }
+    while (s[i] != 0 && name[i] != 0 && _log_lower(s[i]) == name[i]) {
+        i++;
+    }
     return s[i] == 0 && name[i] == 0;
 }
 
 // The level named by `name` (trace, debug, info, warn/warning, error, off, any
 // case, or a digit 0-5), or -1.
 int log_level_from_name(string name) {
-    if (name == null) { return -1; }
-    if (name[0] >= '0' && name[0] <= '5' && name[1] == 0) { return (int)name[0] - 48; }
-    if (_log_name_is(name, "trace")) { return LOG_TRACE; }
-    if (_log_name_is(name, "debug")) { return LOG_DEBUG; }
-    if (_log_name_is(name, "info")) { return LOG_INFO; }
-    if (_log_name_is(name, "warn") || _log_name_is(name, "warning")) { return LOG_WARN; }
-    if (_log_name_is(name, "error")) { return LOG_ERROR; }
-    if (_log_name_is(name, "off") || _log_name_is(name, "none")) { return LOG_OFF; }
+    if (name == null) {
+        return -1;
+    }
+    if (name[0] >= '0' && name[0] <= '5' && name[1] == 0) {
+        return (int)name[0] - 48;
+    }
+    if (_log_name_is(name, "trace")) {
+        return LOG_TRACE;
+    }
+    if (_log_name_is(name, "debug")) {
+        return LOG_DEBUG;
+    }
+    if (_log_name_is(name, "info")) {
+        return LOG_INFO;
+    }
+    if (_log_name_is(name, "warn") || _log_name_is(name, "warning")) {
+        return LOG_WARN;
+    }
+    if (_log_name_is(name, "error")) {
+        return LOG_ERROR;
+    }
+    if (_log_name_is(name, "off") || _log_name_is(name, "none")) {
+        return LOG_OFF;
+    }
     return -1;
 }
 
@@ -82,7 +102,9 @@ void log_set_level(int level) {
 
 // The minimum level in effect.
 int log_level() {
-    if (_log_level >= 0) { return _log_level; }
+    if (_log_level >= 0) {
+        return _log_level;
+    }
     const int env = log_level_from_name(getenv("LOG_LEVEL"));
     return env >= 0 ? env : LOG_INFO;
 }
@@ -96,15 +118,21 @@ int log_enabled(int level) {
 // 0, or -1 if it cannot be opened (the destination is then unchanged).
 int log_set_file(string path) {
     *void fp = fopen(path, "ab");
-    if (fp == null) { return -1; }
-    if (_log_fp != null) { fclose(_log_fp); }
+    if (fp == null) {
+        return -1;
+    }
+    if (_log_fp != null) {
+        fclose(_log_fp);
+    }
     _log_fp = fp;
     return 0;
 }
 
 // Write to stderr again (closing a file set with log_set_file).
 void log_set_stderr() {
-    if (_log_fp != null) { fclose(_log_fp); }
+    if (_log_fp != null) {
+        fclose(_log_fp);
+    }
     _log_fp = null;
 }
 
@@ -136,10 +164,17 @@ void _log_timestamp(String* line) {
     const int64 ms = _log_frozen ? _log_frozen_ms : time_now_ms();
     int64 s = ms / 1000;
     int64 frac = ms % 1000;
-    if (frac < 0) { frac = frac + 1000; s = s - 1; }
+    if (frac < 0) {
+        frac = frac + 1000;
+        s = s - 1;
+    }
     let dt: DateTime;
     int off = 0;
-    if (_log_time == LOG_TIME_LOCAL) { off = time_to_local(s, &dt); } else { time_to_utc(s, &dt); }
+    if (_log_time == LOG_TIME_LOCAL) {
+        off = time_to_local(s, &dt);
+    } else {
+        time_to_utc(s, &dt);
+    }
     _time_pad(line, dt.year, 4);
     line.push('-');
     _time_pad(line, dt.month, 2);
@@ -153,34 +188,59 @@ void _log_timestamp(String* line) {
     _time_pad(line, dt.sec, 2);
     line.push('.');
     _time_pad(line, (int)frac, 3);
-    if (_log_time != LOG_TIME_LOCAL) { line.push('Z'); return; }
-    if (off < 0) { line.push('-'); off = -off; } else { line.push('+'); }
+    if (_log_time != LOG_TIME_LOCAL) {
+        line.push('Z');
+        return;
+    }
+    if (off < 0) {
+        line.push('-');
+        off = -off;
+    } else {
+        line.push('+');
+    }
     _time_pad(line, off / 3600, 2);
     line.push(':');
     _time_pad(line, (off % 3600) / 60, 2);
 }
 
 int64 _log_level_style(int level) {
-    if (level == LOG_TRACE) { return TERM_BRIGHT_BLACK; }
-    if (level == LOG_DEBUG) { return TERM_CYAN; }
-    if (level == LOG_INFO) { return TERM_GREEN; }
-    if (level == LOG_WARN) { return TERM_YELLOW; }
+    if (level == LOG_TRACE) {
+        return TERM_BRIGHT_BLACK;
+    }
+    if (level == LOG_DEBUG) {
+        return TERM_CYAN;
+    }
+    if (level == LOG_INFO) {
+        return TERM_GREEN;
+    }
+    if (level == LOG_WARN) {
+        return TERM_YELLOW;
+    }
     return TERM_BOLD | TERM_RED;
 }
 
 // Write one formatted line for `msg` at `level` (no level check).
 void _log_emit(int level, String* msg) {
-    if (level < 0) { level = 0; }
-    if (level > LOG_ERROR) { level = LOG_ERROR; }
-    let line: String;  line.init(msg.len + 48);
+    if (level < 0) {
+        level = 0;
+    }
+    if (level > LOG_ERROR) {
+        level = LOG_ERROR;
+    }
+    let line: String;
+    line.init(msg.len + 48);
     if (_log_time != LOG_TIME_NONE) {
         _log_timestamp(&line);
         line.push(' ');
     }
     bool color = false;
     if (_log_fp == null) {
-        if (_log_color == TERM_ALWAYS) { color = true; }
-        else if (_log_color == TERM_AUTO) { color = term_color_enabled(2) == 1; }
+        if (_log_color == TERM_ALWAYS) {
+            color = true;
+        }
+        else if (_log_color == TERM_AUTO) {
+            color = term_color_enabled(2) == 1;
+        }
     }
     if (color) {
         term_sgr(&line, _log_level_style(level));
@@ -207,7 +267,10 @@ void _log_emit(int level, String* msg) {
 // After a first vsnprintf into `m` that reported `n` bytes: 1 when the text did
 // not fit and `m` was grown for a second pass, else 0 (the length is set).
 int _log_fit(String* m, int n) {
-    if (n < 0) { m.data[0] = 0; return 0; }
+    if (n < 0) {
+        m.data[0] = 0;
+        return 0;
+    }
     if ((int64)n >= m.cap) {
         String_reserve(m, (int64)n + 1);
         return 1;
@@ -218,8 +281,11 @@ int _log_fit(String* m, int n) {
 
 // Log a printf-style message at `level`.
 void log_at(int level, string fmt, ...) {
-    if (log_enabled(level) == 0) { return; }
-    let m: String;  m.init(256);
+    if (log_enabled(level) == 0) {
+        return;
+    }
+    let m: String;
+    m.init(256);
     va_list ap;
     va_start(ap);
     const int n = _string_vwrite(&m, fmt, ap);
@@ -235,8 +301,11 @@ void log_at(int level, string fmt, ...) {
 }
 
 void log_trace(string fmt, ...) {
-    if (log_enabled(LOG_TRACE) == 0) { return; }
-    let m: String;  m.init(256);
+    if (log_enabled(LOG_TRACE) == 0) {
+        return;
+    }
+    let m: String;
+    m.init(256);
     va_list ap;
     va_start(ap);
     const int n = _string_vwrite(&m, fmt, ap);
@@ -252,8 +321,11 @@ void log_trace(string fmt, ...) {
 }
 
 void log_debug(string fmt, ...) {
-    if (log_enabled(LOG_DEBUG) == 0) { return; }
-    let m: String;  m.init(256);
+    if (log_enabled(LOG_DEBUG) == 0) {
+        return;
+    }
+    let m: String;
+    m.init(256);
     va_list ap;
     va_start(ap);
     const int n = _string_vwrite(&m, fmt, ap);
@@ -269,8 +341,11 @@ void log_debug(string fmt, ...) {
 }
 
 void log_info(string fmt, ...) {
-    if (log_enabled(LOG_INFO) == 0) { return; }
-    let m: String;  m.init(256);
+    if (log_enabled(LOG_INFO) == 0) {
+        return;
+    }
+    let m: String;
+    m.init(256);
     va_list ap;
     va_start(ap);
     const int n = _string_vwrite(&m, fmt, ap);
@@ -286,8 +361,11 @@ void log_info(string fmt, ...) {
 }
 
 void log_warn(string fmt, ...) {
-    if (log_enabled(LOG_WARN) == 0) { return; }
-    let m: String;  m.init(256);
+    if (log_enabled(LOG_WARN) == 0) {
+        return;
+    }
+    let m: String;
+    m.init(256);
     va_list ap;
     va_start(ap);
     const int n = _string_vwrite(&m, fmt, ap);
@@ -303,8 +381,11 @@ void log_warn(string fmt, ...) {
 }
 
 void log_error(string fmt, ...) {
-    if (log_enabled(LOG_ERROR) == 0) { return; }
-    let m: String;  m.init(256);
+    if (log_enabled(LOG_ERROR) == 0) {
+        return;
+    }
+    let m: String;
+    m.init(256);
     va_list ap;
     va_start(ap);
     const int n = _string_vwrite(&m, fmt, ap);

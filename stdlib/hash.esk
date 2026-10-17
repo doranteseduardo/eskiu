@@ -40,9 +40,15 @@ void hash_hex_encode(*uint8 data, int64 n, String* out) {
 }
 
 int _hex_digit(char c) {
-    if (c >= '0' && c <= '9') { return (int)c - '0'; }
-    if (c >= 'a' && c <= 'f') { return (int)c - 'a' + 10; }
-    if (c >= 'A' && c <= 'F') { return (int)c - 'A' + 10; }
+    if (c >= '0' && c <= '9') {
+        return (int)c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return (int)c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return (int)c - 'A' + 10;
+    }
     return -1;
 }
 
@@ -52,11 +58,15 @@ int _hex_digit(char c) {
 // (nothing useful is left in `out` then).
 int64 hash_hex_decode(string s, *uint8 out, int64 cap) {
     const int64 n = strlen(s);
-    if (n % 2 != 0 || n / 2 > cap) { return -1; }
+    if (n % 2 != 0 || n / 2 > cap) {
+        return -1;
+    }
     for (int64 i = 0; i < n; i += 2) {
         const int hi = _hex_digit(s[i]);
         const int lo = _hex_digit(s[i + 1]);
-        if (hi < 0 || lo < 0) { return -1; }
+        if (hi < 0 || lo < 0) {
+            return -1;
+        }
         out[i / 2] = (uint8)(hi * 16 + lo);
     }
     return n / 2;
@@ -67,7 +77,9 @@ int64 hash_hex_decode(string s, *uint8 out, int64 cap) {
 // and password hashes.
 int hash_equal(*uint8 a, *uint8 b, int64 n) {
     uint8 diff = 0;
-    for (int64 i = 0; i < n; i++) { diff = diff | (a[i] ^ b[i]); }
+    for (int64 i = 0; i < n; i++) {
+        diff = diff | (a[i] ^ b[i]);
+    }
     return diff == 0 ? 1 : 0;
 }
 
@@ -75,12 +87,19 @@ int hash_equal(*uint8 a, *uint8 b, int64 n) {
 // lengths are unequal; the length itself is not hidden.
 int hash_equal_str(string a, string b) {
     const int64 n = strlen(a);
-    if (strlen(b) != n) { return 0; }
+    if (strlen(b) != n) {
+        return 0;
+    }
     return hash_equal((*uint8)a, (*uint8)b, n);
 }
 
-uint32 _rotr32(uint32 x, int n) { return (x >> n) | (x << (32 - n)); }
-uint32 _rotl32(uint32 x, int n) { return (x << n) | (x >> (32 - n)); }
+uint32 _rotr32(uint32 x, int n) {
+    return (x >> n) | (x << (32 - n));
+}
+
+uint32 _rotl32(uint32 x, int n) {
+    return (x << n) | (x >> (32 - n));
+}
 
 uint32 _be32(*uint8 p) {
     return ((uint32)p[0] << 24) | ((uint32)p[1] << 16) | ((uint32)p[2] << 8) | (uint32)p[3];
@@ -91,11 +110,17 @@ uint32 _le32(*uint8 p) {
 }
 
 void _put_be32(*uint8 p, uint32 v) {
-    p[0] = (uint8)(v >> 24);  p[1] = (uint8)(v >> 16);  p[2] = (uint8)(v >> 8);  p[3] = (uint8)v;
+    p[0] = (uint8)(v >> 24);
+    p[1] = (uint8)(v >> 16);
+    p[2] = (uint8)(v >> 8);
+    p[3] = (uint8)v;
 }
 
 void _put_le32(*uint8 p, uint32 v) {
-    p[0] = (uint8)v;  p[1] = (uint8)(v >> 8);  p[2] = (uint8)(v >> 16);  p[3] = (uint8)(v >> 24);
+    p[0] = (uint8)v;
+    p[1] = (uint8)(v >> 8);
+    p[2] = (uint8)(v >> 16);
+    p[3] = (uint8)(v >> 24);
 }
 
 // ── SHA-256 (FIPS 180-4) ─────────────────────────────────────────────────────
@@ -114,27 +139,41 @@ const uint32[64] _SHA256_K = {
 struct Sha256 {
     uint32[8] h;
     uint8[64] buf;
-    int64     buflen;   // bytes waiting in buf
-    uint64    total;    // bytes hashed so far
+    int64 buflen;   // bytes waiting in buf
+    uint64 total;    // bytes hashed so far
 }
 
 void Sha256_init(Sha256* self) {
-    self.h[0] = 0x6a09e667;  self.h[1] = 0xbb67ae85;  self.h[2] = 0x3c6ef372;  self.h[3] = 0xa54ff53a;
-    self.h[4] = 0x510e527f;  self.h[5] = 0x9b05688c;  self.h[6] = 0x1f83d9ab;  self.h[7] = 0x5be0cd19;
+    self.h[0] = 0x6a09e667;
+    self.h[1] = 0xbb67ae85;
+    self.h[2] = 0x3c6ef372;
+    self.h[3] = 0xa54ff53a;
+    self.h[4] = 0x510e527f;
+    self.h[5] = 0x9b05688c;
+    self.h[6] = 0x1f83d9ab;
+    self.h[7] = 0x5be0cd19;
     self.buflen = 0;
     self.total = 0;
 }
 
 void _sha256_block(Sha256* self, *uint8 p) {
     let w: uint32[64];
-    for (int i = 0; i < 16; i++) { w[i] = _be32(p + i * 4); }
+    for (int i = 0; i < 16; i++) {
+        w[i] = _be32(p + i * 4);
+    }
     for (int i = 16; i < 64; i++) {
         const uint32 s0 = _rotr32(w[i - 15], 7) ^ _rotr32(w[i - 15], 18) ^ (w[i - 15] >> 3);
         const uint32 s1 = _rotr32(w[i - 2], 17) ^ _rotr32(w[i - 2], 19) ^ (w[i - 2] >> 10);
         w[i] = w[i - 16] + s0 + w[i - 7] + s1;
     }
-    uint32 a = self.h[0];  uint32 b = self.h[1];  uint32 c = self.h[2];  uint32 d = self.h[3];
-    uint32 e = self.h[4];  uint32 f = self.h[5];  uint32 g = self.h[6];  uint32 h = self.h[7];
+    uint32 a = self.h[0];
+    uint32 b = self.h[1];
+    uint32 c = self.h[2];
+    uint32 d = self.h[3];
+    uint32 e = self.h[4];
+    uint32 f = self.h[5];
+    uint32 g = self.h[6];
+    uint32 h = self.h[7];
     for (int i = 0; i < 64; i++) {
         const uint32 s1 = _rotr32(e, 6) ^ _rotr32(e, 11) ^ _rotr32(e, 25);
         const uint32 ch = (e & f) ^ (~e & g);
@@ -142,11 +181,23 @@ void _sha256_block(Sha256* self, *uint8 p) {
         const uint32 s0 = _rotr32(a, 2) ^ _rotr32(a, 13) ^ _rotr32(a, 22);
         const uint32 mj = (a & b) ^ (a & c) ^ (b & c);
         const uint32 t2 = s0 + mj;
-        h = g;  g = f;  f = e;  e = d + t1;
-        d = c;  c = b;  b = a;  a = t1 + t2;
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2;
     }
-    self.h[0] += a;  self.h[1] += b;  self.h[2] += c;  self.h[3] += d;
-    self.h[4] += e;  self.h[5] += f;  self.h[6] += g;  self.h[7] += h;
+    self.h[0] += a;
+    self.h[1] += b;
+    self.h[2] += c;
+    self.h[3] += d;
+    self.h[4] += e;
+    self.h[5] += f;
+    self.h[6] += g;
+    self.h[7] += h;
 }
 
 void Sha256_update(Sha256* self, *uint8 data, int64 n) {
@@ -168,19 +219,29 @@ void Sha256_update(Sha256* self, *uint8 data, int64 n) {
     }
 }
 
-void Sha256_update_str(Sha256* self, string s) { Sha256_update(self, (*uint8)s, strlen(s)); }
+void Sha256_update_str(Sha256* self, string s) {
+    Sha256_update(self, (*uint8)s, strlen(s));
+}
 
 // Finish and write the 32-byte digest to `out`.
 void Sha256_final(Sha256* self, *uint8 out) {
     const uint64 bits = self.total * 8;
     let pad: uint8[72];
     int64 np = 64 - self.buflen;
-    if (np < 9) { np += 64; }
-    for (int64 i = 0; i < np; i++) { pad[i] = 0; }
+    if (np < 9) {
+        np += 64;
+    }
+    for (int64 i = 0; i < np; i++) {
+        pad[i] = 0;
+    }
     pad[0] = 0x80;
-    for (int k = 0; k < 8; k++) { pad[np - 1 - k] = (uint8)(bits >> (k * 8)); }
+    for (int k = 0; k < 8; k++) {
+        pad[np - 1 - k] = (uint8)(bits >> (k * 8));
+    }
     Sha256_update(self, &pad[0], np);
-    for (int i = 0; i < 8; i++) { _put_be32(out + i * 4, self.h[i]); }
+    for (int i = 0; i < 8; i++) {
+        _put_be32(out + i * 4, self.h[i]);
+    }
 }
 
 void Sha256_final_hex(Sha256* self, String* out) {
@@ -203,41 +264,73 @@ void hash_sha256_hex(*uint8 data, int64 n, String* out) {
     Sha256_final_hex(&h, out);
 }
 
-void hash_sha256_str(string s, String* out) { hash_sha256_hex((*uint8)s, strlen(s), out); }
+void hash_sha256_str(string s, String* out) {
+    hash_sha256_hex((*uint8)s, strlen(s), out);
+}
 
 // ── SHA-1 (FIPS 180-4) ───────────────────────────────────────────────────────
 
 struct Sha1 {
     uint32[5] h;
     uint8[64] buf;
-    int64     buflen;
-    uint64    total;
+    int64 buflen;
+    uint64 total;
 }
 
 void Sha1_init(Sha1* self) {
-    self.h[0] = 0x67452301;  self.h[1] = 0xefcdab89;  self.h[2] = 0x98badcfe;
-    self.h[3] = 0x10325476;  self.h[4] = 0xc3d2e1f0;
+    self.h[0] = 0x67452301;
+    self.h[1] = 0xefcdab89;
+    self.h[2] = 0x98badcfe;
+    self.h[3] = 0x10325476;
+    self.h[4] = 0xc3d2e1f0;
     self.buflen = 0;
     self.total = 0;
 }
 
 void _sha1_block(Sha1* self, *uint8 p) {
     let w: uint32[80];
-    for (int i = 0; i < 16; i++) { w[i] = _be32(p + i * 4); }
-    for (int i = 16; i < 80; i++) { w[i] = _rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1); }
-    uint32 a = self.h[0];  uint32 b = self.h[1];  uint32 c = self.h[2];
-    uint32 d = self.h[3];  uint32 e = self.h[4];
+    for (int i = 0; i < 16; i++) {
+        w[i] = _be32(p + i * 4);
+    }
+    for (int i = 16; i < 80; i++) {
+        w[i] = _rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+    uint32 a = self.h[0];
+    uint32 b = self.h[1];
+    uint32 c = self.h[2];
+    uint32 d = self.h[3];
+    uint32 e = self.h[4];
     for (int i = 0; i < 80; i++) {
         uint32 f = 0;
         uint32 k = 0;
-        if (i < 20)      { f = (b & c) | (~b & d);           k = 0x5a827999; }
-        else if (i < 40) { f = b ^ c ^ d;                    k = 0x6ed9eba1; }
-        else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
-        else             { f = b ^ c ^ d;                    k = 0xca62c1d6; }
+        if (i < 20) {
+            f = (b & c) | (~b & d);
+            k = 0x5a827999;
+        }
+        else if (i < 40) {
+            f = b ^ c ^ d;
+            k = 0x6ed9eba1;
+        }
+        else if (i < 60) {
+            f = (b & c) | (b & d) | (c & d);
+            k = 0x8f1bbcdc;
+        }
+        else {
+            f = b ^ c ^ d;
+            k = 0xca62c1d6;
+        }
         const uint32 t = _rotl32(a, 5) + f + e + k + w[i];
-        e = d;  d = c;  c = _rotl32(b, 30);  b = a;  a = t;
+        e = d;
+        d = c;
+        c = _rotl32(b, 30);
+        b = a;
+        a = t;
     }
-    self.h[0] += a;  self.h[1] += b;  self.h[2] += c;  self.h[3] += d;  self.h[4] += e;
+    self.h[0] += a;
+    self.h[1] += b;
+    self.h[2] += c;
+    self.h[3] += d;
+    self.h[4] += e;
 }
 
 void Sha1_update(Sha1* self, *uint8 data, int64 n) {
@@ -259,19 +352,29 @@ void Sha1_update(Sha1* self, *uint8 data, int64 n) {
     }
 }
 
-void Sha1_update_str(Sha1* self, string s) { Sha1_update(self, (*uint8)s, strlen(s)); }
+void Sha1_update_str(Sha1* self, string s) {
+    Sha1_update(self, (*uint8)s, strlen(s));
+}
 
 // Finish and write the 20-byte digest to `out`.
 void Sha1_final(Sha1* self, *uint8 out) {
     const uint64 bits = self.total * 8;
     let pad: uint8[72];
     int64 np = 64 - self.buflen;
-    if (np < 9) { np += 64; }
-    for (int64 i = 0; i < np; i++) { pad[i] = 0; }
+    if (np < 9) {
+        np += 64;
+    }
+    for (int64 i = 0; i < np; i++) {
+        pad[i] = 0;
+    }
     pad[0] = 0x80;
-    for (int k = 0; k < 8; k++) { pad[np - 1 - k] = (uint8)(bits >> (k * 8)); }
+    for (int k = 0; k < 8; k++) {
+        pad[np - 1 - k] = (uint8)(bits >> (k * 8));
+    }
     Sha1_update(self, &pad[0], np);
-    for (int i = 0; i < 5; i++) { _put_be32(out + i * 4, self.h[i]); }
+    for (int i = 0; i < 5; i++) {
+        _put_be32(out + i * 4, self.h[i]);
+    }
 }
 
 void Sha1_final_hex(Sha1* self, String* out) {
@@ -294,7 +397,9 @@ void hash_sha1_hex(*uint8 data, int64 n, String* out) {
     Sha1_final_hex(&h, out);
 }
 
-void hash_sha1_str(string s, String* out) { hash_sha1_hex((*uint8)s, strlen(s), out); }
+void hash_sha1_str(string s, String* out) {
+    hash_sha1_hex((*uint8)s, strlen(s), out);
+}
 
 // ── MD5 (RFC 1321) ───────────────────────────────────────────────────────────
 
@@ -314,32 +419,57 @@ const int[16] _MD5_S = { 7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 
 struct Md5 {
     uint32[4] h;
     uint8[64] buf;
-    int64     buflen;
-    uint64    total;
+    int64 buflen;
+    uint64 total;
 }
 
 void Md5_init(Md5* self) {
-    self.h[0] = 0x67452301;  self.h[1] = 0xefcdab89;  self.h[2] = 0x98badcfe;  self.h[3] = 0x10325476;
+    self.h[0] = 0x67452301;
+    self.h[1] = 0xefcdab89;
+    self.h[2] = 0x98badcfe;
+    self.h[3] = 0x10325476;
     self.buflen = 0;
     self.total = 0;
 }
 
 void _md5_block(Md5* self, *uint8 p) {
     let m: uint32[16];
-    for (int i = 0; i < 16; i++) { m[i] = _le32(p + i * 4); }
-    uint32 a = self.h[0];  uint32 b = self.h[1];  uint32 c = self.h[2];  uint32 d = self.h[3];
+    for (int i = 0; i < 16; i++) {
+        m[i] = _le32(p + i * 4);
+    }
+    uint32 a = self.h[0];
+    uint32 b = self.h[1];
+    uint32 c = self.h[2];
+    uint32 d = self.h[3];
     for (int i = 0; i < 64; i++) {
         uint32 f = 0;
         int g = 0;
-        if (i < 16)      { f = (b & c) | (~b & d);  g = i; }
-        else if (i < 32) { f = (d & b) | (~d & c);  g = (5 * i + 1) % 16; }
-        else if (i < 48) { f = b ^ c ^ d;           g = (3 * i + 5) % 16; }
-        else             { f = c ^ (b | ~d);        g = (7 * i) % 16; }
+        if (i < 16) {
+            f = (b & c) | (~b & d);
+            g = i;
+        }
+        else if (i < 32) {
+            f = (d & b) | (~d & c);
+            g = (5 * i + 1) % 16;
+        }
+        else if (i < 48) {
+            f = b ^ c ^ d;
+            g = (3 * i + 5) % 16;
+        }
+        else {
+            f = c ^ (b | ~d);
+            g = (7 * i) % 16;
+        }
         f = f + a + _MD5_K[i] + m[g];
-        a = d;  d = c;  c = b;
+        a = d;
+        d = c;
+        c = b;
         b = b + _rotl32(f, _MD5_S[(i / 16) * 4 + i % 4]);
     }
-    self.h[0] += a;  self.h[1] += b;  self.h[2] += c;  self.h[3] += d;
+    self.h[0] += a;
+    self.h[1] += b;
+    self.h[2] += c;
+    self.h[3] += d;
 }
 
 void Md5_update(Md5* self, *uint8 data, int64 n) {
@@ -361,19 +491,29 @@ void Md5_update(Md5* self, *uint8 data, int64 n) {
     }
 }
 
-void Md5_update_str(Md5* self, string s) { Md5_update(self, (*uint8)s, strlen(s)); }
+void Md5_update_str(Md5* self, string s) {
+    Md5_update(self, (*uint8)s, strlen(s));
+}
 
 // Finish and write the 16-byte digest to `out`.
 void Md5_final(Md5* self, *uint8 out) {
     const uint64 bits = self.total * 8;
     let pad: uint8[72];
     int64 np = 64 - self.buflen;
-    if (np < 9) { np += 64; }
-    for (int64 i = 0; i < np; i++) { pad[i] = 0; }
+    if (np < 9) {
+        np += 64;
+    }
+    for (int64 i = 0; i < np; i++) {
+        pad[i] = 0;
+    }
     pad[0] = 0x80;
-    for (int k = 0; k < 8; k++) { pad[np - 8 + k] = (uint8)(bits >> (k * 8)); }   // little-endian length
+    for (int k = 0; k < 8; k++) {   // little-endian length
+        pad[np - 8 + k] = (uint8)(bits >> (k * 8));
+    }
     Md5_update(self, &pad[0], np);
-    for (int i = 0; i < 4; i++) { _put_le32(out + i * 4, self.h[i]); }
+    for (int i = 0; i < 4; i++) {
+        _put_le32(out + i * 4, self.h[i]);
+    }
 }
 
 void Md5_final_hex(Md5* self, String* out) {
@@ -396,12 +536,14 @@ void hash_md5_hex(*uint8 data, int64 n, String* out) {
     Md5_final_hex(&h, out);
 }
 
-void hash_md5_str(string s, String* out) { hash_md5_hex((*uint8)s, strlen(s), out); }
+void hash_md5_str(string s, String* out) {
+    hash_md5_hex((*uint8)s, strlen(s), out);
+}
 
 // ── HMAC-SHA256 (RFC 2104, RFC 4231) ─────────────────────────────────────────
 
 struct HmacSha256 {
-    Sha256    inner;
+    Sha256 inner;
     uint8[64] okey;   // key XOR opad, for the outer hash
 }
 
@@ -409,9 +551,17 @@ struct HmacSha256 {
 // first, as the RFC says).
 void HmacSha256_init(HmacSha256* self, *uint8 key, int64 klen) {
     let k: uint8[64];
-    for (int i = 0; i < 64; i++) { k[i] = 0; }
-    if (klen > 64) { hash_sha256(key, klen, &k[0]); }
-    else { for (int64 i = 0; i < klen; i++) { k[i] = key[i]; } }
+    for (int i = 0; i < 64; i++) {
+        k[i] = 0;
+    }
+    if (klen > 64) {
+        hash_sha256(key, klen, &k[0]);
+    }
+    else {
+        for (int64 i = 0; i < klen; i++) {
+            k[i] = key[i];
+        }
+    }
     let ikey: uint8[64];
     for (int i = 0; i < 64; i++) {
         ikey[i] = k[i] ^ 0x36;
@@ -421,9 +571,13 @@ void HmacSha256_init(HmacSha256* self, *uint8 key, int64 klen) {
     Sha256_update(&self.inner, &ikey[0], 64);
 }
 
-void HmacSha256_update(HmacSha256* self, *uint8 data, int64 n) { Sha256_update(&self.inner, data, n); }
+void HmacSha256_update(HmacSha256* self, *uint8 data, int64 n) {
+    Sha256_update(&self.inner, data, n);
+}
 
-void HmacSha256_update_str(HmacSha256* self, string s) { Sha256_update(&self.inner, (*uint8)s, strlen(s)); }
+void HmacSha256_update_str(HmacSha256* self, string s) {
+    Sha256_update(&self.inner, (*uint8)s, strlen(s));
+}
 
 // Finish and write the 32-byte MAC to `out`.
 void HmacSha256_final(HmacSha256* self, *uint8 out) {

@@ -11,10 +11,12 @@ struct String {
 }
 
 void String_init(String* self, int64 initial_cap) {
-    if (initial_cap < 1) { initial_cap = 1; }   // room for the trailing NUL
+    if (initial_cap < 1) {   // room for the trailing NUL
+        initial_cap = 1;
+    }
     self.data = alloc<char>(initial_cap);
-    self.len  = 0;
-    self.cap  = initial_cap;
+    self.len = 0;
+    self.cap = initial_cap;
     self.data[0] = 0;
 }
 
@@ -42,7 +44,7 @@ void String_free(String* self) {
 }
 
 void String_append(String* self, string s) {
-    const int64 slen   = strlen(s);
+    const int64 slen = strlen(s);
     const int64 newlen = self.len + slen;
     // `s` may point into our own buffer (String_concat(&s, &s)); growing frees
     // it, so re-derive the pointer from its offset after the copy.
@@ -54,8 +56,10 @@ void String_append(String* self, string s) {
         memcpy(newbuf, self.data, self.len);
         free(self.data);
         self.data = newbuf;
-        self.cap  = newcap;
-        if (inside) { s = (string)(self.data + so); }
+        self.cap = newcap;
+        if (inside) {
+            s = (string)(self.data + so);
+        }
     }
     memcpy(self.data + self.len, s, slen);
     self.data[newlen] = 0;
@@ -76,7 +80,7 @@ void String_push(String* self, char c) {
         memcpy(newbuf, self.data, self.len);
         free(self.data);
         self.data = newbuf;
-        self.cap  = newcap;
+        self.cap = newcap;
     }
     self.data[self.len] = c;
     self.len++;
@@ -97,22 +101,30 @@ void String_set(String* self, int64 i, char c) {
 // String (no buffer): it stays empty and the next push/append allocates.
 void String_clear(String* self) {
     self.len = 0;
-    if (self.data != null) { self.data[0] = 0; }
+    if (self.data != null) {
+        self.data[0] = 0;
+    }
 }
 
 // First index of c, or -1 if absent.
 int64 String_index_of(String* self, char c) {
     for (int64 i = 0; i < self.len; i++) {
-        if (self.data[i] == c) { return i; }
+        if (self.data[i] == c) {
+            return i;
+        }
     }
     return -1;
 }
 
 // 1 if the two Strings hold the same bytes, else 0.
 int String_eq(String* self, String* other) {
-    if (self.len != other.len) { return 0; }
+    if (self.len != other.len) {
+        return 0;
+    }
     for (int64 i = 0; i < self.len; i++) {
-        if (self.data[i] != other.data[i]) { return 0; }
+        if (self.data[i] != other.data[i]) {
+            return 0;
+        }
     }
     return 1;
 }
@@ -120,19 +132,34 @@ int String_eq(String* self, String* other) {
 // 1 if this String equals the C string s, else 0.
 int String_eq_cstr(String* self, string s) {
     const int64 n = strlen(s);
-    if (self.len != n) { return 0; }
+    if (self.len != n) {
+        return 0;
+    }
     for (int64 i = 0; i < n; i++) {
-        if (self.data[i] != s[i]) { return 0; }
+        if (self.data[i] != s[i]) {
+            return 0;
+        }
     }
     return 1;
 }
 
 // `a == b` / `a != b` on Strings compare their bytes (String_eq), and against a C
 // string its text (String_eq_cstr), so a String is never compared by address.
-bool operator ==(String a, String b) { return String_eq(&a, &b) == 1; }
-bool operator !=(String a, String b) { return String_eq(&a, &b) == 0; }
-bool operator ==(String a, string b) { return String_eq_cstr(&a, b) == 1; }
-bool operator !=(String a, string b) { return String_eq_cstr(&a, b) == 0; }
+bool operator ==(String a, String b) {
+    return String_eq(&a, &b) == 1;
+}
+
+bool operator !=(String a, String b) {
+    return String_eq(&a, &b) == 0;
+}
+
+bool operator ==(String a, string b) {
+    return String_eq_cstr(&a, b) == 1;
+}
+
+bool operator !=(String a, string b) {
+    return String_eq_cstr(&a, b) == 0;
+}
 
 // Reverse the characters in place.
 void String_reverse(String* self) {
@@ -152,7 +179,9 @@ void String_reverse(String* self) {
 // counts from 0 (it is clamped), and one past the end gives an empty result.
 void String_substring(String* self, String* out, int64 start, int64 count) {
     out.clear();
-    if (start < 0) { start = 0; }
+    if (start < 0) {
+        start = 0;
+    }
     for (int64 i = 0; i < count && start + i < self.len; i++) {
         out.push(self.data[start + i]);
     }
@@ -167,12 +196,16 @@ void String_from_int(String* self, int n) {
     }
     int64 v = (int64)n;   // widened: -(-2147483648) does not fit in an int
     const bool neg = v < 0;
-    if (neg) { v = -v; }
+    if (neg) {
+        v = -v;
+    }
     while (v > 0) {
         self.push((char)((int)'0' + (int)(v % 10)));
         v /= 10;
     }
-    if (neg) { self.push('-'); }
+    if (neg) {
+        self.push('-');
+    }
     self.reverse();
 }
 
@@ -191,19 +224,29 @@ int String_to_int(String* self) {
     }
     for (; i < self.len; i++) {
         const char c = self.data[i];
-        if (c < '0' || c > '9') { break; }
+        if (c < '0' || c > '9') {
+            break;
+        }
         result = result * 10 + (int64)((int)c - (int)'0');
-        if (result > 2147483648) { result = 2147483648; }   // saturate; no int64 overflow
+        if (result > 2147483648) {   // saturate; no int64 overflow
+            result = 2147483648;
+        }
     }
-    if (neg) { return (int)(0 - result); }
-    if (result > 2147483647) { return 2147483647; }
+    if (neg) {
+        return (int)(0 - result);
+    }
+    if (result > 2147483647) {
+        return 2147483647;
+    }
     return (int)result;
 }
 
 // 1 if this String begins with the C string `prefix`, else 0.
 int String_starts_with(String* self, string prefix) {
     for (int64 i = 0; prefix[i] != 0; i++) {
-        if (i >= self.len || self.data[i] != prefix[i]) { return 0; }
+        if (i >= self.len || self.data[i] != prefix[i]) {
+            return 0;
+        }
     }
     return 1;
 }
@@ -211,10 +254,14 @@ int String_starts_with(String* self, string prefix) {
 // 1 if this String ends with the C string `suffix`, else 0.
 int String_ends_with(String* self, string suffix) {
     const int64 slen = strlen(suffix);
-    if (slen > self.len) { return 0; }
+    if (slen > self.len) {
+        return 0;
+    }
     const int64 off = self.len - slen;
     for (int64 i = 0; i < slen; i++) {
-        if (self.data[off + i] != suffix[i]) { return 0; }
+        if (self.data[off + i] != suffix[i]) {
+            return 0;
+        }
     }
     return 1;
 }
@@ -227,14 +274,23 @@ int _string_ws(char c) {
 // Remove leading and trailing ASCII whitespace (space, tab, newline, carriage
 // return), in place.
 void String_trim(String* self) {
-    if (self.data == null) { self.len = 0; return; }   // a freed String: nothing to trim
+    if (self.data == null) {   // a freed String: nothing to trim
+        self.len = 0;
+        return;
+    }
     int64 start = 0;
-    while (start < self.len && _string_ws(self.data[start]) == 1) { start++; }
+    while (start < self.len && _string_ws(self.data[start]) == 1) {
+        start++;
+    }
     int64 end = self.len;
-    while (end > start && _string_ws(self.data[end - 1]) == 1) { end--; }
+    while (end > start && _string_ws(self.data[end - 1]) == 1) {
+        end--;
+    }
     const int64 n = end - start;
     if (start > 0) {
-        for (int64 i = 0; i < n; i++) { self.data[i] = self.data[start + i]; }
+        for (int64 i = 0; i < n; i++) {
+            self.data[i] = self.data[start + i];
+        }
     }
     self.len = n;
     self.data[n] = 0;
@@ -252,7 +308,9 @@ void String_trim(String* self) {
 int String_next_token(String* self, char sep, *int pos, String* out) {
     out.clear();
     int64 p = *pos;
-    if (p > self.len) { return 0; }
+    if (p > self.len) {
+        return 0;
+    }
     while (p < self.len && self.data[p] != sep) {
         out.push(self.data[p]);
         p++;
@@ -267,11 +325,13 @@ int String_next_token(String* self, char sep, *int pos, String* out) {
 // has initialised). Each part is a freshly allocated String the list owns;
 // consecutive separators yield empty parts. Free with String_split_free.
 void String_split(String* self, char sep, List<String>* out) {
-    let tok: String;  tok.init(8);
+    let tok: String;
+    tok.init(8);
     defer tok.free();
     int pos = 0;
     while (self.next_token(sep, &pos, &tok) == 1) {
-        let copy: String;  copy.init(8);
+        let copy: String;
+        copy.init(8);
         _string_append_bytes(&copy, tok.data, tok.len);
         List_push<String>(out, copy);
     }
@@ -301,10 +361,16 @@ extern double strtod(string s, *string end);
 // Make room for at least `need` bytes (the trailing NUL included). Contents are
 // kept. Works on a freed String too (it gets a fresh buffer).
 void String_reserve(String* self, int64 need) {
-    if (self.data != null && self.cap >= need) { return; }
+    if (self.data != null && self.cap >= need) {
+        return;
+    }
     int64 newcap = self.cap * 2;
-    if (newcap < need) { newcap = need; }
-    if (newcap < 8) { newcap = 8; }
+    if (newcap < need) {
+        newcap = need;
+    }
+    if (newcap < 8) {
+        newcap = 8;
+    }
     let nb: *char = alloc<char>(newcap);
     if (self.data != null) {
         memcpy(nb, self.data, self.len);
@@ -319,11 +385,15 @@ void String_reserve(String* self, int64 need) {
 
 // Append `n` bytes starting at `p` (which may hold NULs).
 void _string_append_bytes(String* self, *char p, int64 n) {
-    if (n <= 0) { return; }
+    if (n <= 0) {
+        return;
+    }
     const int64 so = (int64)p - (int64)self.data;
     const bool inside = self.data != null && so >= 0 && so <= self.len;
     String_reserve(self, self.len + n + 1);
-    if (inside) { p = self.data + so; }
+    if (inside) {
+        p = self.data + so;
+    }
     memmove(self.data + self.len, p, n);
     self.len = self.len + n;
     self.data[self.len] = 0;
@@ -332,14 +402,24 @@ void _string_append_bytes(String* self, *char p, int64 n) {
 // First index at or after `from` where `needle` starts, or -1. An empty needle
 // matches at `from` (clamped to 0..len).
 int64 String_find(String* self, string needle, int64 from) {
-    if (from < 0) { from = 0; }
-    if (from > self.len) { return -1; }
+    if (from < 0) {
+        from = 0;
+    }
+    if (from > self.len) {
+        return -1;
+    }
     const int64 nl = strlen(needle);
-    if (nl == 0) { return from; }
+    if (nl == 0) {
+        return from;
+    }
     for (int64 i = from; i + nl <= self.len; i++) {
         int64 k = 0;
-        while (k < nl && self.data[i + k] == needle[k]) { k++; }
-        if (k == nl) { return i; }
+        while (k < nl && self.data[i + k] == needle[k]) {
+            k++;
+        }
+        if (k == nl) {
+            return i;
+        }
     }
     return -1;
 }
@@ -353,16 +433,23 @@ int String_contains(String* self, string needle) {
 // right (limit < 0: all). Returns the number replaced.
 int64 _string_replace(String* self, string from, string to, int64 limit) {
     const int64 fl = strlen(from);
-    if (fl == 0 || self.len == 0) { return 0; }
-    if (String_find(self, from, 0) < 0) { return 0; }
+    if (fl == 0 || self.len == 0) {
+        return 0;
+    }
+    if (String_find(self, from, 0) < 0) {
+        return 0;
+    }
     // `from` or `to` may point into our own buffer; the old buffer stays alive
     // until the result is built.
-    let r: String;  r.init(self.len + 1);
+    let r: String;
+    r.init(self.len + 1);
     int64 count = 0;
     int64 i = 0;
     while (i < self.len && (limit < 0 || count < limit)) {
         const int64 j = String_find(self, from, i);
-        if (j < 0) { break; }
+        if (j < 0) {
+            break;
+        }
         _string_append_bytes(&r, self.data + i, j - i);
         r.append(to);
         i = j + fl;
@@ -391,7 +478,8 @@ int64 String_replace_all(String* self, string from, string to) {
 
 // Push a copy of self[from..to) onto a List<String>.
 void _string_push_part(String* self, int64 from, int64 to, List<String>* out) {
-    let part: String;  part.init(to - from + 1);
+    let part: String;
+    part.init(to - from + 1);
     _string_append_bytes(&part, self.data + from, to - from);
     List_push<String>(out, part);
 }
@@ -402,11 +490,16 @@ void _string_push_part(String* self, int64 from, int64 to, List<String>* out) {
 // `sep` gives the whole String as one part. Free with String_split_free.
 void String_split_str(String* self, string sep, List<String>* out) {
     const int64 sl = strlen(sep);
-    if (sl == 0) { _string_push_part(self, 0, self.len, out); return; }
+    if (sl == 0) {
+        _string_push_part(self, 0, self.len, out);
+        return;
+    }
     int64 i = 0;
     while (true) {
         const int64 j = String_find(self, sep, i);
-        if (j < 0) { break; }
+        if (j < 0) {
+            break;
+        }
         _string_push_part(self, i, j, out);
         i = j + sl;
     }
@@ -421,9 +514,13 @@ void String_lines(String* self, List<String>* out) {
     int64 i = 0;
     while (i < self.len) {
         int64 j = i;
-        while (j < self.len && self.data[j] != '\n') { j++; }
+        while (j < self.len && self.data[j] != '\n') {
+            j++;
+        }
         int64 end = j;
-        if (end > i && self.data[end - 1] == '\r') { end--; }
+        if (end > i && self.data[end - 1] == '\r') {
+            end--;
+        }
         _string_push_part(self, i, end, out);
         i = j + 1;
     }
@@ -436,7 +533,9 @@ void String_lines(String* self, List<String>* out) {
 void List_join<T>(List<T>* self, string sep, String* out) {
     out.clear();
     for (i in 0..List_len<T>(self)) {
-        if (i > 0) { out.append(sep); }
+        if (i > 0) {
+            out.append(sep);
+        }
         out.append(List_get<T>(self, i));
     }
 }
@@ -446,7 +545,9 @@ void List_join<T>(List<T>* self, string sep, String* out) {
 void String_join(String* self, List<String>* parts, string sep) {
     self.clear();
     for (i in 0..List_len<String>(parts)) {
-        if (i > 0) { self.append(sep); }
+        if (i > 0) {
+            self.append(sep);
+        }
         let p: String = List_get<String>(parts, i);
         _string_append_bytes(self, p.data, p.len);
     }
@@ -456,7 +557,9 @@ void String_join(String* self, List<String>* parts, string sep) {
 void String_lower(String* self) {
     for (int64 i = 0; i < self.len; i++) {
         const char c = self.data[i];
-        if (c >= 'A' && c <= 'Z') { self.data[i] = (char)((int)c + 32); }
+        if (c >= 'A' && c <= 'Z') {
+            self.data[i] = (char)((int)c + 32);
+        }
     }
 }
 
@@ -464,13 +567,18 @@ void String_lower(String* self) {
 void String_upper(String* self) {
     for (int64 i = 0; i < self.len; i++) {
         const char c = self.data[i];
-        if (c >= 'a' && c <= 'z') { self.data[i] = (char)((int)c - 32); }
+        if (c >= 'a' && c <= 'z') {
+            self.data[i] = (char)((int)c - 32);
+        }
     }
 }
 
 // Replace self with `n` copies of itself, in place (n <= 0 leaves it empty).
 void String_repeat(String* self, int64 n) {
-    if (n <= 0 || self.len == 0) { self.clear(); return; }
+    if (n <= 0 || self.len == 0) {
+        self.clear();
+        return;
+    }
     const int64 one = self.len;
     String_reserve(self, one * n + 1);
     for (int64 k = 1; k < n; k++) {
@@ -483,24 +591,32 @@ void String_repeat(String* self, int64 n) {
 // Prepend `fill` until the String is `width` bytes long (no change if it
 // already is), in place.
 void String_pad_left(String* self, int64 width, char fill) {
-    if (self.len >= width) { return; }
+    if (self.len >= width) {
+        return;
+    }
     const int64 add = width - self.len;
     String_reserve(self, width + 1);
     memmove(self.data + add, self.data, self.len);
-    for (int64 i = 0; i < add; i++) { self.data[i] = fill; }
+    for (int64 i = 0; i < add; i++) {
+        self.data[i] = fill;
+    }
     self.len = width;
     self.data[width] = 0;
 }
 
 // Append `fill` until the String is `width` bytes long, in place.
 void String_pad_right(String* self, int64 width, char fill) {
-    while (self.len < width) { self.push(fill); }
+    while (self.len < width) {
+        self.push(fill);
+    }
 }
 
 // Parse a leading floating-point number (C strtod syntax: "3.5", "-1e3",
 // "inf"); 0.0 when there is none.
 double String_to_double(String* self) {
-    if (self.data == null) { return 0.0; }
+    if (self.data == null) {
+        return 0.0;
+    }
     return strtod((string)self.data, null);
 }
 
@@ -508,13 +624,21 @@ double String_to_double(String* self) {
 // ASCII whitespace. Stores it in *out and returns 1, or returns 0 (and leaves
 // *out alone) when the String is not exactly one number.
 int String_parse_double(String* self, *double out) {
-    if (self.data == null || self.len == 0) { return 0; }
+    if (self.data == null || self.len == 0) {
+        return 0;
+    }
     string end = null;
     const double v = strtod((string)self.data, &end);
     int64 p = (int64)end - (int64)self.data;
-    if (p == 0) { return 0; }
-    while (p < self.len && _string_ws(self.data[p]) == 1) { p++; }
-    if (p != self.len) { return 0; }
+    if (p == 0) {
+        return 0;
+    }
+    while (p < self.len && _string_ws(self.data[p]) == 1) {
+        p++;
+    }
+    if (p != self.len) {
+        return 0;
+    }
     out[0] = v;
     return 1;
 }
@@ -545,7 +669,10 @@ void String_appendf(String* self, string fmt, ...) {
     va_start(ap);
     const int n = _string_vwrite(self, fmt, ap);
     va_end(ap);
-    if (n < 0) { self.data[self.len] = 0; return; }
+    if (n < 0) {
+        self.data[self.len] = 0;
+        return;
+    }
     if (self.len + (int64)n >= self.cap) {
         String_reserve(self, self.len + (int64)n + 1);
         va_start(ap);
@@ -564,7 +691,10 @@ void String_format(String* self, string fmt, ...) {
     va_start(ap);
     const int n = _string_vwrite(self, fmt, ap);
     va_end(ap);
-    if (n < 0) { self.data[0] = 0; return; }
+    if (n < 0) {
+        self.data[0] = 0;
+        return;
+    }
     if ((int64)n >= self.cap) {
         String_reserve(self, (int64)n + 1);
         va_start(ap);
@@ -578,5 +708,7 @@ void String_format(String* self, string fmt, ...) {
 // the same value ("0.1", "3", "1e+20", "inf", "nan").
 void String_from_double(String* self, double d) {
     String_format(self, "%.15g", d);
-    if (strtod((string)self.data, null) != d) { String_format(self, "%.17g", d); }
+    if (strtod((string)self.data, null) != d) {
+        String_format(self, "%.17g", d);
+    }
 }

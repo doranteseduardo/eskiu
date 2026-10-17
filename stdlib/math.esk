@@ -10,4 +10,4 @@ extern double pow(double base, double exp);
 extern double floor(double x);
 extern double ceil(double x);
 extern double fmod(double x, double y);
-extern int    abs(int x);
+extern int abs(int x);

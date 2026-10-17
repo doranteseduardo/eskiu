@@ -16,7 +16,9 @@ int path_is_absolute(string p) {
 
 // Append p[from..to) to out, one character at a time.
 void _path_push_range(String* out, string p, int from, int to) {
-    for (int i = from; i < to; i++) { out.push(p[i]); }
+    for (int i = from; i < to; i++) {
+        out.push(p[i]);
+    }
 }
 
 // Join `a` and `b` with a single '/', collapsing a trailing slash on `a` and a
@@ -25,14 +27,24 @@ void path_join(String* out, string a, string b) {
     out.clear();
     const int alen = strlen(a);
     const int blen = strlen(b);
-    if (alen == 0) { out.append(b); return; }
-    if (blen == 0) { out.append(a); return; }
+    if (alen == 0) {
+        out.append(b);
+        return;
+    }
+    if (blen == 0) {
+        out.append(a);
+        return;
+    }
     int ae = alen;
-    while (ae > 0 && a[ae - 1] == '/') { ae--; }
+    while (ae > 0 && a[ae - 1] == '/') {
+        ae--;
+    }
     _path_push_range(out, a, 0, ae);
     out.push('/');
     int bs = 0;
-    while (bs < blen && b[bs] == '/') { bs++; }
+    while (bs < blen && b[bs] == '/') {
+        bs++;
+    }
     _path_push_range(out, b, bs, blen);
 }
 
@@ -41,12 +53,22 @@ void path_join(String* out, string a, string b) {
 void path_basename(String* out, string p) {
     out.clear();
     const int n = strlen(p);
-    if (n == 0) { out.append("."); return; }
+    if (n == 0) {
+        out.append(".");
+        return;
+    }
     int end = n;
-    while (end > 0 && p[end - 1] == '/') { end--; }
-    if (end == 0) { out.append("/"); return; }
+    while (end > 0 && p[end - 1] == '/') {
+        end--;
+    }
+    if (end == 0) {
+        out.append("/");
+        return;
+    }
     int start = end;
-    while (start > 0 && p[start - 1] != '/') { start--; }
+    while (start > 0 && p[start - 1] != '/') {
+        start--;
+    }
     _path_push_range(out, p, start, end);
 }
 
@@ -57,18 +79,30 @@ void path_dirname(String* out, string p) {
     out.clear();
     const int n = strlen(p);
     int end = n;
-    while (end > 0 && p[end - 1] == '/') { end--; }
+    while (end > 0 && p[end - 1] == '/') {
+        end--;
+    }
     if (end == 0) {
         out.append(n == 0 ? "." : "/");
         return;
     }
     int slash = -1;
     for (i in 0..end) {
-        if (p[i] == '/') { slash = i; }
+        if (p[i] == '/') {
+            slash = i;
+        }
     }
-    if (slash < 0) { out.append("."); return; }
-    while (slash > 0 && p[slash - 1] == '/') { slash--; }
-    if (slash == 0) { out.append("/"); return; }
+    if (slash < 0) {
+        out.append(".");
+        return;
+    }
+    while (slash > 0 && p[slash - 1] == '/') {
+        slash--;
+    }
+    if (slash == 0) {
+        out.append("/");
+        return;
+    }
     _path_push_range(out, p, 0, slash);
 }
 
@@ -78,13 +112,21 @@ void path_extension(String* out, string p) {
     out.clear();
     const int n = strlen(p);
     int end = n;
-    while (end > 0 && p[end - 1] == '/') { end--; }
+    while (end > 0 && p[end - 1] == '/') {
+        end--;
+    }
     int bstart = end;
-    while (bstart > 0 && p[bstart - 1] != '/') { bstart--; }
+    while (bstart > 0 && p[bstart - 1] != '/') {
+        bstart--;
+    }
     int dot = -1;
     for (i in bstart..end) {
-        if (p[i] == '.') { dot = i; }
+        if (p[i] == '.') {
+            dot = i;
+        }
     }
-    if (dot < 0 || dot == bstart) { return; }   // none, or a dotfile
+    if (dot < 0 || dot == bstart) {   // none, or a dotfile
+        return;
+    }
     _path_push_range(out, p, dot + 1, end);
 }

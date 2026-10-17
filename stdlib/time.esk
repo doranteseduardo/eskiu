@@ -16,19 +16,28 @@ import <string>;
 // clocks directly. FILETIME is 100ns ticks since 1601-01-01; the offset to the Unix epoch
 // (1970) is 116444736000000000 of them.
 extern int64 GetTickCount64();
-extern void  Sleep(int ms);
-extern void  GetSystemTimeAsFileTime(*int64 ft);
+extern void Sleep(int ms);
+extern void GetSystemTimeAsFileTime(*int64 ft);
 
 int64 time_now_ms() {
-    let ft: int64 = 0;  GetSystemTimeAsFileTime(&ft);
+    let ft: int64 = 0;
+    GetSystemTimeAsFileTime(&ft);
     return (ft - 116444736000000000) / 10000;      // 100ns -> ms
 }
+
 int64 time_now_s() {
-    let ft: int64 = 0;  GetSystemTimeAsFileTime(&ft);
+    let ft: int64 = 0;
+    GetSystemTimeAsFileTime(&ft);
     return (ft - 116444736000000000) / 10000000;   // 100ns -> s
 }
-int64 time_monotonic_ms() { return GetTickCount64(); }   // ms since boot, monotonic
-void  time_sleep_ms(int64 ms)  { Sleep((int)ms); }
+
+int64 time_monotonic_ms() {   // ms since boot, monotonic
+    return GetTickCount64();
+}
+
+void time_sleep_ms(int64 ms) {
+    Sleep((int)ms);
+}
 #else
 struct timespec {
     int64 tv_sec;
@@ -70,7 +79,7 @@ int64 time_monotonic_ms() {
 // Sleep for the given number of milliseconds.
 void time_sleep_ms(int64 ms) {
     let req: timespec;
-    req.tv_sec  = ms / 1000;
+    req.tv_sec = ms / 1000;
     req.tv_nsec = (ms % 1000) * 1000000;
     nanosleep(&req, null);
 }
@@ -103,7 +112,9 @@ struct DateTime {
 // Integer division truncates toward zero, so negative values are biased first
 // to round the era down.
 int64 _time_days_from_civil(int64 y, int m, int d) {
-    if (m <= 2) { y--; }
+    if (m <= 2) {
+        y--;
+    }
     const int64 era = (y >= 0 ? y : y - 399) / 400;
     const int64 yoe = y - era * 400;
     const int64 mp = m > 2 ? m - 3 : m + 9;
@@ -116,13 +127,18 @@ int64 _time_days_from_civil(int64 y, int m, int d) {
 void time_to_utc(int64 t, DateTime* dt) {
     int64 days = t / 86400;
     int64 secs = t % 86400;
-    if (secs < 0) { secs += 86400; days--; }
+    if (secs < 0) {
+        secs += 86400;
+        days--;
+    }
     dt.hour = (int)(secs / 3600);
     dt.min = (int)((secs % 3600) / 60);
     dt.sec = (int)(secs % 60);
 
     int64 wd = (days % 7 + 4) % 7;          // 1970-01-01 was a Thursday
-    if (wd < 0) { wd += 7; }
+    if (wd < 0) {
+        wd += 7;
+    }
     dt.wday = (int)wd;
 
     const int64 z = days + 719468;
@@ -152,14 +168,19 @@ void _time_pad(String* out, int v, int width) {
     tmp.init(8);
     defer tmp.free();
     int64 mag = v;
-    if (mag < 0) { out.push('-'); mag = -mag; }
+    if (mag < 0) {
+        out.push('-');
+        mag = -mag;
+    }
     // Collect the digits least significant first, then flip them.
     do {
         tmp.push((char)('0' + (int)(mag % 10)));
         mag /= 10;
     } while (mag > 0);
     tmp.reverse();
-    for (int64 pad = width - tmp.len; pad > 0; pad--) { out.push('0'); }
+    for (int64 pad = width - tmp.len; pad > 0; pad--) {
+        out.push('0');
+    }
     out.concat(&tmp);
 }
 
@@ -204,11 +225,11 @@ const string[12] TIME_MONTH_NAMES = {"January", "February", "March", "April", "M
 
 extern int64 strftime(*char buf, int64 max, string fmt, *void tm);
 #ifdef _WIN32
-extern int  _localtime64_s(*void tm, *int64 t);
+extern int _localtime64_s(*void tm, *int64 t);
 extern void _tzset();
 #else
 extern *void localtime_r(*int64 t, *void tm);
-extern void  tzset();
+extern void tzset();
 #endif
 
 // C `struct tm` with room for the platform's extra fields (tm_gmtoff, tm_zone).
@@ -268,7 +289,10 @@ int time_local_offset(int64 t) {
 
 // Append `n` with at least `width` digits, as _time_pad but for int64 values.
 void _time_pad64(String* out, int64 n, int width) {
-    if (n >= -2147483647 && n <= 2147483647) { _time_pad(out, (int)n, width); return; }
+    if (n >= -2147483647 && n <= 2147483647) {
+        _time_pad(out, (int)n, width);
+        return;
+    }
     String_appendf(out, "%lld", n);
 }
 
@@ -276,32 +300,75 @@ int _time_format_into(String* out, string fmt, int64 t, DateTime* dt, int off, i
     int rc = 0;
     for (int i = 0; fmt[i] != 0; i++) {
         const char c = fmt[i];
-        if (c != '%') { out.push(c); continue; }
+        if (c != '%') {
+            out.push(c);
+            continue;
+        }
         i++;
         const char k = fmt[i];
-        if (k == 0) { out.push('%'); return -1; }
-        if (k == 'Y') { _time_pad(out, dt.year, 4); }
-        else if (k == 'm') { _time_pad(out, dt.month, 2); }
-        else if (k == 'd') { _time_pad(out, dt.day, 2); }
-        else if (k == 'H') { _time_pad(out, dt.hour, 2); }
-        else if (k == 'M') { _time_pad(out, dt.min, 2); }
-        else if (k == 'S') { _time_pad(out, dt.sec, 2); }
-        else if (k == 'j') { _time_pad(out, dt.yday + 1, 3); }
-        else if (k == 'a') { _string_append_bytes(out, (*char)TIME_WDAY_NAMES[dt.wday], 3); }
-        else if (k == 'A') { out.append(TIME_WDAY_NAMES[dt.wday]); }
-        else if (k == 'b') { _string_append_bytes(out, (*char)TIME_MONTH_NAMES[dt.month - 1], 3); }
-        else if (k == 'B') { out.append(TIME_MONTH_NAMES[dt.month - 1]); }
-        else if (k == 's') { _time_pad64(out, t, 1); }
-        else if (k == '%') { out.push('%'); }
-        else if (k == 'F') { _time_format_into(out, "%Y-%m-%d", t, dt, off, local); }
-        else if (k == 'T') { _time_format_into(out, "%H:%M:%S", t, dt, off, local); }
+        if (k == 0) {
+            out.push('%');
+            return -1;
+        }
+        if (k == 'Y') {
+            _time_pad(out, dt.year, 4);
+        }
+        else if (k == 'm') {
+            _time_pad(out, dt.month, 2);
+        }
+        else if (k == 'd') {
+            _time_pad(out, dt.day, 2);
+        }
+        else if (k == 'H') {
+            _time_pad(out, dt.hour, 2);
+        }
+        else if (k == 'M') {
+            _time_pad(out, dt.min, 2);
+        }
+        else if (k == 'S') {
+            _time_pad(out, dt.sec, 2);
+        }
+        else if (k == 'j') {
+            _time_pad(out, dt.yday + 1, 3);
+        }
+        else if (k == 'a') {
+            _string_append_bytes(out, (*char)TIME_WDAY_NAMES[dt.wday], 3);
+        }
+        else if (k == 'A') {
+            out.append(TIME_WDAY_NAMES[dt.wday]);
+        }
+        else if (k == 'b') {
+            _string_append_bytes(out, (*char)TIME_MONTH_NAMES[dt.month - 1], 3);
+        }
+        else if (k == 'B') {
+            out.append(TIME_MONTH_NAMES[dt.month - 1]);
+        }
+        else if (k == 's') {
+            _time_pad64(out, t, 1);
+        }
+        else if (k == '%') {
+            out.push('%');
+        }
+        else if (k == 'F') {
+            _time_format_into(out, "%Y-%m-%d", t, dt, off, local);
+        }
+        else if (k == 'T') {
+            _time_format_into(out, "%H:%M:%S", t, dt, off, local);
+        }
         else if (k == 'z') {
             int a = off;
-            if (a < 0) { out.push('-'); a = -a; } else { out.push('+'); }
+            if (a < 0) {
+                out.push('-');
+                a = -a;
+            } else {
+                out.push('+');
+            }
             _time_pad(out, a / 3600, 2);
             _time_pad(out, (a % 3600) / 60, 2);
         } else if (k == 'Z') {
-            if (local == 0) { out.append("UTC"); }
+            if (local == 0) {
+                out.append("UTC");
+            }
             else {
                 let tm: _time_tm;
                 char[64] buf;
@@ -309,7 +376,8 @@ int _time_format_into(String* out, string fmt, int64 t, DateTime* dt, int off, i
                 if (_time_localtime(t, &tm) == 0 && strftime(&buf[0], 64, "%Z", (*void)&tm) > 0) {
                     out.append((string)&buf[0]);
                 } else {
-                    let z: String;  z.init(16);
+                    let z: String;
+                    z.init(16);
                     _time_format_into(&z, "%z", t, dt, off, local);
                     out.append("UTC");
                     out.concat(&z);
@@ -329,11 +397,17 @@ int _time_format_into(String* out, string fmt, int64 t, DateTime* dt, int off, i
 // the strftime-style `fmt`, in UTC (TIME_UTC) or the local zone (TIME_LOCAL).
 // 0, or -1 when `fmt` has an unknown specifier (copied as written).
 int time_format(int64 t, string fmt, int local, String* out) {
-    if (out == null) { return -1; }
+    if (out == null) {
+        return -1;
+    }
     out.clear();
     let dt: DateTime;
     int off = 0;
-    if (local != 0) { off = time_to_local(t, &dt); } else { time_to_utc(t, &dt); }
+    if (local != 0) {
+        off = time_to_local(t, &dt);
+    } else {
+        time_to_utc(t, &dt);
+    }
     return _time_format_into(out, fmt, t, &dt, off, local);
 }
 
@@ -354,9 +428,13 @@ struct _time_parse_st {
     int64 epoch;
 }
 
-bool _time_digit(char c) { return c >= '0' && c <= '9'; }
+bool _time_digit(char c) {
+    return c >= '0' && c <= '9';
+}
 
-char _time_lower(char c) { return c >= 'A' && c <= 'Z' ? (char)((int)c + 32) : c; }
+char _time_lower(char c) {
+    return c >= 'A' && c <= 'Z' ? (char)((int)c + 32) : c;
+}
 
 // Read 1..maxw digits (with a sign when `sign`); -1 if there is none.
 int _time_num(_time_parse_st* st, int maxw, bool sign, *int64 out) {
@@ -369,12 +447,16 @@ int _time_num(_time_parse_st* st, int maxw, bool sign, *int64 out) {
     int n = 0;
     while (n < maxw && _time_digit(st.text[st.pos])) {
         const int64 d = (int64)((int)st.text[st.pos] - 48);
-        if (v > (9223372036854775807 - d) / 10) { return -1; }   // past int64 (a %s value)
+        if (v > (9223372036854775807 - d) / 10) {   // past int64 (a %s value)
+            return -1;
+        }
         v = v * 10 + d;
         st.pos++;
         n++;
     }
-    if (n == 0) { return -1; }
+    if (n == 0) {
+        return -1;
+    }
     out[0] = neg ? -v : v;
     return 0;
 }
@@ -386,9 +468,17 @@ int _time_name(_time_parse_st* st, bool months) {
     for (int i = 0; i < count; i++) {
         const string name = months ? TIME_MONTH_NAMES[i] : TIME_WDAY_NAMES[i];
         int n = 0;
-        while (name[n] != 0 && _time_lower(st.text[st.pos + n]) == _time_lower(name[n])) { n++; }
-        if (name[n] == 0) { st.pos = st.pos + n; return i; }
-        if (n >= 3) { st.pos = st.pos + 3; return i; }
+        while (name[n] != 0 && _time_lower(st.text[st.pos + n]) == _time_lower(name[n])) {
+            n++;
+        }
+        if (name[n] == 0) {
+            st.pos = st.pos + n;
+            return i;
+        }
+        if (n >= 3) {
+            st.pos = st.pos + 3;
+            return i;
+        }
     }
     return -1;
 }
@@ -398,84 +488,142 @@ int _time_parse_run(_time_parse_st* st, string fmt) {
     for (int i = 0; fmt[i] != 0; i++) {
         const char c = fmt[i];
         if (c == ' ' || c == '\t' || c == '\n') {
-            while (st.text[st.pos] == ' ' || st.text[st.pos] == '\t' || st.text[st.pos] == '\n') { st.pos++; }
+            while (st.text[st.pos] == ' ' || st.text[st.pos] == '\t' || st.text[st.pos] == '\n') {
+                st.pos++;
+            }
             continue;
         }
         if (c != '%') {
-            if (st.text[st.pos] != c) { return -1; }
+            if (st.text[st.pos] != c) {
+                return -1;
+            }
             st.pos++;
             continue;
         }
         i++;
         const char k = fmt[i];
         if (k == 'Y') {
-            if (_time_num(st, 4, false, &v) != 0) { return -1; }
+            if (_time_num(st, 4, false, &v) != 0) {
+                return -1;
+            }
             st.year = v;
         } else if (k == 'm') {
-            if (_time_num(st, 2, false, &v) != 0 || v < 1 || v > 12) { return -1; }
-            st.month = (int)v;  st.has_md = true;
+            if (_time_num(st, 2, false, &v) != 0 || v < 1 || v > 12) {
+                return -1;
+            }
+            st.month = (int)v;
+            st.has_md = true;
         } else if (k == 'd') {
-            if (_time_num(st, 2, false, &v) != 0 || v < 1 || v > 31) { return -1; }
-            st.day = (int)v;  st.has_md = true;
+            if (_time_num(st, 2, false, &v) != 0 || v < 1 || v > 31) {
+                return -1;
+            }
+            st.day = (int)v;
+            st.has_md = true;
         } else if (k == 'H') {
-            if (_time_num(st, 2, false, &v) != 0 || v > 23) { return -1; }
+            if (_time_num(st, 2, false, &v) != 0 || v > 23) {
+                return -1;
+            }
             st.hour = (int)v;
         } else if (k == 'M') {
-            if (_time_num(st, 2, false, &v) != 0 || v > 59) { return -1; }
+            if (_time_num(st, 2, false, &v) != 0 || v > 59) {
+                return -1;
+            }
             st.min = (int)v;
         } else if (k == 'S') {
-            if (_time_num(st, 2, false, &v) != 0 || v > 60) { return -1; }
+            if (_time_num(st, 2, false, &v) != 0 || v > 60) {
+                return -1;
+            }
             st.sec = (int)v;
         } else if (k == 'j') {
-            if (_time_num(st, 3, false, &v) != 0 || v < 1 || v > 366) { return -1; }
+            if (_time_num(st, 3, false, &v) != 0 || v < 1 || v > 366) {
+                return -1;
+            }
             st.yday = (int)v;
         } else if (k == 'a' || k == 'A') {
-            if (_time_name(st, false) < 0) { return -1; }
+            if (_time_name(st, false) < 0) {
+                return -1;
+            }
         } else if (k == 'b' || k == 'B') {
             const int m = _time_name(st, true);
-            if (m < 0) { return -1; }
-            st.month = m + 1;  st.has_md = true;
+            if (m < 0) {
+                return -1;
+            }
+            st.month = m + 1;
+            st.has_md = true;
         } else if (k == 's') {
-            if (_time_num(st, 19, true, &v) != 0) { return -1; }
-            st.epoch = v;  st.has_epoch = true;
+            if (_time_num(st, 19, true, &v) != 0) {
+                return -1;
+            }
+            st.epoch = v;
+            st.has_epoch = true;
         } else if (k == 'z') {
             const char s = st.text[st.pos];
-            if (s == 'Z' || s == 'z') { st.pos++; st.off = 0; st.has_off = true; continue; }
-            if (s != '+' && s != '-') { return -1; }
+            if (s == 'Z' || s == 'z') {
+                st.pos++;
+                st.off = 0;
+                st.has_off = true;
+                continue;
+            }
+            if (s != '+' && s != '-') {
+                return -1;
+            }
             st.pos++;
             int64 hh = 0;
             int64 mm = 0;
             const int p0 = st.pos;
-            if (_time_num(st, 2, false, &hh) != 0 || st.pos - p0 != 2 || hh > 23) { return -1; }
-            if (st.text[st.pos] == ':') { st.pos++; }
+            if (_time_num(st, 2, false, &hh) != 0 || st.pos - p0 != 2 || hh > 23) {
+                return -1;
+            }
+            if (st.text[st.pos] == ':') {
+                st.pos++;
+            }
             if (_time_digit(st.text[st.pos])) {
                 const int p1 = st.pos;
-                if (_time_num(st, 2, false, &mm) != 0 || st.pos - p1 != 2 || mm > 59) { return -1; }
+                if (_time_num(st, 2, false, &mm) != 0 || st.pos - p1 != 2 || mm > 59) {
+                    return -1;
+                }
             }
             st.off = (int)(hh * 3600 + mm * 60);
-            if (s == '-') { st.off = -st.off; }
+            if (s == '-') {
+                st.off = -st.off;
+            }
             st.has_off = true;
         } else if (k == 'Z') {
             const int p0 = st.pos;
-            while ((st.text[st.pos] >= 'A' && st.text[st.pos] <= 'Z') || (st.text[st.pos] >= 'a' && st.text[st.pos] <= 'z')) { st.pos++; }
+            while ((st.text[st.pos] >= 'A' && st.text[st.pos] <= 'Z') || (st.text[st.pos] >= 'a' && st.text[st.pos] <= 'z')) {
+                st.pos++;
+            }
             const int n = st.pos - p0;
             const string z = st.text;
             bool utc = false;
-            if (n == 1 && (z[p0] == 'Z' || z[p0] == 'z')) { utc = true; }
+            if (n == 1 && (z[p0] == 'Z' || z[p0] == 'z')) {
+                utc = true;
+            }
             if (n == 3) {
                 const char a = _time_lower(z[p0]);
                 const char b = _time_lower(z[p0 + 1]);
                 const char d = _time_lower(z[p0 + 2]);
-                if ((a == 'u' && b == 't' && d == 'c') || (a == 'g' && b == 'm' && d == 't')) { utc = true; }
+                if ((a == 'u' && b == 't' && d == 'c') || (a == 'g' && b == 'm' && d == 't')) {
+                    utc = true;
+                }
             }
-            if (!utc) { return -1; }
-            st.off = 0;  st.has_off = true;
+            if (!utc) {
+                return -1;
+            }
+            st.off = 0;
+            st.has_off = true;
         } else if (k == 'F') {
-            if (_time_parse_run(st, "%Y-%m-%d") != 0) { return -1; }
+            if (_time_parse_run(st, "%Y-%m-%d") != 0) {
+                return -1;
+            }
         } else if (k == 'T') {
-            if (_time_parse_run(st, "%H:%M:%S") != 0) { return -1; }
+            if (_time_parse_run(st, "%H:%M:%S") != 0) {
+                return -1;
+            }
         } else if (k == '%') {
-            if (st.text[st.pos] != '%') { return -1; }
+            if (st.text[st.pos] != '%') {
+                return -1;
+            }
             st.pos++;
         } else {
             return -1;
@@ -484,7 +632,9 @@ int _time_parse_run(_time_parse_st* st, string fmt) {
     return 0;
 }
 
-bool _time_leap(int64 y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
+bool _time_leap(int64 y) {
+    return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+}
 
 // Parse into `st` and compute the civil time as if it were UTC; -1 on a mismatch.
 int _time_parse_civil(string text, string fmt, _time_parse_st* st, *int64 civil) {
@@ -493,17 +643,29 @@ int _time_parse_civil(string text, string fmt, _time_parse_st* st, *int64 civil)
     st.year = 1970;
     st.month = 1;
     st.day = 1;
-    if (text == null || fmt == null) { return -1; }
-    if (_time_parse_run(st, fmt) != 0 || text[st.pos] != 0) { return -1; }
+    if (text == null || fmt == null) {
+        return -1;
+    }
+    if (_time_parse_run(st, fmt) != 0 || text[st.pos] != 0) {
+        return -1;
+    }
     int64 days = 0;
     if (st.yday > 0 && !st.has_md) {
-        if (st.yday == 366 && !_time_leap(st.year)) { return -1; }
+        if (st.yday == 366 && !_time_leap(st.year)) {
+            return -1;
+        }
         days = _time_days_from_civil(st.year, 1, 1) + st.yday - 1;
     } else {
         int dim = 31;
-        if (st.month == 4 || st.month == 6 || st.month == 9 || st.month == 11) { dim = 30; }
-        if (st.month == 2) { dim = _time_leap(st.year) ? 29 : 28; }
-        if (st.day > dim) { return -1; }
+        if (st.month == 4 || st.month == 6 || st.month == 9 || st.month == 11) {
+            dim = 30;
+        }
+        if (st.month == 2) {
+            dim = _time_leap(st.year) ? 29 : 28;
+        }
+        if (st.day > dim) {
+            return -1;
+        }
         days = _time_days_from_civil(st.year, st.month, st.day);
     }
     civil[0] = days * 86400 + (int64)st.hour * 3600 + (int64)st.min * 60 + (int64)st.sec;
@@ -518,8 +680,13 @@ int _time_parse_civil(string text, string fmt, _time_parse_st* st, *int64 civil)
 int time_parse(string text, string fmt, *int64 out) {
     let st: _time_parse_st;
     int64 civil = 0;
-    if (_time_parse_civil(text, fmt, &st, &civil) != 0) { return -1; }
-    if (st.has_epoch) { out[0] = st.epoch; return 0; }
+    if (_time_parse_civil(text, fmt, &st, &civil) != 0) {
+        return -1;
+    }
+    if (st.has_epoch) {
+        out[0] = st.epoch;
+        return 0;
+    }
     out[0] = civil - (int64)st.off;
     return 0;
 }
@@ -529,9 +696,17 @@ int time_parse(string text, string fmt, *int64 out) {
 int time_parse_local(string text, string fmt, *int64 out) {
     let st: _time_parse_st;
     int64 civil = 0;
-    if (_time_parse_civil(text, fmt, &st, &civil) != 0) { return -1; }
-    if (st.has_epoch) { out[0] = st.epoch; return 0; }
-    if (st.has_off) { out[0] = civil - (int64)st.off; return 0; }
+    if (_time_parse_civil(text, fmt, &st, &civil) != 0) {
+        return -1;
+    }
+    if (st.has_epoch) {
+        out[0] = st.epoch;
+        return 0;
+    }
+    if (st.has_off) {
+        out[0] = civil - (int64)st.off;
+        return 0;
+    }
     int64 guess = civil - (int64)time_local_offset(civil);
     guess = civil - (int64)time_local_offset(guess);
     out[0] = guess;
@@ -545,17 +720,27 @@ int time_parse_local(string text, string fmt, *int64 out) {
 // 0 is "0ms", and a negative duration starts with "-".
 void time_format_duration(int64 ms, String* out) {
     out.clear();
-    if (ms == 0) { out.append("0ms"); return; }
+    if (ms == 0) {
+        out.append("0ms");
+        return;
+    }
     uint64 a = (uint64)ms;
-    if (ms < 0) { out.push('-'); a = (uint64)0 - (uint64)ms; }
+    if (ms < 0) {
+        out.push('-');
+        a = (uint64)0 - (uint64)ms;
+    }
     const uint64[5] unit = {86400000, 3600000, 60000, 1000, 1};
     const string[5] name = {"d", "h", "m", "s", "ms"};
     bool first = true;
     for (int i = 0; i < 5; i++) {
         const uint64 n = a / unit[i];
         a = a % unit[i];
-        if (n == 0) { continue; }
-        if (!first) { out.push(' '); }
+        if (n == 0) {
+            continue;
+        }
+        if (!first) {
+            out.push(' ');
+        }
         String_appendf(out, "%llu", n);
         out.append(name[i]);
         first = false;

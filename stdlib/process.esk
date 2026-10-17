@@ -54,17 +54,17 @@ struct ProcessOptions {
 }
 
 struct ProcessResult {
-    int    exit_code;       // exit status; 128+N for signal N; 137 after a timeout; -1 if not started
+    int exit_code;       // exit status; 128+N for signal N; 137 after a timeout; -1 if not started
     String stdout;          // captured standard output ("" when inherited)
     String stderr;          // captured standard error ("" when inherited or merged)
-    bool   timed_out;
+    bool timed_out;
 }
 
 // A running child started by process_spawn. A handle is -1 (POSIX) or null
 // (Windows) when that stream is not a pipe.
 struct Process {
-    int  pid;
-    int  exit_code;         // set by Process_wait
+    int pid;
+    int exit_code;         // set by Process_wait
     bool exited;
 #ifdef _WIN32
     *void hproc;
@@ -73,9 +73,9 @@ struct Process {
     *void hout;
     *void herr;
 #else
-    int  stdin_fd;
-    int  stdout_fd;
-    int  stderr_fd;
+    int stdin_fd;
+    int stdout_fd;
+    int stderr_fd;
     bool group;             // the child leads its own process group
 #endif
 }
@@ -83,7 +83,9 @@ struct Process {
 // A child that writes to our stdout or stderr directly would otherwise print before
 // what this process still holds in its stdio buffers.
 void _proc_flush_inherited(ProcessOptions* o) {
-    if (o.inherit_stdout || o.inherit_stderr) { fflush(null); }
+    if (o.inherit_stdout || o.inherit_stderr) {
+        fflush(null);
+    }
 }
 
 void ProcessResult_free(ProcessResult* r) {
@@ -92,58 +94,60 @@ void ProcessResult_free(ProcessResult* r) {
 }
 
 // A readable message for the last failure of a process_* / Process_* call.
-void process_last_error(String* out) { fs_last_error(out); }
+void process_last_error(String* out) {
+    fs_last_error(out);
+}
 
 // ── Platform layer ────────────────────────────────────────────────────────
 
 #ifdef _WIN32
-extern int    CreatePipe(**void rd, **void wr, *void sa, uint32 size);
-extern int    SetHandleInformation(*void h, uint32 mask, uint32 flags);
-extern *void  GetStdHandle(uint32 which);
-extern *void  GetCurrentProcess();
-extern int    DuplicateHandle(*void sp, *void h, *void tp, **void out, uint32 access, int inherit, uint32 opts);
-extern *void  CreateFileW(*uint16 name, uint32 access, uint32 share, *void sa, uint32 disp, uint32 flags, *void tmpl);
-extern int    CreateProcessW(*uint16 app, *uint16 cmd, *void pa, *void ta, int inherit, uint32 flags, *void env, *uint16 cwd, *void si, *void pi);
-extern int    CloseHandle(*void h);
-extern int    ReadFile(*void h, *void buf, uint32 n, *uint32 got, *void ov);
-extern int    WriteFile(*void h, *void buf, uint32 n, *uint32 put, *void ov);
+extern int CreatePipe(**void rd, **void wr, *void sa, uint32 size);
+extern int SetHandleInformation(*void h, uint32 mask, uint32 flags);
+extern *void GetStdHandle(uint32 which);
+extern *void GetCurrentProcess();
+extern int DuplicateHandle(*void sp, *void h, *void tp, **void out, uint32 access, int inherit, uint32 opts);
+extern *void CreateFileW(*uint16 name, uint32 access, uint32 share, *void sa, uint32 disp, uint32 flags, *void tmpl);
+extern int CreateProcessW(*uint16 app, *uint16 cmd, *void pa, *void ta, int inherit, uint32 flags, *void env, *uint16 cwd, *void si, *void pi);
+extern int CloseHandle(*void h);
+extern int ReadFile(*void h, *void buf, uint32 n, *uint32 got, *void ov);
+extern int WriteFile(*void h, *void buf, uint32 n, *uint32 put, *void ov);
 extern uint32 WaitForSingleObject(*void h, uint32 ms);
-extern int    GetExitCodeProcess(*void h, *uint32 code);
-extern int    TerminateProcess(*void h, uint32 code);
+extern int GetExitCodeProcess(*void h, *uint32 code);
+extern int TerminateProcess(*void h, uint32 code);
 extern uint32 GetCurrentProcessId();
-extern *void  CreateJobObjectW(*void sa, *uint16 name);
-extern int    AssignProcessToJobObject(*void job, *void proc);
-extern int    TerminateJobObject(*void job, uint32 code);
+extern *void CreateJobObjectW(*void sa, *uint16 name);
+extern int AssignProcessToJobObject(*void job, *void proc);
+extern int TerminateJobObject(*void job, uint32 code);
 extern uint32 ResumeThread(*void thread);
 extern uint32 GetLastError();
-extern void   exit(int code);
+extern void exit(int code);
 
 struct _proc_sa {
     uint32 n;
-    *void  desc;
-    int    inherit;
+    *void desc;
+    int inherit;
 }
 #else
-extern int   fork();
-extern int   execvp(string file, *string argv);
-extern int   waitpid(int pid, *int status, int options);
-extern void  _exit(int code);
-extern void  exit(int code);
-extern int   getpid();
-extern int   dup2(int from, int to);
-extern int   close(int fd);
+extern int fork();
+extern int execvp(string file, *string argv);
+extern int waitpid(int pid, *int status, int options);
+extern void _exit(int code);
+extern void exit(int code);
+extern int getpid();
+extern int dup2(int from, int to);
+extern int close(int fd);
 extern int64 read(int fd, *void buf, int64 n);
 extern int64 write(int fd, *void buf, int64 n);
-extern int   open(string path, int flags, ...);
-extern int   fcntl(int fd, int cmd, ...);
-extern int   kill(int pid, int sig);
-extern int   setpgid(int pid, int pgid);
-extern int   isatty(int fd);
+extern int open(string path, int flags, ...);
+extern int fcntl(int fd, int cmd, ...);
+extern int kill(int pid, int sig);
+extern int setpgid(int pid, int pgid);
+extern int isatty(int fd);
 extern *void signal(int sig, *void handler);
-extern int   chdir(string path);
+extern int chdir(string path);
 
 struct _proc_pollfd {
-    int   fd;
+    int fd;
     int16 events;
     int16 revents;
 }
@@ -152,8 +156,13 @@ struct _proc_pollfd {
 extern int pipe(*int fds);
 extern int poll(*void fds, uint32 nfds, int timeout);
 extern **string _NSGetEnviron();
-int _proc_poll(*void fds, int n, int ms) { return poll(fds, (uint32)n, ms); }
-void _proc_set_environ(*string e) { *_NSGetEnviron() = e; }
+int _proc_poll(*void fds, int n, int ms) {
+    return poll(fds, (uint32)n, ms);
+}
+
+void _proc_set_environ(*string e) {
+    *_NSGetEnviron() = e;
+}
 #define _PROC_O_NONBLOCK 4
 #define _PROC_O_CLOEXEC  16777216
 #define _PROC_EAGAIN     35
@@ -163,13 +172,19 @@ void _proc_set_environ(*string e) { *_NSGetEnviron() = e; }
 extern int pipe2(*int fds, int flags);
 #if defined(__aarch64__) || defined(__x86_64__)
 extern int poll(*void fds, int64 nfds, int timeout);
-int _proc_poll(*void fds, int n, int ms) { return poll(fds, (int64)n, ms); }
+int _proc_poll(*void fds, int n, int ms) {
+    return poll(fds, (int64)n, ms);
+}
 #else
 extern int poll(*void fds, int32 nfds, int timeout);
-int _proc_poll(*void fds, int n, int ms) { return poll(fds, (int32)n, ms); }
+int _proc_poll(*void fds, int n, int ms) {
+    return poll(fds, (int32)n, ms);
+}
 #endif
 extern *string environ;
-void _proc_set_environ(*string e) { environ = e; }
+void _proc_set_environ(*string e) {
+    environ = e;
+}
 #define _PROC_O_NONBLOCK 2048
 #define _PROC_O_CLOEXEC  524288
 #define _PROC_EAGAIN     11
@@ -186,7 +201,9 @@ void _proc_set_environ(*string e) { environ = e; }
 // A pipe whose two ends are close-on-exec: fds[0] reads, fds[1] writes.
 int _proc_pipe(*int fds) {
 #ifdef __APPLE__
-    if (pipe(fds) != 0) { return -1; }
+    if (pipe(fds) != 0) {
+        return -1;
+    }
     fcntl(fds[0], _PROC_F_SETFD, 1);
     fcntl(fds[1], _PROC_F_SETFD, 1);
     return 0;
@@ -196,12 +213,18 @@ int _proc_pipe(*int fds) {
 }
 
 void _proc_close(*int fd) {
-    if (*fd >= 0) { close(*fd); *fd = -1; }
+    if (*fd >= 0) {
+        close(*fd);
+        *fd = -1;
+    }
 }
 
 // In the child: make `src` the descriptor `dst` (kept across exec).
 void _proc_dup_to(int src, int dst) {
-    if (src == dst) { fcntl(dst, _PROC_F_SETFD, 0); return; }
+    if (src == dst) {
+        fcntl(dst, _PROC_F_SETFD, 0);
+        return;
+    }
     dup2(src, dst);
 }
 
@@ -253,12 +276,15 @@ int process_pid() {
 }
 
 // End the current process with `code` (stdio buffers are flushed).
-void process_exit(int code) { exit(code); }
+void process_exit(int code) {
+    exit(code);
+}
 
 // The environment for a child: the parent's plus `extra` (same-named entries
 // replaced), as "NAME=value" Strings in `out`.
 void _proc_env_merge(List<string>* extra, List<String>* out) {
-    let cur: List<String>;  List_init<String>(&cur, 64);
+    let cur: List<String>;
+    List_init<String>(&cur, 64);
     env_list(&cur);
     for (i in 0..List_len<String>(&cur)) {
         let e: String = List_get<String>(&cur, i);
@@ -266,14 +292,23 @@ void _proc_env_merge(List<string>* extra, List<String>* out) {
         for (k in 0..List_len<string>(extra)) {
             const string x = List_get<string>(extra, k);
             int j = 0;
-            while (x[j] != 0 && x[j] != '=' && (int64)j < e.len && e.data[j] == x[j]) { j++; }
-            if (x[j] == '=' && (int64)j < e.len && e.data[j] == '=') { replaced = true; }
+            while (x[j] != 0 && x[j] != '=' && (int64)j < e.len && e.data[j] == x[j]) {
+                j++;
+            }
+            if (x[j] == '=' && (int64)j < e.len && e.data[j] == '=') {
+                replaced = true;
+            }
         }
-        if (replaced) { e.free(); } else { List_push<String>(out, e); }
+        if (replaced) {
+            e.free();
+        } else {
+            List_push<String>(out, e);
+        }
     }
     List_free<String>(&cur);
     for (k in 0..List_len<string>(extra)) {
-        let s: String;  s.from(List_get<string>(extra, k));
+        let s: String;
+        s.from(List_get<string>(extra, k));
         List_push<String>(out, s);
     }
 }
@@ -283,27 +318,43 @@ void _proc_env_merge(List<string>* extra, List<String>* out) {
 
 // Append `arg` to a command line quoted for CommandLineToArgvW / the C runtime.
 void _proc_quote_arg(String* cmd, string arg) {
-    if (cmd.len > 0) { cmd.push(' '); }
+    if (cmd.len > 0) {
+        cmd.push(' ');
+    }
     bool plain = arg[0] != 0;
     for (int i = 0; arg[i] != 0; i++) {
         const char c = arg[i];
-        if (c == ' ' || c == '\t' || c == '\n' || c == 11 || c == '"') { plain = false; }
+        if (c == ' ' || c == '\t' || c == '\n' || c == 11 || c == '"') {
+            plain = false;
+        }
     }
-    if (plain) { cmd.append(arg); return; }
+    if (plain) {
+        cmd.append(arg);
+        return;
+    }
     cmd.push('"');
     int i = 0;
     while (true) {
         int slashes = 0;
-        while (arg[i] == '\\') { slashes++; i++; }
+        while (arg[i] == '\\') {
+            slashes++;
+            i++;
+        }
         if (arg[i] == 0) {
-            for (k in 0..slashes * 2) { cmd.push('\\'); }
+            for (k in 0..slashes * 2) {
+                cmd.push('\\');
+            }
             break;
         }
         if (arg[i] == '"') {
-            for (k in 0..slashes * 2 + 1) { cmd.push('\\'); }
+            for (k in 0..slashes * 2 + 1) {
+                cmd.push('\\');
+            }
             cmd.push('"');
         } else {
-            for (k in 0..slashes) { cmd.push('\\'); }
+            for (k in 0..slashes) {
+                cmd.push('\\');
+            }
             cmd.push(arg[i]);
         }
         i++;
@@ -312,9 +363,13 @@ void _proc_quote_arg(String* cmd, string arg) {
 }
 
 *void _proc_inheritable(*void h) {
-    if (h == null || (int64)h == -1) { return null; }
+    if (h == null || (int64)h == -1) {
+        return null;
+    }
     let d: *void = null;
-    if (DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &d, (uint32)0, 1, (uint32)2) == 0) { return null; }
+    if (DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &d, (uint32)0, 1, (uint32)2) == 0) {
+        return null;
+    }
     return d;
 }
 
@@ -341,7 +396,9 @@ int _proc_start(String* cmdline, ProcessOptions* o, bool pipe_in, bool job, Proc
     if (pipe_in) {
         let r: *void = null;
         let w: *void = null;
-        if (CreatePipe(&r, &w, (*void)&sa, (uint32)0) == 0) { return _fs_fail_os(); }
+        if (CreatePipe(&r, &w, (*void)&sa, (uint32)0) == 0) {
+            return _fs_fail_os();
+        }
         SetHandleInformation(w, (uint32)1, (uint32)0);
         c_in = r;
         p.hin = w;
@@ -357,7 +414,9 @@ int _proc_start(String* cmdline, ProcessOptions* o, bool pipe_in, bool job, Proc
     } else {
         let r: *void = null;
         let w: *void = null;
-        if (CreatePipe(&r, &w, (*void)&sa, (uint32)0) == 0) { return _fs_fail_os(); }
+        if (CreatePipe(&r, &w, (*void)&sa, (uint32)0) == 0) {
+            return _fs_fail_os();
+        }
         SetHandleInformation(r, (uint32)1, (uint32)0);
         c_out = w;
         p.hout = r;
@@ -369,7 +428,9 @@ int _proc_start(String* cmdline, ProcessOptions* o, bool pipe_in, bool job, Proc
     } else {
         let r: *void = null;
         let w: *void = null;
-        if (CreatePipe(&r, &w, (*void)&sa, (uint32)0) == 0) { return _fs_fail_os(); }
+        if (CreatePipe(&r, &w, (*void)&sa, (uint32)0) == 0) {
+            return _fs_fail_os();
+        }
         SetHandleInformation(r, (uint32)1, (uint32)0);
         c_err = w;
         p.herr = r;
@@ -390,9 +451,11 @@ int _proc_start(String* cmdline, ProcessOptions* o, bool pipe_in, bool job, Proc
     *uint16 wenv = null;
     uint32 flags = (uint32)0;
     if (o.env != null && List_len<string>(o.env) > 0) {
-        let all: List<String>;  List_init<String>(&all, 64);
+        let all: List<String>;
+        List_init<String>(&all, 64);
         _proc_env_merge(o.env, &all);
-        let block: String;  block.init(4096);
+        let block: String;
+        block.init(4096);
         for (i in 0..List_len<String>(&all)) {
             let e: String = List_get<String>(&all, i);
             _fs_append_bytes(&block, (*uint8)e.data, e.len + 1);
@@ -407,19 +470,38 @@ int _proc_start(String* cmdline, ProcessOptions* o, bool pipe_in, bool job, Proc
         fs_list_free(&all);
         flags = (uint32)1024;   // CREATE_UNICODE_ENVIRONMENT
     }
-    if (job) { flags = flags | (uint32)4; }   // CREATE_SUSPENDED
+    if (job) {   // CREATE_SUSPENDED
+        flags = flags | (uint32)4;
+    }
     const int ok = wcmd != null ? CreateProcessW(null, wcmd, null, null, 1, flags, (*void)wenv, wcwd, (*void)sb, (*void)&pi) : 0;
-    if (ok == 0) { _fs_fail_os(); }
+    if (ok == 0) {
+        _fs_fail_os();
+    }
     free((*void)wcmd);
     free((*void)wcwd);
     free((*void)wenv);
-    if (c_in != null) { CloseHandle(c_in); }
-    if (c_out != null) { CloseHandle(c_out); }
-    if (c_err != null) { CloseHandle(c_err); }
+    if (c_in != null) {
+        CloseHandle(c_in);
+    }
+    if (c_out != null) {
+        CloseHandle(c_out);
+    }
+    if (c_err != null) {
+        CloseHandle(c_err);
+    }
     if (ok == 0) {
-        if (p.hin != null) { CloseHandle(p.hin); p.hin = null; }
-        if (p.hout != null) { CloseHandle(p.hout); p.hout = null; }
-        if (p.herr != null) { CloseHandle(p.herr); p.herr = null; }
+        if (p.hin != null) {
+            CloseHandle(p.hin);
+            p.hin = null;
+        }
+        if (p.hout != null) {
+            CloseHandle(p.hout);
+            p.hout = null;
+        }
+        if (p.herr != null) {
+            CloseHandle(p.herr);
+            p.herr = null;
+        }
         return -1;
     }
     **void ph = (**void)&pi;
@@ -440,20 +522,24 @@ int _proc_start(String* cmdline, ProcessOptions* o, bool pipe_in, bool job, Proc
 
 void _proc_cmdline(List<string>* argv, String* out) {
     out.clear();
-    for (i in 0..List_len<string>(argv)) { _proc_quote_arg(out, List_get<string>(argv, i)); }
+    for (i in 0..List_len<string>(argv)) {
+        _proc_quote_arg(out, List_get<string>(argv, i));
+    }
 }
 
 struct _proc_job {
-    *void   h;
+    *void h;
     String* buf;
-    string  text;
+    string text;
 }
 
 void _proc_drain(_proc_job* j) {
     *uint8 buf = alloc<uint8>(65536);
     while (true) {
         let got: uint32 = (uint32)0;
-        if (ReadFile(j.h, (*void)buf, (uint32)65536, &got, null) == 0 || got == (uint32)0) { break; }
+        if (ReadFile(j.h, (*void)buf, (uint32)65536, &got, null) == 0 || got == (uint32)0) {
+            break;
+        }
         _fs_append_bytes(j.buf, buf, (int64)got);
     }
     free((*void)buf);
@@ -465,7 +551,9 @@ void _proc_feed(_proc_job* j) {
     while (off < n) {
         const int64 chunk = n - off > 65536 ? 65536 : n - off;
         let put: uint32 = (uint32)0;
-        if (WriteFile(j.h, (*void)((*uint8)j.text + off), (uint32)chunk, &put, null) == 0) { break; }
+        if (WriteFile(j.h, (*void)((*uint8)j.text + off), (uint32)chunk, &put, null) == 0) {
+            break;
+        }
         off += (int64)put;
     }
     CloseHandle(j.h);
@@ -477,37 +565,76 @@ int _proc_run_cmd(String* cmdline, ProcessOptions* o, ProcessResult* r) {
     r.exit_code = -1;
     r.timed_out = false;
     let p: Process;
-    if (_proc_start(cmdline, o, o.stdin_text != null, o.timeout_ms > 0, &p) != 0) { return -1; }
-    let jout: _proc_job;  jout.h = p.hout;  jout.buf = &r.stdout;  jout.text = null;
-    let jerr: _proc_job;  jerr.h = p.herr;  jerr.buf = &r.stderr;  jerr.text = null;
-    let jin: _proc_job;   jin.h = p.hin;    jin.buf = null;        jin.text = o.stdin_text;
+    if (_proc_start(cmdline, o, o.stdin_text != null, o.timeout_ms > 0, &p) != 0) {
+        return -1;
+    }
+    let jout: _proc_job;
+    jout.h = p.hout;
+    jout.buf = &r.stdout;
+    jout.text = null;
+    let jerr: _proc_job;
+    jerr.h = p.herr;
+    jerr.buf = &r.stderr;
+    jerr.text = null;
+    let jin: _proc_job;
+    jin.h = p.hin;
+    jin.buf = null;
+    jin.text = o.stdin_text;
     *_proc_job po = &jout;
     *_proc_job pe = &jerr;
     *_proc_job pn = &jin;
     *void t_out = null;
     *void t_err = null;
     *void t_in = null;
-    if (p.hout != null) { t_out = thread_create(void() { _proc_drain(po); }); }
-    if (p.herr != null) { t_err = thread_create(void() { _proc_drain(pe); }); }
-    if (p.hin != null) { t_in = thread_create(void() { _proc_feed(pn); }); }
+    if (p.hout != null) {
+        t_out = thread_create(void() {
+            _proc_drain(po);
+        });
+    }
+    if (p.herr != null) {
+        t_err = thread_create(void() {
+            _proc_drain(pe);
+        });
+    }
+    if (p.hin != null) {
+        t_in = thread_create(void() {
+            _proc_feed(pn);
+        });
+    }
     uint32 wait_ms = (uint32)4294967295;   // INFINITE
-    if (o.timeout_ms > 0) { wait_ms = o.timeout_ms >= 4294967295 ? (uint32)4294967294 : (uint32)o.timeout_ms; }
+    if (o.timeout_ms > 0) {
+        wait_ms = o.timeout_ms >= 4294967295 ? (uint32)4294967294 : (uint32)o.timeout_ms;
+    }
     if (WaitForSingleObject(p.hproc, wait_ms) == (uint32)258) {   // WAIT_TIMEOUT
-        if (p.hjob != null) { TerminateJobObject(p.hjob, (uint32)137); }
+        if (p.hjob != null) {
+            TerminateJobObject(p.hjob, (uint32)137);
+        }
         TerminateProcess(p.hproc, (uint32)137);
         WaitForSingleObject(p.hproc, (uint32)4294967295);
         r.timed_out = true;
     }
-    if (t_in != null) { thread_join(t_in); }
-    if (t_out != null) { thread_join(t_out); }
-    if (t_err != null) { thread_join(t_err); }
+    if (t_in != null) {
+        thread_join(t_in);
+    }
+    if (t_out != null) {
+        thread_join(t_out);
+    }
+    if (t_err != null) {
+        thread_join(t_err);
+    }
     let code: uint32 = (uint32)0;
     GetExitCodeProcess(p.hproc, &code);
     r.exit_code = r.timed_out ? 137 : (int)code;
-    if (p.hout != null) { CloseHandle(p.hout); }
-    if (p.herr != null) { CloseHandle(p.herr); }
+    if (p.hout != null) {
+        CloseHandle(p.hout);
+    }
+    if (p.herr != null) {
+        CloseHandle(p.herr);
+    }
     CloseHandle(p.hproc);
-    if (p.hjob != null) { CloseHandle(p.hjob); }
+    if (p.hjob != null) {
+        CloseHandle(p.hjob);
+    }
     return 0;
 }
 
@@ -515,7 +642,8 @@ int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
     let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
-    let cmd: String;  cmd.init(64);
+    let cmd: String;
+    cmd.init(64);
     defer cmd.free();
     _proc_cmdline(argv, &cmd);
     return _proc_run_cmd(&cmd, o, out);
@@ -525,7 +653,8 @@ int sh_with(string command, ProcessOptions* opts, ProcessResult* out) {
     let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
-    let cmd: String;  cmd.init(64);
+    let cmd: String;
+    cmd.init(64);
     defer cmd.free();
     cmd.append("cmd.exe /d /s /c \"");
     cmd.append(command);
@@ -537,37 +666,49 @@ int process_spawn(List<string>* argv, ProcessOptions* opts, Process* p) {
     let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
-    let cmd: String;  cmd.init(64);
+    let cmd: String;
+    cmd.init(64);
     defer cmd.free();
     _proc_cmdline(argv, &cmd);
     return _proc_start(&cmd, o, !o.inherit_stdin, false, p);
 }
 
 int Process_write_stdin(Process* p, string text) {
-    if (p.hin == null) { return -1; }
+    if (p.hin == null) {
+        return -1;
+    }
     int64 off = 0;
     const int64 n = strlen(text);
     while (off < n) {
         const int64 chunk = n - off > 65536 ? 65536 : n - off;
         let put: uint32 = (uint32)0;
-        if (WriteFile(p.hin, (*void)((*uint8)text + off), (uint32)chunk, &put, null) == 0) { return _fs_fail_os(); }
+        if (WriteFile(p.hin, (*void)((*uint8)text + off), (uint32)chunk, &put, null) == 0) {
+            return _fs_fail_os();
+        }
         off += (int64)put;
     }
     return 0;
 }
 
 void Process_close_stdin(Process* p) {
-    if (p.hin != null) { CloseHandle(p.hin); p.hin = null; }
+    if (p.hin != null) {
+        CloseHandle(p.hin);
+        p.hin = null;
+    }
 }
 
 int64 Process_read(Process* p, int stream, String* out) {
     *void h = stream == 2 ? p.herr : p.hout;
-    if (h == null) { return -1; }
+    if (h == null) {
+        return -1;
+    }
     *uint8 buf = alloc<uint8>(65536);
     defer free((*void)buf);
     let got: uint32 = (uint32)0;
     if (ReadFile(h, (*void)buf, (uint32)65536, &got, null) == 0) {
-        if (GetLastError() == (uint32)109) { return 0; }   // ERROR_BROKEN_PIPE: end of output
+        if (GetLastError() == (uint32)109) {   // ERROR_BROKEN_PIPE: end of output
+            return 0;
+        }
         return (int64)_fs_fail_os();
     }
     _fs_append_bytes(out, buf, (int64)got);
@@ -575,7 +716,9 @@ int64 Process_read(Process* p, int stream, String* out) {
 }
 
 int Process_wait(Process* p) {
-    if (p.exited) { return p.exit_code; }
+    if (p.exited) {
+        return p.exit_code;
+    }
     Process_close_stdin(p);
     WaitForSingleObject(p.hproc, (uint32)4294967295);
     let code: uint32 = (uint32)0;
@@ -586,15 +729,26 @@ int Process_wait(Process* p) {
 }
 
 int Process_kill(Process* p) {
-    if (p.exited) { return 0; }
+    if (p.exited) {
+        return 0;
+    }
     return TerminateProcess(p.hproc, (uint32)137) != 0 ? 0 : _fs_fail_os();
 }
 
 void Process_free(Process* p) {
     Process_close_stdin(p);
-    if (p.hout != null) { CloseHandle(p.hout); p.hout = null; }
-    if (p.herr != null) { CloseHandle(p.herr); p.herr = null; }
-    if (p.hproc != null) { CloseHandle(p.hproc); p.hproc = null; }
+    if (p.hout != null) {
+        CloseHandle(p.hout);
+        p.hout = null;
+    }
+    if (p.herr != null) {
+        CloseHandle(p.herr);
+        p.herr = null;
+    }
+    if (p.hproc != null) {
+        CloseHandle(p.hproc);
+        p.hproc = null;
+    }
 }
 
 #else
@@ -612,52 +766,96 @@ int _proc_start(List<string>* argv, ProcessOptions* o, bool pipe_in, bool group,
     p.stderr_fd = -1;
     p.group = group;
     const int argc = List_len<string>(argv);
-    if (argc == 0) { _fs_err = 22; _fs_err_win = false; return -1; }   // EINVAL
-    int[2] in_p;  in_p[0] = -1;  in_p[1] = -1;
-    int[2] out_p; out_p[0] = -1; out_p[1] = -1;
-    int[2] err_p; err_p[0] = -1; err_p[1] = -1;
-    int[2] st_p;  st_p[0] = -1;  st_p[1] = -1;
+    if (argc == 0) {   // EINVAL
+        _fs_err = 22;
+        _fs_err_win = false;
+        return -1;
+    }
+    int[2] in_p;
+    in_p[0] = -1;
+    in_p[1] = -1;
+    int[2] out_p;
+    out_p[0] = -1;
+    out_p[1] = -1;
+    int[2] err_p;
+    err_p[0] = -1;
+    err_p[1] = -1;
+    int[2] st_p;
+    st_p[0] = -1;
+    st_p[1] = -1;
     int nul = -1;
     bool ok = _proc_pipe(&st_p[0]) == 0;
-    if (ok && pipe_in) { ok = _proc_pipe(&in_p[0]) == 0; }
+    if (ok && pipe_in) {
+        ok = _proc_pipe(&in_p[0]) == 0;
+    }
     if (ok && !pipe_in && !o.inherit_stdin) {
         nul = open("/dev/null", _PROC_O_CLOEXEC);
         ok = nul >= 0;
     }
-    if (ok && !o.inherit_stdout) { ok = _proc_pipe(&out_p[0]) == 0; }
-    if (ok && !o.merge_stderr && !o.inherit_stderr) { ok = _proc_pipe(&err_p[0]) == 0; }
+    if (ok && !o.inherit_stdout) {
+        ok = _proc_pipe(&out_p[0]) == 0;
+    }
+    if (ok && !o.merge_stderr && !o.inherit_stderr) {
+        ok = _proc_pipe(&err_p[0]) == 0;
+    }
     // Everything the child needs is built before fork: it only calls
     // async-signal-safe functions until exec.
     *string args = alloc<string>((int64)argc + 1);
-    for (i in 0..argc) { args[i] = List_get<string>(argv, i); }
-    let envs: List<String>;  List_init<String>(&envs, 4);
+    for (i in 0..argc) {
+        args[i] = List_get<string>(argv, i);
+    }
+    let envs: List<String>;
+    List_init<String>(&envs, 4);
     *string envp = null;
     if (ok && o.env != null && List_len<string>(o.env) > 0) {
         _proc_env_merge(o.env, &envs);
         const int ne = List_len<String>(&envs);
         envp = alloc<string>((int64)ne + 1);
-        for (i in 0..ne) { envp[i] = (string)List_get<String>(&envs, i).data; }
+        for (i in 0..ne) {
+            envp[i] = (string)List_get<String>(&envs, i).data;
+        }
     }
     int pid = -1;
-    if (ok) { pid = fork(); ok = pid >= 0; }
-    if (!ok) { _fs_fail_os(); }
+    if (ok) {
+        pid = fork();
+        ok = pid >= 0;
+    }
+    if (!ok) {
+        _fs_fail_os();
+    }
     if (pid == 0) {
-        if (in_p[0] >= 0) { _proc_dup_to(in_p[0], 0); }
-        else if (nul >= 0) { _proc_dup_to(nul, 0); }
-        if (out_p[1] >= 0) { _proc_dup_to(out_p[1], 1); }
-        if (o.merge_stderr) { dup2(1, 2); }
-        else if (err_p[1] >= 0) { _proc_dup_to(err_p[1], 2); }
+        if (in_p[0] >= 0) {
+            _proc_dup_to(in_p[0], 0);
+        }
+        else if (nul >= 0) {
+            _proc_dup_to(nul, 0);
+        }
+        if (out_p[1] >= 0) {
+            _proc_dup_to(out_p[1], 1);
+        }
+        if (o.merge_stderr) {
+            dup2(1, 2);
+        }
+        else if (err_p[1] >= 0) {
+            _proc_dup_to(err_p[1], 2);
+        }
         signal(_PROC_SIGPIPE, null);   // SIG_DFL: the parent may ignore SIGPIPE
-        if (group) { setpgid(0, 0); }
+        if (group) {
+            setpgid(0, 0);
+        }
         if (o.cwd == null || chdir(o.cwd) == 0) {
-            if (envp != null) { _proc_set_environ(envp); }
+            if (envp != null) {
+                _proc_set_environ(envp);
+            }
             execvp(args[0], args);
         }
         int e = _fs_errno_now();
         write(st_p[1], (*void)&e, 4);
         _exit(127);
     }
-    if (pid > 0 && group) { setpgid(pid, pid); }
+    if (pid > 0 && group) {
+        setpgid(pid, pid);
+    }
     _proc_close(&st_p[1]);
     _proc_close(&in_p[0]);
     _proc_close(&out_p[1]);
@@ -672,7 +870,9 @@ int _proc_start(List<string>* argv, ProcessOptions* o, bool pipe_in, bool group,
         int64 n = -1;
         while (true) {
             n = read(st_p[0], (*void)&e, 4);
-            if (n >= 0 || _fs_errno_now() != _PROC_EINTR) { break; }
+            if (n >= 0 || _fs_errno_now() != _PROC_EINTR) {
+                break;
+            }
         }
         if (n == 4) {
             int status = 0;
@@ -698,12 +898,16 @@ int _proc_start(List<string>* argv, ProcessOptions* o, bool pipe_in, bool group,
 
 int _proc_decode(int status) {
     const int sig = status & 127;
-    if (sig == 0) { return (status >> 8) & 255; }
+    if (sig == 0) {
+        return (status >> 8) & 255;
+    }
     return 128 + sig;
 }
 
 void _proc_kill(Process* p) {
-    if (p.group) { kill(-p.pid, _PROC_SIGKILL); }
+    if (p.group) {
+        kill(-p.pid, _PROC_SIGKILL);
+    }
     kill(p.pid, _PROC_SIGKILL);
 }
 
@@ -714,8 +918,13 @@ int _proc_reap(Process* p, int64 deadline, *bool timed_out) {
     while (true) {
         const int flags = deadline > 0 ? 1 : 0;   // WNOHANG while a deadline runs
         const int r = waitpid(p.pid, &status, flags);
-        if (r == p.pid) { break; }
-        if (r < 0 && _fs_errno_now() != _PROC_EINTR) { status = 0; break; }
+        if (r == p.pid) {
+            break;
+        }
+        if (r < 0 && _fs_errno_now() != _PROC_EINTR) {
+            status = 0;
+            break;
+        }
         if (r == 0) {
             if (time_monotonic_ms() >= deadline) {
                 _proc_kill(p);
@@ -741,16 +950,22 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
 #ifndef _WIN32
     // A child in its own process group is in the background for the terminal,
     // so reading the inherited terminal would stop it (SIGTTIN): keep it in ours.
-    if (o.inherit_stdin && isatty(0) == 1) { group = false; }
+    if (o.inherit_stdin && isatty(0) == 1) {
+        group = false;
+    }
 #endif
-    if (_proc_start(argv, o, o.stdin_text != null, group, &p) != 0) { return -1; }
+    if (_proc_start(argv, o, o.stdin_text != null, group, &p) != 0) {
+        return -1;
+    }
     int64 deadline = o.timeout_ms > 0 ? time_monotonic_ms() + o.timeout_ms : 0;
     bool killed = false;
     const string text = o.stdin_text;
     const int64 tlen = text != null ? strlen(text) : 0;
     int64 toff = 0;
     if (p.stdin_fd >= 0) {
-        if (tlen == 0) { _proc_close(&p.stdin_fd); }
+        if (tlen == 0) {
+            _proc_close(&p.stdin_fd);
+        }
         else {
             fcntl(p.stdin_fd, _PROC_F_SETFL, fcntl(p.stdin_fd, _PROC_F_GETFL) | _PROC_O_NONBLOCK);
         }
@@ -762,10 +977,27 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         int i_in = -1;
         int i_out = -1;
         int i_err = -1;
-        if (p.stdin_fd >= 0)  { i_in = nf;  fds[nf].fd = p.stdin_fd;  fds[nf].events = (int16)4; nf++; }
-        if (p.stdout_fd >= 0) { i_out = nf; fds[nf].fd = p.stdout_fd; fds[nf].events = (int16)1; nf++; }
-        if (p.stderr_fd >= 0) { i_err = nf; fds[nf].fd = p.stderr_fd; fds[nf].events = (int16)1; nf++; }
-        for (k in 0..nf) { fds[k].revents = (int16)0; }
+        if (p.stdin_fd >= 0) {
+            i_in = nf;
+            fds[nf].fd = p.stdin_fd;
+            fds[nf].events = (int16)4;
+            nf++;
+        }
+        if (p.stdout_fd >= 0) {
+            i_out = nf;
+            fds[nf].fd = p.stdout_fd;
+            fds[nf].events = (int16)1;
+            nf++;
+        }
+        if (p.stderr_fd >= 0) {
+            i_err = nf;
+            fds[nf].fd = p.stderr_fd;
+            fds[nf].events = (int16)1;
+            nf++;
+        }
+        for (k in 0..nf) {
+            fds[k].revents = (int16)0;
+        }
         int wait_ms = -1;
         if (deadline > 0) {
             const int64 left = deadline - time_monotonic_ms();
@@ -773,11 +1005,15 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         }
         const int pr = _proc_poll((*void)&fds[0], nf, wait_ms);
         if (pr < 0) {
-            if (_fs_errno_now() == _PROC_EINTR) { continue; }
+            if (_fs_errno_now() == _PROC_EINTR) {
+                continue;
+            }
             break;
         }
         if (pr == 0) {
-            if (killed) { break; }   // the grace period after the kill ran out
+            if (killed) {   // the grace period after the kill ran out
+                break;
+            }
             // The child exited in time and something it started still holds the
             // pipes open: that is the child's result, not a timeout. Stop reading
             // and leave the descendants alone.
@@ -796,19 +1032,33 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
         if (i_in >= 0 && fds[i_in].revents != (int16)0) {
             const int64 chunk = tlen - toff > 65536 ? 65536 : tlen - toff;
             const int64 w = _proc_write_nosig(p.stdin_fd, (*void)((*uint8)text + toff), chunk);
-            if (w > 0) { toff += w; }
-            else if (w < 0 && _fs_errno_now() != _PROC_EAGAIN && _fs_errno_now() != _PROC_EINTR) { toff = tlen; }
-            if (toff >= tlen) { _proc_close(&p.stdin_fd); }
+            if (w > 0) {
+                toff += w;
+            }
+            else if (w < 0 && _fs_errno_now() != _PROC_EAGAIN && _fs_errno_now() != _PROC_EINTR) {
+                toff = tlen;
+            }
+            if (toff >= tlen) {
+                _proc_close(&p.stdin_fd);
+            }
         }
         if (i_out >= 0 && fds[i_out].revents != (int16)0) {
             const int64 n = read(p.stdout_fd, (*void)buf, 65536);
-            if (n > 0) { _fs_append_bytes(&r.stdout, buf, n); }
-            else if (n == 0 || _fs_errno_now() != _PROC_EINTR) { _proc_close(&p.stdout_fd); }
+            if (n > 0) {
+                _fs_append_bytes(&r.stdout, buf, n);
+            }
+            else if (n == 0 || _fs_errno_now() != _PROC_EINTR) {
+                _proc_close(&p.stdout_fd);
+            }
         }
         if (i_err >= 0 && fds[i_err].revents != (int16)0) {
             const int64 n = read(p.stderr_fd, (*void)buf, 65536);
-            if (n > 0) { _fs_append_bytes(&r.stderr, buf, n); }
-            else if (n == 0 || _fs_errno_now() != _PROC_EINTR) { _proc_close(&p.stderr_fd); }
+            if (n > 0) {
+                _fs_append_bytes(&r.stderr, buf, n);
+            }
+            else if (n == 0 || _fs_errno_now() != _PROC_EINTR) {
+                _proc_close(&p.stderr_fd);
+            }
         }
     }
     free((*void)buf);
@@ -816,8 +1066,12 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
     _proc_close(&p.stdout_fd);
     _proc_close(&p.stderr_fd);
     bool late = false;
-    if (!p.exited) { _proc_reap(&p, killed ? 0 : deadline, &late); }
-    if (late) { r.timed_out = true; }
+    if (!p.exited) {
+        _proc_reap(&p, killed ? 0 : deadline, &late);
+    }
+    if (late) {
+        r.timed_out = true;
+    }
     r.exit_code = r.timed_out ? 137 : p.exit_code;
     return 0;
 }
@@ -835,7 +1089,8 @@ int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
 // Run `command` through the shell (/bin/sh -c, or cmd.exe /c on Windows), like
 // process_run with options.
 int sh_with(string command, ProcessOptions* opts, ProcessResult* out) {
-    let argv: List<string>;  List_init<string>(&argv, 3);
+    let argv: List<string>;
+    List_init<string>(&argv, 3);
     defer List_free<string>(&argv);
     List_push<string>(&argv, "/bin/sh");
     List_push<string>(&argv, "-c");
@@ -856,14 +1111,21 @@ int process_spawn(List<string>* argv, ProcessOptions* opts, Process* p) {
 // Write all of `text` to the child's stdin (blocking). 0, or -1 (no pipe, or
 // the child closed its end).
 int Process_write_stdin(Process* p, string text) {
-    if (p.stdin_fd < 0) { return -1; }
+    if (p.stdin_fd < 0) {
+        return -1;
+    }
     const int64 n = strlen(text);
     int64 off = 0;
     int rc = 0;
     while (off < n) {
         const int64 w = _proc_write_nosig(p.stdin_fd, (*void)((*uint8)text + off), n - off);
-        if (w > 0) { off += w; continue; }
-        if (w < 0 && _fs_errno_now() == _PROC_EINTR) { continue; }
+        if (w > 0) {
+            off += w;
+            continue;
+        }
+        if (w < 0 && _fs_errno_now() == _PROC_EINTR) {
+            continue;
+        }
         rc = _fs_fail_os();
         break;
     }
@@ -871,20 +1133,29 @@ int Process_write_stdin(Process* p, string text) {
 }
 
 // Close the child's stdin so it sees end of input.
-void Process_close_stdin(Process* p) { _proc_close(&p.stdin_fd); }
+void Process_close_stdin(Process* p) {
+    _proc_close(&p.stdin_fd);
+}
 
 // Read what the child wrote to stdout (stream 1) or stderr (stream 2), up to
 // 64 KiB, appending it to `out`; blocks until some is available. The byte
 // count, 0 at end of output, or -1 (no such pipe, or an error).
 int64 Process_read(Process* p, int stream, String* out) {
     const int fd = stream == 2 ? p.stderr_fd : p.stdout_fd;
-    if (fd < 0) { return -1; }
+    if (fd < 0) {
+        return -1;
+    }
     *uint8 buf = alloc<uint8>(65536);
     defer free((*void)buf);
     while (true) {
         const int64 n = read(fd, (*void)buf, 65536);
-        if (n >= 0) { _fs_append_bytes(out, buf, n); return n; }
-        if (_fs_errno_now() != _PROC_EINTR) { return (int64)_fs_fail_os(); }
+        if (n >= 0) {
+            _fs_append_bytes(out, buf, n);
+            return n;
+        }
+        if (_fs_errno_now() != _PROC_EINTR) {
+            return (int64)_fs_fail_os();
+        }
     }
     return -1;
 }
@@ -892,7 +1163,9 @@ int64 Process_read(Process* p, int stream, String* out) {
 // Close stdin, wait for the child to end and return its exit code (as in
 // ProcessResult). Calling it again returns the same code.
 int Process_wait(Process* p) {
-    if (p.exited) { return p.exit_code; }
+    if (p.exited) {
+        return p.exit_code;
+    }
     Process_close_stdin(p);
     let unused: bool = false;
     return _proc_reap(p, 0, &unused);
@@ -901,7 +1174,9 @@ int Process_wait(Process* p) {
 // Kill the child (SIGKILL; TerminateProcess on Windows). Reap it with
 // Process_wait. 0, or -1.
 int Process_kill(Process* p) {
-    if (p.exited) { return 0; }
+    if (p.exited) {
+        return 0;
+    }
     return kill(p.pid, _PROC_SIGKILL) == 0 ? 0 : _fs_fail_os();
 }
 
@@ -918,12 +1193,18 @@ int64 Process_read_all(Process* p, int stream, String* out) {
     int64 total = 0;
     while (true) {
         const int64 n = Process_read(p, stream, out);
-        if (n < 0) { return -1; }
-        if (n == 0) { return total; }
+        if (n < 0) {
+            return -1;
+        }
+        if (n == 0) {
+            return total;
+        }
         total += n;
     }
     return total;
 }
 
 // Run `command` through the shell with default options (capture both streams).
-int sh(string command, ProcessResult* out) { return sh_with(command, null, out); }
+int sh(string command, ProcessResult* out) {
+    return sh_with(command, null, out);
+}

@@ -99,6 +99,7 @@ const int[1101] RE_FOLD = {
     68800, 68850, -64, 71840, 71871, 32, 71872, 71903, -32, 93760, 93791, 32,
     93792, 93823, -32, 125184, 125217, 34, 125218, 125251, -34
 };
+
 // General category runs: start << 8 | index into RE_CAT_NAMES (255: unassigned).
 const int RE_NCATRUN = 4007;
 const int[4007] RE_CATRUN = {
@@ -437,11 +438,13 @@ const int[4007] RE_CATRUN = {
     45562623, 45563910, 45620991, 45621254, 47096575, 47099910, 49013247, 49807366, 49946367, 50331654, 51596287, 51597318,
     52670719, 234881281, 234881791, 234889217, 234914047, 234946571, 235008255, 251658242, 268435199, 268435458, 285212415
 };
+
 const int RE_NCAT = 29;
 const string[29] RE_CAT_NAMES = {
     "Cc", "Cf", "Co", "Cs", "Ll", "Lm", "Lo", "Lt", "Lu", "Mc", "Me", "Mn", "Nd", "Nl", "No",
     "Pc", "Pd", "Pe", "Pf", "Pi", "Po", "Ps", "Sc", "Sk", "Sm", "So", "Zl", "Zp", "Zs"
 };
+
 // Script runs: start << 8 | index into RE_SCRIPT_NAMES (255: none).
 const int RE_NSCRIPTRUN = 1657;
 const int[1657] RE_SCRIPTRUN = {
@@ -585,6 +588,7 @@ const int[1657] RE_SCRIPTRUN = {
     49013247, 49807407, 49946367, 50331695, 51596287, 51597359, 52670719, 234881304, 234881791, 234889240, 234914047, 234946615,
     235008255
 };
+
 const int RE_NSCRIPT = 163;
 const string[163] RE_SCRIPT_NAMES = {
     "Adlam", "Ahom", "Anatolian_Hieroglyphs", "Arabic", "Armenian", "Avestan", "Balinese",

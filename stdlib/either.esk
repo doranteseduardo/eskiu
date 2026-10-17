@@ -22,14 +22,14 @@ enum Either<A, B> {
 bool Option_is_some<T>(Option<T>* o) {
     match *o {
         Some(v) -> return true;
-        None    -> return false;
+        None -> return false;
     }
 }
 
 bool Option_is_none<T>(Option<T>* o) {
     match *o {
         Some(v) -> return false;
-        None    -> return true;
+        None -> return true;
     }
 }
 
@@ -37,14 +37,14 @@ bool Option_is_none<T>(Option<T>* o) {
 T Option_unwrap_or<T>(Option<T>* o, T dflt) {
     match *o {
         Some(v) -> return v;
-        None    -> return dflt;
+        None -> return dflt;
     }
 }
 
 // ── Either helpers ──────────────────────────────────────────────────────────
 bool Either_is_left<A, B>(Either<A, B>* e) {
     match *e {
-        Left(a)  -> return true;
+        Left(a) -> return true;
         Right(b) -> return false;
     }
 }

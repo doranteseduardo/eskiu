@@ -25,16 +25,28 @@ struct Json {
     String buf;
 }
 
-void Json_init(Json* self)  { self.buf.init(64); }
-void Json_free(Json* self)  { self.buf.free(); }
-*char Json_cstr(Json* self) { return self.buf.cstr(); }
+void Json_init(Json* self) {
+    self.buf.init(64);
+}
+
+void Json_free(Json* self) {
+    self.buf.free();
+}
+
+*char Json_cstr(Json* self) {
+    return self.buf.cstr();
+}
 
 // Insert a separating comma unless the last byte is an opener or a key colon.
 void _Json_sep(Json* self) {
     const int64 n = self.buf.len;
-    if (n == 0) { return; }
+    if (n == 0) {
+        return;
+    }
     const char last = self.buf.data[n - 1];
-    if (last == '{' || last == '[' || last == ':' || last == ',') { return; }
+    if (last == '{' || last == '[' || last == ':' || last == ',') {
+        return;
+    }
     self.buf.push(',');
 }
 
@@ -46,18 +58,33 @@ void _json_escape(String* out, *char s, int64 n) {
     for (int64 i = 0; i < n; i++) {
         const char c = s[i];
         const int u = (int)(uint8)c;
-        if (c == '"' || c == '\\') { out.push('\\'); out.push(c); }
-        else if (c == '\n') { out.append("\\n"); }
-        else if (c == '\t') { out.append("\\t"); }
-        else if (c == '\r') { out.append("\\r"); }
-        else if (u == 8)    { out.append("\\b"); }
-        else if (c == '\f') { out.append("\\f"); }
+        if (c == '"' || c == '\\') {
+            out.push('\\');
+            out.push(c);
+        }
+        else if (c == '\n') {
+            out.append("\\n");
+        }
+        else if (c == '\t') {
+            out.append("\\t");
+        }
+        else if (c == '\r') {
+            out.append("\\r");
+        }
+        else if (u == 8) {
+            out.append("\\b");
+        }
+        else if (c == '\f') {
+            out.append("\\f");
+        }
         else if (u < 32) {
             out.append("\\u00");
             out.push("0123456789abcdef"[u >> 4]);
             out.push("0123456789abcdef"[u & 15]);
         }
-        else { out.push(c); }
+        else {
+            out.push(c);
+        }
     }
     out.push('"');
 }
@@ -67,10 +94,23 @@ void Json_raw_str(Json* self, string s) {
     _json_escape(&self.buf, (*char)s, strlen(s));
 }
 
-void Json_obj_begin(Json* self) { _Json_sep(self); self.buf.push('{'); }
-void Json_obj_end(Json* self)   { self.buf.push('}'); }
-void Json_arr_begin(Json* self) { _Json_sep(self); self.buf.push('['); }
-void Json_arr_end(Json* self)   { self.buf.push(']'); }
+void Json_obj_begin(Json* self) {
+    _Json_sep(self);
+    self.buf.push('{');
+}
+
+void Json_obj_end(Json* self) {
+    self.buf.push('}');
+}
+
+void Json_arr_begin(Json* self) {
+    _Json_sep(self);
+    self.buf.push('[');
+}
+
+void Json_arr_end(Json* self) {
+    self.buf.push(']');
+}
 
 // Object key: emits "key": — the following value attaches without a comma.
 void Json_key(Json* self, string k) {
@@ -79,14 +119,20 @@ void Json_key(Json* self, string k) {
     self.buf.push(':');
 }
 
-void Json_str(Json* self, string v) { _Json_sep(self); Json_raw_str(self, v); }
+void Json_str(Json* self, string v) {
+    _Json_sep(self);
+    Json_raw_str(self, v);
+}
 
 // Append the full int64 (no truncation to 32 bits; INT64_MIN included).
 void Json_int(Json* self, int64 v) {
     _Json_sep(self);
     String* out = &self.buf;
     uint64 mag = (uint64)v;
-    if (v < 0) { out.push('-'); mag = (uint64)0 - (uint64)v; }
+    if (v < 0) {
+        out.push('-');
+        mag = (uint64)0 - (uint64)v;
+    }
     // Collect the digits least significant first, then emit them in reverse.
     let digits: char[20];
     int n = 0;
@@ -94,7 +140,9 @@ void Json_int(Json* self, int64 v) {
         digits[n++] = (char)('0' + (int)(mag % 10));
         mag /= 10;
     } while (mag > 0);
-    while (n > 0) { out.push(digits[--n]); }
+    while (n > 0) {
+        out.push(digits[--n]);
+    }
 }
 
 void Json_bool(Json* self, int b) {
@@ -102,7 +150,10 @@ void Json_bool(Json* self, int b) {
     self.buf.append(b != 0 ? "true" : "false");
 }
 
-void Json_null(Json* self) { _Json_sep(self); self.buf.append("null"); }
+void Json_null(Json* self) {
+    _Json_sep(self);
+    self.buf.append("null");
+}
 
 // ── Parsed value tree ────────────────────────────────────────────────────────
 
@@ -112,11 +163,11 @@ enum JsonKind { JNull, JBool, JNumber, JString, JArray, JObject }
 // generic containers. Object members carry their `key`; everything else leaves
 // it empty. `str`/`key` own their buffers (data == null when unused).
 struct JsonValue {
-    int        kind;
-    double     num;       // JNumber
-    int        boolean;   // JBool
-    String     str;       // JString value
-    String     key;       // set when this node is an object member
+    int kind;
+    double num;       // JNumber
+    int boolean;   // JBool
+    String str;       // JString value
+    String key;       // set when this node is an object member
     *JsonValue child;     // first array element / object member
     *JsonValue next;      // next sibling
 }
@@ -136,25 +187,35 @@ void JsonValue_free(JsonValue* v) {
     while (v != null) {
         if (v.child != null) {
             *JsonValue last = v.child;
-            while (last.next != null) { last = last.next; }
+            while (last.next != null) {
+                last = last.next;
+            }
             last.next = v.next;
             v.next = v.child;
             v.child = null;
         }
         *JsonValue nx = v.next;
-        if (v.str.data != null) { v.str.free(); }
-        if (v.key.data != null) { v.key.free(); }
+        if (v.str.data != null) {
+            v.str.free();
+        }
+        if (v.key.data != null) {
+            v.key.free();
+        }
         free(v);
         v = nx;
     }
 }
 
-int JsonValue_kind(JsonValue* v) { return v.kind; }
+int JsonValue_kind(JsonValue* v) {
+    return v.kind;
+}
 
 // Number of array elements / object members.
 int JsonValue_len(JsonValue* v) {
     int n = 0;
-    for (*JsonValue c = v.child; c != null; c = c.next) { n++; }
+    for (*JsonValue c = v.child; c != null; c = c.next) {
+        n++;
+    }
     return n;
 }
 
@@ -162,7 +223,9 @@ int JsonValue_len(JsonValue* v) {
 *JsonValue JsonValue_at(JsonValue* v, int i) {
     int j = 0;
     for (*JsonValue c = v.child; c != null; c = c.next) {
-        if (j == i) { return c; }
+        if (j == i) {
+            return c;
+        }
         j++;
     }
     return null;
@@ -171,15 +234,28 @@ int JsonValue_len(JsonValue* v) {
 // The object member whose key equals `key`, or null.
 *JsonValue JsonValue_get(JsonValue* v, string key) {
     for (*JsonValue c = v.child; c != null; c = c.next) {
-        if (c.key.data != null && c.key.eq_cstr(key) == 1) { return c; }
+        if (c.key.data != null && c.key.eq_cstr(key) == 1) {
+            return c;
+        }
     }
     return null;
 }
 
-int64  JsonValue_as_int(JsonValue* v)    { return (int64)v.num; }
-double JsonValue_as_double(JsonValue* v) { return v.num; }
-int    JsonValue_as_bool(JsonValue* v)   { return v.boolean; }
-*char  JsonValue_as_cstr(JsonValue* v)   { return v.str.cstr(); }
+int64 JsonValue_as_int(JsonValue* v) {
+    return (int64)v.num;
+}
+
+double JsonValue_as_double(JsonValue* v) {
+    return v.num;
+}
+
+int JsonValue_as_bool(JsonValue* v) {
+    return v.boolean;
+}
+
+*char JsonValue_as_cstr(JsonValue* v) {
+    return v.str.cstr();
+}
 
 // ── Parser (recursive descent) ───────────────────────────────────────────────
 // Strict RFC 8259: exact literals, the number grammar, the full escape set with
@@ -189,9 +265,9 @@ int    JsonValue_as_bool(JsonValue* v)   { return v.boolean; }
 
 struct _JParser {
     string src;
-    int    pos;
-    int    err;     // 0 = ok, 1 = malformed
-    int    depth;   // arrays/objects currently open
+    int pos;
+    int err;     // 0 = ok, 1 = malformed
+    int depth;   // arrays/objects currently open
 }
 
 // Nesting limit: deeper input is rejected (json_parse returns null) instead of
@@ -201,16 +277,24 @@ const int JSON_MAX_DEPTH = 512;
 void _JParser_ws(_JParser* self) {
     while (true) {
         const char c = self.src[self.pos];
-        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') { return; }
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+            return;
+        }
         self.pos++;
     }
 }
 
 // Value of one hex digit, or -1.
 int _JParser_hex(char c) {
-    if (c >= '0' && c <= '9') { return (int)c - '0'; }
-    if (c >= 'a' && c <= 'f') { return (int)c - 'a' + 10; }
-    if (c >= 'A' && c <= 'F') { return (int)c - 'A' + 10; }
+    if (c >= '0' && c <= '9') {
+        return (int)c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return (int)c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return (int)c - 'A' + 10;
+    }
     return -1;
 }
 
@@ -219,7 +303,9 @@ int _JParser_u4(_JParser* self) {
     int v = 0;
     for (int i = 0; i < 4; i++) {
         const int h = _JParser_hex(self.src[self.pos]);
-        if (h < 0) { return -1; }
+        if (h < 0) {
+            return -1;
+        }
         v = v * 16 + h;
         self.pos++;
     }
@@ -228,7 +314,9 @@ int _JParser_u4(_JParser* self) {
 
 // Append code point `cp` (<= 0x10FFFF) as UTF-8.
 void _JParser_utf8(String* out, int cp) {
-    if (cp < 128) { out.push((char)cp); }
+    if (cp < 128) {
+        out.push((char)cp);
+    }
     else if (cp < 2048) {
         out.push((char)(192 | (cp >> 6)));
         out.push((char)(128 | (cp & 63)));
@@ -250,9 +338,18 @@ void _JParser_read_string(_JParser* self, String* out) {
     self.pos++;   // skip opening quote
     while (true) {
         const int c = (int)(uint8)self.src[self.pos];
-        if (c == 0)   { self.err = 1; return; }       // unterminated
-        if (c == '"') { self.pos++; return; }         // closing quote
-        if (c < 32)   { self.err = 1; return; }       // raw control byte
+        if (c == 0) {       // unterminated
+            self.err = 1;
+            return;
+        }
+        if (c == '"') {         // closing quote
+            self.pos++;
+            return;
+        }
+        if (c < 32) {       // raw control byte
+            self.err = 1;
+            return;
+        }
         if (c != '\\') {
             out.push((char)c);
             self.pos++;
@@ -261,30 +358,52 @@ void _JParser_read_string(_JParser* self, String* out) {
         // A backslash escape.
         self.pos++;
         const char e = self.src[self.pos];
-        if (e == 0) { self.err = 1; return; }
+        if (e == 0) {
+            self.err = 1;
+            return;
+        }
         self.pos++;
         switch (e) {
-            case '"':  out.push('"'); break;
-            case '\\': out.push('\\'); break;
-            case '/':  out.push('/'); break;
-            case 'b':  out.push((char)8); break;
-            case 'f':  out.push('\f'); break;
-            case 'n':  out.push('\n'); break;
-            case 'r':  out.push('\r'); break;
-            case 't':  out.push('\t'); break;
+            case '"': out.push('"');
+            break;
+            case '\\': out.push('\\');
+            break;
+            case '/': out.push('/');
+            break;
+            case 'b': out.push((char)8);
+            break;
+            case 'f': out.push('\f');
+            break;
+            case 'n': out.push('\n');
+            break;
+            case 'r': out.push('\r');
+            break;
+            case 't': out.push('\t');
+            break;
             case 'u': {                                // \uXXXX
                 int cp = _JParser_u4(self);
-                if (cp < 0 || (cp >= 56320 && cp <= 57343)) { self.err = 1; return; }  // bad / lone low surrogate
+                if (cp < 0 || (cp >= 56320 && cp <= 57343)) {  // bad / lone low surrogate
+                    self.err = 1;
+                    return;
+                }
                 if (cp >= 55296 && cp <= 56319) {      // high surrogate: a \uDC00-\uDFFF must follow
-                    if (self.src[self.pos] != '\\' || self.src[self.pos + 1] != 'u') { self.err = 1; return; }
+                    if (self.src[self.pos] != '\\' || self.src[self.pos + 1] != 'u') {
+                        self.err = 1;
+                        return;
+                    }
                     self.pos += 2;
                     const int lo = _JParser_u4(self);
-                    if (lo < 56320 || lo > 57343) { self.err = 1; return; }
+                    if (lo < 56320 || lo > 57343) {
+                        self.err = 1;
+                        return;
+                    }
                     cp = 65536 + ((cp - 55296) << 10) + (lo - 56320);
                 }
                 _JParser_utf8(out, cp);
-            } break;
-            default: self.err = 1; return;             // not a JSON escape
+            }
+            break;
+            default: self.err = 1;             // not a JSON escape
+            return;
         }
     }
 }
@@ -296,34 +415,60 @@ int _JParser_is_digit(char c) {
 // Read a number per the JSON grammar: -? (0 | [1-9][0-9]*) (.[0-9]+)? ([eE][+-]?[0-9]+)?
 double _JParser_read_number(_JParser* self) {
     const int start = self.pos;
-    if (self.src[self.pos] == '-') { self.pos++; }
-    if (self.src[self.pos] == '0') { self.pos++; }
+    if (self.src[self.pos] == '-') {
+        self.pos++;
+    }
+    if (self.src[self.pos] == '0') {
+        self.pos++;
+    }
     else if (_JParser_is_digit(self.src[self.pos]) == 1) {
-        while (_JParser_is_digit(self.src[self.pos]) == 1) { self.pos++; }
-    } else { self.err = 1; return 0.0; }
+        while (_JParser_is_digit(self.src[self.pos]) == 1) {
+            self.pos++;
+        }
+    } else {
+        self.err = 1;
+        return 0.0;
+    }
     if (self.src[self.pos] == '.') {
         self.pos++;
-        if (_JParser_is_digit(self.src[self.pos]) == 0) { self.err = 1; return 0.0; }
-        while (_JParser_is_digit(self.src[self.pos]) == 1) { self.pos++; }
+        if (_JParser_is_digit(self.src[self.pos]) == 0) {
+            self.err = 1;
+            return 0.0;
+        }
+        while (_JParser_is_digit(self.src[self.pos]) == 1) {
+            self.pos++;
+        }
     }
     if (self.src[self.pos] == 'e' || self.src[self.pos] == 'E') {
         self.pos++;
-        if (self.src[self.pos] == '+' || self.src[self.pos] == '-') { self.pos++; }
-        if (_JParser_is_digit(self.src[self.pos]) == 0) { self.err = 1; return 0.0; }
-        while (_JParser_is_digit(self.src[self.pos]) == 1) { self.pos++; }
+        if (self.src[self.pos] == '+' || self.src[self.pos] == '-') {
+            self.pos++;
+        }
+        if (_JParser_is_digit(self.src[self.pos]) == 0) {
+            self.err = 1;
+            return 0.0;
+        }
+        while (_JParser_is_digit(self.src[self.pos]) == 1) {
+            self.pos++;
+        }
     }
     // atof needs a NUL-terminated copy of just the number's text.
     let text: String;
     text.init(self.pos - start + 1);
     defer text.free();
-    for (i in start..self.pos) { text.push(self.src[i]); }
+    for (i in start..self.pos) {
+        text.push(self.src[i]);
+    }
     return atof((string)text.cstr());
 }
 
 // Consume the exact literal `word` (true / false / null); sets err otherwise.
 void _JParser_word(_JParser* self, string word) {
     for (int i = 0; word[i] != 0; i++) {
-        if (self.src[self.pos] != word[i]) { self.err = 1; return; }
+        if (self.src[self.pos] != word[i]) {
+            self.err = 1;
+            return;
+        }
         self.pos++;
     }
 }
@@ -336,20 +481,37 @@ void _JParser_word(_JParser* self, string word) {
     *JsonValue arr = JsonValue_new(JArray);
     self.pos++;   // skip [
     _JParser_ws(self);
-    if (self.src[self.pos] == ']') { self.pos++; return arr; }
+    if (self.src[self.pos] == ']') {
+        self.pos++;
+        return arr;
+    }
     *JsonValue tail = null;
     while (true) {
         *JsonValue elem = _JParser_value(self);
         if (elem != null) {
-            if (arr.child == null) { arr.child = elem; } else { tail.next = elem; }
+            if (arr.child == null) {
+                arr.child = elem;
+            } else {
+                tail.next = elem;
+            }
             tail = elem;
         }
-        if (self.err == 1) { return arr; }
+        if (self.err == 1) {
+            return arr;
+        }
         _JParser_ws(self);
         const char c = self.src[self.pos];
-        if (c == ',') { self.pos++; }
-        else if (c == ']') { self.pos++; return arr; }
-        else { self.err = 1; return arr; }
+        if (c == ',') {
+            self.pos++;
+        }
+        else if (c == ']') {
+            self.pos++;
+            return arr;
+        }
+        else {
+            self.err = 1;
+            return arr;
+        }
     }
     return arr;
 }
@@ -358,29 +520,59 @@ void _JParser_word(_JParser* self, string word) {
     *JsonValue obj = JsonValue_new(JObject);
     self.pos++;   // skip {
     _JParser_ws(self);
-    if (self.src[self.pos] == '}') { self.pos++; return obj; }
+    if (self.src[self.pos] == '}') {
+        self.pos++;
+        return obj;
+    }
     *JsonValue tail = null;
     while (true) {
         _JParser_ws(self);
-        if (self.src[self.pos] != '"') { self.err = 1; return obj; }   // expect a key
+        if (self.src[self.pos] != '"') {   // expect a key
+            self.err = 1;
+            return obj;
+        }
         let k: String;
         k.init(8);
         _JParser_read_string(self, &k);
-        if (self.err == 1) { k.free(); return obj; }
+        if (self.err == 1) {
+            k.free();
+            return obj;
+        }
         _JParser_ws(self);
-        if (self.src[self.pos] != ':') { self.err = 1; k.free(); return obj; }
+        if (self.src[self.pos] != ':') {
+            self.err = 1;
+            k.free();
+            return obj;
+        }
         self.pos++;
         *JsonValue val = _JParser_value(self);
-        if (val == null) { k.free(); return obj; }
+        if (val == null) {
+            k.free();
+            return obj;
+        }
         val.key = k;   // move the key in
-        if (obj.child == null) { obj.child = val; } else { tail.next = val; }
+        if (obj.child == null) {
+            obj.child = val;
+        } else {
+            tail.next = val;
+        }
         tail = val;
-        if (self.err == 1) { return obj; }
+        if (self.err == 1) {
+            return obj;
+        }
         _JParser_ws(self);
         const char c = self.src[self.pos];
-        if (c == ',') { self.pos++; }
-        else if (c == '}') { self.pos++; return obj; }
-        else { self.err = 1; return obj; }
+        if (c == ',') {
+            self.pos++;
+        }
+        else if (c == '}') {
+            self.pos++;
+            return obj;
+        }
+        else {
+            self.err = 1;
+            return obj;
+        }
     }
     return obj;
 }
@@ -389,7 +581,10 @@ void _JParser_word(_JParser* self, string word) {
     _JParser_ws(self);
     const char c = self.src[self.pos];
     if (c == '{' || c == '[') {
-        if (self.depth >= JSON_MAX_DEPTH) { self.err = 1; return null; }
+        if (self.depth >= JSON_MAX_DEPTH) {
+            self.err = 1;
+            return null;
+        }
         self.depth++;
         *JsonValue r = c == '{' ? _JParser_object(self) : _JParser_array(self);
         self.depth--;
@@ -437,7 +632,9 @@ void _JParser_word(_JParser* self, string word) {
     *JsonValue v = _JParser_value(&p);
     if (p.err == 0) {
         _JParser_ws(&p);
-        if (p.src[p.pos] != 0) { p.err = 1; }        // trailing garbage after the value
+        if (p.src[p.pos] != 0) {        // trailing garbage after the value
+            p.err = 1;
+        }
     }
     if (p.err == 1) {
         JsonValue_free(v);
@@ -467,9 +664,17 @@ void _JParser_word(_JParser* self, string word) {
 // that node is removed, replaced or freed. Numbers are doubles, so an integer
 // beyond 2^53 loses precision.
 
-*JsonValue JsonValue_object() { return JsonValue_new(JObject); }
-*JsonValue JsonValue_array()  { return JsonValue_new(JArray); }
-*JsonValue JsonValue_null()   { return JsonValue_new(JNull); }
+*JsonValue JsonValue_object() {
+    return JsonValue_new(JObject);
+}
+
+*JsonValue JsonValue_array() {
+    return JsonValue_new(JArray);
+}
+
+*JsonValue JsonValue_null() {
+    return JsonValue_new(JNull);
+}
 
 *JsonValue JsonValue_string(string s) {
     *JsonValue v = JsonValue_new(JString);
@@ -504,7 +709,9 @@ void _json_free_one(JsonValue* v) {
 // The member of `obj` whose key is the `n` bytes at `k`, or null.
 *JsonValue _json_member(JsonValue* obj, *char k, int64 n) {
     for (*JsonValue c = obj.child; c != null; c = c.next) {
-        if (c.key.data != null && c.key.len == n && memcmp((*void)c.key.data, (*void)k, n) == 0) { return c; }
+        if (c.key.data != null && c.key.len == n && memcmp((*void)c.key.data, (*void)k, n) == 0) {
+            return c;
+        }
     }
     return null;
 }
@@ -514,33 +721,54 @@ void _json_free_one(JsonValue* v) {
 // appended. Returns 0, or -1 (and leaves `val` with the caller) when `obj` is
 // not an object or `val` is null.
 int JsonValue_set(JsonValue* obj, string key, JsonValue* val) {
-    if (obj == null || val == null || obj.kind != JObject) { return -1; }
-    if (val.key.data != null) { val.key.free(); }
+    if (obj == null || val == null || obj.kind != JObject) {
+        return -1;
+    }
+    if (val.key.data != null) {
+        val.key.free();
+    }
     val.key.from(key);
     val.next = null;
     *JsonValue prev = null;
     for (*JsonValue c = obj.child; c != null; c = c.next) {
         if (c.key.data != null && c.key.eq_cstr(key) == 1) {
             val.next = c.next;
-            if (prev == null) { obj.child = val; } else { prev.next = val; }
+            if (prev == null) {
+                obj.child = val;
+            } else {
+                prev.next = val;
+            }
             _json_free_one(c);
             return 0;
         }
         prev = c;
     }
-    if (prev == null) { obj.child = val; } else { prev.next = val; }
+    if (prev == null) {
+        obj.child = val;
+    } else {
+        prev.next = val;
+    }
     return 0;
 }
 
 // Append `val` to array `arr`, which then owns it. Returns 0, or -1 (and leaves
 // `val` with the caller) when `arr` is not an array or `val` is null.
 int JsonValue_push(JsonValue* arr, JsonValue* val) {
-    if (arr == null || val == null || arr.kind != JArray) { return -1; }
-    if (val.key.data != null) { val.key.free(); }
+    if (arr == null || val == null || arr.kind != JArray) {
+        return -1;
+    }
+    if (val.key.data != null) {
+        val.key.free();
+    }
     val.next = null;
-    if (arr.child == null) { arr.child = val; return 0; }
+    if (arr.child == null) {
+        arr.child = val;
+        return 0;
+    }
     *JsonValue last = arr.child;
-    while (last.next != null) { last = last.next; }
+    while (last.next != null) {
+        last = last.next;
+    }
     last.next = val;
     return 0;
 }
@@ -548,11 +776,17 @@ int JsonValue_push(JsonValue* arr, JsonValue* val) {
 // Remove member `key` from object `obj` and free it. Returns 1 if a member was
 // removed, else 0.
 int JsonValue_remove(JsonValue* obj, string key) {
-    if (obj == null || obj.kind != JObject) { return 0; }
+    if (obj == null || obj.kind != JObject) {
+        return 0;
+    }
     *JsonValue prev = null;
     for (*JsonValue c = obj.child; c != null; c = c.next) {
         if (c.key.data != null && c.key.eq_cstr(key) == 1) {
-            if (prev == null) { obj.child = c.next; } else { prev.next = c.next; }
+            if (prev == null) {
+                obj.child = c.next;
+            } else {
+                prev.next = c.next;
+            }
             _json_free_one(c);
             return 1;
         }
@@ -565,30 +799,54 @@ int JsonValue_remove(JsonValue* obj, string key) {
 // null. Otherwise the first of %.15g / %.16g / %.17g that reads back as the
 // same double, so a number survives stringify + json_parse unchanged.
 void _json_number(String* out, double d) {
-    if (d != d || d - d != 0.0) { out.append("null"); return; }
-    let t: String;  t.init(32);
+    if (d != d || d - d != 0.0) {
+        out.append("null");
+        return;
+    }
+    let t: String;
+    t.init(32);
     String_format(&t, "%.15g", d);
-    if (strtod((string)t.data, null) != d) { String_format(&t, "%.16g", d); }
-    if (strtod((string)t.data, null) != d) { String_format(&t, "%.17g", d); }
+    if (strtod((string)t.data, null) != d) {
+        String_format(&t, "%.16g", d);
+    }
+    if (strtod((string)t.data, null) != d) {
+        String_format(&t, "%.17g", d);
+    }
     out.append((string)t.data);
     t.free();
 }
 
 void _json_newline(String* out, int indent, int depth) {
     out.push('\n');
-    for (int64 i = 0; i < (int64)indent * (int64)depth; i++) { out.push(' '); }
+    for (int64 i = 0; i < (int64)indent * (int64)depth; i++) {
+        out.push(' ');
+    }
 }
 
 // Append one scalar or an empty container.
 void _json_leaf(String* out, JsonValue* v) {
-    if (v.kind == JNull) { out.append("null"); }
-    else if (v.kind == JBool) { out.append(v.boolean != 0 ? "true" : "false"); }
-    else if (v.kind == JNumber) { _json_number(out, v.num); }
-    else if (v.kind == JString) {
-        if (v.str.data == null) { out.append("\"\""); } else { _json_escape(out, v.str.data, v.str.len); }
+    if (v.kind == JNull) {
+        out.append("null");
     }
-    else if (v.kind == JArray) { out.append("[]"); }
-    else { out.append("{}"); }
+    else if (v.kind == JBool) {
+        out.append(v.boolean != 0 ? "true" : "false");
+    }
+    else if (v.kind == JNumber) {
+        _json_number(out, v.num);
+    }
+    else if (v.kind == JString) {
+        if (v.str.data == null) {
+            out.append("\"\"");
+        } else {
+            _json_escape(out, v.str.data, v.str.len);
+        }
+    }
+    else if (v.kind == JArray) {
+        out.append("[]");
+    }
+    else {
+        out.append("{}");
+    }
 }
 
 // Write `v` into `out` (cleared first). indent <= 0 is the compact form;
@@ -598,7 +856,10 @@ void _json_leaf(String* out, JsonValue* v) {
 // (when it is an object member) is not printed.
 void _json_write(JsonValue* v, int indent, String* out) {
     out.clear();
-    if (v == null) { out.append("null"); return; }
+    if (v == null) {
+        out.append("null");
+        return;
+    }
     let open: List<*JsonValue>;
     List_init<*JsonValue>(&open, 16);
     *JsonValue cur = v;
@@ -606,9 +867,15 @@ void _json_write(JsonValue* v, int indent, String* out) {
         const int depth = List_len<*JsonValue>(&open);
         if (depth > 0) {
             *JsonValue parent = List_get<*JsonValue>(&open, depth - 1);
-            if (indent > 0) { _json_newline(out, indent, depth); }
+            if (indent > 0) {
+                _json_newline(out, indent, depth);
+            }
             if (parent.kind == JObject) {
-                if (cur.key.data == null) { out.append("\"\""); } else { _json_escape(out, cur.key.data, cur.key.len); }
+                if (cur.key.data == null) {
+                    out.append("\"\"");
+                } else {
+                    _json_escape(out, cur.key.data, cur.key.len);
+                }
                 out.append(indent > 0 ? ": " : ":");
             }
         }
@@ -629,21 +896,29 @@ void _json_write(JsonValue* v, int indent, String* out) {
                 break;
             }
             cur = List_pop<*JsonValue>(&open);
-            if (indent > 0) { _json_newline(out, indent, List_len<*JsonValue>(&open)); }
+            if (indent > 0) {
+                _json_newline(out, indent, List_len<*JsonValue>(&open));
+            }
             out.push(cur.kind == JArray ? ']' : '}');
         }
-        if (done) { break; }
+        if (done) {
+            break;
+        }
     }
     List_free<*JsonValue>(&open);
 }
 
 // Compact JSON text for `v` into `out` (cleared first): no spaces, strings
 // escaped per RFC 8259, numbers that read back as the same double.
-void JsonValue_stringify(JsonValue* v, String* out) { _json_write(v, 0, out); }
+void JsonValue_stringify(JsonValue* v, String* out) {
+    _json_write(v, 0, out);
+}
 
 // Indented JSON text for `v` into `out` (cleared first), `indent` spaces per
 // level (the JSON.stringify(v, null, indent) layout). indent <= 0 is compact.
-void JsonValue_pretty(JsonValue* v, int indent, String* out) { _json_write(v, indent, out); }
+void JsonValue_pretty(JsonValue* v, int indent, String* out) {
+    _json_write(v, indent, out);
+}
 
 // Follow `path` from `v` and return the value there (borrowed), or null when a
 // step is missing, has the wrong kind, or the path is malformed. A path is a
@@ -660,40 +935,61 @@ void JsonValue_pretty(JsonValue* v, int indent, String* out) { _json_write(v, in
             i++;
             if (path[i] == '"') {
                 i++;
-                let k: String;  k.init(16);
+                let k: String;
+                k.init(16);
                 while (path[i] != '"') {
-                    if (path[i] == 0) { k.free(); return null; }
-                    if (path[i] == '\\' && (path[i + 1] == '"' || path[i + 1] == '\\')) { i++; }
+                    if (path[i] == 0) {
+                        k.free();
+                        return null;
+                    }
+                    if (path[i] == '\\' && (path[i + 1] == '"' || path[i + 1] == '\\')) {
+                        i++;
+                    }
                     k.push(path[i]);
                     i++;
                 }
                 i++;
-                if (path[i] != ']' || v.kind != JObject) { k.free(); return null; }
+                if (path[i] != ']' || v.kind != JObject) {
+                    k.free();
+                    return null;
+                }
                 i++;
                 v = _json_member(v, k.data, k.len);
                 k.free();
             } else {
-                if (path[i] < '0' || path[i] > '9') { return null; }
+                if (path[i] < '0' || path[i] > '9') {
+                    return null;
+                }
                 int64 n = 0;
                 while (path[i] >= '0' && path[i] <= '9') {
                     n = n * 10 + (int64)((int)path[i] - '0');
-                    if (n > 2147483647) { return null; }
+                    if (n > 2147483647) {
+                        return null;
+                    }
                     i++;
                 }
-                if (path[i] != ']' || v.kind != JArray) { return null; }
+                if (path[i] != ']' || v.kind != JArray) {
+                    return null;
+                }
                 i++;
                 v = JsonValue_at(v, (int)n);
             }
         } else {
             if (path[i] == '.') {
-                if (first) { return null; }
+                if (first) {
+                    return null;
+                }
                 i++;
             } else if (!first) {
                 return null;
             }
             const int64 start = i;
-            while (path[i] != 0 && path[i] != '.' && path[i] != '[') { i++; }
-            if (i == start || v.kind != JObject) { return null; }
+            while (path[i] != 0 && path[i] != '.' && path[i] != '[') {
+                i++;
+            }
+            if (i == start || v.kind != JObject) {
+                return null;
+            }
             v = _json_member(v, (*char)path + start, i - start);
         }
         first = false;

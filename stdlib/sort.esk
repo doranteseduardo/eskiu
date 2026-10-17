@@ -19,9 +19,15 @@ import <list>;   // List_sort_by
 void _heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
     while (true) {
         int child = 2 * root + 1;
-        if (child >= n) { return; }
-        if (child + 1 < n && cmp(&a[child], &a[child + 1]) < 0) { child++; }
-        if (cmp(&a[root], &a[child]) >= 0) { return; }
+        if (child >= n) {
+            return;
+        }
+        if (child + 1 < n && cmp(&a[child], &a[child + 1]) < 0) {
+            child++;
+        }
+        if (cmp(&a[root], &a[child]) >= 0) {
+            return;
+        }
         const T tmp = a[root];
         a[root] = a[child];
         a[child] = tmp;
@@ -31,7 +37,9 @@ void _heap_sift<T>(*T a, int root, int n, fn(*T, *T)->int cmp) {
 
 // Sort the first `n` elements of `a` ascending by `cmp`.
 void sort<T>(*T a, int n, fn(*T, *T)->int cmp) {
-    if (n < 2) { return; }
+    if (n < 2) {
+        return;
+    }
     // Build the max-heap bottom-up, from the last parent down to the root.
     for (int i = n / 2 - 1; i >= 0; i--) {
         _heap_sift<T>(a, i, n, cmp);
@@ -59,9 +67,15 @@ int sort_search<T>(*T a, int n, T key, fn(*T, *T)->int cmp) {
     while (lo < hi) {
         const int mid = lo + (hi - lo) / 2;
         const int c = cmp(&a[mid], &key);
-        if (c == 0) { return mid; }
-        if (c < 0) { lo = mid + 1; }
-        else { hi = mid; }
+        if (c == 0) {
+            return mid;
+        }
+        if (c < 0) {
+            lo = mid + 1;
+        }
+        else {
+            hi = mid;
+        }
     }
     return -1;
 }
