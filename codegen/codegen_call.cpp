@@ -188,15 +188,16 @@ llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) 
     llvm::Align al = module->getDataLayout().getABITypeAlign(ty);
     llvm::Value* cell = evaluateExpr(node->args[0]);
     auto operand = [&](size_t i) { return coerceValue(evaluateExpr(node->args[i]), ty, false); };
+    auto order = [&](llvm::AtomicOrdering o) { return a.relaxed ? llvm::AtomicOrdering::Monotonic : o; };
     if (a.op == "load") {
         auto* ld = builder->CreateLoad(ty, cell, "atm.load");
-        ld->setAtomic(llvm::AtomicOrdering::Acquire);
+        ld->setAtomic(order(llvm::AtomicOrdering::Acquire));
         ld->setAlignment(al);
         return ld;
     }
     if (a.op == "store") {
         auto* st = builder->CreateStore(operand(1), cell);
-        st->setAtomic(llvm::AtomicOrdering::Release);
+        st->setAtomic(order(llvm::AtomicOrdering::Release));
         st->setAlignment(al);
         return llvm::UndefValue::get(llvm::Type::getVoidTy(*context));
     }
@@ -204,14 +205,14 @@ llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) 
         llvm::Value* expected = operand(1);
         llvm::Value* desired = operand(2);
         llvm::Value* cx = builder->CreateAtomicCmpXchg(cell, expected, desired, al,
-            llvm::AtomicOrdering::AcquireRelease, llvm::AtomicOrdering::Acquire);
+            order(llvm::AtomicOrdering::AcquireRelease), order(llvm::AtomicOrdering::Acquire));
         return builder->CreateExtractValue(cx, 1, "atm.cas.ok");   // success bit (i1)
     }
     llvm::AtomicRMWInst::BinOp op = a.op == "swap" ? llvm::AtomicRMWInst::Xchg
         : a.op == "fetch_add" ? llvm::AtomicRMWInst::Add : a.op == "fetch_sub" ? llvm::AtomicRMWInst::Sub
         : a.op == "fetch_and" ? llvm::AtomicRMWInst::And : a.op == "fetch_or" ? llvm::AtomicRMWInst::Or
         : llvm::AtomicRMWInst::Xor;
-    return builder->CreateAtomicRMW(op, cell, operand(1), al, llvm::AtomicOrdering::AcquireRelease);
+    return builder->CreateAtomicRMW(op, cell, operand(1), al, order(llvm::AtomicOrdering::AcquireRelease));
 }
 
 void CodeGen::visit(CallExpr* node) {
