@@ -772,7 +772,7 @@ int m = dbg(n + 1) * 2;     // [dbg 12:13] n + 1 = 21
 dbg(p);                     // [dbg 14:5] p = P{x: 1, y: 2.5, s: "hi"}
 ```
 
-The line and column are those of `dbg`. Integers, `bool`, `char` (`'z'`), floating point (`%g`), `string` (quoted, `null` unquoted) and pointers (`%p`) print as values; a fixed array prints its first 16 elements, a struct (a generic instance by its mangled name, `Box_int{...}`) its fields by name, nested up to 4 levels; a plain enum prints as `Color(5)`; any other type (a slice, a closure, a union, a sum type, a bitfield struct) prints as `<T>`. The argument may not be a `void` call. `dbg` is not a reserved word: a variable or function named `dbg` hides the builtin.
+The line and column are those of `dbg`. Integers, `bool`, `char` (`'z'`), floating point (`%g`), `string` (quoted, `null` unquoted) and pointers (`%p`) print as values; a fixed array prints its first 16 elements, a struct (a generic instance by its mangled name, `Box_int{...}`) its fields by name, nested up to 4 levels; a plain enum prints as `Color(5)`; any other type (a slice, a closure, a union, a sum type, a bitfield struct) prints as `<T>`. The argument may not be a `void` call. `dbg` is not a reserved word: a variable or function named `dbg` hides the builtin. It prints through the C library (`fprintf` to stderr), so a `--freestanding` program cannot use it.
 
 ### 5.9 Conditional (ternary)
 
