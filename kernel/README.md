@@ -5,8 +5,8 @@ exceptions and timer interrupts, runs a few tasks under a round-robin scheduler,
 ends in a small shell on the PL011 serial console. `poweroff` switches the machine
 off.
 
-The kernel was the v0.1 milestone for the language: Eskiu code running on bare metal.
-It has since been updated to current Eskiu.
+It was the first milestone for the language, Eskiu code running on bare metal, and it is
+kept building with every release.
 
 ## What it shows
 

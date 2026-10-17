@@ -46,7 +46,7 @@ It runs on macOS, Linux and Windows, cross-compiles to 32-bit ARM and x86, and r
 metal: the screenshot below is an Eskiu kernel booting in QEMU with no libc.
 
 <p align="center">
-  <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="320">
+  <img src="assets/kernel.png" alt="Eskiu kernel running in QEMU" width="420">
 </p>
 
 ## A script
