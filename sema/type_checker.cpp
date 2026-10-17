@@ -83,6 +83,7 @@ bool TypeChecker::check(Program* program) {
             continue;
         }
         if (auto funcDecl = dynamic_cast<FunctionDecl*>(decl.get())) {
+            fnDeclsAll[funcDecl->name].push_back(funcDecl);
             auto& known = fnDecls[funcDecl->name];
             if (!known.first || funcDecl->body) known = {funcDecl, ""};
             if (!funcDecl->deprecatedMsg.empty()) deprecatedFuncs[funcDecl->name] = funcDecl->deprecatedMsg;
@@ -103,6 +104,7 @@ bool TypeChecker::check(Program* program) {
             for (const auto& method : structDecl->methods)
                 if (auto func = dynamic_cast<FunctionDecl*>(method.get())) {
                     fnDecls[structDecl->name + "_" + func->name] = {func, "*" + structDecl->name};
+                    fnDeclsAll[structDecl->name + "_" + func->name].push_back(func);
                     methodLocations[structDecl->name + "_" + func->name] = {func->line, func->col, sfile};
                 }
             if (!structDecl->typeParams.empty()) {
@@ -238,6 +240,10 @@ bool TypeChecker::check(Program* program) {
     }
     posCtx = nullptr;
     curFile.clear();
+    // Defaults of a function no call reached are checked too.
+    for (const auto& kv : fnDeclsAll)
+        for (const FunctionDecl* d : kv.second)
+            if (!d->paramDefaults.empty()) { paramDefaultsOf(kv.first); break; }
 
     checkPendingInstances();
 
@@ -716,7 +722,65 @@ std::string TypeChecker::getDefinitionAt(int line, int col) const {
         if (s.line == line && col >= s.col && col < s.col + std::max(1, s.width))
             return sourceFile + ":" + std::to_string(s.line) + ":" + std::to_string(s.col);
     }
+    // 5. An inline method's declaration (`Point_sum`: the name after `Point_`).
+    for (const auto& [key, loc] : methodLocations) {
+        auto fd = fnDecls.find(key);
+        if (fd == fnDecls.end() || fd->second.second.size() < 2) continue;
+        int w = (int)(key.size() - fd->second.second.size());
+        if (loc.file == sourceFile && loc.line == line && col >= loc.col && col < loc.col + w)
+            return fmtLoc(loc);
+    }
+    // 6. A struct field's declaration ("Struct.field": the name is after the dot).
+    for (const auto& [key, loc] : fieldLocations) {
+        int w = (int)(key.size() - key.find('.') - 1);
+        if (loc.file == sourceFile && loc.line == line && col >= loc.col && col < loc.col + w)
+            return fmtLoc(loc);
+    }
     return "";
+}
+
+std::vector<std::string> TypeChecker::getReferencesAt(int line, int col) const {
+    std::string target = getDefinitionAt(line, col);
+    if (target.empty()) return {};
+    auto fmtLoc = [](const DefLocation& loc) {
+        return loc.file + ":" + std::to_string(loc.line) + ":" + std::to_string(loc.col);
+    };
+    std::map<std::pair<int, int>, int> uses;
+    int defWidth = 0;   // the declared name's width: `P_sum` for a dot-called `p.sum()`
+    for (const auto& [pos, use] : useDefs)
+        if (fmtLoc(use.def) == target) uses[pos] = use.width;
+    for (const auto& [pos, use] : memberUses) {
+        auto ml = methodLocations.find(use.second);
+        auto dl = definitionLocations.find(use.second);
+        if (ml != methodLocations.end() && fmtLoc(ml->second) == target) {
+            uses[pos] = use.first;
+        } else if (ml == methodLocations.end() && dl != definitionLocations.end() && fmtLoc(dl->second) == target) {
+            uses[pos] = use.first;
+            defWidth = (int)use.second.size();
+        }
+    }
+    for (const auto& [pos, name] : useLocations) {
+        auto dl = definitionLocations.find(name);
+        if (dl != definitionLocations.end() && fmtLoc(dl->second) == target) {
+            uses[pos] = (int)name.size();
+            defWidth = (int)name.size();
+        }
+    }
+    int width = 0;
+    for (const auto& [pos, w] : uses)
+        if (pos.first == line && col >= pos.second && col < pos.second + w) width = w;
+    if (!width && !uses.empty()) width = uses.begin()->second;
+    if (!defWidth) defWidth = width;
+    std::vector<std::string> out;
+    // The definition: in this file it sorts with the uses; elsewhere it comes first.
+    size_t c2 = target.rfind(':'), c1 = target.rfind(':', c2 - 1);
+    std::string dfile = target.substr(0, c1);
+    std::pair<int, int> dpos{std::stoi(target.substr(c1 + 1, c2 - c1 - 1)), std::stoi(target.substr(c2 + 1))};
+    if (dfile == sourceFile) uses.emplace(dpos, defWidth);
+    else out.push_back(target + ":" + std::to_string(defWidth));
+    for (const auto& [pos, w] : uses)
+        out.push_back(sourceFile + ":" + std::to_string(pos.first) + ":" + std::to_string(pos.second) + ":" + std::to_string(w));
+    return out;
 }
 
 int TypeChecker::scopeOf(const std::string& name) const {
@@ -725,6 +789,10 @@ int TypeChecker::scopeOf(const std::string& name) const {
 }
 
 const TypeChecker::Symbol* TypeChecker::findSymbol(const std::string& name) const {
+    if (globalLookupOnly && !scopes.empty()) {
+        auto it = scopes[0].find(name);
+        return it == scopes[0].end() ? nullptr : &it->second;
+    }
     int si = scopeOf(name);
     return si < 0 ? nullptr : &scopes[si].find(name)->second;
 }

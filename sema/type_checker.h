@@ -146,6 +146,9 @@ public:
     // line/col coordinates with it).
     bool inPrimaryFile() const { return !inInstance && (curFile.empty() || curFile == sourceFile); }
     std::string getDefinitionAt(int line, int col) const;
+    // --references-at: every place in the primary file that names the symbol at the
+    // cursor, its definition included, as "file:line:col:width" sorted by position.
+    std::vector<std::string> getReferencesAt(int line, int col) const;
     // Declared-name hover spans (variables, parameters): cursor on the declared
     // name → its type, even though the name is not an expression node.
     struct HoverSym { int line; int col; int width; std::string type; };
@@ -157,6 +160,14 @@ public:
     // Every function declaration by its (mangled) name, with the implicit `self` type of
     // an inline struct method ("" otherwise), for signatureText.
     std::map<std::string, std::pair<const FunctionDecl*, std::string>> fnDecls;
+    // Every declaration (prototypes too) of each function by the same key, and the
+    // folded default values of its parameters (parallel to the call's parameters, the
+    // implicit `self` of an inline method included; null = none), built on first use.
+    std::map<std::string, std::vector<const FunctionDecl*>> fnDeclsAll;
+    std::map<std::string, std::vector<std::shared_ptr<LiteralExpr>>> paramDefaultCache;
+    bool globalLookupOnly = false;
+    const std::vector<std::shared_ptr<LiteralExpr>>& paramDefaultsOf(const std::string& fn);
+    void fillDefaultArgs(CallExpr* node, const std::string& method);
     // Struct field definitions, keyed "Struct.field".
     std::map<std::string, DefLocation> fieldLocations;
     // Inline struct methods by mangled name (`Point_sum`): where the method is written.

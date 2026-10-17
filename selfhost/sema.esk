@@ -112,6 +112,9 @@ struct Sema {
     // Globals declared after the top-level declaration being checked: C declares a global
     // at its definition, so an earlier initializer or function body cannot name it.
     StrTab late_globals;   // a set: name -> 1
+    int global_only;       // sema_sym_index sees only global bindings (folding a parameter default)
+    StrTab pd_ix;          // sema_pdefs: function key -> index in pd_lists
+    List<List<*ExprNode>> pd_lists;
     int no_depr;            // -Wno-deprecated: no warning at a use of a `deprecated` function
     int cur_import;         // the top-level declaration being checked comes from an import
     List<string> depr_seen; // "file:line:col" of each deprecation warning already printed
@@ -492,6 +495,7 @@ void sema_init(Sema* s, string filename) {
     List_init<string>(&s.enums, 16);
     List_init<EVar>(&s.evars, 32);
     List_init<*DeclNode>(&s.fndecls, 64);
+    List_init<List<*ExprNode>>(&s.pd_lists, 4);
     List_init<*DeclNode>(&s.ifaces, 16);
     List_init<*DeclNode>(&s.sdecls, 16);
     List_init<string>(&s.tparams, 4);
@@ -594,6 +598,11 @@ void sema_set_const_init(Sema* s, *ExprNode init) {
 // Index of the innermost binding of `name` in the symbol stack, or -1 if unbound.
 // The one reverse scan the symbol-table queries below share.
 int sema_sym_index(Sema* s, string name) {
+    if (s.global_only == 1) {
+        int i = NameIdx_last(&s.syms_ix, name);
+        while (i >= 0 && List_get<Sym>(&s.syms, i).depth != 0) { i = NameIdx_prev(&s.syms_ix, i); }
+        return i;
+    }
     return NameIdx_last(&s.syms_ix, name);
 }
 
@@ -1892,6 +1901,8 @@ string sema_infer_type_raw(Sema* s, *ExprNode e) {
         if (e.lit_kind == LIT_NULL) { return "null"; }
         return "";
     }
+    if (e.kind == EK_CALL && e.a != null && e.a.kind == EK_IDENT && List_len<*ExprNode>(&e.kids) == 1
+        && sema_streq(e.a.sval, "dbg") == 1 && sema_lookup(s, "dbg") == 0 && sema_find_fndecl(s, "dbg") == null) { return sema_infer_type(s, List_get<*ExprNode>(&e.kids, 0)); }
     if (e.kind == EK_CALL && e.a != null && e.a.kind == EK_IDENT) {   // direct call → callee's return type
         string cvt = sema_lookup_type(s, e.a.sval);
         if (sema_local_bound(s, e.a.sval) == 1 || (cvt[0] != 0 && sema_find_fndecl(s, e.a.sval) == null)) {
@@ -5087,7 +5098,176 @@ void sema_note_depr(Sema* s, string fname, int line, int col) {
     dprintf(2, "%s:%d:%d: warning: '%s' is deprecated%s\n", s.filename, line, col, fname, tail);
 }
 
+// The folded default values of a function's parameters (C++ TypeChecker::paramDefaultsOf),
+// by key: a top-level function (`sd` null) or the inline method `mname` of struct `sd`
+// (then the list starts with the implicit `self`). A default is a literal or an integer
+// constant expression, folded in the global scope; each call site gets a fresh literal.
+// Errors are reported once. Returns the index of the list in s.pd_lists.
+int sema_pdefs(Sema* s, string key, *DeclNode sd, string mname) {
+    int cached = StrTab_get(&s.pd_ix, key, -1);
+    if (cached >= 0) { return cached; }
+    let out: List<*ExprNode>;
+    List_init<*ExprNode>(&out, 4);
+    let decls: List<*DeclNode>;
+    List_init<*DeclNode>(&decls, 2);
+    if (sd != null) {
+        int j = 0;
+        while (j < List_len<*DeclNode>(&sd.methods)) {
+            *DeclNode md = List_get<*DeclNode>(&sd.methods, j);
+            if (sema_streq(md.name, mname) == 1) { List_push<*DeclNode>(&decls, md); }
+            j = j + 1;
+        }
+    } else {
+        int i = NameIdx_first(&s.fndecls_ix, key);
+        while (i >= 0) {
+            *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
+            if (d.kind == DK_FUNCTION) { List_push<*DeclNode>(&decls, d); }
+            i = NameIdx_next(&s.fndecls_ix, i);
+        }
+    }
+    *DeclNode fd = null;
+    int k = 0;
+    while (k < List_len<*DeclNode>(&decls)) {
+        *DeclNode d = List_get<*DeclNode>(&decls, k);
+        k = k + 1;
+        if (List_len<*ExprNode>(&d.param_defaults) == 0) { continue; }
+        if (fd != null) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: default values of '%s' are given twice (give them on one declaration)\n",
+                    s.filename, d.line, d.col, key);
+            continue;
+        }
+        fd = d;
+    }
+    int idx = List_len<List<*ExprNode>>(&s.pd_lists);
+    StrTab_set(&s.pd_ix, key, idx);
+    if (fd != null) {
+        int generic_owner = 0;
+        if (sd != null && List_len<TypeParam>(&sd.type_params) > 0) { generic_owner = 1; }
+        if (sd != null) { List_push<*ExprNode>(&out, null); }
+        int seen = 0;
+        int i = 0;
+        int n = List_len<Param>(&fd.params);
+        while (i < n) {
+            Param pm = List_get<Param>(&fd.params, i);
+            *ExprNode def = null;
+            if (i < List_len<*ExprNode>(&fd.param_defaults)) { def = List_get<*ExprNode>(&fd.param_defaults, i); }
+            i = i + 1;
+            if (sema_streq(pm.ty, "...") == 1) {
+                if (seen == 1) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: '%s' is variadic: its parameters cannot have default values\n",
+                            s.filename, fd.line, fd.col, key);
+                }
+                List_push<*ExprNode>(&out, null);
+                continue;
+            }
+            if (def == null) {
+                if (seen == 1) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: parameter '%s' needs a default value: it follows a parameter that has one\n",
+                            s.filename, fd.line, fd.col, pm.name);
+                }
+                List_push<*ExprNode>(&out, null);
+                continue;
+            }
+            seen = 1;
+            if (generic_owner == 1) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: a method of generic struct '%s' cannot have default values\n",
+                        s.filename, def.line, def.col, sd.name);
+                List_push<*ExprNode>(&out, null);
+                continue;
+            }
+            *ExprNode lit = null;
+            if (def.kind == EK_LITERAL) {
+                lit = ast_new_expr();
+                lit.kind = EK_LITERAL; lit.lit_kind = def.lit_kind; lit.sval = def.sval; lit.slen = def.slen;
+            } else if (def.kind == EK_UNARY && sema_streq(def.sval, "-") == 1 && def.a != null
+                       && def.a.kind == EK_LITERAL && def.a.lit_kind == LIT_FLOAT) {
+                lit = ast_new_expr();
+                lit.kind = EK_LITERAL; lit.lit_kind = LIT_FLOAT; lit.sval = sema_cat("-", def.a.sval);
+            } else {
+                int64 v = (int64)0;
+                s.global_only = 1;
+                int ok = sema_fold_int(s, def, &v);
+                s.global_only = 0;
+                if (ok == 1) {
+                    lit = ast_new_expr();
+                    lit.kind = EK_LITERAL; lit.lit_kind = LIT_INT; lit.sval = sema_i64_text(v);
+                }
+            }
+            if (lit == null) {
+                s.had_error = 1;
+                dprintf(2, "error: %s:%d:%d: default value of parameter '%s' is not a constant (a literal or an integer constant expression)\n",
+                        s.filename, def.line, def.col, pm.name);
+                List_push<*ExprNode>(&out, null);
+                continue;
+            }
+            List_push<*ExprNode>(&out, lit);
+        }
+    }
+    List_push<List<*ExprNode>>(&s.pd_lists, out);
+    return idx;
+}
+
+// A call that omits trailing arguments with default values gets a copy of each, at the
+// call's position (C++ TypeChecker::fillDefaultArgs): direct calls of a function not
+// hidden by a variable, and dot-calls of an inline method.
+void sema_fill_defaults(Sema* s, *ExprNode e) {
+    if (e.a == null) { return; }
+    string key = "";
+    *DeclNode sd = null;
+    string mname = "";
+    int given = List_len<*ExprNode>(&e.kids);
+    if (e.a.kind == EK_IDENT) {
+        if (sema_lookup(s, e.a.sval) == 1 && sema_find_fndecl(s, e.a.sval) == null) { return; }
+        if (sema_local_bound(s, e.a.sval) == 1) { return; }
+        key = e.a.sval;
+        if (sema_find_fndecl(s, key) == null) { return; }
+    } else if (e.a.kind == EK_MEMBER) {
+        string bt = sema_dealias(s, sema_infer_type(s, e.a.a));
+        if (sema_is_ptrish(bt) == 1 && sema_streq(bt, "string") == 0) { bt = sema_dealias(s, sema_pointee(bt)); }
+        bt = sema_strip_const(sema_strip_nullable(bt));
+        sd = sema_find_struct(s, bt);
+        if (sd == null || sema_field_index(sd, e.a.sval) >= 0) { return; }
+        mname = e.a.sval;
+        key = sema_cat(sema_cat(bt, "_"), mname);
+        int has = 0;
+        int j = 0;
+        while (j < List_len<*DeclNode>(&sd.methods)) {
+            if (sema_streq(List_get<*DeclNode>(&sd.methods, j).name, mname) == 1) { has = 1; }
+            j = j + 1;
+        }
+        if (has == 0) {
+            if (sema_find_fndecl(s, key) == null) { return; }
+            sd = null;                         // a top-level `T_m(self, ...)` called with dot syntax
+        }
+        given = given + 1;
+    } else {
+        return;
+    }
+    List<*ExprNode> defs = List_get<List<*ExprNode>>(&s.pd_lists, sema_pdefs(s, key, sd, mname));
+    int n = List_len<*ExprNode>(&defs);
+    if (given >= n) { return; }
+    int i = given;
+    while (i < n) {
+        if (List_get<*ExprNode>(&defs, i) == null) { return; }
+        i = i + 1;
+    }
+    i = given;
+    while (i < n) {
+        *ExprNode d = List_get<*ExprNode>(&defs, i);
+        *ExprNode lit = ast_new_expr();
+        lit.kind = EK_LITERAL; lit.lit_kind = d.lit_kind; lit.sval = d.sval; lit.slen = d.slen;
+        lit.line = e.line; lit.col = e.col;
+        List_push<*ExprNode>(&e.kids, lit);
+        i = i + 1;
+    }
+}
+
 void sema_expr_k(Sema* s, *ExprNode e) {
+    if (e != null && e.kind == EK_CALL) { sema_fill_defaults(s, e); }
     if (e == null) { return; }
     int k = e.kind;
     if (k == EK_IDENT) {
@@ -5722,6 +5902,17 @@ void sema_expr_k(Sema* s, *ExprNode e) {
             }
         }
         sema_expr(s, e.a); sema_expr(s, e.b); return;
+    }
+    if (k == EK_CALL && e.a != null && e.a.kind == EK_IDENT && List_len<*ExprNode>(&e.kids) == 1
+        && sema_streq(e.a.sval, "dbg") == 1 && sema_lookup(s, "dbg") == 0 && sema_find_fndecl(s, "dbg") == null) {
+        *ExprNode da = List_get<*ExprNode>(&e.kids, 0);   // the `dbg(e)` builtin: prints e, yields it
+        sema_expr(s, da);
+        if (sema_streq(sema_dealias(s, sema_infer_type(s, da)), "void") == 1) {
+            s.had_error = 1;
+            dprintf(2, "error: %s:%d:%d: dbg needs a value: its argument is a void call\n", s.filename, e.a.line, e.a.col);
+        }
+        e.dbg_builtin = 1;
+        return;
     }
     if (k == EK_CALL && e.a != null && e.a.kind == EK_MEMBER) {
         // Method-call syntax `x.m(...)`: `m` is an inline method, a field holding a fn
@@ -8555,6 +8746,22 @@ int sema_check(Sema* s, *Program prog) {
                 k = k + 1;
             }
             List_init<string>(&s.tparams, 4);
+        }
+        i = i + 1;
+    }
+    i = 0;                                 // defaults of a function no call reached
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION && List_len<*ExprNode>(&d.param_defaults) > 0) { sema_pdefs(s, d.name, null, ""); }
+        if (d.kind == DK_STRUCT) {
+            int m = 0;
+            while (m < List_len<*DeclNode>(&d.methods)) {
+                *DeclNode md = List_get<*DeclNode>(&d.methods, m);
+                if (List_len<*ExprNode>(&md.param_defaults) > 0) {
+                    sema_pdefs(s, sema_cat(sema_cat(d.name, "_"), md.name), d, md.name);
+                }
+                m = m + 1;
+            }
         }
         i = i + 1;
     }

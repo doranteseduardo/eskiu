@@ -876,6 +876,7 @@ void TypeChecker::checkVaListArg(ASTNode* at, const std::string& what, const std
 void TypeChecker::visit(CallExpr* node) {
     // The callee may assign any global: a global's narrowing ends after the call.
     struct GlobalNarrowDrop { TypeChecker* t; ~GlobalNarrowDrop() { t->dropGlobalNarrowings(); } } dropAfter{this};
+    fillDefaultArgs(node, "");
     // A `?:` argument to an interface parameter of a named function boxes arm by arm.
     if (auto* cid = dynamic_cast<IdentExpr*>(node->callee.get()); cid && lookupSymbol(cid->name).empty()) {
         auto sig = functionSignatures.find(cid->name);
@@ -893,6 +894,17 @@ void TypeChecker::visit(CallExpr* node) {
             if (bid->name == "va_start" && !inVariadicFn)
                 errorAt(node, "'va_start' used in a function with no variadic parameter ('...')");
             expressionTypes[node] = "void";
+            return;
+        }
+        // `dbg(e)`: prints `[dbg line:col] e = value` to stderr and yields e, unless the
+        // program has its own `dbg`.
+        if (bid->name == "dbg" && node->args.size() == 1 && lookupSymbol("dbg").empty() &&
+            !functionSignatures.count("dbg") && !funcTemplateDecls.count("dbg")) {
+            node->args[0]->accept(this);
+            std::string t = getExpressionType(node->args[0].get());
+            if (normalizeType(t) == "void") errorAt(node->callee.get(), "dbg needs a value: its argument is a void call");
+            node->dbgBuiltin = true;
+            expressionTypes[node] = t;
             return;
         }
     }
@@ -980,6 +992,8 @@ void TypeChecker::visit(CallExpr* node) {
         }
 
         std::string mangled = baseType + "_" + member->member;
+        if (auto st = structs.find(baseType); st != structs.end() && !st->second.field(member->member))
+            fillDefaultArgs(node, mangled);
         auto mit = functionSignatures.find(mangled);
         if (mit != functionSignatures.end()) {
             const auto& sig = mit->second;
@@ -1508,6 +1522,108 @@ void TypeChecker::checkFormatCall(Expr* call, const std::string& fn, const std::
 void TypeChecker::checkVariadicArg(Expr* call, Expr* arg, size_t i) {
     if (normalizeType(getExpressionType(arg)) == "void")
         errorAt(call, "argument " + std::to_string(i + 1) + " has type 'void' (a void call has no value)");
+}
+
+// The folded default values of function `fn`'s parameters (see paramDefaultCache). A
+// default is a literal or an integer constant expression over literals, enum members and
+// `const` globals, folded in the global scope (a caller's locals never rebind it), so
+// each call site gets a fresh literal. Errors are reported once, at the default.
+const std::vector<std::shared_ptr<LiteralExpr>>& TypeChecker::paramDefaultsOf(const std::string& fn) {
+    auto cached = paramDefaultCache.find(fn);
+    if (cached != paramDefaultCache.end()) return cached->second;
+    auto& out = paramDefaultCache[fn];
+    auto all = fnDeclsAll.find(fn);
+    if (all == fnDeclsAll.end()) return out;
+    std::string saved = curFile;
+    const FunctionDecl* fd = nullptr;
+    for (const FunctionDecl* d : all->second) {
+        if (d->paramDefaults.empty()) continue;
+        if (fd) {
+            if (!d->sourceFile.empty()) curFile = d->sourceFile;
+            errorAt(const_cast<FunctionDecl*>(d), "default values of '" + fn +
+                    "' are given twice (give them on one declaration)");
+            curFile = saved;
+            continue;
+        }
+        fd = d;
+    }
+    if (!fd) return out;
+    if (!fd->sourceFile.empty()) curFile = fd->sourceFile;
+    const std::string self = fnDecls[fn].second;
+    bool genericOwner = !self.empty() && templateDecls.count(self.substr(1));
+    if (!self.empty()) out.push_back(nullptr);
+    bool seen = false;
+    for (size_t i = 0; i < fd->params.size(); ++i) {
+        Expr* def = i < fd->paramDefaults.size() ? fd->paramDefaults[i].get() : nullptr;
+        const std::string& pname = fd->params[i].second;
+        if (fd->params[i].first == "...") {
+            if (seen) errorAt(const_cast<FunctionDecl*>(fd), "'" + fn +
+                              "' is variadic: its parameters cannot have default values");
+            out.push_back(nullptr);
+            continue;
+        }
+        if (!def) {
+            if (seen) errorAt(const_cast<FunctionDecl*>(fd), "parameter '" + pname +
+                              "' needs a default value: it follows a parameter that has one");
+            out.push_back(nullptr);
+            continue;
+        }
+        seen = true;
+        if (genericOwner) {
+            errorAt(def, "a method of generic struct '" + self.substr(1) + "' cannot have default values");
+            out.push_back(nullptr);
+            continue;
+        }
+        std::shared_ptr<LiteralExpr> lit;
+        auto* l = dynamic_cast<LiteralExpr*>(def);
+        auto* u = dynamic_cast<UnaryExpr*>(def);
+        auto* ul = u && u->op == "-" ? dynamic_cast<LiteralExpr*>(u->operand.get()) : nullptr;
+        long long v = 0;
+        if (l) {
+            lit = std::make_shared<LiteralExpr>(l->kind, l->value);
+        } else if (ul && ul->kind == LiteralExpr::Kind::FLOAT) {
+            lit = std::make_shared<LiteralExpr>(ul->kind, "-" + ul->value);
+        } else {
+            globalLookupOnly = true;
+            bool ok = foldConstInt(def, v);
+            globalLookupOnly = false;
+            if (ok) lit = std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, std::to_string(v));
+        }
+        if (!lit) {
+            errorAt(def, "default value of parameter '" + pname +
+                         "' is not a constant (a literal or an integer constant expression)");
+            out.push_back(nullptr);
+            continue;
+        }
+        out.push_back(lit);
+    }
+    curFile = saved;
+    return out;
+}
+
+// A call that omits trailing arguments with default values gets a copy of each (at the
+// call's position): `connect("h")` is `connect("h", 443)`. Direct calls of a function
+// (not hidden by a variable) here; a dot-call once its method is resolved (`given`
+// then counts the receiver).
+void TypeChecker::fillDefaultArgs(CallExpr* node, const std::string& method) {
+    std::string fn = method;
+    size_t given = node->args.size() + (method.empty() ? 0 : 1);
+    if (method.empty()) {
+        auto* id = dynamic_cast<IdentExpr*>(node->callee.get());
+        if (!id || !lookupSymbol(id->name).empty()) return;
+        fn = id->name;
+    }
+    if (!fnDeclsAll.count(fn)) return;
+    const auto& defs = paramDefaultsOf(fn);
+    if (given >= defs.size()) return;
+    for (size_t i = given; i < defs.size(); ++i)
+        if (!defs[i]) return;
+    for (size_t i = given; i < defs.size(); ++i) {
+        auto lit = std::make_shared<LiteralExpr>(defs[i]->kind, defs[i]->value);
+        lit->line = node->line;
+        lit->col = node->col;
+        node->args.push_back(lit);
+    }
 }
 
 void TypeChecker::checkCallArgs(CallExpr* node, const std::string& what,
@@ -2300,6 +2416,14 @@ void TypeChecker::visit(StructInitExpr* node) {
 
     const auto& fields = it->second.fields;
     bool named = !node->fieldInits.empty() && !node->fieldInits[0].first.empty();
+    // A named field is a use of its declaration (references, rename).
+    if (inPrimaryFile())
+        for (size_t i = 0; i < node->fieldInits.size() && i < node->fieldPositions.size(); ++i) {
+            const auto& fname = node->fieldInits[i].first;
+            auto fl = fieldLocations.find(node->structName + "." + fname);
+            if (!fname.empty() && fl != fieldLocations.end() && node->fieldPositions[i].first > 0)
+                useDefs[node->fieldPositions[i]] = {(int)fname.size(), fl->second};
+        }
     std::set<std::string> seenFields;
     // A literal is either positional or named: mixed, a value would land in the field
     // its position names and could initialize a field a name also sets (`P{1, a: 2}`).
