@@ -2,12 +2,10 @@
 
 Eskiu is a statically typed systems language with the power of C and the immediacy of a scripting language: it compiles to native code through LLVM, and `eskiuc run file.esk` runs a source file directly, like Python or Ruby. This is the full language reference. New to Eskiu? Start with the [tutorial](getting-started.md).
 
-**Current version: v0.11.0.** A minor release about stability and tooling: an interactive
-REPL (`eskiuc repl`), a minimal package manager (`eskiu.toml`, `eskiuc build`/`run`/`add`),
-editor support with completion and signatures, `deprecated` warnings and "did you mean"
-suggestions, and a written stability policy: code that compiles with 0.11.0 keeps
-compiling in every 0.11.x, and later changes are announced by warnings first
-([stability.md](stability.md)). The full history is in the [changelog](../../CHANGELOG.md).
+**Current version: v0.12.0**, the first public release. Code that compiles with 0.12.0 keeps
+compiling in every 0.12.x, and later changes are announced by warnings first
+([stability.md](stability.md)). What the release contains is in the
+[changelog](../../CHANGELOG.md).
 
 ---
 
@@ -19,7 +17,6 @@ compiling in every 0.11.x, and later changes are announced by warnings first
 | [spec.md](spec.md) | Complete language reference | You need exact syntax or semantics |
 | [grammar.md](grammar.md) | Formal EBNF grammar | You need the precise concrete syntax |
 | [build.md](build.md) | Build the compiler from source on macOS, Linux and Windows | You need to set up a dev environment |
-| [migration.md](migration.md) | Removed and renamed names, old to new | You update code written for an older release |
 | [stability.md](stability.md) | What can change between releases, and how renames are deprecated | You maintain code across Eskiu versions |
 | [glossary.md](glossary.md) | Terminology definitions | You encounter an unfamiliar term |
 

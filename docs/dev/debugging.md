@@ -36,7 +36,7 @@ The corpus-wide counterpart is `tests/opt_differential.sh`: it compiles every `t
 
 ## Resolver Consistency: `ESKIU_RESOLVER_DEBUG`
 
-The single resolver (v0.2.4) makes codegen consume the type checker's resolved-type table instead of re-deriving types. The table doesn't annotate *every* expression, so codegen keeps a structural fallback (`deriveExprEskiuType`). To guard against the two ever disagreeing (the latent-miscompile class), set `ESKIU_RESOLVER_DEBUG=1`: whenever the table *has* an entry, codegen also runs the derivation and prints `[resolver-disagree] table=… derive=… <ExprKind>` on any semantic difference (benign representational noise, the `struct:`/`interface:` tag and alias spelling, is normalized away first).
+The single resolver makes codegen consume the type checker's resolved-type table instead of re-deriving types. The table doesn't annotate *every* expression, so codegen keeps a structural fallback (`deriveExprEskiuType`). To guard against the two ever disagreeing (the latent-miscompile class), set `ESKIU_RESOLVER_DEBUG=1`: whenever the table *has* an entry, codegen also runs the derivation and prints `[resolver-disagree] table=… derive=… <ExprKind>` on any semantic difference (benign representational noise, the `struct:`/`interface:` tag and alias spelling, is normalized away first).
 
 ```
 for f in tests/*.esk; do ESKIU_RESOLVER_DEBUG=1 build/eskiuc --test-codegen "$f" 2>&1 >/dev/null; done | grep resolver-disagree

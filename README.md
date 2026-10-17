@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml"><img src="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.11.0-6448d4" alt="Version 0.11.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.12.0-6448d4" alt="Version 0.12.0"></a>
   <img src="https://img.shields.io/badge/LLVM-21%2B-orange" alt="LLVM 21+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
@@ -146,9 +146,7 @@ Eskiu is stable since 0.12. Code that compiles with 0.12.0 keeps compiling in ev
 release. A later minor release (0.13, 0.14) may still change the language or the standard
 library before 1.0, but never by surprise: a renamed or removed function keeps working for a
 whole minor release, marked `deprecated`, and each use prints a warning that names its
-replacement. The rules are in [docs/lang/stability.md](docs/lang/stability.md), and
-[docs/lang/migration.md](docs/lang/migration.md) maps every name removed so far to its
-replacement.
+replacement. The rules are in [docs/lang/stability.md](docs/lang/stability.md).
 
 ## Install
 
@@ -183,7 +181,6 @@ cmake -S . -B build && cmake --build build
 | [Language reference](docs/lang/spec.md) | Every construct and the standard library |
 | [Examples](examples/) | Small programs, from hello world to an HTTP/2 server |
 | [Stability](docs/lang/stability.md) | What can change between releases |
-| [Migration](docs/lang/migration.md) | Renamed and removed names, old to new |
 | [Compiler internals](docs/dev/index.md) | Architecture, ABI notes and design decisions |
 | [Changelog](CHANGELOG.md) | Every release and what changed |
 

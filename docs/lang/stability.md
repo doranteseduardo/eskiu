@@ -12,7 +12,7 @@ moves forward with warnings instead of failing to compile.
 - A rename in a minor release keeps the old name for that release as a wrapper marked
   `deprecated("use NEW")`. Each use prints a warning that names the replacement; the next
   minor release removes it. `-Wno-deprecated` silences the warnings.
-- [migration.md](migration.md) lists every removed name with its replacement.
+- The CHANGELOG lists every renamed or removed name with its replacement.
 - Names that start with `_` are internal. They can change in any release.
 
 ## The language

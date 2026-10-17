@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Eskiu: un lenguaje de sistemas auto-hospedado</title>
-    <meta name="description" content="Eskiu es un lenguaje de sistemas compilado con async/await, tipos suma, genéricos, HTTP/2 y atómicos. Backend LLVM, memoria manual, compila a un binario independiente. Auto-hospedado desde la v0.3.0." />
+    <meta name="description" content="Eskiu es un lenguaje de sistemas compilado con async/await, tipos suma, genéricos, HTTP/2 y atómicos. Backend LLVM, memoria manual, compila a un binario independiente. Auto-hospedado." />
     <meta name="theme-color" content="#fbf8f3" />
     <link rel="icon" type="image/png" href="../../assets/logo.png" />
     <link rel="canonical" href="https://eskiu-lang.org/es/index.html" />
@@ -19,7 +19,7 @@
   <body>
     <header class="top">
       <div class="wrap top-in">
-        <a class="brand" href="#"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.11.0</span></a>
+        <a class="brand" href="#"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.12.0</span></a>
         <nav class="nav" aria-label="Principal">
           <a href="quickstart.html">Aprende</a>
           <a href="../docs/index.html">Docs</a>
@@ -30,7 +30,7 @@
         </nav>
         <div class="top-right">
           <span class="lang"><a href="../index.html" onclick="try{localStorage.setItem('eskiu-lang','en')}catch(e){}">EN</a> / <span aria-current="page">ES</span></span>
-          <a class="btn-install" href="#install">Instalar 0.11.0</a>
+          <a class="btn-install" href="#install">Instalar 0.12.0</a>
           <button class="menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="drawer">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
           </button>
@@ -49,7 +49,7 @@
     <main>
       <section class="wrap hero">
         <div class="hero-txt">
-          <span class="eyebrow">v0.11.0 · un lenguaje de sistemas</span>
+          <span class="eyebrow">v0.12.0 · un lenguaje de sistemas</span>
           <h1>Escríbelo como un script. <em>Compílalo como C.</em></h1>
           <p class="lede">Eskiu es un lenguaje de sistemas que se compila a sí mismo. LLVM, memoria explícita, interoperabilidad directa con C y sin recolector de basura, con un <code>eskiuc run</code> que se siente como Python.</p>
           <div class="cta">
@@ -89,7 +89,6 @@
           <p>El código que compila con 0.12.0 sigue compilando en cualquier 0.12.x. Si una versión posterior cambia algo, primero lo avisa durante una versión menor completa.</p>
           <div class="strip-links">
             <a href="../docs/stability.html">Política de estabilidad <span aria-hidden="true">→</span></a>
-            <a href="../docs/migration.html">Guía de migración <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
@@ -139,7 +138,7 @@
           <div class="feat-txt">
             <span class="n">04</span>
             <h3>El compilador está escrito en Eskiu</h3>
-            <p>Se compila a sí mismo desde la v0.3.0. Todo el pipeline reproduce su propia salida mediante un punto fijo de bootstrap en 3 etapas.</p>
+            <p>Se compila a sí mismo. Todo el pipeline reproduce su propia salida mediante un punto fijo de bootstrap en 3 etapas.</p>
             <a class="more" href="../docs/self-hosting.html">Cómo funciona el bootstrap →</a>
           </div>
 <pre class="card"><span class="cm">selfhost/</span>

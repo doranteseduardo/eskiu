@@ -31,7 +31,6 @@ PAGES = [
     ("docs/lang/stability.md",       "stability.html",       "Stability",            "lang"),
     ("docs/dev/api.md",              "api.html",             "Compiler C++ API",     "dev"),
     ("docs/lang/glossary.md",        "glossary.html",        "Glossary",             "lang"),
-    ("docs/lang/migration.md",       "migration.html",       "Migration",            "lang"),
     ("docs/dev/roadmap.md",          "roadmap.html",         "Roadmap",              "dev"),
     ("docs/dev/index.md",            "internals.html",       "Compiler internals",   "dev"),
     ("docs/dev/architecture.md",     "architecture.html",    "Architecture",         "dev"),
@@ -56,7 +55,6 @@ NAV_LANG = [
     ("grammar.html", "Grammar"),
     ("build.html", "Tooling"),
     ("stability.html", "Stability"),
-    ("migration.html", "Migration"),
     ("glossary.html", "Glossary"),
     ("internals.html", "Internals →"),
 ]
@@ -80,7 +78,7 @@ NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
-VERSION = "v0.11.0"
+VERSION = "v0.12.0"
 GH = "https://github.com/doranteseduardo/eskiu"
 
 CSS = r"""

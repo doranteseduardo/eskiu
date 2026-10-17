@@ -108,7 +108,7 @@ AST node representing a function definition, including its name, parameter list,
 A handle to a value that may not exist yet: the result of an `async` function call or a leaf primitive. `Future<T>` (in `<future>`) is a fixed-layout struct `{ state, waker, on_drop, value }`: `state` advances through PENDING/WAITING/READY/CANCELLED, `waker` resumes the awaiter on completion, and `on_drop` releases resources on cancellation. A pending future is cancelled with `Future_drop`. See also: async, await, executor.
 
 **fuzzer / differential oracle**
-A generative test harness (`tests/fuzz/eskiu_fuzz.py`, added in v0.2.2) that synthesizes random valid Eskiu programs and compiles each at `-O0` and `-O2`, then compares their output. A mismatch is a differential failure: it catches miscompiles that pass the LLVM verifier yet behave differently across optimization levels. See also: codegen, LLVM IR.
+A generative test harness (`tests/fuzz/eskiu_fuzz.py`) that synthesizes random valid Eskiu programs and compiles each at `-O0` and `-O2`, then compares their output. A mismatch is a differential failure: it catches miscompiles that pass the LLVM verifier yet behave differently across optimization levels. See also: codegen, LLVM IR.
 
 ## G
 

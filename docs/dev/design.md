@@ -12,7 +12,7 @@ Eskiu's answer is a single language with the power of C and the immediacy of a s
 
 **Foundation phase.** Establish a language that can do everything C can do: native performance, explicit memory, direct access to any C library. Validate it against real production code before claiming it works. This phase is complete: the first target program, a C-interop crypto pipeline (AES and RSA through OpenSSL), was ported to Eskiu and ran faster than its reference C implementation, with the crypto stage matching hand-written C.
 
-**v0.1 milestone, shipped.** Booting Eskiu code on bare metal in QEMU without libc, the classic proof-of-concept for a systems language. Delivered in v0.1.0 via inline assembly, freestanding mode, and `volatile`: an ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART, with no libc or C runtime.
+**Shipped.** Booting Eskiu code on bare metal in QEMU without libc, the classic proof-of-concept for a systems language. Delivered via inline assembly, freestanding mode, and `volatile`: an ARM64 kernel written in Eskiu boots in QEMU (`-M virt`) on the PL011 UART, with no libc or C runtime.
 
 **Domain specialisation phase.** Once the systems foundation is stable, make the domain types that high-throughput services actually work with first-class in the language, without losing general systems capability.
 
@@ -138,7 +138,7 @@ Every design decision below was evaluated against two questions: does it get tha
 
 **Alternatives considered:**
 
-- *Exceptions first (C++ style)*: `throw` / `catch` / `finally` with LLVM `invoke` / `landingpad`. Rejected for v0.1 because implementing correct EH requires an EH personality function, DWARF unwind tables, and correct stack unwinding through `extern` C frames (OpenSSL and other C libraries). This is non-trivial and was not needed to hit the benchmark target.
+- *Exceptions first (C++ style)*: `throw` / `catch` / `finally` with LLVM `invoke` / `landingpad`. Rejected at first because implementing correct EH requires an EH personality function, DWARF unwind tables, and correct stack unwinding through `extern` C frames (OpenSSL and other C libraries). This is non-trivial and was not needed to hit the benchmark target.
 - *Panic and abort (Go-style, no recovery)*: `panic("msg")` that terminates the process. Simpler to implement but eliminates the ability to handle errors gracefully. The target program must distinguish "no valid input found" (user error, return a message) from "malloc failed" (fatal).
 - *Error codes via return value (C style, no struct)*: Return `int` from functions and check `!= 0`. Works but loses the error value (you know it failed, not why). `Result<T,E>` encodes both the success value and the error value in the same return, with `ok` as a discriminant.
 

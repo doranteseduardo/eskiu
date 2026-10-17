@@ -1,6 +1,6 @@
 # Roadmap
 
-Where Eskiu stands and what comes next. Per-release detail is in
+Where Eskiu stands and what comes next. 0.12 is the first public release; per-release detail is in
 [`CHANGELOG.md`](../../CHANGELOG.md), and what can change between releases is in
 [stability.md](../lang/stability.md).
 
@@ -40,25 +40,10 @@ first-class in the language without giving up general systems use.
   oracle checked against clang, a negative-program corpus, and the stdlib parsers under
   AddressSanitizer).
 
-## Release history
-
-| Version | Theme |
-|---|---|
-| 0.1 | Systems foundation: closures, threads, exceptions, enums, unions, bitfields, preprocessor, bare-metal kernel |
-| 0.2 | Backend services: async/await, HTTP/2 + HPACK + TLS, sum types and `match`, allocators |
-| 0.3 | Self-hosting: the whole compiler in Eskiu; optimization levels |
-| 0.4 | Correctness and stricter typing |
-| 0.5 | Remaining basic C constructs: `do`/`while`, `++`/`--`, array initializers, `static` locals, multidimensional arrays, ternary |
-| 0.6 | Memory safety and stdlib: `defer`, slices, `must_use`, `--safe`, `?*T`, regex, sort, url, uuid |
-| 0.7 | Cross-compilation: 32-bit ARM, Windows objects, `extern` globals |
-| 0.8 | Windows parity, operator overloading |
-| 0.9 | Labeled `break`/`continue`, two correctness campaigns (0.9.1 and 0.9.2), and 0.9.3 with a reviewed set of docs and fixes it turned up |
-| 0.10 | A standard library for scripts: fetch (HTTP and HTTPS), files, processes, DNS, strings and collections, JSON, CSV, dotenv, hashes, args, terminal, logging, dates |
-| 0.11 | Stability and tooling: a REPL, a minimal package manager, editor support (completion, signatures, quick fixes) in VS Code and JetBrains IDEs, `deprecated` warnings, "did you mean" suggestions, a written stability policy |
-
 ## Next: 1.0
 
-- **Packages beyond git.** 0.11 resolves git and path dependencies pinned in `eskiu.lock`.
+- **Packages beyond git.** Today the package manager resolves git and path dependencies pinned
+  in `eskiu.lock`.
   A registry and version ranges would let packages depend on "1.2 or later" instead of a
   commit.
 - **Shipping the self-hosted compiler.** It already matches the C++ one. Making it the
