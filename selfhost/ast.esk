@@ -284,6 +284,31 @@ string ast_ty_mangle(string tin) {
     }
     return (string)String_cstr(&out);
 }
+// The atomic intrinsics (mirrors intrinsics.h parseAtomicIntrinsic): `atomic_<op>` on
+// an `int` cell, `atomic_<op>64` on an `int64` cell, `atomic_<op>_ptr` on a pointer
+// cell, and `atomic_fence()`. The op ("" when `name` is none of them) and the cell kind
+// (0 int, 1 int64, 2 pointer).
+string ast_atomic_op(string name) {
+    if (ast_streq(name, "atomic_fence") == 1) { return "fence"; }
+    if (ast_has_prefix(name, "atomic_") == 0) { return ""; }
+    string rest = (string)((*uint8)name + 7);
+    int n = 0; while (rest[n] != 0) { n = n + 1; }
+    int k = ast_atomic_kind(name);
+    if (k == 2) { n = n - 4; } else if (k == 1) { n = n - 2; }
+    if (n <= 0) { return ""; }
+    string op = ast_sub(rest, 0, n);
+    if (ast_streq(op, "load") == 1 || ast_streq(op, "store") == 1 || ast_streq(op, "swap") == 1 || ast_streq(op, "cas") == 1) { return op; }
+    if (k != 2 && (ast_streq(op, "fetch_add") == 1 || ast_streq(op, "fetch_sub") == 1 || ast_streq(op, "fetch_and") == 1
+                   || ast_streq(op, "fetch_or") == 1 || ast_streq(op, "fetch_xor") == 1)) { return op; }
+    return "";
+}
+int ast_atomic_kind(string name) {
+    int n = 0; while (name[n] != 0) { n = n + 1; }
+    if (n > 11 && name[n - 4] == '_' && name[n - 3] == 'p' && name[n - 2] == 't' && name[n - 1] == 'r') { return 2; }
+    if (n > 9 && name[n - 2] == '6' && name[n - 1] == '4') { return 1; }
+    return 0;
+}
+
 // The type a bitfield of declared (dealiased) integer type `t` and `w` bits is read as:
 // `int` when every value fits an int (C promotion), else `t` (mirrors tyq::bitfieldReadType).
 string ast_bf_read_type(string t, int w) {

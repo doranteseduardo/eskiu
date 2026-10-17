@@ -8332,8 +8332,7 @@ int sema_check(Sema* s, *Program prog) {
             } else { StrTab_set(&defined_fns, d.name, 1); }
         }
         if (d.kind == DK_INTRINSIC) {
-            if (sema_streq(d.name, "atomic_load") == 0 && sema_streq(d.name, "atomic_store") == 0
-                && sema_streq(d.name, "atomic_swap") == 0 && sema_streq(d.name, "atomic_cas") == 0) {
+            if (ast_atomic_op(d.name)[0] == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: unknown intrinsic '%s'\n", s.filename, s.line, s.col, d.name);
             }
