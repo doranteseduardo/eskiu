@@ -5,7 +5,7 @@ calling conventions. It compiles to native code through LLVM, calls C libraries 
 and runs a source file like a script with `eskiuc run file.esk`.
 
 From this release on, code that compiles with 0.12.0 keeps compiling in every 0.12.x, and
-later changes are announced by warnings first ([stability policy](docs/lang/stability.md)).
+later changes are announced by warnings first ([stability policy](https://eskiu-lang.org/docs/stability.html)).
 
 ## Install
 
@@ -56,4 +56,4 @@ cd eskiu && cmake -S . -B build && cmake --build build
 
 - `eskiuc repl` is not available on Windows in this release. `eskiuc run` works there.
 
-The full summary is in [CHANGELOG.md](CHANGELOG.md).
+The full summary is in the [changelog](https://eskiu-lang.org/changelog.html).
