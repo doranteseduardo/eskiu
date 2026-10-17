@@ -304,13 +304,14 @@
     },
 
     "generics": {
-      "begin": "(<)(?=[a-zA-Z0-9_*,< >]+>)",
+      "comment": "Type arguments start right after a name (List<int>, f<T>); `i < n` is a comparison. The rule also ends before ; { } ( ) quotes = | & so a stray < never runs past its line.",
+      "begin": "(?<=[A-Za-z0-9_])(<)(?=[A-Za-z0-9_*, <>\\[\\]?]*>)",
       "beginCaptures": {
         "1": { "name": "punctuation.bracket.angle.begin.eskiu" }
       },
-      "end": ">",
+      "end": "(>)|(?=[;{}()\"'=|&])",
       "endCaptures": {
-        "0": { "name": "punctuation.bracket.angle.end.eskiu" }
+        "1": { "name": "punctuation.bracket.angle.end.eskiu" }
       },
       "patterns": [
         { "include": "#types" },
