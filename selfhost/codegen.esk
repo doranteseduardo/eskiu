@@ -173,7 +173,25 @@ struct Codegen {
     int tactive;             // the stamp of the `?:` tree being emitted (0 = none, see cg_tern_begin)
     int bactive;             // the stamp of the binary expression being emitted (0 = none)
     List<string> vols;       // names of `volatile` variables (C++ volatileVars)
+    // Name indexes over the lists above (NameIdx, ast.esk), kept in step with every push
+    // (the cg_push_* helpers), so a lookup by name does not scan the list.
+    NameIdx fns_ix;
+    NameIdx structs_ix;
+    NameIdx inst_ix;
+    NameIdx tydefs_ix;
+    NameIdx tydecls_ix;
+    NameIdx gstructs_ix;
+    NameIdx gfns_ix;
+    NameIdx genums_ix;
 }
+
+void cg_push_fn(Codegen* g, CgFn f) { List_push<CgFn>(&g.fns, f); NameIdx_push(&g.fns_ix, f.name); }
+void cg_push_struct(Codegen* g, CgStruct st) { List_push<CgStruct>(&g.structs, st); NameIdx_push(&g.structs_ix, st.name); }
+void cg_push_inst(Codegen* g, string k) { List_push<string>(&g.inst_seen, k); NameIdx_push(&g.inst_ix, k); }
+void cg_push_tydecl(Codegen* g, *DeclNode d) { List_push<*DeclNode>(&g.tydecls, d); NameIdx_push(&g.tydecls_ix, d.name); }
+void cg_push_gstruct(Codegen* g, *DeclNode d) { List_push<*DeclNode>(&g.gstructs, d); NameIdx_push(&g.gstructs_ix, d.name); }
+void cg_push_gfn(Codegen* g, *DeclNode d) { List_push<*DeclNode>(&g.gfns, d); NameIdx_push(&g.gfns_ix, d.name); }
+void cg_push_genum(Codegen* g, *DeclNode d) { List_push<*DeclNode>(&g.genums, d); NameIdx_push(&g.genums_ix, d.name); }
 
 int cg_streq(string a, string b) {
     int i = 0;
@@ -707,19 +725,13 @@ int cg_in_strlist(List<string>* l, string s) {
 }
 
 int cg_seen_inst(Codegen* g, string mangled) {
-    int i = 0; int n = List_len<string>(&g.inst_seen);
-    while (i < n) { if (cg_streq(List_get<string>(&g.inst_seen, i), mangled) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return NameIdx_first(&g.inst_ix, mangled) >= 0;
 }
 
 *DeclNode cg_find_gstruct(Codegen* g, string name) {
-    int i = 0; int n = List_len<*DeclNode>(&g.gstructs);
-    while (i < n) {
-        *DeclNode d = List_get<*DeclNode>(&g.gstructs, i);
-        if (cg_streq(d.name, name) == 1) { return d; }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&g.gstructs_ix, name);
+    if (i < 0) { return null; }
+    return List_get<*DeclNode>(&g.gstructs, i);
 }
 
 // Monomorphize a generic struct spelling ("Box<int>") into a concrete named type
@@ -736,7 +748,7 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
     string base = cg_gen_base(spelling);
     *DeclNode gd = cg_find_gstruct(g, base);
     if (gd == null) { return mangled; }                   // unknown generic — leave as-is
-    List_push<string>(&g.inst_seen, mangled);             // mark before building (recursion)
+    cg_push_inst(g, mangled);             // mark before building (recursion)
 
     List<string> args; List_init<string>(&args, 4);
     cg_gen_args(spelling, &args);
@@ -768,7 +780,7 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
         String_append(&body, cg_lltype(g, fety));
         fi = fi + 1;
     }
-    List_push<CgStruct>(&g.structs, s);                   // register before emitting the line
+    cg_push_struct(g, s);                   // register before emitting the line
     int manual = 0;
     if (gd.is_packed == 0) {
         int mi = 0;
@@ -794,7 +806,7 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
             List_push<Param>(&cd.params, cp);
             ci = ci + 1;
         }
-        List_push<*DeclNode>(&g.tydecls, cd);
+        cg_push_tydecl(g, cd);
         cg_emit_tydecl(g, cd);
     } else {
         cg_deftype(g, mangled, cg_cat("{ ", cg_cat((string)String_cstr(&body), " }")));
@@ -809,14 +821,12 @@ string cg_ensure_struct_inst(Codegen* g, string spelling) {
 // that may precede it.
 *DeclNode cg_find_gfn(Codegen* g, string name) {
     *DeclNode proto = null;
-    int i = 0; int n = List_len<*DeclNode>(&g.gfns);
-    while (i < n) {
+    int i = NameIdx_first(&g.gfns_ix, name);
+    while (i >= 0) {
         *DeclNode d = List_get<*DeclNode>(&g.gfns, i);
-        if (cg_streq(d.name, name) == 1) {
-            if (d.body != null) { return d; }
-            if (proto == null) { proto = d; }
-        }
-        i = i + 1;
+        if (d.body != null) { return d; }
+        if (proto == null) { proto = d; }
+        i = NameIdx_next(&g.gfns_ix, i);
     }
     return proto;
 }
@@ -854,7 +864,7 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
     string base = cg_gen_base(spelling);
     *DeclNode gd = cg_find_gfn(g, base);
     if (gd == null) { return mangled; }                   // unknown generic — leave as-is
-    List_push<string>(&g.inst_seen, mangled);
+    cg_push_inst(g, mangled);
 
     List<string> args; List_init<string>(&args, 4);
     cg_gen_args(spelling, &args);
@@ -881,7 +891,7 @@ string cg_ensure_fn_inst(Codegen* g, string spelling) {
         pi = pi + 1;
     }
     f.fixedtypes = fixed;
-    List_push<CgFn>(&g.fns, f);
+    cg_push_fn(g, f);
     g.cursub = oldsub;
     return mangled;
 }
@@ -901,7 +911,7 @@ string cg_ensure_method_inst(Codegen* g, string sname, string method) {
     string smangled = cg_ensure_struct_inst(g, sp);
     string llname = cg_cat(cg_cat(smangled, "_"), method);
     if (cg_seen_inst(g, llname) == 1) { return llname; }
-    List_push<string>(&g.inst_seen, llname);
+    cg_push_inst(g, llname);
 
     List<string> args; List_init<string>(&args, 4);
     cg_gen_args(sp, &args);
@@ -926,7 +936,7 @@ string cg_ensure_method_inst(Codegen* g, string sname, string method) {
         List_push<string>(&f.petys, cg_apply_sub(g, pm.ty));
         pi = pi + 1;
     }
-    List_push<CgFn>(&g.fns, f);
+    cg_push_fn(g, f);
     g.cursub = oldsub;
     return llname;
 }
@@ -1102,29 +1112,22 @@ int cg_is_union(Codegen* g, string name) {
 void cg_deftype(Codegen* g, string name, string body) {
     let d: CgSub; d.param = name; d.arg = body;
     List_push<CgSub>(&g.tydefs, d);
+    NameIdx_push(&g.tydefs_ix, name);
     String_append(&g.globals, "%"); String_append(&g.globals, name);
     String_append(&g.globals, " = type "); String_append(&g.globals, body); String_append(&g.globals, "\n");
 }
 
 // Body of an emitted named type ("" if not emitted yet).
 string cg_tydef_body(Codegen* g, string name) {
-    int i = 0; int n = List_len<CgSub>(&g.tydefs);
-    while (i < n) {
-        CgSub d = List_get<CgSub>(&g.tydefs, i);
-        if (cg_streq(d.param, name) == 1) { return d.arg; }
-        i = i + 1;
-    }
-    return "";
+    int i = NameIdx_first(&g.tydefs_ix, name);
+    if (i < 0) { return ""; }
+    return List_get<CgSub>(&g.tydefs, i).arg;
 }
 
 *DeclNode cg_find_tydecl(Codegen* g, string name) {
-    int i = 0; int n = List_len<*DeclNode>(&g.tydecls);
-    while (i < n) {
-        *DeclNode d = List_get<*DeclNode>(&g.tydecls, i);
-        if (cg_streq(d.name, name) == 1) { return d; }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&g.tydecls_ix, name);
+    if (i < 0) { return null; }
+    return List_get<*DeclNode>(&g.tydecls, i);
 }
 
 void cg_emit_tydecl(Codegen* g, *DeclNode d);                     // fwd: emits a type line on demand
@@ -1317,13 +1320,9 @@ CgVariant cg_find_gvariant(Codegen* g, string vname) {
 }
 
 *DeclNode cg_find_genum(Codegen* g, string name) {
-    int i = 0; int n = List_len<*DeclNode>(&g.genums);
-    while (i < n) {
-        *DeclNode d = List_get<*DeclNode>(&g.genums, i);
-        if (cg_streq(d.name, name) == 1) { return d; }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&g.genums_ix, name);
+    if (i < 0) { return null; }
+    return List_get<*DeclNode>(&g.genums, i);
 }
 
 int cg_is_genum(Codegen* g, string name) {
@@ -1341,7 +1340,7 @@ string cg_ensure_enum_inst(Codegen* g, string spelling) {
     string base = cg_gen_base(spelling);
     *DeclNode gd = cg_find_genum(g, base);
     if (gd == null) { return mangled; }
-    List_push<string>(&g.inst_seen, mangled);
+    cg_push_inst(g, mangled);
 
     List<string> targs; List_init<string>(&targs, 4); cg_gen_args(spelling, &targs);
     List<CgSub> oldsub = g.cursub;
@@ -1488,12 +1487,8 @@ int cg_iface_midx(CgIface* f, string m) {
 }
 
 CgFn cg_find_fn(Codegen* g, string name) {
-    int i = 0; int n = List_len<CgFn>(&g.fns);
-    while (i < n) {
-        CgFn f = List_get<CgFn>(&g.fns, i);
-        if (cg_streq(f.name, name) == 1) { return f; }
-        i = i + 1;
-    }
+    int i = NameIdx_first(&g.fns_ix, name);
+    if (i >= 0) { return List_get<CgFn>(&g.fns, i); }
     let none: CgFn; none.name = name; none.retty = "i32"; none.rety = ""; none.variadic = 0; none.fixedtypes = "";
     List_init<string>(&none.ptys, 1);
     return none;
@@ -1501,9 +1496,7 @@ CgFn cg_find_fn(Codegen* g, string name) {
 
 // Is `name` a registered top-level function (free fn or extern, not a struct method)?
 int cg_is_fn(Codegen* g, string name) {
-    int i = 0; int n = List_len<CgFn>(&g.fns);
-    while (i < n) { if (cg_streq(List_get<CgFn>(&g.fns, i).name, name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return NameIdx_first(&g.fns_ix, name) >= 0;
 }
 
 // Build a closure fat pointer {@__fnptr_<name>, null} for a top-level function used as a
@@ -1511,7 +1504,7 @@ int cg_is_fn(Codegen* g, string name) {
 // cg_drain_thunks) drops the closure's leading env arg and forwards to the real function.
 void cg_queue_fn_thunk(Codegen* g, string fnname) {
     if (cg_seen_inst(g, cg_cat("thunk:", fnname)) == 0) {
-        List_push<string>(&g.inst_seen, cg_cat("thunk:", fnname));
+        cg_push_inst(g, cg_cat("thunk:", fnname));
         List_push<string>(&g.fnthunks, fnname);
     }
 }
@@ -1605,7 +1598,7 @@ string cg_heap_free(Codegen* g) { if (g.freestanding == 1) { return "esk_free"; 
 void cg_ensure_extern(Codegen* g, string name, string decl) {
     if (cg_is_fn(g, name) == 1) { return; }
     if (cg_seen_inst(g, cg_cat("decl:", name)) == 1) { return; }
-    List_push<string>(&g.inst_seen, cg_cat("decl:", name));
+    cg_push_inst(g, cg_cat("decl:", name));
     String_append(&g.globals, decl);
 }
 
@@ -1981,9 +1974,7 @@ int cg_is_pure(*ExprNode e) {
 }
 
 int cg_is_struct(Codegen* g, string name) {
-    int i = 0; int n = List_len<CgStruct>(&g.structs);
-    while (i < n) { if (cg_streq(List_get<CgStruct>(&g.structs, i).name, name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return NameIdx_first(&g.structs_ix, name) >= 0;
 }
 
 // Eskiu type spelling → LLVM type. Pointers (anything with `*`) lower to opaque `ptr`;
@@ -2025,7 +2016,7 @@ string cg_lltype(Codegen* g, string t) {
     if (cg_streq(t, "string") == 1) { return "ptr"; }
     if (cg_streq(t, "va_list") == 1) {                     // {ptr,ptr,ptr,i32,i32} (AArch64 layout, x86-64 superset)
         if (cg_seen_inst(g, "type:__va_list") == 0) {
-            List_push<string>(&g.inst_seen, "type:__va_list");
+            cg_push_inst(g, "type:__va_list");
             cg_deftype(g, "__va_list", "{ ptr, ptr, ptr, i32, i32 }");
         }
         return "%__va_list";
@@ -2237,12 +2228,8 @@ string cg_array_count(string t) {
 
 CgStruct cg_find_struct(Codegen* g, string name) {
     if (cg_has_targs(name) == 1) { name = cg_ensure_struct_inst(g, name); }   // generic -> mangled
-    int i = 0; int n = List_len<CgStruct>(&g.structs);
-    while (i < n) {
-        CgStruct s = List_get<CgStruct>(&g.structs, i);
-        if (cg_streq(s.name, name) == 1) { return s; }
-        i = i + 1;
-    }
+    int i = NameIdx_first(&g.structs_ix, name);
+    if (i >= 0) { return List_get<CgStruct>(&g.structs, i); }
     let none: CgStruct; none.name = ""; List_init<string>(&none.fnames, 1); List_init<string>(&none.fetys, 1);
     return none;
 }
@@ -3364,9 +3351,7 @@ string cg_cmp_pred_s(string s, int uns) {
 }
 
 int cg_fn_exists(Codegen* g, string name) {
-    int i = 0; int n = List_len<CgFn>(&g.fns);
-    while (i < n) { if (cg_streq(List_get<CgFn>(&g.fns, i).name, name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return NameIdx_first(&g.fns_ix, name) >= 0;
 }
 // Resolve a binary/index `op` over operand types to its overload fn name (exact mangled-name
 // match), or "". Operand numeric coercion is not mirrored (a C++-only nicety): declare the
@@ -5430,7 +5415,7 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             g.uses_heap_env = 1;                          // declares malloc (as for a heap env)
             cg_ensure_extern(g, "free", "declare void @free(ptr)\n");
             if (cg_seen_inst(g, "fn:__eskiu_thread_owned") == 0) {
-                List_push<string>(&g.inst_seen, "fn:__eskiu_thread_owned");
+                cg_push_inst(g, "fn:__eskiu_thread_owned");
                 String_append(&g.globals, "define internal ptr @__eskiu_thread_owned(ptr %pack) {\nentry:\n");
                 String_append(&g.globals, "  %fn = load ptr, ptr %pack\n");
                 String_append(&g.globals, "  %envp = getelementptr { ptr, ptr }, ptr %pack, i32 0, i32 1\n");
@@ -5737,7 +5722,7 @@ string cg_iface_vtable(Codegen* g, string ifaceName, string structName) {
     string vtg = cg_cat("@", cg_cat(ifaceName, cg_cat("_vtable_", cg_mangle(structName))));
     string key = cg_cat("vt:", cg_cat(ifaceName, cg_cat("_", structName)));
     if (cg_seen_inst(g, key) == 0) {
-        List_push<string>(&g.inst_seen, key);
+        cg_push_inst(g, key);
         // Resolve every slot first: instantiating one may itself append to g.globals.
         List<string> slots; List_init<string>(&slots, 4);
         int mi = 0; int mn = List_len<string>(&f.mnames);
@@ -8702,7 +8687,7 @@ string cg_cabi_callback(Codegen* g, string name) {
     if (cg_cabi_needs_thunk(g, &f) == 0) { return cg_cat("@", name); }
     string key = cg_cat("cabi:", name);
     if (cg_seen_inst(g, cg_cat("thunk:", key)) == 0) {
-        List_push<string>(&g.inst_seen, cg_cat("thunk:", key));
+        cg_push_inst(g, cg_cat("thunk:", key));
         List_push<string>(&g.fnthunks, key);
     }
     return cg_cat("@__cabi_", name);
@@ -8876,7 +8861,7 @@ void cg_emit_tydecl(Codegen* g, *DeclNode d) {
     if (cg_tydef_body(g, d.name)[0] != 0) { return; }
     string mark = cg_cat("tyd:", d.name);
     if (cg_seen_inst(g, mark) == 1) { return; }          // in progress (self-containing type)
-    List_push<string>(&g.inst_seen, mark);
+    cg_push_inst(g, mark);
     cg_emit_tydecl_body(g, d);
     if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
         List<string> ftys; List_init<string>(&ftys, 4);
@@ -8927,18 +8912,19 @@ void cg_program(Codegen* g, *Program prog) {
     }
     // A struct declared again (sema accepts only an identical repeat, e.g. two merged files
     // sharing a declaration) is one type: keep the first declaration, like the C++ backend.
+    let first_struct: StrTab;     // struct name -> index of its first declaration
+    memset((*void)&first_struct, 0, sizeof(StrTab));
+    int fsi = 0;
+    while (fsi < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode fd = List_get<*DeclNode>(&prog.decls, fsi);
+        if (fd.kind == DK_STRUCT && StrTab_has(&first_struct, fd.name) == 0) { StrTab_set(&first_struct, fd.name, fsi); }
+        fsi = fsi + 1;
+    }
     int di = List_len<*DeclNode>(&prog.decls) - 1;
     while (di > 0) {
         *DeclNode dd = List_get<*DeclNode>(&prog.decls, di);
         int dup = 0;
-        if (dd.kind == DK_STRUCT) {
-            int dj = 0;
-            while (dj < di) {
-                *DeclNode de = List_get<*DeclNode>(&prog.decls, dj);
-                if (de.kind == DK_STRUCT && cg_streq(de.name, dd.name) == 1) { dup = 1; }
-                dj = dj + 1;
-            }
-        }
+        if (dd.kind == DK_STRUCT && StrTab_get(&first_struct, dd.name, di) < di) { dup = 1; }
         if (dup == 1) { List_remove<*DeclNode>(&prog.decls, di); }
         di = di - 1;
     }
@@ -9045,9 +9031,9 @@ void cg_program(Codegen* g, *Program prog) {
             && cg_is_struct(g, d.name) == 1) {
             List_push<*DeclNode>(&dup_types, d);
         } else if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
-            List_push<*DeclNode>(&g.gstructs, d);          // generic — monomorphized on demand
+            cg_push_gstruct(g, d);          // generic — monomorphized on demand
         } else if (d.kind == DK_STRUCT) {
-            List_push<*DeclNode>(&g.tydecls, d);
+            cg_push_tydecl(g, d);
             let s: CgStruct;
             s.name = d.name;
             List_init<string>(&s.fnames, 4);
@@ -9060,7 +9046,7 @@ void cg_program(Codegen* g, *Program prog) {
                 List_push<string>(&s.fetys, cg_dealias(g, pm.ty));
                 fi = fi + 1;
             }
-            List_push<CgStruct>(&g.structs, s);
+            cg_push_struct(g, s);
         } else if (d.kind == DK_UNION) {
             let s: CgStruct;
             s.name = d.name;
@@ -9074,14 +9060,14 @@ void cg_program(Codegen* g, *Program prog) {
                 List_push<string>(&s.fetys, pm.ty);
                 fi = fi + 1;
             }
-            List_push<CgStruct>(&g.structs, s);
+            cg_push_struct(g, s);
             List_push<string>(&g.union_names, d.name);
-            List_push<*DeclNode>(&g.tydecls, d);
+            cg_push_tydecl(g, d);
         } else if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) == 0 && cg_enum_is_adt(d) == 1) {
             // Register the ADT name now so struct fields / payloads of this type lower
             // to `%Name` (not the i32 default) whatever the declaration order.
             List_push<string>(&g.adt_names, d.name);
-            List_push<*DeclNode>(&g.tydecls, d);
+            cg_push_tydecl(g, d);
         }
         si = si + 1;
     }
@@ -9110,7 +9096,7 @@ void cg_program(Codegen* g, *Program prog) {
         if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) > 0) {
             // Generic ADT enum: register the decl + variant patterns; instances (and their
             // concrete variants) are built on demand by cg_ensure_enum_inst.
-            List_push<*DeclNode>(&g.genums, d);
+            cg_push_genum(g, d);
             int gm = List_len<Param>(&d.params); int gj = 0;
             while (gj < gm) {
                 let gv: CgVariant;
@@ -9214,10 +9200,10 @@ void cg_program(Codegen* g, *Program prog) {
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         if (d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) > 0) {
-            List_push<*DeclNode>(&g.gfns, d);              // generic fn — monomorphized on demand
+            cg_push_gfn(g, d);              // generic fn — monomorphized on demand
         } else if ((d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC)
                    && cg_seen_inst(g, cg_cat("fn:", d.name)) == 0) {
-            List_push<string>(&g.inst_seen, cg_cat("fn:", d.name));   // dedup (same extern in 2 stdlib files)
+            cg_push_inst(g, cg_cat("fn:", d.name));   // dedup (same extern in 2 stdlib files)
             let f: CgFn;
             f.name = d.name;
             f.retty = cg_lltype(g, d.ret_type);
@@ -9252,7 +9238,7 @@ void cg_program(Codegen* g, *Program prog) {
                 pi = pi + 1;
             }
             f.fixedtypes = fixed;
-            List_push<CgFn>(&g.fns, f);
+            cg_push_fn(g, f);
             if (d.operator_sym != null && d.operator_sym[0] != 0 && List_len<CgSub>(&g.aliases) > 0) {
                 let opt: List<string>; List_init<string>(&opt, 2);
                 int oi = 0;
@@ -9281,7 +9267,7 @@ void cg_program(Codegen* g, *Program prog) {
             } else if (d.kind == DK_FUNCTION && d.body == null && cg_prog_defines(prog, d.name) == 0
                        && cg_seen_inst(g, cg_cat("decl:", d.name)) == 0) {
                 // A prototype defined in another object file: declare it (Eskiu convention).
-                List_push<string>(&g.inst_seen, cg_cat("decl:", d.name));
+                cg_push_inst(g, cg_cat("decl:", d.name));
                 String_append(&g.globals, "declare ");
                 String_append(&g.globals, f.retty);
                 String_append(&g.globals, " @");
@@ -9320,7 +9306,7 @@ void cg_program(Codegen* g, *Program prog) {
                     List_push<string>(&mf.petys, List_get<Param>(&m.params, mpi).ty);
                     mpi = mpi + 1;
                 }
-                List_push<CgFn>(&g.fns, mf);
+                cg_push_fn(g, mf);
                 mi = mi + 1;
             }
         }
@@ -9349,13 +9335,13 @@ void cg_program(Codegen* g, *Program prog) {
         string ha = cg_heap_alloc(g);
         if (cg_seen_inst(g, cg_cat("fn:", ha)) == 0 && cg_is_fn(g, ha) == 0) {
             String_append(&g.globals, cg_cat(cg_cat("declare ptr @", ha), "(i64)\n"));
-            List_push<string>(&g.inst_seen, cg_cat("fn:", ha));
+            cg_push_inst(g, cg_cat("fn:", ha));
         }
     }
 
     if (g.uses_trap == 1 && cg_seen_inst(g, "fn:trap") == 0) {         // --safe bounds-check trap
         String_append(&g.globals, "declare void @llvm.trap()\n");
-        List_push<string>(&g.inst_seen, "fn:trap");
+        cg_push_inst(g, "fn:trap");
     }
 
     if (g.uses_eh == 1) {   // Itanium EH runtime (declared once, only when used)
