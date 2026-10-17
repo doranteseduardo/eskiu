@@ -690,7 +690,8 @@ bool Repl::initJit() {
     llvm::orc::LLJITBuilder builder;
     builder.setJITTargetMachineBuilder(std::move(*jtmb));
 #if defined(_WIN32)
-    builder.setObjectLinkingLayerCreator([](llvm::orc::ExecutionSession& es)
+    // Variadic: LLVM 23 also passes the JITLink memory manager, which RuntimeDyld ignores.
+    builder.setObjectLinkingLayerCreator([](llvm::orc::ExecutionSession& es, auto&&...)
             -> llvm::Expected<std::unique_ptr<llvm::orc::ObjectLayer>> {
         auto layer = std::make_unique<llvm::orc::RTDyldObjectLinkingLayer>(
             es, [](const llvm::MemoryBuffer&) { return std::make_unique<SehMemoryManager>(); });
