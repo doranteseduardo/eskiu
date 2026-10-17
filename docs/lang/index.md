@@ -97,7 +97,7 @@ postfix     f() a[i] a.b ++ -- ?
 | `--link-arg=ARG`            | Pass an extra argument to the linker            |
 | `--no-default-libs`         | Link only the `-l` libraries given (no `#pragma link`, no implied runtimes) |
 | `eskiuc run file.esk [-- args]` | Compile to a temp executable and run it     |
-| `eskiuc fmt [--check] file.esk` | Reindent source in place                    |
+| `eskiuc fmt [--check] file.esk` | Format source in place                      |
 | `-Wall` / `-Wextra`         | Lint warnings / signed-unsigned comparison warnings |
 | `--asan` / `--ubsan`        | AddressSanitizer / trapping bounds checks       |
 | `--safe`                    | Runtime index and slice bounds checks (trap on violation) |

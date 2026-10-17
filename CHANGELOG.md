@@ -62,6 +62,11 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   affected; it imports `<mem>`, `<io>` and `<math>` and repeats their spellings, so it
   combines with every stdlib module.
 
+- `eskiuc fmt` lays code out: one statement per line (`if (a) { return 1; }` takes three
+  lines), one blank between tokens and around assignment, comparison and logical
+  operators, continuation lines indented relative to their statement, a blank line after
+  each top-level definition. Only blanks and line breaks change, so tokens and behavior
+  do not (both compilers, same output).
 - Editor tooling: `--references-at LINE:COL` lists every place in the file that names
   the symbol under the cursor (`FILE:LINE:COL:WIDTH`), and the VS Code extension and the
   LSP server use it for Find References and Rename. A struct literal's field names count
