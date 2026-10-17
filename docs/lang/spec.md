@@ -96,6 +96,18 @@ sizeof  free_closure  union  enum
 0xFF    0x0F    0xDEAD    0xBEEF
 ```
 
+**Integer binary literals** are prefixed with `0b` (or `0B`) followed by `0` and `1` digits:
+
+```eskiu
+0b1011    0B1000_0001    0b0
+```
+
+**Digit separators.** A `_` between two digits is ignored, in every kind of numeric
+literal: `1_000_000`, `0xFF_FF`, `0b1111_0000`, `1_234.5`, `1e1_0`. One more `_` may follow
+the `0x`/`0b` prefix (`0x_FF`). A `_` that does not sit between two digits (`1__0`, `1_`)
+is a lexical error, and so is a digit other than `0` or `1` in a binary literal. The same
+forms work in a `#if` expression.
+
 **Negative numeric literals** are written with a leading `-`:
 
 ```eskiu

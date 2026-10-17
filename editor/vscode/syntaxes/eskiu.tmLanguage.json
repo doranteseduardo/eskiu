@@ -85,15 +85,19 @@
       "patterns": [
         {
           "name": "constant.numeric.hex.eskiu",
-          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+          "match": "\\b0[xX]_?[0-9a-fA-F]+(_[0-9a-fA-F]+)*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.eskiu",
+          "match": "\\b0[bB]_?[01]+(_[01]+)*\\b"
         },
         {
           "name": "constant.numeric.float.eskiu",
-          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b|(?<![\\w.])\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+          "match": "\\b[0-9]+(_[0-9]+)*\\.[0-9]+(_[0-9]+)*([eE][+-]?[0-9]+(_[0-9]+)*)?\\b|\\b[0-9]+(_[0-9]+)*[eE][+-]?[0-9]+(_[0-9]+)*\\b|(?<![\\w.])\\.[0-9]+(_[0-9]+)*([eE][+-]?[0-9]+)?\\b"
         },
         {
           "name": "constant.numeric.integer.eskiu",
-          "match": "\\b[0-9]+\\b"
+          "match": "\\b[0-9]+(_[0-9]+)*\\b"
         }
       ]
     },
