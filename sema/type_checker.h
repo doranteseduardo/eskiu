@@ -380,6 +380,10 @@ private:
     // True while checking the body of an `async fn` — gates `await`.
     bool inAsyncFn = false;
     void checkVariadicArg(Expr* call, Expr* arg, size_t i);
+    // -Wformat: a literal format string of a printf-style function against its arguments
+    // (`args` are the call's arguments, `fmtIndex` the format's position among them).
+    void checkFormatCall(Expr* call, const std::string& fn, const std::vector<ExprPtr>& args, int shift);
+    int formatArgClass(Expr* arg);
     // `finally` blocks enclosing the current point (a `return` or an `await` may not
     // leave or suspend one).
     int finallyDepth = 0;

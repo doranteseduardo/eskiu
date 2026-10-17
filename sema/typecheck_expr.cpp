@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <set>
+#include <cstring>
+#include <cctype>
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
 // are shared with codegen; see template_utils.h.
@@ -1034,6 +1036,7 @@ void TypeChecker::visit(CallExpr* node) {
                     checkVariadicArg(node, node->args[i].get(), i);
                 }
             }
+            checkFormatCall(node, mangled, node->args, 1);
             expressionTypes[node] = sig.first;
             return;
         }
@@ -1320,6 +1323,7 @@ void TypeChecker::visit(CallExpr* node) {
         }
     }
 
+    if (isVariadic) checkFormatCall(node, funcName, node->args, 0);
     expressionTypes[node] = sig.first;
 }
 
@@ -1395,6 +1399,105 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     }
     expressionTypes[node] = genericCallRet(fd, subs);
     return true;
+}
+
+// The argument classes a printf conversion can take, after C's default promotions.
+enum { FmtI32 = 1, FmtI64, FmtFloat, FmtStr, FmtPtr, FmtOther };
+
+int TypeChecker::formatArgClass(Expr* arg) {
+    if (auto* l = dynamic_cast<LiteralExpr*>(arg); l && l->kind == LiteralExpr::Kind::NULL_VAL) return FmtPtr;
+    std::string t = normalizeType(tyq::strip(getExpressionType(arg)));
+    if (!t.empty() && t[0] == '?') t = t.substr(1);
+    static const std::set<std::string> i32 = {"bool", "char", "int8", "uint8", "int16", "uint16",
+                                              "int", "int32", "uint", "uint32"};
+    if (i32.count(t)) return FmtI32;
+    if (t == "int64" || t == "uint64") return FmtI64;
+    if (t == "float" || t == "double") return FmtFloat;
+    if (t == "string") return FmtStr;
+    if (isPointerType(t)) {
+        std::string pt = tyq::strip(normalizeType(getPointeeType(t)));
+        if (pt == "char" || pt == "uint8" || pt == "int8") return FmtStr;
+        return FmtPtr;
+    }
+    return FmtOther;
+}
+
+// printf-style functions: the format argument's index among the call's arguments.
+static int formatIndexOf(const std::string& fn) {
+    static const std::map<std::string, int> table = {
+        {"printf", 0}, {"fprintf", 1}, {"dprintf", 1}, {"sprintf", 1}, {"snprintf", 2},
+        {"String_format", 1}, {"String_appendf", 1}, {"log_at", 1}, {"log_trace", 0},
+        {"log_debug", 0}, {"log_info", 0}, {"log_warn", 0}, {"log_error", 0}};
+    auto it = table.find(fn);
+    return it == table.end() ? -1 : it->second;
+}
+
+void TypeChecker::checkFormatCall(Expr* call, const std::string& fn, const std::vector<ExprPtr>& args, int shift) {
+    int fi = formatIndexOf(fn);
+    if (fi < 0) return;
+    fi -= shift;
+    if (fi < 0 || fi >= (int)args.size()) return;
+    auto* lit = dynamic_cast<LiteralExpr*>(args[fi].get());
+    if (!lit || lit->kind != LiteralExpr::Kind::STRING) return;
+    bool win = targetTriple.empty()
+#ifdef _WIN32
+        ? true
+#else
+        ? false
+#endif
+        : (targetTriple.find("windows") != std::string::npos || targetTriple.find("mingw") != std::string::npos ||
+           targetTriple.find("win32") != std::string::npos);
+    const std::string& f = lit->value;
+    size_t next = fi + 1;
+    auto need = [&](int cls, const std::string& conv) {
+        if (next >= args.size()) { ++next; return; }
+        Expr* a = args[next].get();
+        int got = formatArgClass(a);
+        ++next;
+        if (got == cls || (cls == FmtPtr && got == FmtStr)) return;
+        std::string at = normalizeType(getExpressionType(a));
+        if (at == "unknown" || at == "void") return;   // already an error
+        static const char* what[] = {"", "an int", "a 64-bit integer", "a double", "a string", "a pointer", ""};
+        noteWarning("format", call->line, call->col,
+                    "format '" + conv + "' expects " + what[cls] + ", but argument " + std::to_string(next + shift) +
+                    " has type '" + displayType(getExpressionType(a)) + "'");
+    };
+    for (size_t i = 0; i < f.size(); ++i) {
+        if (f[i] != '%') continue;
+        size_t st = i++;
+        if (i < f.size() && f[i] == '%') continue;
+        while (i < f.size() && std::strchr("-+ #0'", f[i])) ++i;
+        if (i < f.size() && f[i] == '*') { need(FmtI32, "*"); ++i; }
+        else while (i < f.size() && std::isdigit((unsigned char)f[i])) ++i;
+        if (i < f.size() && f[i] == '.') {
+            ++i;
+            if (i < f.size() && f[i] == '*') { need(FmtI32, ".*"); ++i; }
+            else while (i < f.size() && std::isdigit((unsigned char)f[i])) ++i;
+        }
+        std::string len;
+        while (i < f.size() && std::strchr("hlLqjzt", f[i])) len += f[i++];
+        if (i >= f.size()) {
+            noteWarning("format", call->line, call->col, "incomplete conversion '" + f.substr(st) + "' at the end of the format string");
+            break;
+        }
+        char c = f[i];
+        std::string conv = f.substr(st, i - st + 1);
+        bool wide = len == "ll" || len == "j" || len == "z" || len == "t" || len == "q" || (len == "l" && !win);
+        if (std::strchr("diouxXc", c)) need(c == 'c' ? FmtI32 : (wide ? FmtI64 : FmtI32), conv);
+        else if (std::strchr("fFeEgGaA", c)) need(FmtFloat, conv);
+        else if (c == 's') need(FmtStr, conv);
+        else if (c == 'p' || c == 'n') need(FmtPtr, conv);
+        else {
+            noteWarning("format", call->line, call->col, "unknown conversion '" + conv + "' in the format string");
+            return;
+        }
+    }
+    if (next > args.size())
+        noteWarning("format", call->line, call->col, "the format string needs " + std::to_string(next - fi - 1) +
+                    " argument(s), but " + std::to_string(args.size() - fi - 1) + " are given");
+    else if (next < args.size())
+        noteWarning("format", call->line, call->col, "the format string uses " + std::to_string(next - fi - 1) +
+                    " argument(s), but " + std::to_string(args.size() - fi - 1) + " are given");
 }
 
 // An argument passed through `...` must have a value: a `void` call has none.
