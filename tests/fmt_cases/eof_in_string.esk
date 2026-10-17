@@ -1,0 +1,3 @@
+// A file that ends inside a string keeps its last line once: no blank line is added.
+int main() {
+    string s = "never closed;

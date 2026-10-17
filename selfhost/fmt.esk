@@ -779,6 +779,10 @@ String format_source(*uint8 src, int n) {
         }
 
         int rlen = (int)String_len(&raw);
+        // The text after the final newline is a line only when it is not empty (C++).
+        if (done == 1 && rlen == 0 && n > 0 && src[n - 1] == 10) {
+            continue;
+        }
         *uint8 rb = (*uint8)String_cstr(&raw);
         int cont = prevCont;
         int shebang = 0;

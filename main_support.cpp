@@ -429,6 +429,9 @@ std::string formatSource(const std::string& src) {
           lines.push_back(cur); cur.clear();
       }
       lines.push_back(cur); }
+    // The text after the final newline is a line only when it is not empty: a file
+    // ending inside a string or comment would otherwise gain a blank line on each run.
+    if (lines.size() > 1 && lines.back().empty()) lines.pop_back();
 
     auto rtrim = [](const std::string& s) {
         size_t b = s.find_last_not_of(" \t");
