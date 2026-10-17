@@ -605,8 +605,10 @@ std::string formatSource(const std::string& src) {
                         (last != 0 && last != ';' && last != '{' && last != '}' && last != ':'));
         bool listItem = last == ',' && layout.paren == 0;
         std::vector<std::string> pieces = fmtLayoutLine(layout, t, last);
+        bool sepPiece = false;    // the previous piece of this line closed a top-level block
         for (size_t pi = 0; pi < pieces.size(); ++pi) {
             std::string piece = pieces[pi];
+            if (sepPiece && piece[0] != '}') out += eol;   // as for a definition ending a line
             int ind;
             if (pi == 0 && contLine) {
                 int diff = (int)a - stmtOrig;
@@ -624,6 +626,7 @@ std::string formatSource(const std::string& src) {
             if (!inStr) piece = rtrim(piece);    // trailing blanks inside an open string are its bytes
             out.append((size_t)ind, ' ');
             out += piece; out += eol;
+            sepPiece = depth == 0 && piece[0] == '}';
         }
         sepNext = depth == 0 && pieces.back()[0] == '}';
     }

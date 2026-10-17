@@ -1020,6 +1020,7 @@ String format_source(*uint8 src, int n) {
             List_push<string>(&pieces, "");
         }
         int pi = 0;
+        int sepPiece = 0;   // the previous piece of this line closed a top-level block
         while (pi < List_len<string>(&pieces)) {
             *uint8 pb = (*uint8)List_get<string>(&pieces, pi);
             int plen = 0;
@@ -1029,6 +1030,9 @@ String format_source(*uint8 src, int n) {
             if (has_nul == 1) {
                 pb = tb;
                 plen = tlen;
+            }
+            if (sepPiece == 1 && pb[0] != 125) {   // as for a definition ending a line
+                fmt_eol(&out, crlf);
             }
             int ind = 0;
             if (pi == 0 && contLine == 1) {
@@ -1078,6 +1082,10 @@ String format_source(*uint8 src, int n) {
                 a = a + 1;
             }
             fmt_eol(&out, crlf);
+            sepPiece = 0;
+            if (depth == 0 && pb[0] == 125) {
+                sepPiece = 1;
+            }
             pi = pi + 1;
         }
         int np = List_len<string>(&pieces);
