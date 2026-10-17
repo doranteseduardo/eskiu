@@ -1022,6 +1022,7 @@ void TypeChecker::completeMembers(const std::string& recvType) {
     while (rt.isPointer() && rt.pointee) { ty::Type inner = *rt.pointee; rt = inner; }
     if (rt.isTemplate()) nb = ty::Type::parse(normalizeType(rt.str())).nominalName();
     if (nb.rfind("struct:", 0) == 0) nb = nb.substr(7);
+    if (nb.rfind("interface:", 0) == 0) nb = nb.substr(10);   // an interface value's methods
     std::set<std::string> seen;
     auto add = [&](const std::string& kind, const std::string& name, const std::string& detail) {
         if (name.empty() || name[0] == '_' || !seen.insert(name).second) return;

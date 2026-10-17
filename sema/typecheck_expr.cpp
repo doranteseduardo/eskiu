@@ -968,6 +968,12 @@ void TypeChecker::visit(CallExpr* node) {
     // Method call: callee is MemberExpr (e.g. p.distance(q))
     if (auto member = dynamic_cast<MemberExpr*>(node->callee.get())) {
         member->base->accept(this);
+        if (member->member == kCompleteSentinel) {         // --complete-at on `recv.` of a call
+            if (!completionDone) { completeMembers(getExpressionType(member->base.get())); completionDone = true; }
+            for (auto& a : node->args) a->accept(this);
+            expressionTypes[node] = "unknown";
+            return;
+        }
         // A method call dereferences its receiver: a `?*T` must be null-checked first.
         checkNullableDeref(member->base.get(), "access a member of");
         // Dot syntax dereferences at most one pointer level.
