@@ -1108,6 +1108,14 @@ void TypeChecker::noteDeprecatedUse(const std::string& fn, int line, int col) {
     warning(line, col, "'" + fn + "' is deprecated" + msg);
 }
 
+void TypeChecker::noteWarning(const std::string& name, int line, int col, const std::string& message) {
+    if (!warnDefaults || line <= 0 || disabledWarnings.count(name)) return;
+    if (auto* d = dynamic_cast<Decl*>(posCtx); d && d->fromImport) return;
+    if (inInstance) return;
+    if (!deprecatedWarned().insert(diagFile() + ":" + std::to_string(line) + ":" + std::to_string(col) + ":" + name).second) return;
+    warning(line, col, message + " [-W" + name + "]");
+}
+
 void TypeChecker::warnAssignInCondition(Expr* cond) {
     if (!warnAll) return;
     if (auto* b = dynamic_cast<BinaryExpr*>(cond); b && b->op == "=")

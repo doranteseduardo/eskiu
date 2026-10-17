@@ -276,6 +276,25 @@ void TypeChecker::visit(ReturnStmt* node) {
                 if (!root.empty())
                     errorAt(node, "returning the address of local '" + root + "' (dangling pointer)");
             }
+            if (auto* id = dynamic_cast<IdentExpr*>(v)) {
+                auto it = localAddrHolders.find(localAddrKey(id->name));
+                const Symbol* sym = findSymbol(id->name);
+                if (it != localAddrHolders.end() && !it->second.empty() && sym && !sym->addrTaken &&
+                    captureBoundary.empty())
+                    noteWarning("dangling-pointer", node->line, node->col,
+                                "returning '" + id->name + "', which holds the address of local '" +
+                                it->second + "' (dangling pointer)");
+            }
+            if (auto* sl = dynamic_cast<StructInitExpr*>(v)) {
+                for (const auto& fv : sl->fieldInits)
+                    if (auto* u = dynamic_cast<UnaryExpr*>(fv.second.get()); u && u->op == "&") {
+                        std::string root = localStorageRoot(u->operand.get());
+                        if (!root.empty())
+                            noteWarning("dangling-pointer", node->line, node->col,
+                                        "returning a struct that holds the address of local '" + root +
+                                        "' (dangling pointer)");
+                    }
+            }
             if (auto* ix = dynamic_cast<IndexExpr*>(v);
                 ix && ix->highIndex && ty::Type::parse(getExpressionType(ix->base.get())).kind == ty::Type::Kind::Array) {
                 std::string root = localStorageRoot(ix->base.get());
@@ -299,6 +318,28 @@ void TypeChecker::visit(ReturnStmt* node) {
 // The local (or parameter) whose own storage `e` denotes: a variable, or a field / element
 // of a value (not one reached through a pointer). "" for anything else, a global, or a
 // `static` local.
+std::string TypeChecker::localAddrKey(const std::string& name) {
+    return std::to_string(scopeOf(name)) + ":" + name;
+}
+
+// Record what `name = rhs` stores for -Wdangling-pointer: the address of a local (also
+// `p + k` / `p - k` of the same holder), or anything else, which clears the holder.
+void TypeChecker::trackLocalAddr(const std::string& name, Expr* rhs) {
+    if (scopeOf(name) < 1) return;
+    std::string key = localAddrKey(name);
+    if (auto* u = dynamic_cast<UnaryExpr*>(rhs); u && u->op == "&") {
+        std::string root = localStorageRoot(u->operand.get());
+        auto it = localAddrHolders.find(key);
+        if (!root.empty() && (it == localAddrHolders.end() || !it->second.empty())) {
+            localAddrHolders[key] = root;
+            return;
+        }
+    }
+    if (auto* b = dynamic_cast<BinaryExpr*>(rhs); b && (b->op == "+" || b->op == "-"))
+        if (auto* l = dynamic_cast<IdentExpr*>(b->left.get()); l && l->name == name) return;
+    localAddrHolders[key] = "";
+}
+
 std::string TypeChecker::localStorageRoot(Expr* e) {
     while (e) {
         if (auto* id = dynamic_cast<IdentExpr*>(e)) {

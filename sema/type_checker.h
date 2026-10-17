@@ -107,6 +107,15 @@ public:
     bool warnAll = false;
     // A use of a `deprecated` function warns unless -Wno-deprecated.
     bool warnDeprecated = true;
+    // Warnings on by default (each silenced by -Wno-<name>): string-compare,
+    // address-of-packed-member, dangling-pointer, frame-larger-than, format. Off for
+    // the internal re-checks (after the async lowering, editor queries).
+    bool warnDefaults = true;
+    std::set<std::string> disabledWarnings;
+    void noteWarning(const std::string& name, int line, int col, const std::string& message);
+    // A local over this many bytes warns (-Wframe-larger-than): thread stacks are
+    // 512 KiB to 8 MiB.
+    static constexpr unsigned long long kLargeLocalBytes = 1ull << 20;
     std::map<std::string, std::string> deprecatedFuncs;   // name -> message
     // Uses already reported: the checker runs again after the async lowering.
     static std::set<std::string>& deprecatedWarned() { static std::set<std::string> s; return s; }
@@ -191,6 +200,13 @@ private:
 
     // The symbol `name` resolves to in the current scopes (innermost first), or null.
     const Symbol* findSymbol(const std::string& name) const;
+    // -Wdangling-pointer: for a local pointer variable ("scope:name"), the local whose
+    // address every assignment so far stored in it ("" once anything else was stored).
+    std::map<std::string, std::string> localAddrHolders;
+    std::string localAddrFn;   // the function those holders belong to
+    std::string localAddrKey(const std::string& name);
+    void trackLocalAddr(const std::string& name, Expr* rhs);
+    void warnPackedAddress(UnaryExpr* node);
     // If assigning to `lhs` would mutate a `const` value in place (the binding
     // itself, or a field/element of a const aggregate), returns true and sets
     // `nameOut` to the constant's name. Stops at pointer dereferences: writing

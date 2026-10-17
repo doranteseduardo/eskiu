@@ -122,6 +122,19 @@ void TypeChecker::checkCapturedMethodCall(ASTNode* at, MemberExpr* member) {
             if (!keeps) narrowedNonNull.erase(narrowKey(id->name));
         }
     }
+    if (auto* id = dynamic_cast<IdentExpr*>(node->left.get())) {
+        trackLocalAddr(id->name, node->right.get());
+        // -Wall: storing a local's address in a global leaves it dangling once the
+        // function returns (main's locals outlive every use).
+        if (auto* u = dynamic_cast<UnaryExpr*>(node->right.get());
+            warnAll && u && u->op == "&" && scopeOf(id->name) == 0 && localAddrFn != "main") {
+            std::string root = localStorageRoot(u->operand.get());
+            if (!root.empty())
+                warning(node->line, node->col,
+                        "storing the address of local '" + root + "' in global '" + id->name +
+                        "' (it dangles once the function returns)");
+        }
+    }
     std::string rt = getExpressionType(node->right.get());
     if (dropsConstQual(lt, rt))
         errorAt(node, "assignment discards a const qualifier ('" + rt + "' to '" + lt + "')");
@@ -223,6 +236,18 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
         if ((isUns(l) && isSgn(r)) || (isSgn(l) && isUns(r)))
             warning(node->line, node->col, "comparison between signed and unsigned integers ('" +
                     leftType + "' and '" + rightType + "')");
+    }
+
+    // `s == "abc"` compares two addresses: equal text in two places compares unequal.
+    if (node->op == "==" || node->op == "!=") {
+        auto isStrLit = [](Expr* e) {
+            auto* l = dynamic_cast<LiteralExpr*>(e);
+            return l && l->kind == LiteralExpr::Kind::STRING;
+        };
+        if (isStrLit(node->left.get()) || isStrLit(node->right.get()))
+            noteWarning("string-compare", node->line, node->col,
+                        "comparison with a string literal compares addresses, not text; use strcmp(a, b) " +
+                        node->op + " 0");
     }
 
     // Division or remainder by a literal zero is a guaranteed runtime trap; reject
@@ -694,6 +719,34 @@ void TypeChecker::checkNullableDeref(Expr* operand, const char* how) {
                      "'; check it first (e.g. `if (x != null)`)");
 }
 
+// `&s.f` (or `&s.a[i]`) where `f` is aligned below its type's alignment by the packing
+// of `s`'s struct gives a pointer the target may not load through (strict-alignment
+// CPUs fault on it, as clang -Waddress-of-packed-member warns).
+void TypeChecker::warnPackedAddress(UnaryExpr* node) {
+    Expr* e = node->operand.get();
+    while (auto* ix = dynamic_cast<IndexExpr*>(e)) {
+        if (ix->highIndex || ty::Type::parse(getExpressionType(ix->base.get())).kind != ty::Type::Kind::Array) return;
+        e = ix->base.get();
+    }
+    auto* m = dynamic_cast<MemberExpr*>(e);
+    if (!m) return;
+    std::string bt = ty::Type::parse(normalizeType(tyq::strip(getExpressionType(m->base.get())))).nominalName();
+    auto sit = structs.find(bt);
+    if (sit == structs.end() || sit->second.packAlign <= 0) return;
+    for (const auto& f : sit->second.fields) {
+        if (f.name != m->member) continue;
+        std::string ft = getExpressionType(node->operand.get());
+        unsigned long long size = 0, align = 0;
+        if (!constLayout(normalizeType(ft), size, align)) return;
+        if (align > (unsigned long long)sit->second.packAlign)
+            noteWarning("address-of-packed-member", node->line, node->col,
+                        "taking the address of packed member '" + m->member + "' of '" +
+                        displayType(tyq::strip(getExpressionType(m->base.get()))) +
+                        "' may give an unaligned pointer");
+        return;
+    }
+}
+
 void TypeChecker::visit(UnaryExpr* node) {
     node->operand->accept(this);
     std::string operandType = getExpressionType(node->operand.get());
@@ -709,6 +762,7 @@ void TypeChecker::visit(UnaryExpr* node) {
                     if (f.name == m->member && f.bitWidth > 0)
                         errorAt(node, "cannot take the address of bitfield '" + m->member + "'");
         }
+    if (node->op == "&") warnPackedAddress(node);
     // `&p` of a narrowed `?*T` is a `*?*T` (a write through it may store null), so the
     // narrowing ends here and the address carries the declared nullable type.
     if (node->op == "&")

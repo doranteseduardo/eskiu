@@ -1124,9 +1124,13 @@ std::string TypeChecker::normalizeType(const std::string& rawType) {
                     subs[tp[i]] = args[i];
                 StructInfo info;
                 info.name = mangled;
-                for (const auto& f : templ->second->fields)
-                    info.fields.push_back({substType(f.type, subs), f.name});
+                for (const auto& f : templ->second->fields) {
+                    StructDecl::Field inst = f;   // keeps the bit width and position
+                    inst.type = substType(f.type, subs);
+                    info.fields.push_back(inst);
+                }
                 info.pads = templ->second->pads;
+                info.packAlign = templ->second->isPacked ? 1 : templ->second->packAlign;
                 structs[mangled] = info;
                 // Inline methods of a generic struct become `Box_int_get(*Box_int self, ...)`
                 // per instance. Like codegen, which emits one on its first call, a method's

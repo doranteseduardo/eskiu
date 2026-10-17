@@ -287,6 +287,8 @@ void TypeChecker::checkTypeParams(ASTNode* at, const std::string& owner, const s
 }
 
 void TypeChecker::visit(FunctionDecl* node) {
+    localAddrHolders.clear();
+    localAddrFn = node->name;
     if (!inInstance) {
         checkTypeParams(node, fnDisplay(node->name), node->typeParams);
         // `must_use` asks the caller to use a result; a void function has none.
@@ -1237,6 +1239,17 @@ void TypeChecker::visit(VarDecl* node) {
         scopes.back()[node->name].constInit = node->initializer.get();
     }
     if (node->isStatic && !scopes.empty()) scopes.back()[node->name].isStatic = true;
+    if (scopes.size() > 1 && !node->isStatic && !node->isExtern) {
+        localAddrHolders.erase(localAddrKey(node->name));
+        if (node->initializer) trackLocalAddr(node->name, node->initializer.get());
+        // A local this large overflows a thread's stack (an async function's locals
+        // live in its heap frame).
+        unsigned long long size = 0, align = 0;
+        if (!inAsyncFn && constLayout(normalizedType, size, align) && size > kLargeLocalBytes)
+            noteWarning("frame-larger-than", node->line, node->col,
+                        "local '" + node->name + "' takes " + std::to_string(size) +
+                        " bytes of stack; a thread's stack is 512 KiB to 8 MiB, so allocate it with alloc<T> or make it static");
+    }
 }
 
 void TypeChecker::visit(StructDecl* node) {

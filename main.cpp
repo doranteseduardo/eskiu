@@ -105,6 +105,26 @@ static llvm::cl::opt<bool> WnoDeprecated("Wno-deprecated",
     llvm::cl::desc("Do not warn when a deprecated function is used"),
     llvm::cl::cat(EskiuCat));
 
+static llvm::cl::opt<bool> WnoStringCompare("Wno-string-compare",
+    llvm::cl::desc("Do not warn on == / != against a string literal"), llvm::cl::cat(EskiuCat));
+static llvm::cl::opt<bool> WnoPackedAddress("Wno-address-of-packed-member",
+    llvm::cl::desc("Do not warn on the address of a packed struct member"), llvm::cl::cat(EskiuCat));
+static llvm::cl::opt<bool> WnoDangling("Wno-dangling-pointer",
+    llvm::cl::desc("Do not warn when a local's address escapes"), llvm::cl::cat(EskiuCat));
+static llvm::cl::opt<bool> WnoFrame("Wno-frame-larger-than",
+    llvm::cl::desc("Do not warn on a local larger than 1 MiB"), llvm::cl::cat(EskiuCat));
+static llvm::cl::opt<bool> WnoFormat("Wno-format",
+    llvm::cl::desc("Do not check printf-style format strings against their arguments"), llvm::cl::cat(EskiuCat));
+
+// The -Wno-<name> flags of the warnings that are on by default.
+static void applyWarningFlags(TypeChecker& tc) {
+    if (WnoStringCompare) tc.disabledWarnings.insert("string-compare");
+    if (WnoPackedAddress) tc.disabledWarnings.insert("address-of-packed-member");
+    if (WnoDangling) tc.disabledWarnings.insert("dangling-pointer");
+    if (WnoFrame) tc.disabledWarnings.insert("frame-larger-than");
+    if (WnoFormat) tc.disabledWarnings.insert("format");
+}
+
 static llvm::cl::opt<bool> Wall("Wall",
     llvm::cl::desc("Enable lint-style warnings: unused variables, parameters, "
                    "and functions, assignment used as a condition, and locals "
@@ -236,6 +256,7 @@ static int testTypeChecker(const std::string& filename) {
         typeChecker.warnAll = Wall;
         typeChecker.warnDeprecated = !WnoDeprecated;
         typeChecker.warnExtra = Wextra;
+        applyWarningFlags(typeChecker);
         bool success = typeChecker.check(program.get());
 
         std::cout << "========================================================" << std::endl;
@@ -267,14 +288,14 @@ static int testCodegen(const std::string& filename) {
         // Type-check first: the async transform relies on resolved await types,
         // and codegen on the type checker's struct/enum registration.
         TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = !WnoDeprecated;
-        tc.sourceFile = filename;
+        tc.sourceFile = filename; applyWarningFlags(tc);
         if (!tc.check(program.get())) {
             std::cerr << "Type checking failed!" << std::endl;
             return 1;
         }
         AsyncTransform(&tc.expressionTypeMap(), &tc.instanceArgsMap(), &tc.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.sourceFile = filename;
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.warnDefaults = false; postTc.sourceFile = filename;
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;
@@ -456,7 +477,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false; tc.warnDefaults = false;
             tc.sourceFile = std::string(InputFilename);
             bool ok = tc.check(program.get());
             std::string type = tc.getTypeAtPosition(line, col);
@@ -487,7 +508,7 @@ static int compilerMain(int argc, char** argv) {
         auto program = loadProgram(allInputs(), std::string(TargetTriple), Freestanding);
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false; tc.warnDefaults = false;
             tc.sourceFile = std::string(InputFilename);
             bool ok = tc.check(program.get());
             std::string loc = tc.getDefinitionAt(line, col);
@@ -577,7 +598,7 @@ static int compilerMain(int argc, char** argv) {
         }
         if (!program) { std::cout << "(parse error)\n"; return 0; }
         try {
-            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false;
+            TypeChecker tc; tc.targetTriple = std::string(TargetTriple); tc.warnDeprecated = false; tc.warnDefaults = false;
             tc.sourceFile = std::string(InputFilename);
             tc.check(program.get());
             for (const auto& c : tc.completions)
@@ -660,13 +681,14 @@ static int compilerMain(int argc, char** argv) {
         typeChecker.warnAll = Wall;
         typeChecker.warnDeprecated = !WnoDeprecated;
         typeChecker.warnExtra = Wextra;
+        applyWarningFlags(typeChecker);
         if (!typeChecker.check(program.get())) {
             return 1;
         }
 
         AsyncTransform(&typeChecker.expressionTypeMap(), &typeChecker.instanceArgsMap(), &typeChecker.instanceExprTypeMap()).run(program.get());
         // Single resolver: re-resolve the post-transform AST; codegen consumes it.
-        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.sourceFile = std::string(InputFilename);
+        TypeChecker postTc; postTc.targetTriple = std::string(TargetTriple); postTc.warnDeprecated = false; postTc.warnDefaults = false; postTc.sourceFile = std::string(InputFilename);
         if (!postTc.check(program.get())) {
             std::cerr << "error: internal: the async lowering produced a program that does not type-check" << std::endl;
             return 1;
