@@ -1,0 +1,5 @@
+// EXPECT-ERROR: 4:16: undefined variable 'later'
+// A script statement cannot name a global declared after it (as a function cannot).
+extern int printf(string f, ...);
+printf("%d\n", later);
+int later = 5;

@@ -1965,6 +1965,11 @@ void TypeChecker::visit(IdentExpr* node) {
         escapedLambdaLocals.insert(node->name);
 
     std::string type = lookupSymbol(node->name);
+    if (!type.empty() && !scriptGlobalPos.empty() && scopeOf(node->name) == 0) {
+        // A script's statement before the declaration of one of its globals.
+        auto sp = scriptGlobalPos.find(node->name);
+        if (sp != scriptGlobalPos.end() && sp->second > std::make_pair(node->line, node->col)) type.clear();
+    }
     if (type.empty() && enumConstants.count(node->name)) {
         // Bare enum member, e.g. `Red` — an int constant.
         expressionTypes[node] = "int";

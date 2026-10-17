@@ -1416,7 +1416,23 @@ int sema_check(Sema* s, *Program prog) {
             if (List_len<TypeParam>(&d.type_params) == 0 && d.from_import == 0 && sema_streq(d.name, "main") == 0) {
                 sema_def_fn(s, d);
             }
+            if (sema_streq(d.name, "main") == 1 && List_len<Param>(&d.params) > 0
+                && sema_streq(List_get<Param>(&d.params, 0).name, "__argc") == 1) {
+                s.in_script = 1;
+                int gk = 0;
+                while (gk < n) {
+                    *DeclNode gv = List_get<*DeclNode>(&prog.decls, gk);
+                    gk = gk + 1;
+                    if (gv.kind == DK_VARDECL && gv.from_import == 0 && gv.file != null && d.file != null && sema_streq(gv.file, d.file) == 1
+                        && sema_streq(gv.name, "argc") == 0 && sema_streq(gv.name, "argv") == 0
+                        && StrTab_has(&s.script_lines, gv.name) == 0) {
+                        StrTab_set(&s.script_lines, gv.name, gv.line);
+                        StrTab_set(&s.script_cols, gv.name, gv.col);
+                    }
+                }
+            }
             sema_check_fn(s, d, "");
+            s.in_script = 0;
         }
         // A global's initializer runs at compile time (no code runs before `main`), so it
         // must be a constant expression, as in C.

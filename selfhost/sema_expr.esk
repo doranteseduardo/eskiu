@@ -1344,7 +1344,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         // va_start/va_end are variadic-access builtins with no declaration (va_arg<T> is a
         // template call). Treat them as defined, matching the C++ checker.
         if ((sema_lookup(s, e.sval) == 0
-             || (sema_local_bound(s, e.sval) == 0 && StrTab_has(&s.late_globals, e.sval) == 1))
+             || (sema_local_bound(s, e.sval) == 0 && StrTab_has(&s.late_globals, e.sval) == 1)
+             || sema_script_late(s, e.sval, e.line, e.col) == 1)
             && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: undefined variable '%s'%s\n", s.filename, s.line, s.col, e.sval, sema_did_you_mean(s, e.sval, 0, ""));

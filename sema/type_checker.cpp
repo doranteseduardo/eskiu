@@ -236,7 +236,15 @@ bool TypeChecker::check(Program* program) {
     for (const auto& decl : program->declarations) {
         curFile = decl->sourceFile;
         posCtx = decl.get();
+        auto* sm = dynamic_cast<FunctionDecl*>(decl.get());
+        bool scriptMain = sm && sm->name == "main" && !sm->params.empty() && sm->params[0].second == "__argc";
+        if (scriptMain)
+            for (const auto& d : program->declarations)
+                if (auto* vd = dynamic_cast<VarDecl*>(d.get());
+                    vd && !vd->fromImport && vd->sourceFile == sm->sourceFile && vd->name != "argc" && vd->name != "argv")
+                    scriptGlobalPos.emplace(vd->name, std::make_pair(vd->line, vd->col));
         decl->accept(this);
+        scriptGlobalPos.clear();
     }
     posCtx = nullptr;
     curFile.clear();

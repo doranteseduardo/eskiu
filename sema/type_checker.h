@@ -258,6 +258,9 @@ private:
     std::unordered_map<std::string, std::vector<int>> scopeIndex;
     // Index of the innermost scope defining `name`, or -1.
     int scopeOf(const std::string& name) const;
+    // While the implicit main of a script is checked: its file's globals by name -> the
+    // position of their declaration, so a statement before it cannot name one.
+    std::map<std::string, std::pair<int, int>> scriptGlobalPos;
 
     // Struct registry: name -> StructInfo  (concrete structs only)
     std::map<std::string, StructInfo> structs;

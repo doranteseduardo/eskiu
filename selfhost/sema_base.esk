@@ -130,6 +130,9 @@ struct Sema {
     // Globals declared after the top-level declaration being checked: C declares a global
     // at its definition, so an earlier initializer or function body cannot name it.
     StrTab late_globals;   // a set: name -> 1
+    StrTab script_lines;   // while a script's implicit main is checked: its file's globals ->
+    StrTab script_cols;    // their declaration's line and column (mirrors the C++ scriptGlobalPos)
+    int in_script;
     int global_only;       // sema_sym_index sees only global bindings (folding a parameter default)
     StrTab pd_ix;          // sema_pdefs: function key -> index in pd_lists
     List<List<*ExprNode>> pd_lists;
@@ -1186,6 +1189,20 @@ string sema_lookup_type(Sema* s, string name) {
 // Is `name` bound in a local (non-global) scope? The innermost binding wins, so a
 // local shadow of a global function means a call should NOT be arg-count-checked
 // against the function signature (it could be a fn-pointer variable).
+// A script's statement before the declaration of one of its globals (mirrors the C++
+// check in visit(IdentExpr)).
+int sema_script_late(Sema* s, string name, int line, int col) {
+    if (s.in_script == 0 || sema_local_bound(s, name) == 1 || StrTab_has(&s.script_lines, name) == 0) {
+        return 0;
+    }
+    int dl = StrTab_get(&s.script_lines, name, 0);
+    int dc = StrTab_get(&s.script_cols, name, 0);
+    if (dl > line || (dl == line && dc > col)) {
+        return 1;
+    }
+    return 0;
+}
+
 int sema_local_bound(Sema* s, string name) {
     int i = sema_sym_index(s, name);
     if (i < 0) {
