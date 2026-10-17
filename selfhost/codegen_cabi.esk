@@ -1,0 +1,2577 @@
+// Part of codegen.esk (the C ABI of externs and the program entry), imported from it in order; compile codegen.esk, not this file alone.
+
+// ---- C ABI lowering for externs --------------------------------------------------------
+// An `extern` that takes or returns an aggregate (struct/union) by value is declared with
+// the target C signature and its calls convert the Eskiu-level values to and from it, like
+// the C++ codegen (codegen_cabi.cpp): AArch64 AAPCS64 (Darwin + Linux), x86-64 SysV, Windows
+// x64 and 32-bit ARM AAPCS (soft- and hard-float), for the --target triple (cg_set_target).
+
+// Byte offset of element `idx` of the struct body `{ … }` / `<{ … }>`.
+int cg_elem_offset(Codegen* g, string body, int idx) {
+    int pos = 0;
+    cg_ll_ws(body, &pos);
+    int pk = 0;
+    if ((int)body[pos] == 60) {
+        pk = 1;
+        pos = pos + 1;
+        cg_ll_ws(body, &pos);
+    }
+    if ((int)body[pos] != 123) {
+        return 0;
+    }
+    pos = pos + 1;
+    cg_ll_ws(body, &pos);
+    int off = 0;
+    int k = 0;
+    while (body[pos] != 0 && (int)body[pos] != 125) {
+        int fal = 1;
+        int fsz = cg_ll_layout(g, body, &pos, &fal);
+        if (pk == 1) {
+            fal = 1;
+        }
+        off = cg_align_up(off, fal);
+        if (k == idx) {
+            return off;
+        }
+        off = off + fsz;
+        k = k + 1;
+        cg_ll_ws(body, &pos);
+        if ((int)body[pos] == 44) {
+            pos = pos + 1;
+        }
+        cg_ll_ws(body, &pos);
+    }
+    return off;
+}
+
+// Push the scalar leaves (offset, type) of the LLVM type at s[*pos] placed at `base`;
+// returns its size (*al = its alignment). A union contributes every member's leaves.
+int cg_ll_leaves(Codegen* g, string s, int* pos, int base, List<CgLeaf>* out, int* al) {
+    cg_ll_ws(s, pos);
+    int c = (int)s[pos[0]];
+    int pk = 0;
+    if (c == 60 && (int)s[pos[0] + 1] == 123) {   // `<{`
+        pk = 1;
+        pos[0] = pos[0] + 1;
+        c = 123;
+    }
+    if (c == 123) {                                                      // struct fields
+        pos[0] = pos[0] + 1;
+        int off = 0;
+        int maxal = 1;
+        cg_ll_ws(s, pos);
+        while (s[pos[0]] != 0 && (int)s[pos[0]] != 125) {
+            int p1 = pos[0];
+            int fal = 1;
+            int fsz = cg_ll_layout(g, s, pos, &fal);
+            if (pk == 1) {
+                fal = 1;
+            }
+            if (fal > maxal) {
+                maxal = fal;
+            }
+            off = cg_align_up(off, fal);
+            int dal = 1;
+            cg_ll_leaves(g, s, &p1, base + off, out, &dal);
+            off = off + fsz;
+            cg_ll_ws(s, pos);
+            if ((int)s[pos[0]] == 44) {
+                pos[0] = pos[0] + 1;
+            }
+            cg_ll_ws(s, pos);
+        }
+        if (s[pos[0]] != 0) {
+            pos[0] = pos[0] + 1;
+        }
+        if (pk == 1) {
+            cg_ll_ws(s, pos);
+            if ((int)s[pos[0]] == 62) {
+                pos[0] = pos[0] + 1;
+            }
+            maxal = 1;
+        }
+        al[0] = maxal;
+        return cg_align_up(off, maxal);
+    }
+    if (c == 91) {                                                       // [N x T]
+        pos[0] = pos[0] + 1;
+        cg_ll_ws(s, pos);
+        int an = cg_ll_num(s, pos);
+        cg_ll_ws(s, pos);
+        cg_ll_kw(s, pos, "x");
+        int p1 = pos[0];
+        int eal = 1;
+        int esz = cg_ll_layout(g, s, pos, &eal);
+        int k = 0;
+        while (k < an) {
+            int p2 = p1;
+            int dal = 1;
+            cg_ll_leaves(g, s, &p2, base + k * esz, out, &dal);
+            k = k + 1;
+        }
+        cg_ll_ws(s, pos);
+        if ((int)s[pos[0]] == 93) {
+            pos[0] = pos[0] + 1;
+        }
+        al[0] = eal;
+        return an * esz;
+    }
+    if (c == 37) {                                                       // %name
+        int p1 = pos[0];
+        int sz = cg_ll_layout(g, s, pos, al);                            // ensures the body exists
+        string name = cg_sub_str(s, p1 + 1, pos[0]);
+        if (cg_is_union(g, name) == 1) {
+            CgStruct u = cg_find_struct(g, name);
+            int i = 0;
+            while (i < List_len<string>(&u.fetys)) {
+                string mt = cg_lltype(g, List_get<string>(&u.fetys, i));
+                int p2 = 0;
+                int dal = 1;
+                cg_ll_leaves(g, mt, &p2, base, out, &dal);
+                i = i + 1;
+            }
+            return sz;
+        }
+        // A C-layout bitfield struct: its fields, not its storage elements. Like clang, a
+        // bitfield counts as data from its first bit through its declared type's width;
+        // each such byte in the struct is an `i8` leaf (CodeGen::cabiLeaves).
+        int bi = 0;
+        int bfc = 0;
+        while (bi < List_len<CgBF>(&g.bitfields)) {
+            CgBF bs = List_get<CgBF>(&g.bitfields, bi);
+            if (cg_streq(bs.sname, name) == 1 && bs.boffs >= 0) {
+                bfc = 1;
+                if (bs.bw == 0) {
+                    string flt = cg_lltype(g, bs.fety);
+                    int fp = 0;
+                    int fal = 1;
+                    cg_ll_leaves(g, flt, &fp, base + bs.boffs, out, &fal);
+                } else {
+                    int first = bs.boffs * 8 + bs.boff;
+                    int bsw = cg_int_w(bs.sty);
+                    if (bsw < 8) {
+                        bsw = 8;
+                    }
+                    int last = first + bsw;
+                    int b = first / 8;
+                    while (b < (last + 7) / 8 && b < sz) {
+                        let bl: CgLeaf;
+                        bl.off = base + b;
+                        bl.ty = "i8";
+                        List_push<CgLeaf>(out, bl);
+                        b = b + 1;
+                    }
+                }
+            }
+            bi = bi + 1;
+        }
+        if (bfc == 1) {
+            return sz;
+        }
+        string body = cg_tydef_body(g, name);
+        // A struct laid out by hand (#pragma pack(N>=2), or holding one): its fields, not
+        // the padding runs between them (CodeGen::cabiLeaves).
+        int pfc = 0;
+        bi = 0;
+        while (bi < List_len<CgBF>(&g.bitfields)) {
+            CgBF ps = List_get<CgBF>(&g.bitfields, bi);
+            if (cg_streq(ps.sname, name) == 1) {
+                if (ps.bw > 0) {
+                    pfc = 2;
+                }
+                else if (pfc == 0) {
+                    pfc = 1;
+                }
+            }
+            bi = bi + 1;
+        }
+        if (pfc == 1) {
+            bi = 0;
+            while (bi < List_len<CgBF>(&g.bitfields)) {
+                CgBF ps = List_get<CgBF>(&g.bitfields, bi);
+                if (cg_streq(ps.sname, name) == 1) {
+                    string pft = cg_lltype(g, ps.fety);
+                    int pp = 0;
+                    int pal = 1;
+                    cg_ll_leaves(g, pft, &pp, base + cg_elem_offset(g, body, ps.fidx), out, &pal);
+                }
+                bi = bi + 1;
+            }
+            return sz;
+        }
+        int p3 = 0;
+        int dal2 = 1;
+        if (body[0] != 0) {
+            cg_ll_leaves(g, body, &p3, base, out, &dal2);
+        }
+        return sz;
+    }
+    int p1 = pos[0];
+    int sz = cg_ll_layout(g, s, pos, al);                                // a scalar
+    let lf: CgLeaf;
+    lf.off = base;
+    lf.ty = cg_trim(cg_sub_str(s, p1, pos[0]));
+    List_push<CgLeaf>(out, lf);
+    return sz;
+}
+
+int cg_ll_size_of(Codegen* g, string t) {
+    int al = 1;
+    int p = 0;
+    return cg_ll_layout(g, t, &p, &al);
+}
+
+int cg_ll_align_of(Codegen* g, string t) {
+    int al = 1;
+    int p = 0;
+    cg_ll_layout(g, t, &p, &al);
+    return al;
+}
+
+// Record the C alignment `al` of the named type `name` when LLVM aligns it less (C++
+// CodeGen::cAlignOverride): a `#pragma pack(N>=2)` struct, a struct or union holding one.
+void cg_set_calign(Codegen* g, string name, int al, int llal) {
+    if (al <= llal) {
+        return;
+    }
+    let c: CgSub;
+    c.param = name;
+    c.arg = cg_itoa(al);
+    List_push<CgSub>(&g.caligns, c);
+}
+
+// The C alignment of the LLVM type `t` (C++ CodeGen::cAlignOf): its recorded override (an
+// array's element's), else its LLVM alignment.
+int cg_c_align(Codegen* g, string t) {
+    int a = cg_ll_align_of(g, t);                  // also emits a pending named type
+    int p = 0;
+    while ((int)t[p] == 91) {                      // '[N x T]' → T
+        p = p + 1;
+        cg_ll_ws(t, &p);
+        cg_ll_num(t, &p);
+        cg_ll_ws(t, &p);
+        cg_ll_kw(t, &p, "x");
+        cg_ll_ws(t, &p);
+    }
+    if ((int)t[p] != 37) {
+        return a;
+    }
+    int st = p + 1;
+    int e = st;
+    while (t[e] != 0) {
+        int ch = (int)t[e];
+        if ((ch >= 97 && ch <= 122) || (ch >= 65 && ch <= 90) || (ch >= 48 && ch <= 57) || ch == 95 || ch == 46) {
+            e = e + 1;
+        }
+        else {
+            break;
+        }
+    }
+    string name = cg_sub_str(t, st, e);
+    int i = 0;
+    int n = List_len<CgSub>(&g.caligns);
+    while (i < n) {
+        CgSub c = List_get<CgSub>(&g.caligns, i);
+        if (cg_streq(c.param, name) == 1) {
+            int q = 0;
+            return cg_ll_num(c.arg, &q);
+        }
+        i = i + 1;
+    }
+    return a;
+}
+
+// 1 when a field of `d` has a C alignment LLVM does not give it (a pack(N) struct), so
+// the struct must be laid out by hand (cg_emit_manual).
+int cg_needs_manual(Codegen* g, *DeclNode d) {
+    if (d.is_packed == 1) {
+        return 0;
+    }
+    int i = 0;
+    while (i < List_len<Param>(&d.params)) {
+        string lt = cg_lltype(g, List_get<Param>(&d.params, i).ty);
+        if (cg_c_align(g, lt) != cg_ll_align_of(g, lt)) {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+int cg_ll_is_fp(string t) {
+    return cg_streq(t, "float") | cg_streq(t, "double");
+}
+
+// A by-value C aggregate: a named user struct/union type (not the closure / interface /
+// va_list fat values, which keep their first-class lowering).
+int cg_abi_is_agg(string lt) {
+    if ((int)lt[0] != 37) {
+        return 0;
+    }
+    if (cg_streq(lt, "%closure") == 1 || cg_streq(lt, "%iface_fat") == 1 || cg_streq(lt, "%__va_list") == 1) {
+        return 0;
+    }
+    return 1;
+}
+
+// A homogeneous FP aggregate (1..4 same-type FP leaves, densely packed) as `[N x fp]`
+// (asarr) or `{ fp, ... }`; "" if not one.
+string cg_abi_hfa(List<CgLeaf>* lv, int size, int asarr) {
+    int n = List_len<CgLeaf>(lv);
+    if (n == 0) {
+        return "";
+    }
+    string base = List_get<CgLeaf>(lv, 0).ty;
+    if (cg_ll_is_fp(base) == 0) {
+        return "";
+    }
+    int esz = 4;
+    if (cg_streq(base, "double") == 1) {
+        esz = 8;
+    }
+    int distinct = 0;
+    int i = 0;
+    while (i < n) {
+        CgLeaf l = List_get<CgLeaf>(lv, i);
+        if (cg_streq(l.ty, base) == 0 || l.off % esz != 0) {
+            return "";
+        }
+        int seen = 0;
+        int j = 0;
+        while (j < i) {
+            if (List_get<CgLeaf>(lv, j).off == l.off) {
+                seen = 1;
+            }
+            j = j + 1;
+        }
+        if (seen == 0) {
+            distinct = distinct + 1;
+        }
+        i = i + 1;
+    }
+    if (distinct > 4 || size != distinct * esz) {
+        return "";
+    }
+    if (asarr == 1) {
+        return cg_cat("[", cg_cat(cg_itoa(distinct), cg_cat(" x ", cg_cat(base, "]"))));
+    }
+    String t;
+    String_init(&t, 32);
+    String_append(&t, "{ ");
+    i = 0;
+    while (i < distinct) {
+        if (i > 0) {
+            String_append(&t, ", ");
+        }
+        String_append(&t, base);
+        i = i + 1;
+    }
+    String_append(&t, " }");
+    return (string)String_cstr(&t);
+}
+
+int cg_ll_nonhomog(Codegen* g, string lt);       // fwd
+
+// The unnamed-bitfield data ranges of the LLVM type `lt` placed at `base` (g.udata, through
+// nested aggregates; C++ CodeGen::cabiUnnamedData). An empty range marks a type with an
+// unnamed bitfield that holds no byte of it.
+void cg_ll_udata(Codegen* g, string lt0, int base, List<CgSpan>* out) {
+    string lt = cg_trim(lt0);
+    int c = (int)lt[0];
+    if (c == 91) {                                   // `[N x T]`
+        int p = 1;
+        cg_ll_ws(lt, &p);
+        int an = cg_ll_num(lt, &p);
+        cg_ll_ws(lt, &p);
+        cg_ll_kw(lt, &p, "x");
+        string et = cg_trim(cg_sub_str(lt, p, cg_strlen(lt) - 1));
+        int ec = (int)et[0];
+        if (ec != 37 && ec != 91 && ec != 123 && ec != 60) {
+            return;
+        }
+        int esz = cg_ll_size_of(g, et);
+        int k = 0;
+        while (k < an) {
+            cg_ll_udata(g, et, base + k * esz, out);
+            k = k + 1;
+        }
+        return;
+    }
+    if (c == 123 || (c == 60 && (int)lt[1] == 123)) {   // a struct body
+        int pk = 0;
+        int pos = 0;
+        if (c == 60) {
+            pk = 1;
+            pos = 1;
+        }
+        pos = pos + 1;
+        int off = 0;
+        cg_ll_ws(lt, &pos);
+        while (lt[pos] != 0 && (int)lt[pos] != 125) {
+            int p1 = pos;
+            int fal = 1;
+            int fsz = cg_ll_layout(g, lt, &pos, &fal);
+            if (pk == 1) {
+                fal = 1;
+            }
+            off = cg_align_up(off, fal);
+            cg_ll_udata(g, cg_sub_str(lt, p1, pos), base + off, out);
+            off = off + fsz;
+            cg_ll_ws(lt, &pos);
+            if ((int)lt[pos] == 44) {
+                pos = pos + 1;
+            }
+            cg_ll_ws(lt, &pos);
+        }
+        return;
+    }
+    if (c != 37) {
+        return;
+    }
+    string name = cg_sub_str(lt, 1, cg_strlen(lt));
+    if (cg_in_strlist(&g.unnamed_tys, name) == 1) {
+        let mk: CgSpan;
+        mk.off = base;
+        mk.end = base;
+        mk.ty = "";
+        List_push<CgSpan>(out, mk);
+        int ui = 0;
+        while (ui < List_len<CgUData>(&g.udata)) {
+            CgUData u = List_get<CgUData>(&g.udata, ui);
+            if (cg_streq(u.sname, name) == 1) {
+                let us: CgSpan;
+                us.off = base + u.off;
+                us.end = base + u.end;
+                us.ty = "";
+                List_push<CgSpan>(out, us);
+            }
+            ui = ui + 1;
+        }
+    }
+    if (cg_is_union(g, name) == 1) {
+        CgStruct un = cg_find_struct(g, name);
+        int i = 0;
+        while (i < List_len<string>(&un.fetys)) {
+            cg_ll_udata(g, cg_lltype(g, List_get<string>(&un.fetys, i)), base, out);
+            i = i + 1;
+        }
+        return;
+    }
+    string body = cg_tydef_body(g, name);
+    int slots = 0;
+    int bi = 0;
+    while (bi < List_len<CgBF>(&g.bitfields)) {
+        CgBF bs = List_get<CgBF>(&g.bitfields, bi);
+        if (cg_streq(bs.sname, name) == 1) {
+            slots = 1;
+            if (bs.bw == 0) {
+                int fo = bs.boffs;
+                if (fo < 0) {
+                    fo = cg_elem_offset(g, body, bs.fidx);
+                }
+                cg_ll_udata(g, cg_lltype(g, bs.fety), base + fo, out);
+            }
+        }
+        bi = bi + 1;
+    }
+    if (slots == 1) {
+        return;
+    }
+    if (body[0] != 0) {
+        cg_ll_udata(g, body, base, out);
+    }
+}
+
+// The type of the first leaf exactly at `off` ("" if none).
+string cg_abi_leaf_at(List<CgLeaf>* lv, int off) {
+    int i = 0;
+    while (i < List_len<CgLeaf>(lv)) {
+        CgLeaf l = List_get<CgLeaf>(lv, i);
+        if (l.off == off) {
+            return l.ty;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// The IR type for SysV eightbyte `eb` of an aggregate (clang's GetSSE/INTEGERTypeAtOffset).
+string cg_abi_eb_type(Codegen* g, List<CgLeaf>* lv, int size, int eb, int sse, List<CgSpan>* ud) {
+    int o = eb * 8;
+    string t0 = cg_abi_leaf_at(lv, o);
+    // A union contributes every member, so its widest member decides (clang lowers a
+    // union through its largest member): a double at the offset, and the data extent.
+    int dbl = 0;
+    int ext = 0;
+    int i = 0;
+    while (i < List_len<CgLeaf>(lv)) {
+        CgLeaf l = List_get<CgLeaf>(lv, i);
+        if (l.off == o && cg_streq(l.ty, "double") == 1) {
+            dbl = 1;
+        }
+        if (l.off >= o && l.off < o + 8) {
+            int le = l.off + cg_ll_size_of(g, l.ty) - o;
+            if (le > ext) {
+                ext = le;
+            }
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < List_len<CgSpan>(ud)) {               // unnamed bitfields count as data
+        CgSpan d = List_get<CgSpan>(ud, i);
+        int lo = d.off;
+        if (lo < o) {
+            lo = o;
+        }
+        int hi = d.end;
+        if (hi > o + 8) {
+            hi = o + 8;
+        }
+        if (lo < hi && hi - o > ext) {
+            ext = hi - o;
+        }
+        i = i + 1;
+    }
+    if (sse == 1) {
+        if (t0[0] == 0 || dbl == 1) {
+            return "double";
+        }
+        if (size - o > 4 && cg_streq(cg_abi_leaf_at(lv, o + 4), "float") == 1) {
+            return "<2 x float>";
+        }
+        return t0;
+    }
+    if (cg_streq(t0, "ptr") == 1 || cg_streq(t0, "i64") == 1) {
+        return t0;
+    }
+    if (ext == 1 || ext == 2 || ext == 4) {
+        return cg_cat("i", cg_itoa(ext * 8));
+    }
+    int rem = size - o;
+    if (rem > 8) {
+        rem = 8;
+    }
+    return cg_cat("i", cg_itoa(rem * 8));
+}
+
+// The C fields of aggregate `lt` for the 32-bit x86 rules (CodeGen::x86Fields): a
+// struct's elements (a `#pragma pack` padding run is a byte array there), a union's
+// members. 0 for a bitfield struct (clang neither expands one nor sees one element) and
+// for a non-struct type.
+int cg_x86_fields(Codegen* g, string lt, List<string>* out) {
+    if ((int)lt[0] != 37) {
+        return 0;
+    }
+    string name = cg_sub_str(lt, 1, cg_strlen(lt));
+    if (cg_is_union(g, name) == 1) {
+        CgStruct u = cg_find_struct(g, name);
+        int i = 0;
+        while (i < List_len<string>(&u.fetys)) {
+            List_push<string>(out, cg_lltype(g, List_get<string>(&u.fetys, i)));
+            i = i + 1;
+        }
+        return 1;
+    }
+    int bi = 0;
+    while (bi < List_len<CgBF>(&g.bitfields)) {
+        CgBF bs = List_get<CgBF>(&g.bitfields, bi);
+        if (cg_streq(bs.sname, name) == 1 && bs.bw > 0) {
+            return 0;
+        }
+        bi = bi + 1;
+    }
+    if (cg_in_strlist(&g.unnamed_tys, name) == 1) {   // unnamed bitfields: the named fields only
+        bi = 0;
+        while (bi < List_len<CgBF>(&g.bitfields)) {
+            CgBF ns = List_get<CgBF>(&g.bitfields, bi);
+            if (cg_streq(ns.sname, name) == 1) {
+                List_push<string>(out, cg_lltype(g, ns.fety));
+            }
+            bi = bi + 1;
+        }
+        return 1;
+    }
+    int al = 1;
+    int p0 = 0;
+    cg_ll_layout(g, lt, &p0, &al);                   // ensures the body exists
+    string body = cg_tydef_body(g, name);
+    if (body[0] == 0) {
+        return 0;
+    }
+    int pos = 0;
+    cg_ll_ws(body, &pos);
+    if ((int)body[pos] == 60) {    // packed `<{`
+        pos = pos + 1;
+        cg_ll_ws(body, &pos);
+    }
+    if ((int)body[pos] != 123) {
+        return 0;
+    }
+    pos = pos + 1;
+    cg_ll_ws(body, &pos);
+    while (body[pos] != 0 && (int)body[pos] != 125) {
+        int st = pos;
+        int fal = 1;
+        cg_ll_layout(g, body, &pos, &fal);
+        List_push<string>(out, cg_trim(cg_sub_str(body, st, pos)));
+        cg_ll_ws(body, &pos);
+        if ((int)body[pos] == 44) {
+            pos = pos + 1;
+        }
+        cg_ll_ws(body, &pos);
+    }
+    return 1;
+}
+
+// clang's shouldReturnTypeInRegister (CodeGen::x86RetInRegs): 1, 2, 4 or 8 bytes, and
+// every non-empty field (an array's element) itself returned in a register.
+int cg_x86_ret_regs(Codegen* g, string lt) {
+    int size = cg_ll_size_of(g, lt);
+    if (size != 1 && size != 2 && size != 4 && size != 8) {
+        return 0;
+    }
+    if ((int)lt[0] == 91) {                          // `[N x T]`
+        int p = 1;
+        cg_ll_ws(lt, &p);
+        cg_ll_num(lt, &p);
+        cg_ll_ws(lt, &p);
+        cg_ll_kw(lt, &p, "x");
+        string el = cg_trim(cg_sub_str(lt, p, cg_strlen(lt) - 1));
+        return cg_x86_ret_regs(g, el);
+    }
+    if ((int)lt[0] != 37) {
+        return 1;
+    }
+    List<string> fs;
+    List_init<string>(&fs, 4);
+    if (cg_x86_fields(g, lt, &fs) == 0) {
+        return 1;
+    }
+    int i = 0;
+    while (i < List_len<string>(&fs)) {
+        string f = List_get<string>(&fs, i);
+        if (cg_ll_size_of(g, f) != 0 && cg_x86_ret_regs(g, f) == 0) {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// clang's isSingleElementStruct (CodeGen::x86SingleElement): the one scalar a struct or
+// union is made of through nested one-field structs and one-element arrays, with no
+// padding around it; "" if none.
+string cg_x86_single(Codegen* g, string lt) {
+    List<string> fs;
+    List_init<string>(&fs, 4);
+    if ((int)lt[0] != 37 || cg_x86_fields(g, lt, &fs) == 0) {
+        return "";
+    }
+    string found = "";
+    int i = 0;
+    while (i < List_len<string>(&fs)) {
+        string f = List_get<string>(&fs, i);
+        i = i + 1;
+        if (cg_ll_size_of(g, f) == 0) {
+            continue;
+        }
+        if (found[0] != 0) {
+            return "";
+        }
+        while ((int)f[0] == 91) {                    // a one-element array is its element
+            int p = 1;
+            cg_ll_ws(f, &p);
+            int n = cg_ll_num(f, &p);
+            cg_ll_ws(f, &p);
+            cg_ll_kw(f, &p, "x");
+            if (n != 1) {
+                break;
+            }
+            f = cg_trim(cg_sub_str(f, p, cg_strlen(f) - 1));
+        }
+        if ((int)f[0] == 37 || (int)f[0] == 91 || (int)f[0] == 123 || (int)f[0] == 60) {
+            found = cg_x86_single(g, f);
+            if (found[0] == 0) {
+                return "";
+            }
+        } else {
+            found = f;
+        }
+    }
+    if (found[0] != 0 && cg_ll_size_of(g, found) != cg_ll_size_of(g, lt)) {
+        return "";
+    }
+    return found;
+}
+
+CgAbi cg_abi_mem(CgAbi r, string lt, int isret, int al, int size, int* fint) {
+    if (isret == 0 && fint[0] == 0 && al <= 8 && size <= 8) {
+        r.kind = 1;
+        r.ty = cg_cat("i", cg_itoa(size * 8));
+        return r;
+    }
+    r.ty = lt;
+    if (isret == 1) {
+        r.kind = 5;
+        r.align = al;
+        return r;
+    }
+    r.kind = 4;
+    r.align = al;
+    if (r.align < 8) {
+        r.align = 8;
+    }
+    return r;
+}
+
+// Classify one param/return of Eskiu type `ety` for the host C ABI. `fint`/`fsse` count
+// the free SysV argument registers (consumed as arguments are classified).
+CgAbi cg_abi_classify(Codegen* g, string ety, int isret, int* fint, int* fsse) {
+    let r: CgAbi;
+    r.kind = 0;
+    r.ty = "";
+    r.ty2 = "";
+    r.align = 0;
+    r.salign = 0;
+    r.off = 0;
+    string lt = cg_lltype(g, ety);
+    List<CgLeaf> lv;
+    List_init<CgLeaf>(&lv, 8);
+    int al = 1;
+    int p = 0;
+    int size = cg_ll_leaves(g, lt, &p, 0, &lv, &al);
+    if (cg_abi_is_agg(lt) == 1) {
+        al = cg_c_align(g, lt);
+    }
+    if (cg_abi_is_agg(lt) == 0) {
+        if (g.abi == 3 && isret == 0) {                // a scalar still takes a register
+            int i = 0;
+            while (i < List_len<CgLeaf>(&lv)) {
+                if (cg_ll_is_fp(List_get<CgLeaf>(&lv, i).ty) == 1) {
+                    if (fsse[0] > 0) {
+                        fsse[0] = fsse[0] - 1;
+                    }
+                }
+                else if (fint[0] > 0) {
+                    fint[0] = fint[0] - 1;
+                }
+                i = i + 1;
+            }
+        }
+        return r;
+    }
+    if (size == 0) {
+        return r;
+    }
+    // A struct or union holding an unnamed bitfield of nonzero width is no homogeneous FP
+    // aggregate (clang: the bitfield is a non-FP member).
+    int homog = 1 - cg_ll_nonhomog(g, lt);
+    if (g.abi == 1 || g.abi == 2) {                    // AArch64 AAPCS64
+        int asarr = 0;
+        if (isret == 0) {
+            asarr = 1;
+        }
+        string h = "";
+        if (homog == 1) {
+            h = cg_abi_hfa(&lv, size, asarr);
+        }
+        if (h[0] != 0) {
+            r.kind = 1;
+            r.ty = h;
+            if (isret == 0 && g.abi == 2) {
+                r.salign = 8;
+                if (al >= 16) {
+                    r.salign = 16;
+                }
+            }
+            return r;
+        }
+        if (size > 16) {
+            r.ty = lt;
+            r.align = al;
+            if (isret == 1) {
+                r.kind = 5;
+            } else {
+                r.kind = 3;
+            }
+            return r;
+        }
+        r.kind = 1;
+        if (size > 8) {
+            r.ty = "[2 x i64]";
+        }
+        else if (isret == 1) {
+            r.ty = cg_cat("i", cg_itoa(size * 8));
+        }
+        else {
+            r.ty = "i64";
+        }
+        return r;
+    }
+    if (g.abi == 3) {                                  // x86-64 System V
+        if (size > 16) {
+            return cg_abi_mem(r, lt, isret, al, size, fint);
+        }
+        int c0 = 0;                        // 0 none, 1 INTEGER, 2 SSE
+        int c1 = 0;
+        int i = 0;
+        while (i < List_len<CgLeaf>(&lv)) {
+            CgLeaf l = List_get<CgLeaf>(&lv, i);
+            int lsz = cg_ll_size_of(g, l.ty);
+            int lal = cg_ll_align_of(g, l.ty);
+            if (l.off % lal != 0 || l.off / 8 != (l.off + lsz - 1) / 8) {
+                return cg_abi_mem(r, lt, isret, al, size, fint);
+            }
+            int cl = 1;
+            if (cg_ll_is_fp(l.ty) == 1) {
+                cl = 2;
+            }
+            if (l.off / 8 == 0) {
+                if (c0 == 0 || cl == 1) {
+                    c0 = cl;
+                }
+            }
+            else {
+                if (c1 == 0 || cl == 1) {
+                    c1 = cl;
+                }
+            }
+            i = i + 1;
+        }
+        int neb = 1;
+        if (size > 8) {
+            neb = 2;
+        }
+        // Unnamed bitfields are no class but count as data for the integer widths; an
+        // eightbyte holding no named field takes no register: the other one passes alone
+        // (the high one at offset 8), as in clang.
+        List<CgSpan> ud;
+        List_init<CgSpan>(&ud, 2);
+        cg_ll_udata(g, lt, 0, &ud);
+        int skip = 2;
+        if (List_len<CgSpan>(&ud) > 0 && neb == 2 && (c0 == 0) != (c1 == 0)) {
+            skip = 1;
+            if (c0 == 0) {
+                skip = 0;
+            }
+        }
+        int nint = 0;
+        int nsse = 0;
+        if (skip != 0) {
+            if (c0 == 2) {
+                nsse = nsse + 1;
+            } else {
+                nint = nint + 1;
+            }
+        }
+        if (neb == 2 && skip != 1) {
+            if (c1 == 2) {
+                nsse = nsse + 1;
+            } else {
+                nint = nint + 1;
+            }
+        }
+        if (isret == 0) {
+            if (nint > fint[0] || nsse > fsse[0]) {
+                return cg_abi_mem(r, lt, isret, al, size, fint);
+            }
+            fint[0] = fint[0] - nint;
+            fsse[0] = fsse[0] - nsse;
+        }
+        int s0 = 0;
+        if (c0 == 2) {
+            s0 = 1;
+        }
+        int s1 = 0;
+        if (c1 == 2) {
+            s1 = 1;
+        }
+        if (skip == 0) {
+            r.kind = 1;
+            r.ty = cg_abi_eb_type(g, &lv, size, 1, s1, &ud);
+            r.off = 8;
+            return r;
+        }
+        string lo = cg_abi_eb_type(g, &lv, size, 0, s0, &ud);
+        if (neb == 1 || skip == 1) {
+            r.kind = 1;
+            r.ty = lo;
+            return r;
+        }
+        string hi = cg_abi_eb_type(g, &lv, size, 1, s1, &ud);
+        if (cg_align_up(cg_ll_size_of(g, lo), cg_ll_align_of(g, hi)) != 8) {   // hi must start at 8
+            if (cg_streq(lo, "float") == 1) {
+                lo = "double";
+            } else {
+                lo = "i64";
+            }
+        }
+        if (isret == 1) {
+            r.kind = 1;
+            r.ty = cg_cat("{ ", cg_cat(lo, cg_cat(", ", cg_cat(hi, " }"))));
+            return r;
+        }
+        r.kind = 2;
+        r.ty = lo;
+        r.ty2 = hi;
+        return r;
+    }
+    if (g.abi == 4) {                                  // Windows x64
+        if (size == 1 || size == 2 || size == 4 || size == 8) {
+            r.kind = 1;
+            r.ty = cg_cat("i", cg_itoa(size * 8));
+            return r;
+        }
+        r.ty = lt;
+        r.align = al;
+        if (isret == 1) {
+            r.kind = 5;
+        } else {
+            r.kind = 3;
+        }
+        return r;
+    }
+    if (g.abi == 5 || g.abi == 6) {                    // 32-bit ARM AAPCS (6: VFP hard-float)
+        if (g.abi == 6 && homog == 1) {
+            string h = cg_abi_hfa(&lv, size, 0);
+            if (h[0] != 0) {
+                r.kind = 1;
+                r.ty = h;
+                return r;
+            }
+        }
+        if (isret == 1) {
+            if (size <= 4) {
+                r.kind = 1;
+                r.ty = "i32";
+                return r;
+            }
+            r.kind = 5;
+            r.ty = lt;
+            r.align = al;
+            return r;
+        }
+        if (size > 64) {
+            r.kind = 4;
+            r.ty = lt;
+            r.align = al;
+            if (r.align < 4) {
+                r.align = 4;
+            }
+            if (r.align > 8) {
+                r.align = 8;
+            }
+            return r;
+        }
+        r.kind = 1;
+        if (al <= 4) {
+            r.ty = cg_cat("[", cg_cat(cg_itoa((size + 3) / 4), " x i32]"));
+        }
+        else {
+            r.ty = cg_cat("[", cg_cat(cg_itoa((size + 7) / 8), " x i64]"));
+        }
+        return r;
+    }
+    if (g.abi == 7) {                                  // 32-bit x86 cdecl (mirrors the C++)
+        if (isret == 1) {
+            if (g.x86ri == 1 && cg_x86_ret_regs(g, lt) == 1) {
+                string e = cg_x86_single(g, lt);
+                r.kind = 1;
+                if (e[0] != 0 && ((g.x86ws == 0 && cg_ll_is_fp(e) == 1) || cg_streq(e, "ptr") == 1)) {
+                    r.ty = e;
+                }
+                else {
+                    r.ty = cg_cat("i", cg_itoa(size * 8));
+                }
+                return r;
+            }
+            r.kind = 5;
+            r.ty = lt;
+            r.align = al;
+            return r;
+        }
+        // At most 16 bytes of 32- and 64-bit scalars with no padding: those scalars (not a
+        // struct or union with an unnamed bitfield: clang expands no record with a bitfield).
+        List<string> fs;
+        List_init<string>(&fs, 4);
+        int unn = cg_in_strlist(&g.unnamed_tys, cg_sub_str(lt, 1, cg_strlen(lt)));
+        if (size <= 16 && unn == 0 && cg_x86_fields(g, lt, &fs) == 1 && List_len<string>(&fs) > 0) {
+            int sum = 0;
+            int ok = 1;
+            String el;
+            String_init(&el, 32);
+            int i = 0;
+            while (i < List_len<string>(&fs)) {
+                string f = List_get<string>(&fs, i);
+                if (cg_streq(f, "i32") == 0 && cg_streq(f, "i64") == 0 && cg_streq(f, "float") == 0
+                    && cg_streq(f, "double") == 0 && cg_streq(f, "ptr") == 0) {
+                    ok = 0;
+                }
+                sum = sum + cg_ll_size_of(g, f);
+                if (i > 0) {
+                    String_append(&el, ", ");
+                }
+                String_append(&el, f);
+                i = i + 1;
+            }
+            if (ok == 1 && sum == size) {
+                r.kind = 6;
+                r.ty = (string)String_cstr(&el);
+                return r;
+            }
+        }
+        r.kind = 4;
+        r.ty = lt;
+        r.align = 4;
+        return r;
+    }
+    return r;
+}
+
+// The scalar types of a kind-6 expansion (`i32, double` -> ["i32", "double"]).
+List<string> cg_abi_expand_list(string tys) {
+    List<string> out;
+    List_init<string>(&out, 4);
+    int n = cg_strlen(tys);
+    int st = 0;
+    int i = 0;
+    while (i <= n) {
+        if (i == n || (int)tys[i] == 44) {
+            List_push<string>(&out, cg_trim(cg_sub_str(tys, st, i)));
+            st = i + 1;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+CgCabi cg_find_cabi(Codegen* g, string name) {
+    int i = 0;
+    while (i < List_len<CgCabi>(&g.cabis)) {
+        CgCabi c = List_get<CgCabi>(&g.cabis, i);
+        if (cg_streq(c.name, name) == 1) {
+            return c;
+        }
+        i = i + 1;
+    }
+    let none: CgCabi;
+    none.name = "";
+    none.lowret = "";
+    none.lowfixed = "";
+    none.ret.kind = 0;
+    none.ret.ty = "";
+    none.ret.ty2 = "";
+    none.ret.align = 0;
+    none.ret.salign = 0;
+    none.ret.off = 0;
+    List_init<CgAbi>(&none.params, 1);
+    return none;
+}
+
+// An lowered param's type with its ABI attributes (`ptr byval(%T) align 8`, …).
+string cg_abi_param_decl(CgAbi a, string lty) {
+    if (a.kind == 1) {
+        if (a.salign > 0) {
+            return cg_cat(a.ty, cg_cat(" alignstack(", cg_cat(cg_itoa(a.salign), ")")));
+        }
+        return a.ty;
+    }
+    if (a.kind == 2) {
+        return cg_cat(a.ty, cg_cat(", ", a.ty2));
+    }
+    if (a.kind == 6) {
+        return a.ty;
+    }
+    if (a.kind == 3) {
+        return "ptr";
+    }
+    if (a.kind == 4) {
+        return cg_cat("ptr byval(", cg_cat(a.ty, cg_cat(") align ", cg_itoa(a.align))));
+    }
+    return lty;
+}
+
+// Classify extern `d`; when it has a by-value aggregate, register it and return the
+// lowered `declare` line (else "" — the extern keeps its plain declaration).
+string cg_cabi_declare(Codegen* g, *DeclNode d) {
+    if (g.abi == 0) {
+        return "";
+    }
+    int any = cg_abi_is_agg(cg_lltype(g, d.ret_type));
+    int np = List_len<Param>(&d.params);
+    int i = 0;
+    while (i < np) {
+        Param pm = List_get<Param>(&d.params, i);
+        if (cg_streq(pm.ty, "...") == 0 && cg_abi_is_agg(cg_lltype(g, pm.ty)) == 1) {
+            any = 1;
+        }
+        i = i + 1;
+    }
+    if (any == 0) {
+        return "";
+    }
+    let c: CgCabi;
+    c.name = d.name;
+    List_init<CgAbi>(&c.params, np);
+    int fint = 6;
+    int fsse = 8;
+    c.ret.kind = 0;
+    c.ret.ty = "";
+    c.ret.ty2 = "";
+    c.ret.align = 0;
+    c.ret.salign = 0;
+    c.ret.off = 0;
+    string lret = cg_lltype(g, d.ret_type);
+    if (cg_streq(lret, "void") == 0) {
+        c.ret = cg_abi_classify(g, d.ret_type, 1, &fint, &fsse);
+    }
+    if (c.ret.kind == 5 && fint > 0) {
+        fint = fint - 1;
+    }
+    String decl;      // params with attributes (the declare line)
+    String_init(&decl, 64);
+    String fixed;    // bare lowered types (a variadic call's fn type)
+    String_init(&fixed, 64);
+    int variadic = 0;
+    if (c.ret.kind == 5) {
+        String_append(&decl, cg_cat("ptr sret(", cg_cat(c.ret.ty, cg_cat(") align ", cg_itoa(c.ret.align)))));
+        String_append(&fixed, "ptr");
+    }
+    i = 0;
+    while (i < np) {
+        Param pm = List_get<Param>(&d.params, i);
+        if (cg_streq(pm.ty, "...") == 1) {
+            variadic = 1;
+            i = i + 1;
+            continue;
+        }
+        string cety = pm.ty;
+        if (cg_is_fnty(cg_dealias(g, pm.ty)) == 1) {   // a C function pointer
+            cety = "*void";
+        }
+        if (cg_streq(cg_dealias(g, pm.ty), "va_list") == 1) {   // a C va_list (cg_c_va_list)
+            cety = "*void";
+        }
+        CgAbi a = cg_abi_classify(g, cety, 0, &fint, &fsse);
+        List_push<CgAbi>(&c.params, a);
+        string lty = cg_lltype(g, cety);
+        string bare = lty;
+        if (a.kind == 1) {
+            bare = a.ty;
+        }
+        else if (a.kind == 2) {
+            bare = cg_cat(a.ty, cg_cat(", ", a.ty2));
+        }
+        else if (a.kind == 6) {
+            bare = a.ty;
+        }
+        else if (a.kind >= 3) {
+            bare = "ptr";
+        }
+        if (String_len(&decl) > 0) {
+            String_append(&decl, ", ");
+            String_append(&fixed, ", ");
+        }
+        String_append(&decl, cg_abi_param_decl(a, lty));
+        if (a.kind == 0 && cg_streq(lty, "ptr") == 0) {
+            String_append(&decl, cg_ext_attr(g, cety));
+        }
+        String_append(&fixed, bare);
+        i = i + 1;
+    }
+    c.lowret = lret;
+    if (c.ret.kind == 5) {
+        c.lowret = "void";
+    }
+    else if (c.ret.kind == 1) {
+        c.lowret = c.ret.ty;
+    }
+    c.lowfixed = (string)String_cstr(&fixed);
+    List_push<CgCabi>(&g.cabis, c);
+    string params = (string)String_cstr(&decl);
+    if (variadic == 1) {
+        params = cg_va(params);
+    }
+    string rattr = "";
+    if (c.ret.kind == 0) {
+        rattr = cg_ext_attr(g, d.ret_type);
+    }
+    return cg_cat("declare", cg_cat(rattr, cg_cat(" ", cg_cat(c.lowret, cg_cat(" @", cg_cat(d.name, cg_cat("(", cg_cat(params, ")\n"))))))));
+}
+
+// Reinterpret value `op` of LLVM type `from` as type `to` through a stack slot big and
+// aligned enough for both (clang's coerced load/store). Returns the new operand.
+string cg_abi_reinterp(Codegen* g, string op, string from, string to) {
+    if (cg_streq(from, to) == 1) {
+        return op;
+    }
+    int fs = cg_ll_size_of(g, from);
+    int ts = cg_ll_size_of(g, to);
+    int a = cg_ll_align_of(g, from);
+    int ta = cg_ll_align_of(g, to);
+    if (ta > a) {
+        a = ta;
+    }
+    string big = from;
+    if (ts > fs) {
+        big = to;
+    }
+    string slot = cg_entry_alloca(g, cg_cat(big, cg_cat(", align ", cg_itoa(a))));
+    if (fs < ts) {
+        cg_emit(g, "  store ");
+        cg_emit(g, to);
+        cg_emit(g, " zeroinitializer, ptr ");
+        cg_emit(g, slot);
+        cg_emit(g, "\n");
+    }
+    cg_emit(g, "  store ");
+    cg_emit(g, from);
+    cg_emit(g, " ");
+    cg_emit(g, op);
+    cg_emit(g, ", ptr ");
+    cg_emit(g, slot);
+    cg_emit(g, "\n");
+    string t = cg_tmp(g);
+    cg_emit(g, "  ");
+    cg_emit(g, t);
+    cg_emit(g, " = load ");
+    cg_emit(g, to);
+    cg_emit(g, ", ptr ");
+    cg_emit(g, slot);
+    cg_emit(g, "\n");
+    return t;
+}
+
+// A coerced value `op` to / from the aggregate of LLVM type `lt` (cg_abi_reinterp at k.off,
+// through `<{ [off x i8], ty }>`; C++ CodeGen::cabiToCoerced / cabiFromCoerced).
+string cg_abi_to_coerced(Codegen* g, string op, string lt, CgAbi k) {
+    if (k.off == 0) {
+        return cg_abi_reinterp(g, op, lt, k.ty);
+    }
+    string w = cg_cat("<{ [", cg_cat(cg_itoa(k.off), cg_cat(" x i8], ", cg_cat(k.ty, " }>"))));
+    string wv = cg_abi_reinterp(g, op, lt, w);
+    string t = cg_tmp(g);
+    cg_emit(g, "  ");
+    cg_emit(g, t);
+    cg_emit(g, " = extractvalue ");
+    cg_emit(g, w);
+    cg_emit(g, " ");
+    cg_emit(g, wv);
+    cg_emit(g, ", 1\n");
+    return t;
+}
+
+string cg_abi_from_coerced(Codegen* g, string op, CgAbi k, string lt) {
+    if (k.off == 0) {
+        return cg_abi_reinterp(g, op, k.ty, lt);
+    }
+    string w = cg_cat("<{ [", cg_cat(cg_itoa(k.off), cg_cat(" x i8], ", cg_cat(k.ty, " }>"))));
+    string t = cg_tmp(g);
+    cg_emit(g, "  ");
+    cg_emit(g, t);
+    cg_emit(g, " = insertvalue ");
+    cg_emit(g, w);
+    cg_emit(g, " zeroinitializer, ");
+    cg_emit(g, k.ty);
+    cg_emit(g, " ");
+    cg_emit(g, op);
+    cg_emit(g, ", 1\n");
+    return cg_abi_reinterp(g, t, w, lt);
+}
+
+// Call the lowered extern `c` with logical argument values (already coerced to its Eskiu
+// parameter types; variadic extras promoted). `f` is its Eskiu-level signature. Returns
+// the logical result.
+CgVal cg_cabi_call(Codegen* g, CgCabi* c, CgFn* f, List<CgVal>* args) {
+    let v: CgVal;
+    v.op = "";
+    v.ty = "void";
+    v.ety = f.rety;
+    String ir;
+    String_init(&ir, 64);
+    string sslot = "";
+    if (c.ret.kind == 5) {
+        sslot = cg_entry_alloca(g, cg_cat(c.ret.ty, cg_cat(", align ", cg_itoa(c.ret.align))));
+        String_append(&ir, cg_cat("ptr sret(", cg_cat(c.ret.ty, cg_cat(") align ", cg_cat(cg_itoa(c.ret.align), cg_cat(" ", sslot))))));
+    }
+    int n = List_len<CgVal>(args);
+    int i = 0;
+    while (i < n) {
+        CgVal a = List_get<CgVal>(args, i);
+        string piece = cg_cat(a.ty, cg_cat(" ", a.op));
+        if (i < List_len<CgAbi>(&c.params)) {
+            CgAbi k = List_get<CgAbi>(&c.params, i);
+            if (k.kind == 1) {
+                piece = cg_cat(cg_abi_param_decl(k, a.ty), cg_cat(" ", cg_abi_to_coerced(g, a.op, a.ty, k)));
+            } else if (k.kind == 2) {
+                string pty = cg_cat("{ ", cg_cat(k.ty, cg_cat(", ", cg_cat(k.ty2, " }"))));
+                string pair = cg_abi_reinterp(g, a.op, a.ty, pty);
+                string e0 = cg_tmp(g);
+                cg_emit(g, "  ");
+                cg_emit(g, e0);
+                cg_emit(g, " = extractvalue ");
+                cg_emit(g, pty);
+                cg_emit(g, " ");
+                cg_emit(g, pair);
+                cg_emit(g, ", 0\n");
+                string e1 = cg_tmp(g);
+                cg_emit(g, "  ");
+                cg_emit(g, e1);
+                cg_emit(g, " = extractvalue ");
+                cg_emit(g, pty);
+                cg_emit(g, " ");
+                cg_emit(g, pair);
+                cg_emit(g, ", 1\n");
+                piece = cg_cat(k.ty, cg_cat(" ", cg_cat(e0, cg_cat(", ", cg_cat(k.ty2, cg_cat(" ", e1))))));
+            } else if (k.kind == 6) {
+                string pty = cg_cat("{ ", cg_cat(k.ty, " }"));
+                string pack = cg_abi_reinterp(g, a.op, a.ty, pty);
+                List<string> els = cg_abi_expand_list(k.ty);
+                String pc;
+                String_init(&pc, 32);
+                int ei = 0;
+                while (ei < List_len<string>(&els)) {
+                    string ev = cg_tmp(g);
+                    cg_emit(g, "  ");
+                    cg_emit(g, ev);
+                    cg_emit(g, " = extractvalue ");
+                    cg_emit(g, pty);
+                    cg_emit(g, " ");
+                    cg_emit(g, pack);
+                    cg_emit(g, ", ");
+                    cg_emit(g, cg_itoa(ei));
+                    cg_emit(g, "\n");
+                    if (ei > 0) {
+                        String_append(&pc, ", ");
+                    }
+                    String_append(&pc, List_get<string>(&els, ei));
+                    String_append(&pc, " ");
+                    String_append(&pc, ev);
+                    ei = ei + 1;
+                }
+                piece = (string)String_cstr(&pc);
+            } else if (k.kind == 3 || k.kind == 4) {
+                int cal = cg_ll_align_of(g, a.ty);
+                if (k.align > cal) {
+                    cal = k.align;
+                }
+                string copy = cg_entry_alloca(g, cg_cat(a.ty, cg_cat(", align ", cg_itoa(cal))));
+                cg_emit(g, "  store ");
+                cg_emit(g, a.ty);
+                cg_emit(g, " ");
+                cg_emit(g, a.op);
+                cg_emit(g, ", ptr ");
+                cg_emit(g, copy);
+                cg_emit(g, "\n");
+                piece = cg_cat(cg_abi_param_decl(k, a.ty), cg_cat(" ", copy));
+            }
+        }
+        if (String_len(&ir) > 0) {
+            String_append(&ir, ", ");
+        }
+        String_append(&ir, piece);
+        i = i + 1;
+    }
+    string callty = c.lowret;
+    if (f.variadic == 1) {
+        callty = cg_cat(c.lowret, cg_cat(" (", cg_cat(cg_va(c.lowfixed), ")")));
+    }
+    int isvoid = cg_streq(c.lowret, "void");
+    string t = cg_emit_callish(g, callty, cg_cat("@", c.name), (string)String_cstr(&ir), isvoid);
+    if (c.ret.kind == 5) {
+        string r = cg_tmp(g);
+        cg_emit(g, "  ");
+        cg_emit(g, r);
+        cg_emit(g, " = load ");
+        cg_emit(g, f.retty);
+        cg_emit(g, ", ptr ");
+        cg_emit(g, sslot);
+        cg_emit(g, "\n");
+        v.op = r;
+        v.ty = f.retty;
+        return v;
+    }
+    if (isvoid == 1) {
+        return v;
+    }
+    if (c.ret.kind == 1) {
+        v.op = cg_abi_from_coerced(g, t, c.ret, f.retty);
+        v.ty = f.retty;
+        return v;
+    }
+    v.op = t;
+    v.ty = f.retty;
+    return v;
+}
+
+// Does the Eskiu function `f` take or return an aggregate by value (so C must reach it
+// through a C-ABI thunk)? Externs lowered at declaration and variadics are left alone.
+int cg_cabi_needs_thunk(Codegen* g, CgFn* f) {
+    if (g.abi == 0 || f.variadic == 1) {
+        return 0;
+    }
+    if (cg_find_cabi(g, f.name).name[0] != 0) {
+        return 0;
+    }
+    if (cg_abi_is_agg(f.retty) == 1) {
+        return 1;
+    }
+    int i = 0;
+    while (i < List_len<string>(&f.ptys)) {
+        if (cg_abi_is_agg(List_get<string>(&f.ptys, i)) == 1) {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// The raw address C calls for the top-level function `name` (`(*void)f`): `@name`, or
+// its `@__cabi_<name>` thunk (queued) when it has a by-value aggregate.
+string cg_cabi_callback(Codegen* g, string name) {
+    CgFn f = cg_find_fn(g, name);
+    if (cg_cabi_needs_thunk(g, &f) == 0) {
+        return cg_cat("@", name);
+    }
+    string key = cg_cat("cabi:", name);
+    if (cg_seen_inst(g, cg_cat("thunk:", key)) == 0) {
+        cg_push_inst(g, cg_cat("thunk:", key));
+        List_push<string>(&g.fnthunks, key);
+    }
+    return cg_cat("@__cabi_", name);
+}
+
+// Emit `__cabi_<name>`: the lowered C signature (like an extern's), rebuilding the Eskiu
+// values, calling `name` with first-class aggregates and returning the result the C way
+// (mirrors CodeGen::cabiCallbackThunk).
+void cg_emit_cabi_thunk(Codegen* g, string name) {
+    CgFn f = cg_find_fn(g, name);
+    int np = List_len<string>(&f.ptys);
+    int fint = 6;
+    int fsse = 8;
+    let ra: CgAbi;
+    ra.kind = 0;
+    ra.ty = "";
+    ra.ty2 = "";
+    ra.align = 0;
+    ra.salign = 0;
+    ra.off = 0;
+    if (cg_streq(f.retty, "void") == 0) {
+        ra = cg_abi_classify(g, f.rety, 1, &fint, &fsse);
+    }
+    if (ra.kind == 5 && fint > 0) {
+        fint = fint - 1;
+    }
+    String hdr;
+    String_init(&hdr, 64);
+    if (ra.kind == 5) {
+        String_append(&hdr, cg_cat("ptr sret(", cg_cat(ra.ty, cg_cat(") align ", cg_cat(cg_itoa(ra.align), " %sr")))));
+    }
+    List<CgAbi> ks;
+    List_init<CgAbi>(&ks, np);
+    int i = 0;
+    while (i < np) {
+        CgAbi k = cg_abi_classify(g, List_get<string>(&f.petys, i), 0, &fint, &fsse);
+        List_push<CgAbi>(&ks, k);
+        string an = cg_cat("%a", cg_itoa(i));
+        string lty = List_get<string>(&f.ptys, i);
+        if (String_len(&hdr) > 0) {
+            String_append(&hdr, ", ");
+        }
+        if (k.kind == 2) {
+            String_append(&hdr, cg_cat(k.ty, cg_cat(" ", cg_cat(an, cg_cat("l, ", cg_cat(k.ty2, cg_cat(" ", cg_cat(an, "h"))))))));
+        } else if (k.kind == 6) {
+            List<string> els = cg_abi_expand_list(k.ty);
+            int ei = 0;
+            while (ei < List_len<string>(&els)) {
+                if (ei > 0) {
+                    String_append(&hdr, ", ");
+                }
+                String_append(&hdr, cg_cat(List_get<string>(&els, ei), cg_cat(" ", cg_cat(an, cg_cat("_", cg_itoa(ei))))));
+                ei = ei + 1;
+            }
+        } else {
+            String_append(&hdr, cg_cat(cg_abi_param_decl(k, lty), cg_cat(" ", an)));
+        }
+        i = i + 1;
+    }
+    string lowret = f.retty;
+    if (ra.kind == 5) {
+        lowret = "void";
+    } else if (ra.kind == 1) {
+        lowret = ra.ty;
+    }
+    String_init(&g.entry_buf, 128);
+    String saved = g.out;
+    String_init(&g.out, 256);
+    String args;
+    String_init(&args, 64);
+    i = 0;
+    while (i < np) {
+        CgAbi k = List_get<CgAbi>(&ks, i);
+        string an = cg_cat("%a", cg_itoa(i));
+        string lty = List_get<string>(&f.ptys, i);
+        string op = an;
+        if (k.kind == 1) {
+            op = cg_abi_from_coerced(g, an, k, lty);
+        }
+        else if (k.kind == 2) {
+            string pty = cg_cat("{ ", cg_cat(k.ty, cg_cat(", ", cg_cat(k.ty2, " }"))));
+            string p0 = cg_tmp(g);
+            cg_emit(g, "  ");
+            cg_emit(g, p0);
+            cg_emit(g, " = insertvalue ");
+            cg_emit(g, pty);
+            cg_emit(g, " undef, ");
+            cg_emit(g, k.ty);
+            cg_emit(g, " ");
+            cg_emit(g, an);
+            cg_emit(g, "l, 0\n");
+            string p1 = cg_tmp(g);
+            cg_emit(g, "  ");
+            cg_emit(g, p1);
+            cg_emit(g, " = insertvalue ");
+            cg_emit(g, pty);
+            cg_emit(g, " ");
+            cg_emit(g, p0);
+            cg_emit(g, ", ");
+            cg_emit(g, k.ty2);
+            cg_emit(g, " ");
+            cg_emit(g, an);
+            cg_emit(g, "h, 1\n");
+            op = cg_abi_reinterp(g, p1, pty, lty);
+        } else if (k.kind == 6) {
+            string pty = cg_cat("{ ", cg_cat(k.ty, " }"));
+            List<string> els = cg_abi_expand_list(k.ty);
+            string acc = "undef";
+            int ei = 0;
+            while (ei < List_len<string>(&els)) {
+                string nx = cg_tmp(g);
+                cg_emit(g, "  ");
+                cg_emit(g, nx);
+                cg_emit(g, " = insertvalue ");
+                cg_emit(g, pty);
+                cg_emit(g, " ");
+                cg_emit(g, acc);
+                cg_emit(g, ", ");
+                cg_emit(g, List_get<string>(&els, ei));
+                cg_emit(g, " ");
+                cg_emit(g, an);
+                cg_emit(g, "_");
+                cg_emit(g, cg_itoa(ei));
+                cg_emit(g, ", ");
+                cg_emit(g, cg_itoa(ei));
+                cg_emit(g, "\n");
+                acc = nx;
+                ei = ei + 1;
+            }
+            op = cg_abi_reinterp(g, acc, pty, lty);
+        } else if (k.kind == 3 || k.kind == 4) {
+            op = cg_tmp(g);
+            cg_emit(g, "  ");
+            cg_emit(g, op);
+            cg_emit(g, " = load ");
+            cg_emit(g, lty);
+            cg_emit(g, ", ptr ");
+            cg_emit(g, an);
+            cg_emit(g, "\n");
+        }
+        if (i > 0) {
+            String_append(&args, ", ");
+        }
+        String_append(&args, cg_cat(lty, cg_cat(" ", op)));
+        i = i + 1;
+    }
+    string argstr = (string)String_cstr(&args);
+    if (cg_streq(f.retty, "void") == 1) {
+        cg_emit(g, "  call void @");
+        cg_emit(g, name);
+        cg_emit(g, "(");
+        cg_emit(g, argstr);
+        cg_emit(g, ")\n");
+        cg_emit(g, "  ret void\n");
+    } else {
+        string r = cg_tmp(g);
+        cg_emit(g, "  ");
+        cg_emit(g, r);
+        cg_emit(g, " = call ");
+        cg_emit(g, f.retty);
+        cg_emit(g, " @");
+        cg_emit(g, name);
+        cg_emit(g, "(");
+        cg_emit(g, argstr);
+        cg_emit(g, ")\n");
+        if (ra.kind == 5) {
+            cg_emit(g, "  store ");
+            cg_emit(g, f.retty);
+            cg_emit(g, " ");
+            cg_emit(g, r);
+            cg_emit(g, ", ptr %sr\n");
+            cg_emit(g, "  ret void\n");
+        } else {
+            string rv = r;
+            if (ra.kind == 1) {
+                rv = cg_abi_to_coerced(g, r, f.retty, ra);
+            }
+            cg_emit(g, "  ret ");
+            cg_emit(g, lowret);
+            cg_emit(g, " ");
+            cg_emit(g, rv);
+            cg_emit(g, "\n");
+        }
+    }
+    string bodytext = (string)String_cstr(&g.out);
+    g.out = saved;
+    cg_emit(g, "define internal");
+    if (ra.kind == 0) {
+        cg_emit(g, cg_ext_attr(g, f.rety));
+    }
+    cg_emit(g, " ");
+    cg_emit(g, lowret);
+    cg_emit(g, " @__cabi_");
+    cg_emit(g, name);
+    cg_emit(g, "(");
+    cg_emit(g, (string)String_cstr(&hdr));
+    cg_emit(g, ") {\nentry:\n");
+    cg_emit(g, (string)String_cstr(&g.entry_buf));
+    cg_emit(g, bodytext);
+    cg_emit(g, "}\n\n");
+}
+
+// An enum is an ADT (tagged union) when some variant carries a payload.
+int cg_enum_is_adt(*DeclNode d) {
+    int j = 0;
+    while (j < List_len<Param>(&d.params)) {
+        List<string> pl = List_get<List<string>>(&d.payloads, j);
+        if (List_len<string>(&pl) > 0) {
+            return 1;
+        }
+        j = j + 1;
+    }
+    return 0;
+}
+
+// An ADT enum's tagged-union type `%E = type { i32, [N x i64] }`: N = i64 slots holding
+// the largest variant payload, laid out by BYTES with field alignment (as the C++
+// makeAdtStruct does via DataLayout), so arrays, structs and nested enums fit.
+void cg_emit_adt_type(Codegen* g, *DeclNode d) {
+    int slots = 0;
+    int j = 0;
+    while (j < List_len<Param>(&d.params)) {
+        List<string> pl = List_get<List<string>>(&d.payloads, j);
+        int isl = (cg_layout_size(g, &pl) + 7) / 8;
+        if (isl > slots) {
+            slots = isl;
+        }
+        j = j + 1;
+    }
+    if (slots < 1) {
+        slots = 1;
+    }
+    cg_deftype(g, d.name, cg_cat("{ i32, [", cg_cat(cg_itoa(slots), " x i64] }")));
+}
+
+// Emit the named type line for a (non-generic) struct / union / ADT enum decl, once.
+// Called in declaration order by pass 1b/1c, and on demand by the layout queries when a
+// type's size is needed before its turn (a union member or payload declared later).
+void cg_emit_tydecl_body(Codegen* g, *DeclNode d);   // fwd
+
+// Is the LLVM type `lt` (an array's element) a struct/union holding a nonzero unnamed
+// bitfield (g.nonhomog)?
+int cg_ll_nonhomog(Codegen* g, string lt) {
+    int p = 0;
+    while ((int)lt[p] == 91) {                       // `[N x T]`
+        p = p + 1;
+        cg_ll_ws(lt, &p);
+        cg_ll_num(lt, &p);
+        cg_ll_ws(lt, &p);
+        cg_ll_kw(lt, &p, "x");
+        cg_ll_ws(lt, &p);
+    }
+    if ((int)lt[p] != 37) {
+        return 0;
+    }
+    int e = p + 1;
+    while (lt[e] != 0 && (int)lt[e] != 93 && (int)lt[e] != 32 && (int)lt[e] != 44) {
+        e = e + 1;
+    }
+    return cg_in_strlist(&g.nonhomog, cg_sub_str(lt, p + 1, e));
+}
+
+// Note a struct/union whose C ABI is not a homogeneous FP aggregate: it holds an unnamed
+// bitfield of nonzero width, directly or in a field (C++ CodeGen::notHomogeneous).
+void cg_note_nonhomog(Codegen* g, string name, *DeclNode d, List<string>* ftys) {
+    int nh = 0;
+    int i = 0;
+    while (i < List_len<int>(&d.pad_bits)) {
+        if (List_get<int>(&d.pad_bits, i) > 0) {
+            nh = 1;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < List_len<string>(ftys)) {
+        if (cg_ll_nonhomog(g, cg_lltype(g, List_get<string>(ftys, i))) == 1) {
+            nh = 1;
+        }
+        i = i + 1;
+    }
+    if (nh == 1 && cg_in_strlist(&g.nonhomog, name) == 0) {
+        List_push<string>(&g.nonhomog, name);
+    }
+}
+
+void cg_emit_tydecl(Codegen* g, *DeclNode d) {
+    if (cg_tydef_body(g, d.name)[0] != 0) {
+        return;
+    }
+    string mark = cg_cat("tyd:", d.name);
+    if (cg_seen_inst(g, mark) == 1) {          // in progress (self-containing type)
+        return;
+    }
+    cg_push_inst(g, mark);
+    cg_emit_tydecl_body(g, d);
+    if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
+        List<string> ftys;
+        List_init<string>(&ftys, 4);
+        int i = 0;
+        while (i < List_len<Param>(&d.params)) {
+            List_push<string>(&ftys, List_get<Param>(&d.params, i).ty);
+            i = i + 1;
+        }
+        cg_note_nonhomog(g, d.name, d, &ftys);
+    }
+}
+
+void cg_emit_tydecl_body(Codegen* g, *DeclNode d) {
+    if (d.kind == DK_UNION) {
+        cg_emit_union(g, d);
+        return;
+    }
+    if (d.kind == DK_ENUM) {
+        cg_emit_adt_type(g, d);
+        return;
+    }
+    if (cg_struct_has_bf(d) == 1) {
+        cg_bf_layout(g, d);
+        return;
+    }
+    if (d.pack_align >= 2) {   // #pragma pack(N>=2): padding + phys slots
+        cg_emit_manual(g, d, d.pack_align);
+        return;
+    }
+    if (cg_needs_manual(g, d) == 1) {      // holds a pack(N) struct
+        cg_emit_manual(g, d, 0);
+        return;
+    }
+    // Build the body first: a generic field type instantiates into g.globals and must
+    // precede this line, not interleave (see cg_ensure_struct_inst).
+    String body;
+    String_init(&body, 32);
+    int nf = List_len<Param>(&d.params);
+    int fi = 0;
+    while (fi < nf) {
+        if (fi > 0) {
+            String_append(&body, ", ");
+        }
+        String_append(&body, cg_lltype(g, List_get<Param>(&d.params, fi).ty));
+        fi = fi + 1;
+    }
+    // A `packed` struct (or `#pragma pack(1)`) is an LLVM packed struct `<{…}>` (no
+    // inter-field padding, align 1); indices are unchanged (no fillers).
+    string op = "{ ";
+    string cl = " }";
+    if (d.is_packed == 1) {
+        op = "<{ ";
+        cl = " }>";
+    }
+    cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
+}
+
+// One type of the uncaught-exception report: block `is<k>` (the name matched: load the
+// payload as that type, widen, snprintf) and `not<k>` (try the next). `kind` is 'i'/'u'
+// (signed/unsigned of `bits`), 'f' (float/double), 'b' bool, 'c' char, 's' string.
+void cg_ux_entry(Codegen* g, String* phi, int k, string name, int kind, int bits) {
+    string ks = cg_itoa(k);
+    string nm = cg_string_global_n(g, name, cg_strlen(name));
+    cg_emit(g, "  %c");
+    cg_emit(g, ks);
+    cg_emit(g, " = call i32 @strcmp(ptr %tn, ptr ");
+    cg_emit(g, nm);
+    cg_emit(g, ")\n");
+    cg_emit(g, "  %e");
+    cg_emit(g, ks);
+    cg_emit(g, " = icmp eq i32 %c");
+    cg_emit(g, ks);
+    cg_emit(g, ", 0\n");
+    cg_emit(g, "  br i1 %e");
+    cg_emit(g, ks);
+    cg_emit(g, ", label %is");
+    cg_emit(g, ks);
+    cg_emit(g, ", label %not");
+    cg_emit(g, ks);
+    cg_emit(g, "\n");
+    cg_emit(g, "is");
+    cg_emit(g, ks);
+    cg_emit(g, ":\n");
+    string head = "error: uncaught exception: %s";
+    string fmt = "";
+    string arg = "";
+    string aty = "i64";
+    string v = cg_cat("%v", ks);
+    string w = cg_cat("%w", ks);
+    if (kind == 105 || kind == 117) {
+        string it = cg_cat("i", cg_itoa(bits));
+        cg_emit(g, "  ");
+        cg_emit(g, v);
+        cg_emit(g, " = load ");
+        cg_emit(g, it);
+        cg_emit(g, ", ptr %pay\n");
+        if (bits == 64) {
+            arg = v;
+        }
+        else {
+            cg_emit(g, "  ");
+            cg_emit(g, w);
+            cg_emit(g, " = ");
+            if (kind == 105) {
+                cg_emit(g, "sext ");
+            } else {
+                cg_emit(g, "zext ");
+            }
+            cg_emit(g, it);
+            cg_emit(g, " ");
+            cg_emit(g, v);
+            cg_emit(g, " to i64\n");
+            arg = w;
+        }
+        if (kind == 105) {
+            fmt = cg_cat(head, " %lld\n");
+        } else {
+            fmt = cg_cat(head, " %llu\n");
+        }
+        fmt = cg_string_global_n(g, fmt, cg_strlen(fmt));
+    } else if (kind == 102) {
+        aty = "double";
+        if (bits == 32) {
+            cg_emit(g, "  ");
+            cg_emit(g, v);
+            cg_emit(g, " = load float, ptr %pay\n");
+            cg_emit(g, "  ");
+            cg_emit(g, w);
+            cg_emit(g, " = fpext float ");
+            cg_emit(g, v);
+            cg_emit(g, " to double\n");
+            arg = w;
+        } else {
+            cg_emit(g, "  ");
+            cg_emit(g, v);
+            cg_emit(g, " = load double, ptr %pay\n");
+            arg = v;
+        }
+        string f0 = cg_cat(head, " %g\n");
+        fmt = cg_string_global_n(g, f0, cg_strlen(f0));
+    } else if (kind == 98) {
+        aty = "ptr";
+        string tt = cg_string_global_n(g, "true", 4);
+        string ff = cg_string_global_n(g, "false", 5);
+        cg_emit(g, "  ");
+        cg_emit(g, v);
+        cg_emit(g, " = load i8, ptr %pay\n");
+        cg_emit(g, "  %t");
+        cg_emit(g, ks);
+        cg_emit(g, " = icmp ne i8 ");
+        cg_emit(g, v);
+        cg_emit(g, ", 0\n");
+        cg_emit(g, "  ");
+        cg_emit(g, w);
+        cg_emit(g, " = select i1 %t");
+        cg_emit(g, ks);
+        cg_emit(g, ", ptr ");
+        cg_emit(g, tt);
+        cg_emit(g, ", ptr ");
+        cg_emit(g, ff);
+        cg_emit(g, "\n");
+        arg = w;
+        string f0 = cg_cat(head, " %s\n");
+        fmt = cg_string_global_n(g, f0, cg_strlen(f0));
+    } else if (kind == 99) {
+        aty = "i32";
+        cg_emit(g, "  ");
+        cg_emit(g, v);
+        cg_emit(g, " = load i8, ptr %pay\n");
+        cg_emit(g, "  ");
+        cg_emit(g, w);
+        cg_emit(g, " = zext i8 ");
+        cg_emit(g, v);
+        cg_emit(g, " to i32\n");
+        arg = w;
+        string f0 = cg_cat(head, " '%c'\n");
+        fmt = cg_string_global_n(g, f0, cg_strlen(f0));
+    } else {
+        aty = "ptr";
+        string f1 = cg_cat(head, "\n");
+        string f2 = cg_cat(head, " \"%s\"\n");
+        string g1 = cg_string_global_n(g, f1, cg_strlen(f1));
+        string g2 = cg_string_global_n(g, f2, cg_strlen(f2));
+        cg_emit(g, "  ");
+        cg_emit(g, v);
+        cg_emit(g, " = load ptr, ptr %pay\n");
+        cg_emit(g, "  %t");
+        cg_emit(g, ks);
+        cg_emit(g, " = icmp eq ptr ");
+        cg_emit(g, v);
+        cg_emit(g, ", null\n");
+        cg_emit(g, "  ");
+        cg_emit(g, w);
+        cg_emit(g, " = select i1 %t");
+        cg_emit(g, ks);
+        cg_emit(g, ", ptr ");
+        cg_emit(g, g1);
+        cg_emit(g, ", ptr ");
+        cg_emit(g, g2);
+        cg_emit(g, "\n");
+        arg = v;
+        fmt = w;
+    }
+    cg_emit(g, "  %n");
+    cg_emit(g, ks);
+    cg_emit(g, " = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr ");
+    cg_emit(g, fmt);
+    cg_emit(g, ", ptr %tn, ");
+    cg_emit(g, aty);
+    cg_emit(g, " ");
+    cg_emit(g, arg);
+    cg_emit(g, ")\n");
+    cg_emit(g, "  br label %out\n");
+    cg_emit(g, "not");
+    cg_emit(g, ks);
+    cg_emit(g, ":\n");
+    String_append(phi, cg_cat(cg_cat(cg_cat(cg_cat("[ %n", ks), ", %is"), ks), " ], "));
+}
+
+// A program that throws reports an exception nobody catches by type and value
+// (mirrors the C++ emitUncaughtReporter): a constructor installs a std::terminate
+// handler that rethrows into a catch-all, prints to stderr and aborts.
+void cg_emit_uncaught(Codegen* g, *Program prog) {
+    if (g.freestanding == 1 || cg_prog_defines(prog, "main") == 0) {
+        return;
+    }
+    if (cg_prog_defines(prog, "strcmp") == 1 || cg_prog_defines(prog, "snprintf") == 1 || cg_prog_defines(prog, "fflush") == 1
+        || cg_prog_defines(prog, "write") == 1 || cg_prog_defines(prog, "abort") == 1) {
+        return;
+    }
+    cg_ensure_extern(g, "snprintf", "declare i32 @snprintf(ptr, i64, ptr, ...)\n");
+    cg_ensure_extern(g, "fflush", "declare i32 @fflush(ptr)\n");
+    cg_ensure_extern(g, "write", "declare i64 @write(i32, ptr, i64)\n");
+    cg_ensure_extern(g, "abort", "declare void @abort()\n");
+    cg_ensure_extern(g, "_ZSt13set_terminatePFvvE", "declare ptr @_ZSt13set_terminatePFvvE(ptr)\n");
+    String_append(&g.globals, "@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 65535, ptr @__eskiu_install_terminate, ptr null }]\n");
+    cg_emit(g, "define internal void @__eskiu_terminate() personality ptr @");
+    cg_emit(g, cg_eh_pers(g));
+    cg_emit(g, " {\n");
+    cg_emit(g, "entry:\n  %buf = alloca [512 x i8]\n  invoke void @__cxa_rethrow() to label %never unwind label %lp\n");
+    cg_emit(g, "never:\n  unreachable\n");
+    cg_emit(g, "lp:\n  %pad = landingpad { ptr, i32 } catch ptr null\n  %exc = extractvalue { ptr, i32 } %pad, 0\n");
+    cg_emit(g, "  %obj = call ptr @__cxa_begin_catch(ptr %exc)\n");
+    cg_emit(g, "  %tnp = getelementptr i8, ptr %obj, i64 8\n  %tn = load ptr, ptr %tnp\n  %pay = getelementptr i8, ptr %obj, i64 16\n");
+    // One entry per primitive type an exception can carry (mirrors the C++ table): the
+    // payload is read with that type only after its name matched.
+    let phi: String;
+    String_init(&phi, 256);
+    cg_ux_entry(g, &phi, 0, "int", 105, 32);
+    cg_ux_entry(g, &phi, 1, "int8", 105, 8);
+    cg_ux_entry(g, &phi, 2, "int16", 105, 16);
+    cg_ux_entry(g, &phi, 3, "int64", 105, 64);
+    cg_ux_entry(g, &phi, 4, "uint", 117, 32);
+    cg_ux_entry(g, &phi, 5, "uint8", 117, 8);
+    cg_ux_entry(g, &phi, 6, "uint16", 117, 16);
+    cg_ux_entry(g, &phi, 7, "uint64", 117, 64);
+    cg_ux_entry(g, &phi, 8, "double", 102, 64);
+    cg_ux_entry(g, &phi, 9, "float", 102, 32);
+    cg_ux_entry(g, &phi, 10, "bool", 98, 8);
+    cg_ux_entry(g, &phi, 11, "char", 99, 8);
+    cg_ux_entry(g, &phi, 12, "string", 115, 0);
+    string fo0 = "error: uncaught exception: %s\n";
+    string fo = cg_string_global_n(g, fo0, cg_strlen(fo0));
+    cg_emit(g, "  %nz = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr ");
+    cg_emit(g, fo);
+    cg_emit(g, ", ptr %tn)\n");
+    cg_emit(g, "  br label %out\n");
+    cg_emit(g, "out:\n  %n = phi i32 ");
+    cg_emit(g, (string)String_cstr(&phi));
+    cg_emit(g, "[ %nz, %not12 ]\n");
+    cg_emit(g, "  %big = icmp sgt i32 %n, 511\n  %len = select i1 %big, i32 511, i32 %n\n  %len64 = sext i32 %len to i64\n");
+    cg_emit(g, "  %fl = call i32 @fflush(ptr null)\n  %wr = call i64 @write(i32 2, ptr %buf, i64 %len64)\n  call void @abort()\n  unreachable\n}\n");
+    cg_emit(g, "define internal void @__eskiu_install_terminate() {\nentry:\n  %old = call ptr @_ZSt13set_terminatePFvvE(ptr @__eskiu_terminate)\n  ret void\n}\n");
+}
+
+void cg_program(Codegen* g, *Program prog) {
+    // Does the program throw or catch anywhere? Only then do defers get landingpads.
+    int ei = 0;
+    while (ei < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode ed = List_get<*DeclNode>(&prog.decls, ei);
+        if (ed.kind == DK_FUNCTION && cg_has_eh_s(ed.body) == 1) {
+            g.prog_eh = 1;
+        }
+        if (ed.kind == DK_VARDECL && cg_has_eh_e(ed.init) == 1) {
+            g.prog_eh = 1;
+        }
+        if (ed.kind == DK_STRUCT) {
+            int emi = 0;
+            while (emi < List_len<*DeclNode>(&ed.methods)) {
+                if (cg_has_eh_s(List_get<*DeclNode>(&ed.methods, emi).body) == 1) {
+                    g.prog_eh = 1;
+                }
+                emi = emi + 1;
+            }
+        }
+        ei = ei + 1;
+    }
+    // A struct declared again (sema accepts only an identical repeat, e.g. two merged files
+    // sharing a declaration) is one type: keep the first declaration, like the C++ backend.
+    let first_struct: StrTab;     // struct name -> index of its first declaration
+    memset((*void)&first_struct, 0, sizeof(StrTab));
+    int fsi = 0;
+    while (fsi < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode fd = List_get<*DeclNode>(&prog.decls, fsi);
+        if (fd.kind == DK_STRUCT && StrTab_has(&first_struct, fd.name) == 0) {
+            StrTab_set(&first_struct, fd.name, fsi);
+        }
+        fsi = fsi + 1;
+    }
+    int di = List_len<*DeclNode>(&prog.decls) - 1;
+    while (di > 0) {
+        *DeclNode dd = List_get<*DeclNode>(&prog.decls, di);
+        int dup = 0;
+        if (dd.kind == DK_STRUCT && StrTab_get(&first_struct, dd.name, di) < di) {
+            dup = 1;
+        }
+        if (dup == 1) {
+            List_remove<*DeclNode>(&prog.decls, di);
+        }
+        di = di - 1;
+    }
+    int n = List_len<*DeclNode>(&prog.decls);
+
+    cg_deftype(g, "closure", "{ ptr, ptr }");   // fat pointer for fn values
+
+    // Pass 0: register type aliases (`type Name = Underlying`). Done first so every later
+    // type lowering / ety recording resolves aliases (cg_dealias). Chains resolve via
+    // cg_dealias's recursion, so declaration order doesn't matter.
+    int ai = 0;
+    while (ai < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, ai);
+        if (d.kind == DK_TYPEALIAS) {
+            let sb: CgSub;
+            sb.param = d.name;
+            sb.arg = d.ret_type;
+            List_push<CgSub>(&g.aliases, sb);
+        }
+        if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) == 0 && cg_enum_is_adt(d) == 0) {
+            int neg = 0;
+            int mi = 0;
+            while (mi < List_len<Param>(&d.params)) {
+                Param pm0 = List_get<Param>(&d.params, mi);
+                if ((int)pm0.ty[0] == 45) {
+                    neg = 1;
+                }
+                // Known before any struct type is emitted, so a field's `int[Member]` resolves.
+                let ec0: CgEnumC;
+                ec0.name = pm0.name;
+                ec0.val = pm0.ty;
+                List_push<CgEnumC>(&g.econsts, ec0);
+                NameIdx_push(&g.econsts_ix, ec0.name);
+                mi = mi + 1;
+            }
+            if (neg == 0) {
+                List_push<string>(&g.enum_uns, d.name);
+            }
+        }
+        ai = ai + 1;
+    }
+
+    // Pass 0b: fold top-level `const int`s into econsts NOW, before any struct type is
+    // emitted, so a struct field's array dimension (`int[CAP]`) resolves to its value.
+    // (Mirrors the C++ pre-pass; the global-var pass below reuses these, not re-registers.)
+    int ci = 0;
+    while (ci < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, ci);
+        if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null
+            && d.init.kind == EK_LITERAL && d.init.lit_kind == LIT_INT
+            && cg_streq(cg_lltype(g, d.ret_type), "i32") == 1
+            && cg_is_unsigned(cg_dealias(g, d.ret_type)) == 0) {   // folded reads are int operands
+            let ec: CgEnumC;
+            ec.name = d.name;
+            ec.val = cg_num_const("i32", d.init.sval);   // decimal, sign kept (`-5` stays -5)
+            List_push<CgEnumC>(&g.econsts, ec);
+            NameIdx_push(&g.econsts_ix, ec.name);
+        } else if (d.kind == DK_VARDECL && d.is_const == 1 && d.init != null) {
+            cg_fold_const_decl(g, d);   // a constant expression (`A * 2`) or a non-int const
+        }
+        ci = ci + 1;
+    }
+
+    // Pass 1-iface: register interfaces (method order + return types) and emit each
+    // vtable struct type `%I_vtable = type { ptr, ... }`. Runs first so cg_lltype lowers
+    // an interface-typed param/field to `ptr` everywhere downstream. The shared fat-ptr
+    // type `%iface_fat = type { ptr, ptr }` is emitted once when any interface exists.
+    int ii0 = 0;
+    while (ii0 < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, ii0);
+        if (d.kind == DK_INTERFACE) {
+            if (g.uses_iface == 0) {
+                cg_deftype(g, "iface_fat", "{ ptr, ptr }");
+                g.uses_iface = 1;
+            }
+            let iface: CgIface;
+            iface.name = d.name;
+            int mn = List_len<*DeclNode>(&d.methods);
+            List_init<string>(&iface.mnames, mn);
+            List_init<string>(&iface.mrets, mn);
+            List_init<List<string>>(&iface.mparams, mn);
+            String vtb;
+            String_init(&vtb, 32);
+            String_append(&vtb, "{ ");
+            int mi = 0;
+            while (mi < mn) {
+                *DeclNode m = List_get<*DeclNode>(&d.methods, mi);
+                List_push<string>(&iface.mnames, m.name);
+                List_push<string>(&iface.mrets, m.ret_type);
+                // Record each method's declared param Eskiu types so dispatch can coerce
+                // args to them (a vtable call needs the same widening as a direct call).
+                List<string> ptys;
+                List_init<string>(&ptys, List_len<Param>(&m.params));
+                int pj = 0;
+                while (pj < List_len<Param>(&m.params)) {
+                    List_push<string>(&ptys, List_get<Param>(&m.params, pj).ty);
+                    pj = pj + 1;
+                }
+                List_push<List<string>>(&iface.mparams, ptys);
+                if (mi > 0) {
+                    String_append(&vtb, ", ");
+                }
+                String_append(&vtb, "ptr");
+                mi = mi + 1;
+            }
+            String_append(&vtb, " }");
+            cg_deftype(g, cg_cat(d.name, "_vtable"), (string)String_cstr(&vtb));
+            List_push<CgIface>(&g.ifaces, iface);
+            NameIdx_push(&g.ifaces_ix, iface.name);
+        }
+        ii0 = ii0 + 1;
+    }
+
+    // Pass 1a: register struct layouts (field names + Eskiu types). A second declaration
+    // of an already-registered struct/union name (the same header-style struct in two
+    // inputs of a multi-file build) is skipped: the first one wins, as in the C++ back-end.
+    List<*DeclNode> dup_types;
+    List_init<*DeclNode>(&dup_types, 2);
+    int si = 0;
+    while (si < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
+        if ((d.kind == DK_STRUCT || d.kind == DK_UNION) && List_len<TypeParam>(&d.type_params) == 0
+            && cg_is_struct(g, d.name) == 1) {
+            List_push<*DeclNode>(&dup_types, d);
+        } else if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) > 0) {
+            cg_push_gstruct(g, d);          // generic — monomorphized on demand
+        } else if (d.kind == DK_STRUCT) {
+            cg_push_tydecl(g, d);
+            let s: CgStruct;
+            s.name = d.name;
+            List_init<string>(&s.fnames, 4);
+            List_init<string>(&s.fetys, 4);
+            int nf = List_len<Param>(&d.params);
+            int fi = 0;
+            while (fi < nf) {
+                Param pm = List_get<Param>(&d.params, fi);
+                List_push<string>(&s.fnames, pm.name);
+                List_push<string>(&s.fetys, cg_dealias(g, pm.ty));
+                fi = fi + 1;
+            }
+            cg_push_struct(g, s);
+        } else if (d.kind == DK_UNION) {
+            let s: CgStruct;
+            s.name = d.name;
+            List_init<string>(&s.fnames, 4);
+            List_init<string>(&s.fetys, 4);
+            int nf = List_len<Param>(&d.params);
+            int fi = 0;
+            while (fi < nf) {
+                Param pm = List_get<Param>(&d.params, fi);
+                List_push<string>(&s.fnames, pm.name);
+                List_push<string>(&s.fetys, pm.ty);
+                fi = fi + 1;
+            }
+            cg_push_struct(g, s);
+            List_push<string>(&g.union_names, d.name);
+            NameIdx_push(&g.union_ix, d.name);
+            cg_push_tydecl(g, d);
+        } else if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) == 0 && cg_enum_is_adt(d) == 1) {
+            // Register the ADT name now so struct fields / payloads of this type lower
+            // to `%Name` (not the i32 default) whatever the declaration order.
+            List_push<string>(&g.adt_names, d.name);
+            NameIdx_push(&g.adt_ix, d.name);
+            cg_push_tydecl(g, d);
+        }
+        si = si + 1;
+    }
+    // Pass 1b: emit the named struct/union types (now every struct name resolves). A type
+    // another layout needed earlier (a union member, a pack/ADT payload) is already out.
+    si = 0;
+    while (si < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
+        int is_dup = 0;
+        int dj = 0;
+        while (dj < List_len<*DeclNode>(&dup_types)) {
+            if (List_get<*DeclNode>(&dup_types, dj) == d) {
+                is_dup = 1;
+            }
+            dj = dj + 1;
+        }
+        if (is_dup == 0 && ((d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) || d.kind == DK_UNION)) {
+            cg_emit_tydecl(g, d);
+        }
+        si = si + 1;
+    }
+
+    // Pass 1c: register enums. A plain enum (every variant payload-less) → integer
+    // constants + an i32 type. An ADT enum (some variant carries a payload) → a
+    // tagged-union type `%E = type { i32, [N x i64] }` (N = i64s to hold the largest
+    // variant's payload, sized by BYTES with field alignment — so a struct-by-value
+    // payload wider than one slot fits) + a variant registry (name → tag + payload
+    // types), keyed by declaration order.
+    si = 0;
+    while (si < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
+        if (d.kind == DK_ENUM && List_len<TypeParam>(&d.type_params) > 0) {
+            // Generic ADT enum: register the decl + variant patterns; instances (and their
+            // concrete variants) are built on demand by cg_ensure_enum_inst.
+            cg_push_genum(g, d);
+            int gm = List_len<Param>(&d.params);
+            int gj = 0;
+            while (gj < gm) {
+                let gv: CgVariant;
+                gv.vname = List_get<Param>(&d.params, gj).name;
+                gv.ename = d.name;
+                gv.tag = gj;
+                List<string> pl = List_get<List<string>>(&d.payloads, gj);
+                List_init<string>(&gv.ptys, List_len<string>(&pl));
+                int gk = 0;
+                while (gk < List_len<string>(&pl)) {
+                    List_push<string>(&gv.ptys, List_get<string>(&pl, gk));
+                    gk = gk + 1;
+                }
+                List_push<CgVariant>(&g.gvariants, gv);
+                NameIdx_push(&g.gvariants_ix, gv.vname);
+                gj = gj + 1;
+            }
+        } else if (d.kind == DK_ENUM) {
+            int m = List_len<Param>(&d.params);
+            int j = 0;
+            if (cg_enum_is_adt(d) == 1) {
+                cg_emit_tydecl(g, d);
+                j = 0;
+                while (j < m) {
+                    let var: CgVariant;
+                    var.vname = List_get<Param>(&d.params, j).name;
+                    var.ename = d.name;
+                    var.tag = j;
+                    List<string> pl = List_get<List<string>>(&d.payloads, j);
+                    List_init<string>(&var.ptys, List_len<string>(&pl));
+                    int k = 0;
+                    while (k < List_len<string>(&pl)) {
+                        List_push<string>(&var.ptys, List_get<string>(&pl, k));
+                        k = k + 1;
+                    }
+                    List_push<CgVariant>(&g.variants, var);
+                    NameIdx_push(&g.variants_ix, var.vname);
+                    j = j + 1;
+                }
+            } else {
+                List_push<string>(&g.enum_names, d.name);
+                NameIdx_push(&g.enum_ix, d.name);
+                j = 0;
+                while (j < m) {
+                    Param pm = List_get<Param>(&d.params, j);
+                    let c: CgEnumC;
+                    c.name = pm.name;
+                    c.val = pm.ty;
+                    List_push<CgEnumC>(&g.econsts, c);
+                    NameIdx_push(&g.econsts_ix, c.name);
+                    j = j + 1;
+                }
+            }
+        }
+        si = si + 1;
+    }
+
+    // Pass 1d: register + emit global variables (top-level var-decls). The symbol `@name`
+    // is the address of the storage; reads load from it, writes store to it.
+    si = 0;
+    while (si < n) {
+        *DeclNode fd = List_get<*DeclNode>(&prog.decls, si);
+        if ((fd.kind == DK_FUNCTION && List_len<TypeParam>(&fd.type_params) == 0) || fd.kind == DK_EXTERN) {
+            List_push<string>(&g.topfns, fd.name);
+            NameIdx_push(&g.topfns_ix, fd.name);
+        }
+        si = si + 1;
+    }
+    si = 0;
+    while (si < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
+        if (d.kind == DK_VARDECL && d.init == null && d.is_extern == 0) {
+            d.init = cg_default_expr(g, d.ret_type);
+        }
+        if (d.kind == DK_VARDECL) {
+            // `extern <type> <name>;` — defined in another translation unit (a C
+            // global). Emit an external declaration (external linkage, no init).
+            // Beside its definition in the program (either order, or another input file),
+            // or repeated, an `extern` names that one variable: nothing more to emit.
+            if (d.is_extern == 1) {
+                if (cg_prog_defines_var(prog, d.name) == 1 || cg_count_global(g, d.name) > 0) {
+                    si = si + 1;
+                    continue;
+                }
+                string ellty = cg_lltype(g, d.ret_type);
+                cg_add_global(g, d.name, cg_cat("@", d.name), ellty, d.ret_type);
+                String_append(&g.globals, "@");
+                String_append(&g.globals, d.name);
+                String_append(&g.globals, " = external global ");
+                String_append(&g.globals, ellty);
+                String_append(&g.globals, "\n");
+                si = si + 1;
+                continue;
+            }
+            // Pass 0b folded the consts before any struct existed; fold a constant
+            // expression again now that `sizeof(Struct)` is known (the later entry wins).
+            if (d.is_const == 1 && d.init != null && d.init.kind != EK_LITERAL) {
+                cg_fold_const_decl(g, d);
+            }
+            string llty = cg_lltype(g, d.ret_type);
+            // Duplicate top-level name (e.g. two `const int X`): emit a uniquely-named global
+            // (@X.1) so clang does not reject a redefinition. Const-int reads fold via econsts
+            // (last-wins), so the global itself is unused; this just keeps the IR valid.
+            string gsym = cg_cat("@", d.name);
+            int dupn = cg_count_global(g, d.name);
+            if (dupn > 0) {
+                gsym = cg_cat(gsym, cg_cat(".", cg_itoa(dupn)));
+            }
+            cg_add_global(g, d.name, gsym, llty, d.ret_type);
+            if (d.is_vol == 1) {
+                List_push<string>(&g.vols, d.name);
+            }
+            g.lam_expret = cg_lam_ret_of(d.ret_type);  // thread fn-type return into a lambda init
+            // Compute the initializer FIRST: a string literal folds via cg_string_global,
+            // which appends its constant to g.globals — that must land before this line, not
+            // in the middle of it.
+            string initstr = cg_global_init_ty(g, d.init, d.ret_type);
+            g.lam_expret = "";
+            String_append(&g.globals, gsym);
+            String_append(&g.globals, " = global ");
+            String_append(&g.globals, cg_tyval(llty, initstr));
+            String_append(&g.globals, "\n");
+        }
+        si = si + 1;
+    }
+
+    // Pass 2: record every function's return type so calls can be typed.
+    int i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_FUNCTION && List_len<TypeParam>(&d.type_params) > 0) {
+            cg_push_gfn(g, d);              // generic fn — monomorphized on demand
+        } else if ((d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC)
+                   && cg_seen_inst(g, cg_cat("fn:", d.name)) == 0) {
+            if (d.kind == DK_INTRINSIC) {
+                cg_push_inst(g, cg_cat("intrinsic:", d.name));
+            }
+            cg_push_inst(g, cg_cat("fn:", d.name));   // dedup (same extern in 2 stdlib files)
+            let f: CgFn;
+            f.name = d.name;
+            f.retty = cg_lltype(g, d.ret_type);
+            f.rety = d.ret_type;
+            f.variadic = 0;
+            string fixed = "";
+            string fixedx = "";     // with signext/zeroext (the extern's declare line)
+            int np = List_len<Param>(&d.params);
+            int pi = 0;
+            int first = 1;
+            List_init<string>(&f.ptys, np);
+            List_init<string>(&f.petys, np);
+            while (pi < np) {
+                Param pm = List_get<Param>(&d.params, pi);
+                if (cg_streq(pm.ty, "...") == 1) {
+                    f.variadic = 1;
+                }
+                else {
+                    string plt = cg_lltype(g, pm.ty);
+                    // A C function's fn-typed parameter is a C function pointer (`ptr`).
+                    if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0
+                        && cg_is_fnty(cg_dealias(g, pm.ty)) == 1) {
+                        plt = "ptr";
+                    }
+                    // A C function's va_list parameter is passed the C way (cg_c_va_list).
+                    if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0
+                        && cg_streq(cg_dealias(g, pm.ty), "va_list") == 1) {
+                        plt = "ptr";
+                    }
+                    List_push<string>(&f.ptys, plt);
+                    List_push<string>(&f.petys, pm.ty);
+                    if (first == 0) {
+                        fixed = cg_cat(fixed, ", ");
+                        fixedx = cg_cat(fixedx, ", ");
+                    }
+                    fixed = cg_cat(fixed, plt);
+                    fixedx = cg_cat(fixedx, plt);
+                    if (cg_streq(plt, "ptr") == 0) {
+                        fixedx = cg_cat(fixedx, cg_ext_attr(g, pm.ty));
+                    }
+                    first = 0;
+                }
+                pi = pi + 1;
+            }
+            f.fixedtypes = fixed;
+            cg_push_fn(g, f);
+            if (d.operator_sym != null && d.operator_sym[0] != 0 && List_len<CgSub>(&g.aliases) > 0) {
+                let opt: List<string>;
+                List_init<string>(&opt, 2);
+                int oi = 0;
+                while (oi < np) {
+                    List_push<string>(&opt, cg_dealias(g, List_get<Param>(&d.params, oi).ty));
+                    oi = oi + 1;
+                }
+                string ocn = ast_op_name(d.operator_sym, &opt);
+                if (ocn[0] != 0 && cg_streq(ocn, d.name) == 0) {
+                    let osb: CgSub;
+                    osb.param = ocn;
+                    osb.arg = d.name;
+                    List_push<CgSub>(&g.opcanon, osb);
+                }
+            }
+            string lowered = "";
+            if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) {   // by-value aggregates: C ABI
+                lowered = cg_cabi_declare(g, d);
+            }
+            if (lowered[0] != 0) {
+                String_append(&g.globals, lowered);
+            } else if (d.kind == DK_EXTERN && cg_prog_defines(prog, d.name) == 0) {       // emit a declaration the calls can reference
+                String_append(&g.globals, "declare");
+                String_append(&g.globals, cg_ext_attr(g, d.ret_type));
+                String_append(&g.globals, " ");
+                String_append(&g.globals, f.retty);
+                String_append(&g.globals, " @");
+                String_append(&g.globals, f.name);
+                String_append(&g.globals, "(");
+                if (f.variadic == 1) {
+                    String_append(&g.globals, cg_va(fixedx));
+                }
+                else {
+                    String_append(&g.globals, fixedx);
+                }
+                String_append(&g.globals, ")\n");
+            } else if (d.kind == DK_FUNCTION && d.body == null && cg_prog_defines(prog, d.name) == 0
+                       && cg_seen_inst(g, cg_cat("decl:", d.name)) == 0) {
+                // A prototype defined in another object file: declare it (Eskiu convention).
+                cg_push_inst(g, cg_cat("decl:", d.name));
+                String_append(&g.globals, "declare ");
+                String_append(&g.globals, f.retty);
+                String_append(&g.globals, " @");
+                String_append(&g.globals, f.name);
+                String_append(&g.globals, "(");
+                if (f.variadic == 1) {
+                    String_append(&g.globals, cg_va(fixed));
+                }
+                else {
+                    String_append(&g.globals, fixed);
+                }
+                String_append(&g.globals, ")\n");
+            }
+        }
+        i = i + 1;
+    }
+    // Pass 2b: register struct methods under their mangled name `Struct_method`.
+    i = 0;
+    while (i < n) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
+        if (d.kind == DK_STRUCT && List_len<TypeParam>(&d.type_params) == 0) {
+            int mi = 0;
+            int mn = List_len<*DeclNode>(&d.methods);
+            while (mi < mn) {
+                *DeclNode m = List_get<*DeclNode>(&d.methods, mi);
+                let mf: CgFn;
+                mf.name = cg_cat(cg_cat(d.name, "_"), m.name);
+                mf.retty = cg_lltype(g, m.ret_type);
+                mf.rety = m.ret_type;
+                mf.variadic = 0;
+                mf.fixedtypes = "";
+                int mnp = List_len<Param>(&m.params);
+                List_init<string>(&mf.ptys, mnp + 1);
+                List_init<string>(&mf.petys, mnp + 1);
+                List_push<string>(&mf.ptys, "ptr");        // implicit self
+                List_push<string>(&mf.petys, cg_cat("*", d.name));
+                int mpi = 0;
+                while (mpi < mnp) {
+                    List_push<string>(&mf.ptys, cg_lltype(g, List_get<Param>(&m.params, mpi).ty));
+                    List_push<string>(&mf.petys, List_get<Param>(&m.params, mpi).ty);
+                    mpi = mpi + 1;
+                }
+                cg_push_fn(g, mf);
+                mi = mi + 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < n) {
+        cg_decl(g, List_get<*DeclNode>(&prog.decls, i));
+        i = i + 1;
+    }
+
+    // Emit generic instantiations, lambda bodies, and fn-ptr thunks. A lambda body can
+    // queue fresh instantiations (a generic call under a captured type-param) and an
+    // instantiation can queue fresh lambdas, so alternate to a fixpoint (persistent
+    // cursors make each drain resume where it left off, never re-emitting).
+    cg_drain_worklist(g);
+    cg_drain_lambdas(g);
+    cg_drain_thunks(g);
+    while (g.wl_i < List_len<CgInst>(&g.worklist)
+        || g.lam_i < List_len<CgLambda>(&g.lambdas)
+        || g.thk_i < List_len<string>(&g.fnthunks)) {
+        cg_drain_worklist(g);
+        cg_drain_lambdas(g);
+        cg_drain_thunks(g);
+    }
+
+    if (g.uses_heap_env == 1) {                                         // closures' env allocator
+        string ha = cg_heap_alloc(g);
+        if (cg_seen_inst(g, cg_cat("fn:", ha)) == 0 && cg_is_fn(g, ha) == 0) {
+            String_append(&g.globals, cg_cat(cg_cat("declare ptr @", ha), "(i64)\n"));
+            cg_push_inst(g, cg_cat("fn:", ha));
+        }
+    }
+
+    if (g.uses_trap == 1 && cg_seen_inst(g, "fn:trap") == 0) {         // --safe bounds-check trap
+        String_append(&g.globals, "declare void @llvm.trap()\n");
+        cg_push_inst(g, "fn:trap");
+    }
+
+    if (g.uses_eh == 1) {   // Itanium EH runtime (declared once, only when used)
+        String_append(&g.globals, "declare i32 @");
+        String_append(&g.globals, cg_eh_pers(g));
+        String_append(&g.globals, "(...)\n");
+        String_append(&g.globals, "@_ZTIPv = external global ptr\n");
+        String_append(&g.globals, "declare ptr @__cxa_allocate_exception(i64)\n");
+        String_append(&g.globals, "declare void @__cxa_throw(ptr, ptr, ptr)\n");
+        String_append(&g.globals, "declare ptr @__cxa_begin_catch(ptr)\n");
+        String_append(&g.globals, "declare void @__cxa_end_catch()\n");
+        String_append(&g.globals, "declare void @__cxa_rethrow()\n");
+        String_append(&g.globals, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
+        cg_ensure_extern(g, "strcmp", "declare i32 @strcmp(ptr, ptr)\n");   // catch matching; <mem> may declare it too
+        if (g.uses_throw == 1) {
+            cg_emit_uncaught(g, prog);
+        }
+    }
+}

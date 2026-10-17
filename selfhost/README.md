@@ -31,9 +31,9 @@ the install layout, and uses `$CLANG` (default `clang`) to link.
 | `preprocessor.esk` | `#define`, `#if`/`#ifdef`, `#pragma` and macro expansion, run before lexing |
 | `ast.esk` | AST nodes and the `--test-parser` printer |
 | `parser.esk` | Recursive-descent parser; follows `import` and merges the imported declarations |
-| `sema.esk` | Type checker |
+| `sema.esk` | Type checker; imports its parts in order: `sema_base` (state, scopes, type helpers), `sema_assign`, `sema_nullable`, `sema_expr`, `sema_stmt` (and the entry point), `sema_flow` (definite return, `-Wall` flow checks), `sema_tooling` (editor modes) |
 | `async_lower.esk` | Rewrites each `async` function into a frame struct and a state machine |
-| `codegen.esk` | Writes LLVM IR as text |
+| `codegen.esk` | Writes LLVM IR as text; imports its parts in order: `codegen_base` (state, target, emission helpers), `codegen_types`, `codegen_ops`, `codegen_lval` (places, calls, builtins), `codegen_expr`, `codegen_stmt`, `codegen_decl` (functions, lambdas, type declarations), `codegen_cabi` (C ABI, program entry) |
 | `fmt.esk` | The `fmt` subcommand |
 | `esk_main.esk` | The compiler driver (`eskiuc-esk`) |
 | `lex_main.esk`, `pp_main.esk`, `parse_main.esk`, `tc_main.esk`, `cg_main.esk` | Single-pass drivers used by the parity checks |
