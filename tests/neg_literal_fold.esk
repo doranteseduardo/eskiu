@@ -1,0 +1,14 @@
+// A negative literal folds as the program sees it at run time: -2147483648 is an int
+// (so << 24 wraps to 0), -2147483649 an int64. Found by the C oracle (seed 21).
+extern int printf(string f, ...);
+int64 g1 = -2147483648 << 24;
+int64 g2 = -2147483649 << 24;
+const int K = -2147483648 >> 31;
+enum E { A = -2147483648 << 1 }
+int main() {
+    int z = 10 / (((-2147483648 << 24) == 0 || (-2147483648 << 24) == -1) ? 7 : (-2147483648 << 24));
+    int64 y = -2147483648 << 24;
+    int[(-2147483648 << 24) + 3] arr;
+    printf("%d %lld %lld %lld %d %d %d\n", z, y, g1, g2, K, (int)A, (int)sizeof(arr));
+    return 0;
+}

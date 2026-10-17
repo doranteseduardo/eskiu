@@ -97,6 +97,12 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - The non-exhaustive `match` error lists every missing arm, quoted, in both compilers.
 
 ### Fixed
+- A negative literal such as `-2147483648` folds as the `int` it is at run time (it
+  folded as an `int64`, as C types the magnitude), so `-2147483648 << 24` is 0 in a
+  constant expression too: no false "division by zero", the same `case`, `enum` and
+  array-size values. Found by the C oracle. Both compilers.
+- `fs_read_all` on a directory (which `fopen` opens on Linux) returns `null` instead of
+  asking for a `LONG_MAX`-byte buffer.
 - A local declared without an initializer starts at zero in both compilers, as a global, a
   `static` local and `alloc<T>` already did: every field of a struct, every element of an
   array, a union and a slice, at each declaration (a variable declared in a loop does not
