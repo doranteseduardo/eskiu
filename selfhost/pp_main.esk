@@ -11,7 +11,7 @@ import "lexer.esk";
 import "bigstack.esk";
 
 // Same as lex_main: print a token's value as the C++ lexer stores it (STRING_LIT /
-// CHAR_LIT decoded, quotes dropped; everything else raw lexeme bytes).
+// CHAR_LIT decoded, quotes dropped; numbers normalized; everything else raw lexeme bytes).
 void emit_value(*uint8 src, int type, int start, int len) {
     if (type == STRING_LIT) {
         int i = start + 1;
@@ -34,6 +34,7 @@ void emit_value(*uint8 src, int type, int start, int len) {
         }
         return;
     }
+    if (type == INT_LIT || type == FLOAT_LIT) { printf("%s", lx_num_text(src, start, len)); return; }   // separators dropped, binary as hex
     int i = 0;
     while (i < len) { putchar((int)src[start + i]); i = i + 1; }
 }
