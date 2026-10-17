@@ -1,0 +1,14 @@
+// A script line that starts with `name<`: an explicit generic call `f<int>(x)` and a
+// comparison `x < y` (no closing `>`) are statements; `Box<int> b;` declares.
+extern int printf(string fmt, ...);
+struct Box<T> { T v; }
+T ident<T>(T v) { return v; }
+void show<T>(T v) { printf("%d\n", v); }
+int x = 1;
+int y = 2;
+show<int>(ident<int>(5));
+x < y;
+x < y >> 1;
+Box<int> b;
+b.v = 7;
+show<int>(b.v);

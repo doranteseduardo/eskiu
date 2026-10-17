@@ -597,6 +597,22 @@ bool Parser::startsScriptStatement() const {
             if (peek_ahead(k).type != TokenType::IDENT) return false;
             TokenType n = peek_ahead(k + 1).type;
             if (isStmtAfterName(n)) return true;
+            if (n == TokenType::LT && k == 0) {
+                // `f<int>(x)` is a call and `x < y` (no closing `>`) a comparison;
+                // `List<int> l` declares.
+                int depth = 0, j = 1;
+                for (;; ++j) {
+                    TokenType b = peek_ahead(j).type;
+                    if (b == TokenType::SEMICOLON || b == TokenType::LBRACE || b == TokenType::RBRACE ||
+                        b == TokenType::EOF_TOKEN)
+                        return true;
+                    if (b == TokenType::LT) depth++;
+                    else if (b == TokenType::GT) depth--;
+                    else if (b == TokenType::RSHIFT) depth -= 2;
+                    if (depth <= 0) break;
+                }
+                return depth < 0 || peek_ahead(j + 1).type == TokenType::LPAREN;
+            }
             if (n != TokenType::LBRACKET) return false;
             // `arr[0] = 1` uses a name; `Point[2] ps` and `*Node[3] t` declare one.
             int depth = 0, j = k + 1;
