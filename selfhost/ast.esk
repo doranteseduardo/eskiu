@@ -11,6 +11,150 @@ import <string>;
 
 extern int dprintf(int fd, string fmt, ...);   // diagnostics go to stderr, like the C++
 
+// A string -> int hash table (open addressing, linear probing, power-of-two capacity,
+// backward-shift deletion). A zeroed StrTab is empty. Keys are copied.
+struct StrTab { **uint8 keys; *int hs; *int vals; int cap; int count; }
+
+int strtab_hash(string k) {
+    uint32 h = (uint32)2166136261;                      // FNV-1a, then a murmur3 finalizer
+    int i = 0;
+    while (k[i] != 0) { h = (h ^ (uint32)((int)k[i] & 255)) * (uint32)16777619; i = i + 1; }
+    h = h ^ (h >> 16); h = h * (uint32)2246822507;
+    h = h ^ (h >> 13); h = h * (uint32)3266489909;
+    h = h ^ (h >> 16);
+    return (int)(h & (uint32)2147483647);
+}
+
+int strtab_keyeq(*uint8 a, string b) {
+    int i = 0;
+    while (a[i] != 0 && b[i] != 0) { if ((int)a[i] != ((int)b[i] & 255)) { return 0; } i = i + 1; }
+    if (a[i] == 0 && b[i] == 0) { return 1; }
+    return 0;
+}
+
+// Slot holding `k` (hash h), or -1.
+int StrTab_slot(StrTab* t, string k, int h) {
+    if (t.cap == 0) { return -1; }
+    int mask = t.cap - 1;
+    int i = h & mask;
+    while (t.keys[i] != null) {
+        if (t.hs[i] == h && strtab_keyeq(t.keys[i], k) == 1) { return i; }
+        i = (i + 1) & mask;
+    }
+    return -1;
+}
+
+void StrTab_grow(StrTab* t) {
+    int oc = t.cap;
+    **uint8 ok = t.keys; *int oh = t.hs; *int ov = t.vals;
+    int nc = 16;
+    if (oc > 0) { nc = oc * 2; }
+    t.keys = alloc<*uint8>(nc); t.hs = alloc<int>(nc); t.vals = alloc<int>(nc);
+    t.cap = nc;
+    int mask = nc - 1;
+    int i = 0;
+    while (i < oc) {
+        if (ok[i] != null) {
+            int j = oh[i] & mask;
+            while (t.keys[j] != null) { j = (j + 1) & mask; }
+            t.keys[j] = ok[i]; t.hs[j] = oh[i]; t.vals[j] = ov[i];
+        }
+        i = i + 1;
+    }
+    if (oc > 0) { free((*void)ok); free((*void)oh); free((*void)ov); }
+}
+
+int StrTab_get(StrTab* t, string k, int dflt) {
+    int i = StrTab_slot(t, k, strtab_hash(k));
+    if (i < 0) { return dflt; }
+    return t.vals[i];
+}
+
+int StrTab_has(StrTab* t, string k) {
+    if (StrTab_slot(t, k, strtab_hash(k)) < 0) { return 0; }
+    return 1;
+}
+
+void StrTab_set(StrTab* t, string k, int v) {
+    int h = strtab_hash(k);
+    int i = StrTab_slot(t, k, h);
+    if (i >= 0) { t.vals[i] = v; return; }
+    if ((t.count + 1) * 4 >= t.cap * 3) { StrTab_grow(t); }   // load factor 0.75
+    int mask = t.cap - 1;
+    int j = h & mask;
+    while (t.keys[j] != null) { j = (j + 1) & mask; }
+    int n = 0; while (k[n] != 0) { n = n + 1; }
+    *uint8 kc = alloc<uint8>(n + 1);
+    int c = 0; while (c < n) { kc[c] = (uint8)k[c]; c = c + 1; }
+    kc[n] = 0;
+    t.keys[j] = kc; t.hs[j] = h; t.vals[j] = v;
+    t.count = t.count + 1;
+}
+
+void StrTab_remove(StrTab* t, string k) {
+    int hole = StrTab_slot(t, k, strtab_hash(k));
+    if (hole < 0) { return; }
+    free((*void)t.keys[hole]);
+    t.keys[hole] = null;
+    t.count = t.count - 1;
+    int mask = t.cap - 1;
+    int j = (hole + 1) & mask;
+    while (t.keys[j] != null) {
+        int home = t.hs[j] & mask;
+        // the entry at j stays unless its home lies cyclically outside (hole, j]
+        int stays = 0;
+        if (hole <= j) { if (home > hole && home <= j) { stays = 1; } }
+        else { if (home > hole || home <= j) { stays = 1; } }
+        if (stays == 0) {
+            t.keys[hole] = t.keys[j]; t.hs[hole] = t.hs[j]; t.vals[hole] = t.vals[j];
+            t.keys[j] = null;
+            hole = j;
+        }
+        j = (j + 1) & mask;
+    }
+}
+
+// A name index kept next to a List whose elements carry a name: element i was added
+// by NameIdx_push(x, its name) in list order, and the list's last element is dropped
+// with NameIdx_pop. It answers the first and the last element with a name, and walks
+// the elements with one name in list order (`next` / `prev` chains), in constant time,
+// so the lookups that scanned the list keep their exact first-match / last-match result.
+// A zeroed NameIdx is empty.
+struct NameIdx { StrTab first; StrTab last; List<int> next; List<int> prev; }
+
+void NameIdx_push(NameIdx* x, string k) {
+    int i = List_len<int>(&x.next);
+    List_push<int>(&x.next, -1);
+    int pl = StrTab_get(&x.last, k, -1);
+    List_push<int>(&x.prev, pl);
+    StrTab_set(&x.last, k, i);
+    if (pl < 0) { StrTab_set(&x.first, k, i); return; }
+    List_set<int>(&x.next, pl, i);
+}
+
+// Drop the index of the list's last element, whose name is `k`.
+void NameIdx_pop(NameIdx* x, string k) {
+    int i = List_len<int>(&x.next) - 1;
+    if (i < 0) { return; }
+    int p = List_get<int>(&x.prev, i);
+    List_remove<int>(&x.next, i);
+    List_remove<int>(&x.prev, i);
+    if (p < 0) {
+        StrTab_remove(&x.last, k);
+        StrTab_remove(&x.first, k);
+        return;
+    }
+    StrTab_set(&x.last, k, p);
+    List_set<int>(&x.next, p, -1);
+}
+
+// Index of the first / last element named `k`, or -1.
+int NameIdx_first(NameIdx* x, string k) { return StrTab_get(&x.first, k, -1); }
+int NameIdx_last(NameIdx* x, string k) { return StrTab_get(&x.last, k, -1); }
+// The next / previous element with the same name as element i, or -1.
+int NameIdx_next(NameIdx* x, int i) { return List_get<int>(&x.next, i); }
+int NameIdx_prev(NameIdx* x, int i) { return List_get<int>(&x.prev, i); }
+
 // Integer rank of `t` after promotion (32 = int/uint, 64 = int64/uint64); 0 = not an
 // integer. `*uns` is set for an unsigned rank. Mirrors the C++ ty::rangeVarType
 // (shared by sema and codegen).

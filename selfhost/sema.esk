@@ -111,13 +111,26 @@ struct Sema {
     int inst_depth;
     // Globals declared after the top-level declaration being checked: C declares a global
     // at its definition, so an earlier initializer or function body cannot name it.
-    List<string> late_globals;
+    StrTab late_globals;   // a set: name -> 1
     int no_depr;            // -Wno-deprecated: no warning at a use of a `deprecated` function
     int cur_import;         // the top-level declaration being checked comes from an import
     List<string> depr_seen; // "file:line:col" of each deprecation warning already printed
     List<string> wno;       // -Wno-<name>: the default-on warnings turned off
     List<string> addr_keys; // -Wdangling-pointer: "sym index:name" of a local pointer ...
     List<string> addr_roots;// ... and the local whose address it holds ("" = something else)
+    // Name indexes over the lists above (NameIdx, ast.esk), kept in step with every push
+    // and pop, so a lookup by name does not scan the list.
+    NameIdx syms_ix;
+    NameIdx fns_ix;
+    NameIdx tdecls_ix;       // also indexes `types` (pushed together)
+    NameIdx sdecls_ix;       // also indexes `structs`
+    NameIdx members_ix;
+    NameIdx enums_ix;
+    NameIdx fndecls_ix;
+    NameIdx evars_ix;        // by variant name
+    StrTab gaddr_set;        // the names in gaddr
+    StrTab inst_seen_set;    // the keys in inst_seen
+    StrTab depr_seen_set;    // the keys in depr_seen
 }
 
 // Mutually-recursive walk.
@@ -490,7 +503,6 @@ void sema_init(Sema* s, string filename) {
     s.match_ty = "";
     s.lam_ret = "";
     List_init<string>(&s.watched, 4);
-    List_init<string>(&s.late_globals, 4);
     List_init<string>(&s.escaped, 4);
     List_init<string>(&s.narrowed, 4);
     s.has_ops = 0;
@@ -529,6 +541,7 @@ void sema_pop(Sema* s) {
     while (List_len<Sym>(&s.syms) > 0) {
         Sym last = List_get<Sym>(&s.syms, List_len<Sym>(&s.syms) - 1);
         if (last.depth < d) { break; }
+        NameIdx_pop(&s.syms_ix, last.name);
         List_remove<Sym>(&s.syms, List_len<Sym>(&s.syms) - 1);
     }
     s.depth = d - 1;
@@ -562,6 +575,7 @@ void sema_define(Sema* s, string name, string type, int is_const) {
     sym.is_static = 0;
     sym.addr_taken = 0;
     List_push<Sym>(&s.syms, sym);
+    NameIdx_push(&s.syms_ix, name);
     sema_bump(s);
 }
 
@@ -578,12 +592,7 @@ void sema_set_const_init(Sema* s, *ExprNode init) {
 // Index of the innermost binding of `name` in the symbol stack, or -1 if unbound.
 // The one reverse scan the symbol-table queries below share.
 int sema_sym_index(Sema* s, string name) {
-    int i = List_len<Sym>(&s.syms) - 1;
-    while (i >= 0) {
-        if (sema_streq(List_get<Sym>(&s.syms, i).name, name) == 1) { return i; }
-        i = i - 1;
-    }
-    return -1;
+    return NameIdx_last(&s.syms_ix, name);
 }
 
 // Retype the innermost binding of `name` (a `for (i in A..B)` decl widened to the
@@ -688,6 +697,7 @@ void sema_register_fn(Sema* s, *DeclNode d) {
         }
     }
     List_push<FnSig>(&s.fns, sig);
+    NameIdx_push(&s.fns_ix, sig.name);
 }
 
 *DeclNode sema_find_tdecl(Sema* s, string name);
@@ -734,17 +744,11 @@ int sema_is_struct_value(Sema* s, string t) {
 }
 
 int sema_find_fn(Sema* s, string name) {
-    int i = 0;
-    int n = List_len<FnSig>(&s.fns);
-    while (i < n) {
-        if (sema_streq(List_get<FnSig>(&s.fns, i).name, name) == 1) { return i; }
-        i = i + 1;
-    }
-    return 0 - 1;
+    return NameIdx_first(&s.fns_ix, name);
 }
 
 int sema_is_type(Sema* s, string name) {
-    return sema_in_list(&s.types, name);
+    return NameIdx_first(&s.tdecls_ix, name) >= 0;
 }
 
 // Leading name of a spelling, up to a generic '<' or payload '(':
@@ -823,18 +827,14 @@ int sema_known_type(Sema* s, string t) {
     if (sema_is_numeric_ty(b) == 1 || sema_streq(b, "void") == 1 || sema_streq(b, "string") == 1
         || sema_streq(b, "va_list") == 1) { return 1; }
     if (sema_in_list(&s.tparams, b) == 1) { return 1; }
-    return sema_in_list(&s.types, b);
+    return NameIdx_first(&s.tdecls_ix, b) >= 0;
 }
 
 // The declaration of type `name` (struct/union/enum/interface/alias), or null.
 *DeclNode sema_find_tdecl(Sema* s, string name) {
-    int i = 0; int n = List_len<*DeclNode>(&s.tdecls);
-    while (i < n) {
-        *DeclNode d = List_get<*DeclNode>(&s.tdecls, i);
-        if (sema_streq(d.name, name) == 1) { return d; }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&s.tdecls_ix, name);
+    if (i < 0) { return null; }
+    return List_get<*DeclNode>(&s.tdecls, i);
 }
 
 // A declared type spelling (field / parameter / return / variable) must name known types,
@@ -1100,7 +1100,7 @@ int sema_dim_name(Sema* s, string nm, int64* out) {
     int si = sema_sym_index(s, nm);
     if (si < 0) { return 0; }
     Sym sy = List_get<Sym>(&s.syms, si);
-    if (sy.depth == 0 && sema_in_list(&s.late_globals, nm) == 1) { return 0; }
+    if (sy.depth == 0 && StrTab_has(&s.late_globals, nm) == 1) { return 0; }
     if (sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, out) == 1) { return 1; }
     return 0;
 }
@@ -1122,7 +1122,7 @@ void sema_check_dims(Sema* s, string t) {
                 if (known == 0 && si >= 0) {
                     Sym sy = List_get<Sym>(&s.syms, si);
                     int later = 0;                    // a global declared further down is not in scope yet
-                    if (sy.depth == 0 && sema_in_list(&s.late_globals, dim) == 1) { later = 1; }
+                    if (sy.depth == 0 && StrTab_has(&s.late_globals, dim) == 1) { later = 1; }
                     if (later == 0 && sy.is_const == 1 && sy.init != null && sema_fold_int(s, sy.init, &v) == 1) { known = 1; }
                 }
                 // An integer constant expression (`(uint8)258`, `N*2`), folded like a `const`
@@ -1319,7 +1319,7 @@ int sema_is_value_aggr(*DeclNode d) {
 
 // DFS for a struct/union that contains itself by value (no finite layout). `onstack` holds
 // the current path, `done` the finished nodes, `reported` the already-diagnosed structs.
-void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, List<string>* done, List<string>* reported) {
+void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, StrTab* done, List<string>* reported) {
     List_push<string>(onstack, d.name);
     s.line = d.line; s.col = d.col;
     List<string> ftys; List_init<string>(&ftys, 4);
@@ -1337,14 +1337,14 @@ void sema_cycle_dfs(Sema* s, *DeclNode d, List<string>* onstack, List<string>* d
                     dprintf(2, "error: %s:%d:%d: %s '%s' contains itself by value (through %s of '%s'); use a pointer\n",
                            s.filename, md.line, md.col, sema_value_kind(md), m, List_get<string>(&fdescs, i), d.name);
                 }
-            } else if (sema_in_list(done, m) == 0) {
+            } else if (StrTab_has(done, m) == 0) {
                 sema_cycle_dfs(s, sema_find_tdecl(s, m), onstack, done, reported);
             }
         }
         i = i + 1;
     }
     sema_list_erase(onstack, d.name);
-    List_push<string>(done, d.name);
+    StrTab_set(done, d.name, 1);
 }
 
 // The struct spelling a field of type `ft` holds by value, through generic instances too
@@ -1430,13 +1430,13 @@ int sema_gen_cycle_walk(Sema* s, string sp, List<string>* stack, *DeclNode root,
 
 void sema_check_value_cycles(Sema* s) {
     List<string> onstack; List_init<string>(&onstack, 4);
-    List<string> done; List_init<string>(&done, 8);
+    let done: StrTab; memset((*void)&done, 0, sizeof(StrTab));
     List<string> reported; List_init<string>(&reported, 2);
     int i = 0; int n = List_len<*DeclNode>(&s.tdecls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&s.tdecls, i);
         if (sema_is_value_aggr(d) == 1 && List_len<TypeParam>(&d.type_params) == 0
-            && sema_in_list(&done, d.name) == 0) {
+            && StrTab_has(&done, d.name) == 0) {
             sema_cycle_dfs(s, d, &onstack, &done, &reported);
         }
         i = i + 1;
@@ -1464,27 +1464,25 @@ void sema_check_value_cycles(Sema* s) {
 }
 
 int sema_is_struct(Sema* s, string name) {
-    return sema_in_list(&s.structs, name);
+    return NameIdx_first(&s.sdecls_ix, name) >= 0;
 }
 
 int sema_has_member(Sema* s, string key) {   // key = "Struct.member"
-    return sema_in_list(&s.members, key);
+    return NameIdx_first(&s.members_ix, key) >= 0;
 }
 
 // Is `name` a variant of any enum (e.g. a generic `Some` constructed as `Some<int>(5)`)?
 int sema_is_variant_name(Sema* s, string name) {
-    int i = 0; int n = List_len<EVar>(&s.evars);
-    while (i < n) { if (sema_streq(List_get<EVar>(&s.evars, i).variant, name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return NameIdx_first(&s.evars_ix, name) >= 0;
 }
 
 // The variant `v` of enum `en` (plain = 0 and val = null when absent).
 EVar sema_find_evar(Sema* s, string en, string v) {
-    int i = 0; int n = List_len<EVar>(&s.evars);
-    while (i < n) {
+    int i = NameIdx_first(&s.evars_ix, v);
+    while (i >= 0) {
         EVar ev = List_get<EVar>(&s.evars, i);
-        if (sema_streq(ev.en, en) == 1 && sema_streq(ev.variant, v) == 1) { return ev; }
-        i = i + 1;
+        if (sema_streq(ev.en, en) == 1) { return ev; }
+        i = NameIdx_next(&s.evars_ix, i);
     }
     let none: EVar; none.en = en; none.variant = v; none.val = null; none.plain = 0;
     return none;
@@ -1503,7 +1501,7 @@ string sema_evar_with_val(Sema* s, string en, string val, List<string>* seen, st
 }
 
 int sema_is_enum(Sema* s, string name) {
-    return sema_in_list(&s.enums, name);
+    return NameIdx_first(&s.enums_ix, name) >= 0;
 }
 
 // `+ - * / %`: the operators whose result type sema_infer_type derives from its operands.
@@ -2111,7 +2109,7 @@ void sema_check_iface_value(Sema* s, string tety, *ExprNode e) {
     }
     string bare = sema_strip_const(src);
     string sn = sema_struct_of_type(bare);
-    if (sema_has_star(bare) == 1 && sema_in_list(&s.structs, sn) == 1) {
+    if (sema_has_star(bare) == 1 && NameIdx_first(&s.sdecls_ix, sn) >= 0) {
         if (sema_ptr_depth(bare) != 1) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: cannot convert '%s' to interface '%s': only a pointer to a struct (a single '*') converts to an interface\n",
@@ -2144,7 +2142,7 @@ void sema_check_iface_value(Sema* s, string tety, *ExprNode e) {
         }
         return;
     }
-    if (sema_in_list(&s.structs, src) == 0) { return; }
+    if (NameIdx_first(&s.sdecls_ix, src) < 0) { return; }
     s.had_error = 1;
     dprintf(2, "error: %s:%d:%d: cannot convert struct '%s' to interface '%s' by value; pass a pointer (&x)\n",
            s.filename, s.line, s.col, src, tety);
@@ -3114,8 +3112,9 @@ void sema_queue_inst(Sema* s, *DeclNode qfn, *DeclNode owner, List<string>* targ
         i = i + 1;
     }
     disp = sema_cat(sema_cat(disp, ">"), suffix);
-    if (sema_in_list(&s.inst_seen, disp) == 1) { return; }
+    if (StrTab_has(&s.inst_seen_set, disp) == 1) { return; }
     List_push<string>(&s.inst_seen, disp);
+    StrTab_set(&s.inst_seen_set, disp, 1);
     si.func = qfn; si.owner = owner; si.display = disp; si.depth = s.inst_depth + 1;
     List_push<SInst>(&s.insts, si);
 }
@@ -3219,13 +3218,9 @@ void sema_report_assign(Sema* s, string ctx, string err) {
 
 // The declaration of struct `name` (or null).
 *DeclNode sema_find_struct(Sema* s, string name) {
-    int i = 0; int n = List_len<*DeclNode>(&s.sdecls);
-    while (i < n) {
-        *DeclNode d = List_get<*DeclNode>(&s.sdecls, i);
-        if (sema_streq(d.name, name) == 1) { return d; }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&s.sdecls_ix, name);
+    if (i < 0) { return null; }
+    return List_get<*DeclNode>(&s.sdecls, i);
 }
 
 // Field type `ft` of a generic struct `d` with the literal's type args substituted when the
@@ -3497,25 +3492,20 @@ string sema_trim_sub(string s, int a, int b) {
 }
 
 *DeclNode sema_find_fndecl(Sema* s, string name) {
-    int i = 0; int n = List_len<*DeclNode>(&s.fndecls);
-    while (i < n) {
-        *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
-        if (sema_streq(d.name, name) == 1) { return d; }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&s.fndecls_ix, name);
+    if (i < 0) { return null; }
+    return List_get<*DeclNode>(&s.fndecls, i);
 }
 
 // Is `name` a C function: declared `extern` and not also defined by the program?
 int sema_is_c_extern(Sema* s, string name) {
-    int ext = 0; int i = 0; int n = List_len<*DeclNode>(&s.fndecls);
-    while (i < n) {
+    int ext = 0;
+    int i = NameIdx_first(&s.fndecls_ix, name);
+    while (i >= 0) {
         *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
-        if (sema_streq(d.name, name) == 1) {
-            if (d.kind == DK_EXTERN) { ext = 1; }
-            if (d.kind == DK_FUNCTION && d.body != null) { return 0; }
-        }
-        i = i + 1;
+        if (d.kind == DK_EXTERN) { ext = 1; }
+        if (d.kind == DK_FUNCTION && d.body != null) { return 0; }
+        i = NameIdx_next(&s.fndecls_ix, i);
     }
     return ext;
 }
@@ -3934,7 +3924,7 @@ int sema_narrowable(Sema* s, string name) {
     if (si < 0) { return 1; }
     Sym sy = List_get<Sym>(&s.syms, si);
     if (sy.addr_taken == 1) { return 0; }
-    if (sy.depth == 0 && sema_in_list(&s.gaddr, name) == 1) { return 0; }
+    if (sy.depth == 0 && StrTab_has(&s.gaddr_set, name) == 1) { return 0; }
     return 1;
 }
 
@@ -4925,7 +4915,7 @@ string sema_did_you_mean(Sema* s, string name, int kind, string recv) {
             si = si + 1;
             if (y.depth == 0 && sema_find_fn(s, y.name) < 0) {
                 // a global defined later is not in scope yet
-                if (sema_in_list(&s.late_globals, y.name) == 1) { continue; }
+                if (StrTab_has(&s.late_globals, y.name) == 1) { continue; }
                 // a generic enum's variant is not a value by itself
                 *DeclNode ve = sema_variant_enum(s, y.name);
                 if (ve != null && List_len<TypeParam>(&ve.type_params) > 0) { continue; }
@@ -5062,16 +5052,17 @@ void sema_warn_packed_addr(Sema* s, *ExprNode u) {
 void sema_note_depr(Sema* s, string fname, int line, int col) {
     if (s.no_depr == 1 || line <= 0 || s.in_inst == 1 || s.cur_import == 1 || fname == null) { return; }
     string msg = null;
-    int i = 0;
-    while (i < List_len<*DeclNode>(&s.fndecls)) {
+    int i = NameIdx_first(&s.fndecls_ix, fname);
+    while (i >= 0) {
         *DeclNode d = List_get<*DeclNode>(&s.fndecls, i);
-        if (d.depr_msg != null && d.depr_msg[0] != 0 && sema_streq(d.name, fname) == 1) { msg = d.depr_msg; }
-        i = i + 1;
+        if (d.depr_msg != null && d.depr_msg[0] != 0) { msg = d.depr_msg; }
+        i = NameIdx_next(&s.fndecls_ix, i);
     }
     if (msg == null) { return; }
     string key = sema_cat(sema_cat(sema_cat(sema_cat(s.filename, ":"), sema_i64_text((int64)line)), ":"), sema_i64_text((int64)col));
-    if (sema_in_list(&s.depr_seen, key) == 1) { return; }
+    if (StrTab_has(&s.depr_seen_set, key) == 1) { return; }
     List_push<string>(&s.depr_seen, key);
+    StrTab_set(&s.depr_seen_set, key, 1);
     string tail = "";
     if (sema_streq(msg, " ") == 0) { tail = sema_cat(": ", msg); }
     dprintf(2, "%s:%d:%d: warning: '%s' is deprecated%s\n", s.filename, line, col, fname, tail);
@@ -5085,7 +5076,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         // va_start/va_end are variadic-access builtins with no declaration (va_arg<T> is a
         // template call). Treat them as defined, matching the C++ checker.
         if ((sema_lookup(s, e.sval) == 0
-             || (sema_local_bound(s, e.sval) == 0 && sema_in_list(&s.late_globals, e.sval) == 1))
+             || (sema_local_bound(s, e.sval) == 0 && StrTab_has(&s.late_globals, e.sval) == 1))
             && sema_streq(e.sval, "va_start") == 0 && sema_streq(e.sval, "va_end") == 0) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: undefined variable '%s'%s\n", s.filename, s.line, s.col, e.sval, sema_did_you_mean(s, e.sval, 0, ""));
@@ -5143,7 +5134,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         // A variable: a typed symbol, not a function, an enum member, or a later global.
         int szvar = 0;
         if (sema_lookup(s, e.sval) == 1 && (sema_local_bound(s, e.sval) == 1
-            || (sema_lookup_type(s, e.sval)[0] != 0 && sema_in_list(&s.late_globals, e.sval) == 0))) { szvar = 1; }
+            || (sema_lookup_type(s, e.sval)[0] != 0 && StrTab_has(&s.late_globals, e.sval) == 0))) { szvar = 1; }
         if (szvar == 0 && sema_known_type(s, e.sval) == 0) {
             s.had_error = 1;
             string utn = sema_base_name(sema_struct_of_type(e.sval));
@@ -6049,7 +6040,7 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         else { s.callee_ctx = ""; }
         if (e.a != null && e.a.kind == EK_IDENT && sema_streq(e.a.sval, "va_start") == 0 && sema_streq(e.a.sval, "va_end") == 0
             && (sema_lookup(s, e.a.sval) == 0
-                || (sema_local_bound(s, e.a.sval) == 0 && sema_in_list(&s.late_globals, e.a.sval) == 1))) {
+                || (sema_local_bound(s, e.a.sval) == 0 && StrTab_has(&s.late_globals, e.a.sval) == 1))) {
             s.had_error = 1;               // an unbound callee names no function (mirrors the C++)
             dprintf(2, "error: %s:%d:%d: undefined function '%s'%s\n", s.filename, e.a.line, e.a.col, e.a.sval,
                    sema_did_you_mean(s, e.a.sval, 0, ""));
@@ -7468,6 +7459,7 @@ void sema_register_globals(Sema* s, *Program prog) {
         if (d.kind == DK_FUNCTION || d.kind == DK_EXTERN || d.kind == DK_INTRINSIC) {
             sema_register_fn(s, d);
             List_push<*DeclNode>(&s.fndecls, d);
+            NameIdx_push(&s.fndecls_ix, d.name);
             if (d.operator_sym != null) { s.has_ops = 1; }
         }
         if (d.kind == DK_INTERFACE) { List_push<*DeclNode>(&s.ifaces, d); }
@@ -7475,26 +7467,33 @@ void sema_register_globals(Sema* s, *Program prog) {
             || d.kind == DK_ENUM || d.kind == DK_TYPEALIAS) {
             List_push<string>(&s.types, d.name);
             List_push<*DeclNode>(&s.tdecls, d);
+            NameIdx_push(&s.tdecls_ix, d.name);
             if (d.kind == DK_TYPEALIAS) { s.has_alias = 1; }
         }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
             List_push<string>(&s.structs, d.name);
             List_push<*DeclNode>(&s.sdecls, d);
+            NameIdx_push(&s.sdecls_ix, d.name);
             int fi = 0;                                       // fields are valid members
             int fn2 = List_len<Param>(&d.params);
             while (fi < fn2) {
-                List_push<string>(&s.members, sema_cat(sema_cat(d.name, "."), List_get<Param>(&d.params, fi).name));
+                string mk = sema_cat(sema_cat(d.name, "."), List_get<Param>(&d.params, fi).name);
+                List_push<string>(&s.members, mk);
+                NameIdx_push(&s.members_ix, mk);
                 fi = fi + 1;
             }
             int mi = 0;                                       // methods are valid members too
             int mn = List_len<*DeclNode>(&d.methods);
             while (mi < mn) {
-                List_push<string>(&s.members, sema_cat(sema_cat(d.name, "."), List_get<*DeclNode>(&d.methods, mi).name));
+                string mk2 = sema_cat(sema_cat(d.name, "."), List_get<*DeclNode>(&d.methods, mi).name);
+                List_push<string>(&s.members, mk2);
+                NameIdx_push(&s.members_ix, mk2);
                 mi = mi + 1;
             }
         }
         if (d.kind == DK_ENUM) {
             List_push<string>(&s.enums, d.name);
+            NameIdx_push(&s.enums_ix, d.name);
             int j = 0;
             int m = List_len<Param>(&d.params);
             while (j < m) {
@@ -7511,6 +7510,7 @@ void sema_register_globals(Sema* s, *Program prog) {
                     pj = pj + 1;
                 }
                 List_push<EVar>(&s.evars, ev);
+                NameIdx_push(&s.evars_ix, vn);
                 j = j + 1;
             }
             if (sema_is_plain_enum_decl(d) == 1) { sema_fold_enum(s, d, 0); }   // provisional: later decls unseen
@@ -7823,17 +7823,15 @@ string sema_article(string k) {
 }
 
 // Index of `name` in the top-level name table, or -1.
-int sema_name_index(List<NameEnt>* tab, string name) {
-    int i = 0; int n = List_len<NameEnt>(tab);
-    while (i < n) { if (sema_streq(List_get<NameEnt>(tab, i).name, name) == 1) { return i; } i = i + 1; }
-    return -1;
+int sema_name_index(NameIdx* tix, string name) {
+    return NameIdx_first(tix, name);
 }
 
 // Declare top-level `name` of `kind`; report a duplicate or a conflict (mirrors the C++
 // checkTopLevelNames: prototypes, `extern` variables and identical structs are allowed).
-void sema_declare_top(Sema* s, List<NameEnt>* tab, string name, string kind, *DeclNode d) {
-    int i = sema_name_index(tab, name);
-    if (i < 0) { let ne: NameEnt; ne.name = name; ne.kind = kind; ne.d = d; List_push<NameEnt>(tab, ne); return; }
+void sema_declare_top(Sema* s, List<NameEnt>* tab, NameIdx* tix, string name, string kind, *DeclNode d) {
+    int i = sema_name_index(tix, name);
+    if (i < 0) { let ne: NameEnt; ne.name = name; ne.kind = kind; ne.d = d; List_push<NameEnt>(tab, ne); NameIdx_push(tix, name); return; }
     NameEnt prev = List_get<NameEnt>(tab, i);
     if (sema_streq(kind, "function") == 1 && sema_streq(prev.kind, "function") == 1) {
         int pg = List_len<TypeParam>(&prev.d.type_params); int dg = List_len<TypeParam>(&d.type_params);
@@ -7894,50 +7892,51 @@ string sema_extern_sig(Sema* s, *DeclNode f) {
 
 void sema_check_top_names(Sema* s, *Program prog) {
     List<NameEnt> tab; List_init<NameEnt>(&tab, 64);
+    let tix: NameIdx;
+    let exts: StrTab;    // name -> index of its first extern declaration
+    memset((*void)&tix, 0, sizeof(NameIdx));
+    memset((*void)&exts, 0, sizeof(StrTab));
     int i = 0; int n = List_len<*DeclNode>(&prog.decls);
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         s.line = d.line; s.col = d.col;
-        if (d.kind == DK_FUNCTION) { sema_declare_top(s, &tab, d.name, "function", d); }
-        else if (d.kind == DK_VARDECL) { sema_declare_top(s, &tab, d.name, "variable", d); }
+        if (d.kind == DK_FUNCTION) { sema_declare_top(s, &tab, &tix, d.name, "function", d); }
+        else if (d.kind == DK_VARDECL) { sema_declare_top(s, &tab, &tix, d.name, "variable", d); }
         else if (d.kind == DK_STRUCT) {
-            sema_declare_top(s, &tab, d.name, "struct", d);
+            sema_declare_top(s, &tab, &tix, d.name, "struct", d);
             int m = 0; int mn = List_len<*DeclNode>(&d.methods);
             while (m < mn) {                         // an inline method `S.m` is the function `S_m`
                 *DeclNode md = List_get<*DeclNode>(&d.methods, m);
-                sema_declare_top(s, &tab, sema_cat(sema_cat(d.name, "_"), md.name), "method", md);
+                sema_declare_top(s, &tab, &tix, sema_cat(sema_cat(d.name, "_"), md.name), "method", md);
                 m = m + 1;
             }
         }
-        else if (d.kind == DK_UNION) { sema_declare_top(s, &tab, d.name, "union", d); }
+        else if (d.kind == DK_UNION) { sema_declare_top(s, &tab, &tix, d.name, "union", d); }
         else if (d.kind == DK_ENUM) {
-            sema_declare_top(s, &tab, d.name, "enum", d);
+            sema_declare_top(s, &tab, &tix, d.name, "enum", d);
             // A classic member is an int constant, apart from type names; a sum type's
             // variant is a constructor, so it may not share a name with a type either.
             string mkind = "enum member";
             if (sema_is_aggregate(s, d.name) == 1) { mkind = "variant"; }
             int j = 0; int jn = List_len<Param>(&d.params);
-            while (j < jn) { sema_declare_top(s, &tab, List_get<Param>(&d.params, j).name, mkind, d); j = j + 1; }
+            while (j < jn) { sema_declare_top(s, &tab, &tix, List_get<Param>(&d.params, j).name, mkind, d); j = j + 1; }
         }
         else if (d.kind == DK_EXTERN) {
             // An `extern` may be declared again (modules share C functions), but with the
             // same signature: two different ones cannot both describe the C symbol.
-            int j = 0;
-            while (j < i) {
+            int j = StrTab_get(&exts, d.name, -1);   // the first earlier extern of the name
+            if (j < 0) { StrTab_set(&exts, d.name, i); }
+            else {
                 *DeclNode pd = List_get<*DeclNode>(&prog.decls, j);
-                if (pd.kind == DK_EXTERN && sema_streq(pd.name, d.name) == 1) {
-                    string a = sema_extern_sig(s, pd); string b = sema_extern_sig(s, d);
-                    if (sema_streq(a, b) == 0) {
-                        s.had_error = 1;
-                        dprintf(2, "error: %s:%d:%d: conflicting declaration of extern '%s' (%s vs the earlier %s)\n", s.filename, s.line, s.col, d.name, b, a);
-                    }
-                    j = i;
+                string a = sema_extern_sig(s, pd); string b = sema_extern_sig(s, d);
+                if (sema_streq(a, b) == 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: conflicting declaration of extern '%s' (%s vs the earlier %s)\n", s.filename, s.line, s.col, d.name, b, a);
                 }
-                j = j + 1;
             }
         }
-        else if (d.kind == DK_INTERFACE) { sema_declare_top(s, &tab, d.name, "interface", d); }
-        else if (d.kind == DK_TYPEALIAS) { sema_declare_top(s, &tab, d.name, "type alias", d); }
+        else if (d.kind == DK_INTERFACE) { sema_declare_top(s, &tab, &tix, d.name, "interface", d); }
+        else if (d.kind == DK_TYPEALIAS) { sema_declare_top(s, &tab, &tix, d.name, "type alias", d); }
         i = i + 1;
     }
     // An extern names a C function, so it cannot share its name with a generic one either
@@ -7946,7 +7945,7 @@ void sema_check_top_names(Sema* s, *Program prog) {
     while (i < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, i);
         if (d.kind == DK_EXTERN) {
-            int k = sema_name_index(&tab, d.name);
+            int k = sema_name_index(&tix, d.name);
             if (k >= 0) {
                 NameEnt ne = List_get<NameEnt>(&tab, k);
                 if (sema_streq(ne.kind, "function") == 1 && List_len<TypeParam>(&ne.d.type_params) > 0) {
@@ -8326,19 +8325,22 @@ int sema_check(Sema* s, *Program prog) {
         }
         gi = gi + 1;
     }
+    memset((*void)&s.gaddr_set, 0, sizeof(StrTab));
+    gi = 0;
+    while (gi < List_len<string>(&s.gaddr)) { StrTab_set(&s.gaddr_set, List_get<string>(&s.gaddr, gi), 1); gi = gi + 1; }
     sema_register_globals(s, prog);
     sema_check_top_names(s, prog);
     sema_check_alias_cycles(s);
     if (s.had_error == 1) { return 0; }   // a cyclic alias makes every later type check meaningless
-    List<string> defined_fns;   // top-level functions WITH a body, to catch a redefinition
-    List_init<string>(&defined_fns, 32);
+    let defined_fns: StrTab;    // top-level functions WITH a body, to catch a redefinition (a set)
+    memset((*void)&defined_fns, 0, sizeof(StrTab));
     string primary = s.filename;
     int i = 0;
     int n = List_len<*DeclNode>(&prog.decls);
     int gi0 = 0;
     while (gi0 < n) {
         *DeclNode gd = List_get<*DeclNode>(&prog.decls, gi0);
-        if (gd.kind == DK_VARDECL) { List_push<string>(&s.late_globals, gd.name); }
+        if (gd.kind == DK_VARDECL) { StrTab_set(&s.late_globals, gd.name, 1); }
         gi0 = gi0 + 1;
     }
     while (i < n) {
@@ -8346,10 +8348,10 @@ int sema_check(Sema* s, *Program prog) {
         sema_enter_decl(s, d, primary);
         s.line = d.line; s.col = d.col;
         if (d.kind == DK_FUNCTION && d.body != null) {
-            if (sema_in_list(&defined_fns, d.name) == 1) {
+            if (StrTab_has(&defined_fns, d.name) == 1) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: redefinition of function '%s'\n", s.filename, s.line, s.col, sema_fn_display(d));
-            } else { List_push<string>(&defined_fns, d.name); }
+            } else { StrTab_set(&defined_fns, d.name, 1); }
         }
         if (d.kind == DK_INTRINSIC) {
             if (sema_streq(d.name, "atomic_load") == 0 && sema_streq(d.name, "atomic_store") == 0
@@ -8491,12 +8493,8 @@ int sema_check(Sema* s, *Program prog) {
             }
         }
         if (d.kind == DK_VARDECL) {
-            int lg = 0;
-            while (lg < List_len<string>(&s.late_globals)) {
-                // every entry of the name (an `extern` declaration and the definition)
-                if (sema_streq(List_get<string>(&s.late_globals, lg), d.name) == 1) { List_remove<string>(&s.late_globals, lg); }
-                else { lg = lg + 1; }
-            }
+            // every entry of the name (an `extern` declaration and the definition)
+            StrTab_remove(&s.late_globals, d.name);
         }
         if (d.kind == DK_STRUCT || d.kind == DK_UNION) {
             List_init<string>(&s.tparams, 4);
