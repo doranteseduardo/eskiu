@@ -1,0 +1,26 @@
+// A child that writes to the parent's stdout comes after what the parent printed before
+// starting it: process_run, sh_with and process_spawn flush stdio first when the child
+// inherits stdout or stderr. (The test's stdout is a pipe, so it is fully buffered.)
+import <io>;
+import <process>;
+import <list>;
+
+int main() {
+    println("parent before run");
+    ProcessOptions o = ProcessOptions{inherit_stdout: true};
+    let r: ProcessResult;
+    sh_with("echo child of run", &o, &r);
+    ProcessResult_free(&r);
+
+    println("parent before spawn");
+    let argv: List<string>;  List_init<string>(&argv, 2);
+    argv.push("echo");  argv.push("child of spawn");
+    let p: Process;
+    if (process_spawn(&argv, &o, &p) == 0) {
+        Process_wait(&p);
+        Process_free(&p);
+    }
+    List_free<string>(&argv);
+    println("parent after");
+    return 0;
+}
