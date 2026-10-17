@@ -21,6 +21,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - `process_run`, `sh_with` and `process_spawn` flush stdio before starting a child that
   inherits stdout or stderr, so the parent's earlier output is not printed after the
   child's.
+- `alloc_with` returns zeroed memory with every allocator, as `alloc<T>` does. The
+  `<alloc>` allocators hand back old bytes after `Bump_reset`/`Arena_restore` or when a
+  `Pool` block or `FirstFit` region is reused; the compiler now clears the block after a
+  successful call (memset, a byte loop under `--freestanding`).
+- A sum-type value zeroes its payload area before storing the variant's fields, so the
+  bytes past a short variant (`Small(4)` in an enum with a three-field variant) are zero
+  instead of left over stack contents, and two equal values have equal bytes.
 
 ## [0.11.0] - 2026-10-14
 
