@@ -3386,6 +3386,8 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc file.esk --test-codegen` | Dump LLVM IR |
 | `eskiuc file.esk --hover-at LINE:COL` | Print inferred type at position |
 | `eskiuc file.esk --definition-at LINE:COL` | Print definition location of symbol |
+| `eskiuc file.esk --complete-at LINE:COL` | Print completions at position, one `kind<TAB>name<TAB>detail` per line |
+| `eskiuc file.esk --symbols` | Print the file's declarations (an outline) |
 
 **Linking.** When the `-o` output is not an object file (no `.o` suffix) and `-c`
 is absent, `eskiuc` links the program into an executable by invoking the system
@@ -3414,7 +3416,7 @@ invocation in `kernel/Makefile`).
 
 **Sanitizers.** `--asan` instruments the program with AddressSanitizer (detecting heap, stack and global memory errors) and links the matching LLVM runtime; `--ubsan` inserts trapping bounds checks (an out-of-bounds access aborts via a trap; no runtime is required). Both are real LLVM instrumentation passes and compose with `eskiuc run`.
 
-`--hover-at` and `--definition-at` accept the format `LINE:COL` with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information and go-to-definition navigation.
+`--hover-at`, `--definition-at` and `--complete-at` accept the format `LINE:COL` with 1-based line and column numbers. They are used by the VS Code extension to provide hover type information, go-to-definition navigation and completion. The self-hosted `eskiuc-esk` implements these modes and the `-Wall`/`-Wextra` warnings with the same output.
 
 ### Cross-compilation
 
