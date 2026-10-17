@@ -329,6 +329,7 @@ private:
     void emitDeferPad();
     bool enumBitfieldUnsigned(const std::string& type);
     void ensureEHRuntime();
+    void emitUncaughtReporter();
     size_t breakCleanupDepth    = 0;   // frame depth to unwind to on break
     size_t continueCleanupDepth = 0;   // frame depth to unwind to on continue
 

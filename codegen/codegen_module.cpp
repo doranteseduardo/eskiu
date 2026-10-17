@@ -178,6 +178,7 @@ llvm::Module* CodeGen::generateCode(std::shared_ptr<Program> program) {
         for (const auto& kv : *semaInstanceArgs) templateInstanceArgs.emplace(kv.first, kv.second);
 
     program->accept(this);
+    emitUncaughtReporter();
 
     std::string errorStr;
     llvm::raw_string_ostream errorStream(errorStr);

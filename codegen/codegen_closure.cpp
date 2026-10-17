@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "../ast/type_qual.h"
 #include "llvm/IR/InlineAsm.h"
 
@@ -227,6 +228,105 @@ std::string CodeGen::exceptionTypeName(const std::string& raw) const {
     if (t == "int32") t = "int";
     if (t == "uint32") t = "uint";
     return t.empty() ? "unknown" : t;
+}
+
+// A program that throws reports an exception nobody catches (in main, a thread, or
+// through a C frame) by type and value, as the REPL does, instead of the C++ runtime's
+// "uncaught exception of type void*": a constructor installs a std::terminate handler
+// that rethrows the current exception into a catch-all, prints it to stderr and aborts.
+void CodeGen::emitUncaughtReporter() {
+    if (freestanding || !module->getFunction("__cxa_throw")) return;
+    llvm::Function* mainFn = module->getFunction("main");
+    if (!mainFn || mainFn->isDeclaration()) return;
+    // The C functions it calls must be the C library's, not the program's own.
+    for (const char* f : {"strcmp", "snprintf", "fflush", "write", "abort", "__cxa_rethrow", "__cxa_begin_catch"})
+        if (llvm::Function* g = module->getFunction(f); g && !g->isDeclaration()) return;
+    llvm::LLVMContext& c = *context;
+    llvm::Type* ptrTy = llvm::PointerType::get(c, 0);
+    llvm::Type* i32 = llvm::Type::getInt32Ty(c);
+    llvm::Type* i64 = llvm::Type::getInt64Ty(c);
+    llvm::Type* voidTy = llvm::Type::getVoidTy(c);
+    ensureEHDecls(module.get(), c, ehPersonalityName());
+    llvm::IRBuilder<> b(c);
+
+    llvm::Function* handler = llvm::Function::Create(llvm::FunctionType::get(voidTy, false),
+        llvm::Function::InternalLinkage, "__eskiu_terminate", module.get());
+    handler->setPersonalityFn(module->getFunction(ehPersonalityName()));
+    auto* entry = llvm::BasicBlock::Create(c, "entry", handler);
+    auto* never = llvm::BasicBlock::Create(c, "never", handler);
+    auto* lp = llvm::BasicBlock::Create(c, "lp", handler);
+    b.SetInsertPoint(entry);
+    llvm::FunctionCallee rethrow = module->getOrInsertFunction("__cxa_rethrow", voidTy);
+    b.CreateInvoke(rethrow, never, lp);
+    b.SetInsertPoint(never);
+    b.CreateUnreachable();
+    b.SetInsertPoint(lp);
+    auto* pad = b.CreateLandingPad(llvm::StructType::get(c, {ptrTy, i32}), 1);
+    pad->addClause(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy)));
+    llvm::Value* exc = b.CreateExtractValue(pad, {0});
+    llvm::FunctionCallee beginCatch = module->getOrInsertFunction("__cxa_begin_catch", ptrTy, ptrTy);
+    llvm::Value* obj = b.CreateCall(beginCatch, {exc});
+    llvm::Value* tname = b.CreateLoad(ptrTy, b.CreateConstGEP1_64(b.getInt8Ty(), obj, 8));
+    llvm::Value* pay = b.CreateConstGEP1_64(b.getInt8Ty(), obj, 16);
+    llvm::FunctionCallee strcmpFn = module->getOrInsertFunction("strcmp", i32, ptrTy, ptrTy);
+    llvm::FunctionCallee snprintfFn = module->getOrInsertFunction("snprintf",
+        llvm::FunctionType::get(i32, {ptrTy, i64, ptrTy}, true));
+    llvm::Value* buf = b.CreateAlloca(llvm::ArrayType::get(b.getInt8Ty(), 512));
+    auto isType = [&](const char* name) {
+        return b.CreateICmpEQ(b.CreateCall(strcmpFn, {tname, b.CreateGlobalString(name)}), b.getInt32(0));
+    };
+    llvm::Value* isInt = b.CreateOr(isType("int"), isType("int32"));
+    llvm::Value* isI64 = isType("int64");
+    llvm::Value* isStr = isType("string");
+    auto* bInt = llvm::BasicBlock::Create(c, "int", handler);
+    auto* bNot = llvm::BasicBlock::Create(c, "notint", handler);
+    auto* bI64 = llvm::BasicBlock::Create(c, "i64", handler);
+    auto* bNot64 = llvm::BasicBlock::Create(c, "noti64", handler);
+    auto* bStr = llvm::BasicBlock::Create(c, "str", handler);
+    auto* bOther = llvm::BasicBlock::Create(c, "other", handler);
+    auto* bOut = llvm::BasicBlock::Create(c, "out", handler);
+    const char* head = "error: uncaught exception: ";
+    b.CreateCondBr(isInt, bInt, bNot);
+    b.SetInsertPoint(bInt);
+    llvm::Value* n1 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
+        b.CreateGlobalString(std::string(head) + "%s %d\n"), tname, b.CreateLoad(i32, pay)});
+    b.CreateBr(bOut);
+    b.SetInsertPoint(bNot);
+    b.CreateCondBr(isI64, bI64, bNot64);
+    b.SetInsertPoint(bI64);
+    llvm::Value* n2 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
+        b.CreateGlobalString(std::string(head) + "%s %lld\n"), tname, b.CreateLoad(i64, pay)});
+    b.CreateBr(bOut);
+    b.SetInsertPoint(bNot64);
+    llvm::Value* sval = b.CreateLoad(ptrTy, pay);
+    b.CreateCondBr(b.CreateAnd(isStr, b.CreateIsNotNull(sval)), bStr, bOther);
+    b.SetInsertPoint(bStr);
+    llvm::Value* n3 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
+        b.CreateGlobalString(std::string(head) + "%s \"%s\"\n"), tname, sval});
+    b.CreateBr(bOut);
+    b.SetInsertPoint(bOther);
+    llvm::Value* n4 = b.CreateCall(snprintfFn, {buf, b.getInt64(512),
+        b.CreateGlobalString(std::string(head) + "%s\n"), tname});
+    b.CreateBr(bOut);
+    b.SetInsertPoint(bOut);
+    llvm::PHINode* n = b.CreatePHI(i32, 4);
+    n->addIncoming(n1, bInt); n->addIncoming(n2, bI64); n->addIncoming(n3, bStr); n->addIncoming(n4, bOther);
+    llvm::Value* len = b.CreateSelect(b.CreateICmpSGT(n, b.getInt32(511)), b.getInt32(511), n);
+    llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", i32, ptrTy);
+    b.CreateCall(fflushFn, {llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy))});
+    llvm::FunctionCallee writeFn = module->getOrInsertFunction("write", i64, i32, ptrTy, i64);
+    b.CreateCall(writeFn, {b.getInt32(2), buf, b.CreateSExt(len, i64)});
+    llvm::FunctionCallee abortFn = module->getOrInsertFunction("abort", voidTy);
+    b.CreateCall(abortFn);
+    b.CreateUnreachable();
+
+    llvm::Function* install = llvm::Function::Create(llvm::FunctionType::get(voidTy, false),
+        llvm::Function::InternalLinkage, "__eskiu_install_terminate", module.get());
+    b.SetInsertPoint(llvm::BasicBlock::Create(c, "entry", install));
+    llvm::FunctionCallee setTerm = module->getOrInsertFunction("_ZSt13set_terminatePFvvE", ptrTy, ptrTy);
+    b.CreateCall(setTerm, {handler});
+    b.CreateRetVoid();
+    llvm::appendToGlobalCtors(*module, install, 65535);
 }
 
 void CodeGen::ensureEHRuntime() {
