@@ -8036,6 +8036,35 @@ string sema_bitfield_base(Sema* s, string t) {
     return ft;
 }
 
+// A field default (`int t = 30;`) is a constant of the field's type (mirrors the C++
+// visit(StructDecl)); none on a generic struct's fields or on a bitfield.
+void sema_check_field_defaults(Sema* s, *DeclNode d) {
+    int i = 0;
+    while (i < List_len<Param>(&d.params) && i < List_len<*ExprNode>(&d.field_dflts)) {
+        *ExprNode e = List_get<*ExprNode>(&d.field_dflts, i);
+        Param f = List_get<Param>(&d.params, i);
+        i = i + 1;
+        if (e == null) { continue; }
+        int sl = s.line; int sc = s.col;
+        if (e.line > 0) { s.line = e.line; s.col = e.col; }
+        if (List_len<TypeParam>(&d.type_params) > 0) {
+            sema_error(s, sema_cat(sema_cat(sema_cat(sema_cat("field '", f.name), "' of generic struct '"), d.name), "' cannot have a default value"));
+        } else if ((i - 1) < List_len<int>(&d.field_bits) && List_get<int>(&d.field_bits, i - 1) != 0) {
+            sema_error(s, sema_cat(sema_cat("bitfield '", f.name), "' cannot have a default value"));
+        } else {
+            sema_infer_variant_r(s, e, f.ty, 1);
+            sema_expr(s, e);
+            if (sema_is_const_init(s, e) == 0) {
+                sema_error(s, sema_cat(sema_cat("default value of field '", f.name), "' is not a compile-time constant"));
+            } else {
+                string err = sema_assign_err(s, f.ty, e);
+                if (err[0] != 0) { sema_error(s, sema_cat(sema_cat(sema_cat(sema_cat("default value of field '", f.name), "': "), ""), err)); }
+            }
+        }
+        s.line = sl; s.col = sc;
+    }
+}
+
 // Struct/union fields: not void; a bitfield needs an integer type at least as wide.
 void sema_check_fields(Sema* s, *DeclNode d) {
     int i = 0; int n = List_len<Param>(&d.params);
@@ -8516,6 +8545,7 @@ int sema_check(Sema* s, *Program prog) {
             int fi = 0; int fn2 = List_len<Param>(&d.params);
             while (fi < fn2) { sema_check_decl_type(s, List_get<Param>(&d.params, fi).ty); fi = fi + 1; }
             sema_check_fields(s, d);
+            sema_check_field_defaults(s, d);
             int k = 0;
             int mm = List_len<*DeclNode>(&d.methods);
             while (k < mm) {

@@ -566,6 +566,7 @@ struct DeclNode {
     List<*DeclNode> methods;       // struct methods (each a FunctionDecl; else empty)
     List<List<string>> payloads;   // enum ADT payload types per member (parallel to params)
     List<int> field_bits;          // struct field bitfield widths (parallel to params; 0 = none, -1 = `: 0`)
+    List<*ExprNode> field_dflts;   // struct field defaults (parallel to params; null = none)
     List<string> pad_tys;          // struct/union unnamed bitfields `T : N;` (layout only, not members):
     List<int> pad_bits;            //   type, width (0 = `: 0`) and the index of the named field it
     List<int> pad_at;              //   precedes (mirrors StructDecl::pads)
@@ -672,6 +673,16 @@ void pind(int d) {
 void pline(int d, string s) {
     pind(d);
     printf("%s\n", s);
+}
+
+// The default value of struct `dn`'s field `name` (`int t = 30;`), or null.
+*ExprNode ast_field_default(*DeclNode dn, string name) {
+    int i = 0;
+    while (i < List_len<Param>(&dn.params) && i < List_len<*ExprNode>(&dn.field_dflts)) {
+        if (ast_streq(List_get<Param>(&dn.params, i).name, name) == 1) { return List_get<*ExprNode>(&dn.field_dflts, i); }
+        i = i + 1;
+    }
+    return null;
 }
 
 void print_expr(*ExprNode e, int d) {
@@ -1123,6 +1134,9 @@ void print_decl(*DeclNode dn, int d) {
                 if (bw > 0) { printf(" : %d", bw); }     // bitfield width
             }
             printf("\n");
+            *ExprNode fdv = null;
+            if (List_get<int>(&lnamed, fi) == 1) { fdv = ast_field_default(dn, pm.name); }
+            if (fdv != null) { pline(d + 3, "Default:"); print_expr(fdv, d + 4); }
             fi = fi + 1;
         }
         int mn = List_len<*DeclNode>(&dn.methods);

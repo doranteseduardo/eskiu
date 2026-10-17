@@ -2711,7 +2711,84 @@ string cg_tyval(string declty, string v) {
 // Constant struct-literal text "{ ty v, ty v, ... }" for a global initializer (a
 // bitfield struct or a union goes through its byte image, cg_const_image; "" when it
 // cannot be folded). Named + positional fields; missing → zero.
-string cg_const_struct(Codegen* g, string sname0, *ExprNode e) {
+// Field defaults (mirrors the C++ defaultExprFor / withDefaults): the expression a value
+// of type `t0` starts as when nothing initializes it (`S{}` for a struct with defaults,
+// directly or in a field; an array literal of those for an array of it), or null.
+StrTab cg_dflt_memo;   // struct name -> 1 has defaults, 2 none, 3 being computed
+*ExprNode cg_default_expr(Codegen* g, string t0) {
+    if (t0 == null || t0[0] == 0) { return null; }
+    string t = cg_dealias(g, cg_strip_lead_const(t0));
+    if (t[0] == 0 || cg_is_ptr_ty(t) == 1) { return null; }
+    if (cg_is_array(t) == 1) {
+        *ExprNode de = cg_default_expr(g, cg_array_elem(t));
+        if (de == null) { return null; }
+        string ln = cg_array_len_const(g, t);
+        if (ln[0] == 0) { return null; }
+        int n = str_to_int(ln);
+        if (n <= 0 || n > 65536) { return null; }
+        *ExprNode a = ast_new_expr();
+        a.kind = EK_ARRAYLIT;
+        int i = 0; while (i < n) { List_push<*ExprNode>(&a.kids, de); i = i + 1; }
+        return a;
+    }
+    *DeclNode d = cg_find_tydecl(g, t);
+    if (d == null || d.kind != DK_STRUCT || List_len<TypeParam>(&d.type_params) > 0) { return null; }
+    int m = StrTab_get(&cg_dflt_memo, t, 0);
+    if (m == 2 || m == 3) { return null; }
+    if (m == 0) {
+        StrTab_set(&cg_dflt_memo, t, 3);
+        int any = 0; int i = 0;
+        while (i < List_len<Param>(&d.params) && any == 0) {
+            if (i < List_len<*ExprNode>(&d.field_dflts) && List_get<*ExprNode>(&d.field_dflts, i) != null) { any = 1; }
+            else if (cg_default_expr(g, List_get<Param>(&d.params, i).ty) != null) { any = 1; }
+            i = i + 1;
+        }
+        if (any == 1) { StrTab_set(&cg_dflt_memo, t, 1); } else { StrTab_set(&cg_dflt_memo, t, 2); return null; }
+    }
+    *ExprNode si = ast_new_expr();
+    si.kind = EK_STRUCTINIT; si.sval = t;
+    return si;
+}
+
+// `e` (a struct literal) with every field it omits given its default, as a named literal;
+// `e` itself when the struct has none.
+*ExprNode cg_with_defaults(Codegen* g, *ExprNode e) {
+    string t = cg_dealias(g, e.sval);
+    if (cg_default_expr(g, t) == null) { return e; }
+    *DeclNode d = cg_find_tydecl(g, t);
+    int nk = List_len<*ExprNode>(&e.kids);
+    int named = 0;
+    if (nk > 0 && List_len<string>(&e.names) > 0) { string n0 = List_get<string>(&e.names, 0); if (n0 != null && n0[0] != 0) { named = 1; } }
+    *ExprNode out = ast_new_expr();
+    out.kind = EK_STRUCTINIT; out.sval = e.sval; out.line = e.line; out.col = e.col;
+    let given: StrTab;
+    int i = 0;
+    while (i < nk) {
+        string fname = "";
+        if (named == 1) { fname = List_get<string>(&e.names, i); }
+        else if (i < List_len<Param>(&d.params)) { fname = List_get<Param>(&d.params, i).name; }
+        if (fname[0] != 0) {
+            StrTab_set(&given, fname, 1);
+            List_push<string>(&out.names, fname); List_push<*ExprNode>(&out.kids, List_get<*ExprNode>(&e.kids, i));
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < List_len<Param>(&d.params)) {
+        Param f = List_get<Param>(&d.params, i);
+        if (StrTab_has(&given, f.name) == 0) {
+            *ExprNode dv = null;
+            if (i < List_len<*ExprNode>(&d.field_dflts)) { dv = List_get<*ExprNode>(&d.field_dflts, i); }
+            if (dv == null) { dv = cg_default_expr(g, f.ty); }
+            if (dv != null) { List_push<string>(&out.names, f.name); List_push<*ExprNode>(&out.kids, dv); }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+string cg_const_struct(Codegen* g, string sname0, *ExprNode e0) {
+    *ExprNode e = cg_with_defaults(g, e0);             // omitted fields take their defaults
     string sname = cg_dealias(g, sname0);
     CgStruct s = cg_find_struct(g, sname);
     int nf = List_len<string>(&s.fnames);
@@ -6232,7 +6309,8 @@ void cg_zero_bytes(Codegen* g, string slot, string sz) {
     cg_label(g, done);
 }
 
-void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e) {
+void cg_struct_init(Codegen* g, string slot, string sname0, *ExprNode e0) {
+    *ExprNode e = cg_with_defaults(g, e0);             // omitted fields take their defaults
     string sname = cg_dealias(g, sname0);                // `Alias{...}` of a struct alias fills the struct
     CgStruct s = cg_find_struct(g, sname);
     // Fields the literal omits are zero (C aggregate-initializer semantics), not whatever
@@ -6696,6 +6774,9 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         return;
     }
     if (st.kind == SK_VARDECL) {
+        // A variable of a type with field defaults that nothing initializes starts as the
+        // default value (as the C++ visit(VarDecl)).
+        if (st.expr == null) { st.expr = cg_default_expr(g, st.type); }
         string ty = cg_lltype(g, st.type);
         if (st.is_static == 1) {
             // A `static` local: one instance at module scope, persists across calls.
@@ -9338,6 +9419,7 @@ void cg_program(Codegen* g, *Program prog) {
     si = 0;
     while (si < n) {
         *DeclNode d = List_get<*DeclNode>(&prog.decls, si);
+        if (d.kind == DK_VARDECL && d.init == null && d.is_extern == 0) { d.init = cg_default_expr(g, d.ret_type); }
         if (d.kind == DK_VARDECL) {
             // `extern <type> <name>;` — defined in another translation unit (a C
             // global). Emit an external declaration (external linkage, no init).
