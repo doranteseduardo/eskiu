@@ -315,7 +315,7 @@ void CodeGen::visit(VarDecl* node) {
         if (ExprPtr d = defaultExprFor(node->type)) node->initializer = d;
     // A numeric `const` folds to its value: array dimensions, case labels and later
     // constant initializers use it, and reads of the variable yield the constant.
-    llvm::Constant* constVal = node->isStatic ? nullptr : foldConstDecl(node);
+    llvm::Constant* constVal = node->isStatic || node->scriptInit ? nullptr : foldConstDecl(node);
 
     llvm::Type* declType = getTypeFromString(node->type);
 
@@ -335,10 +335,11 @@ void CodeGen::visit(VarDecl* node) {
             defineVarType(node->name, node->type);
             return;
         }
-        llvm::Constant* init = node->initializer
+        // A script's global starts at zero; the implicit main assigns its initializer.
+        llvm::Constant* init = node->initializer && !node->scriptInit
             ? constInitializer(node->initializer, declType)
             : nullptr;
-        if (!init && node->initializer)
+        if (!init && node->initializer && !node->scriptInit)
             throw std::runtime_error("initializer of global '" + node->name +
                                      "' is not a compile-time constant");
         if (!init) init = llvm::Constant::getNullValue(declType);

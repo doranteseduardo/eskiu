@@ -2366,7 +2366,12 @@ void cg_program(Codegen* g, *Program prog) {
             // Compute the initializer FIRST: a string literal folds via cg_string_global,
             // which appends its constant to g.globals — that must land before this line, not
             // in the middle of it.
-            string initstr = cg_global_init_ty(g, d.init, d.ret_type);
+            // A script's global starts at zero; the implicit main assigns its initializer.
+            *ExprNode ginit = d.init;
+            if (d.script_init == 1) {
+                ginit = null;
+            }
+            string initstr = cg_global_init_ty(g, ginit, d.ret_type);
             g.lam_expret = "";
             String_append(&g.globals, gsym);
             String_append(&g.globals, " = global ");
