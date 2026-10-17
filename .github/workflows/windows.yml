@@ -190,8 +190,11 @@ jobs:
           # `eskiuc repl` is not available on Windows in this release: it must say so and
           # exit 1 instead of starting a session.
           set +e
-          out=$(printf '1 + 1\n' | ./build/eskiuc.exe repl 2>&1 | tr -d '\r')
-          code=${PIPESTATUS[1]}
+          mkdir -p winbin
+          printf '1 + 1\n' > winbin/repl.in
+          ./build/eskiuc.exe repl < winbin/repl.in > winbin/repl.out 2>&1
+          code=$?
+          out=$(tr -d '\r' < winbin/repl.out)
           want='error: `eskiuc repl` is not available on Windows in this release; run a file with `eskiuc run file.esk`'
           if [ "$out" = "$want" ] && [ "$code" -eq 1 ]; then
             echo "ok repl/not-available"
