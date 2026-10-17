@@ -106,8 +106,7 @@ int _dns_lookup(string host, string port, **_dns_addrinfo res) {
 // _dns_lookup without touching dns_last_error, so another thread can run it
 // (Winsock must be started first: _dns_wsa_init).
 int _dns_getaddrinfo(string host, string port, **_dns_addrinfo res) {
-    let hints: _dns_addrinfo;
-    memset((*void)&hints, 0, sizeof(_dns_addrinfo));
+    let hints: _dns_addrinfo;          // every field starts at zero
     hints.ai_family = DNS_AF_UNSPEC;
     hints.ai_socktype = 1;   // SOCK_STREAM: one entry per address
     *res = null;

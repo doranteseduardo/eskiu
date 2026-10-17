@@ -512,8 +512,7 @@ int _proc_run_cmd(String* cmdline, ProcessOptions* o, ProcessResult* r) {
 }
 
 int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
-    let def: ProcessOptions;
-    memset((*void)&def, 0, sizeof(ProcessOptions));
+    let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
     let cmd: String;  cmd.init(64);
@@ -523,8 +522,7 @@ int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
 }
 
 int sh_with(string command, ProcessOptions* opts, ProcessResult* out) {
-    let def: ProcessOptions;
-    memset((*void)&def, 0, sizeof(ProcessOptions));
+    let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
     let cmd: String;  cmd.init(64);
@@ -536,8 +534,7 @@ int sh_with(string command, ProcessOptions* opts, ProcessResult* out) {
 }
 
 int process_spawn(List<string>* argv, ProcessOptions* opts, Process* p) {
-    let def: ProcessOptions;
-    memset((*void)&def, 0, sizeof(ProcessOptions));
+    let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
     let cmd: String;  cmd.init(64);
@@ -829,8 +826,7 @@ int _proc_run(List<string>* argv, ProcessOptions* o, ProcessResult* r) {
 // output into `out` (see the top of the file). opts may be null. 0 if the
 // program ran, -1 if it could not be started.
 int process_run(List<string>* argv, ProcessOptions* opts, ProcessResult* out) {
-    let def: ProcessOptions;
-    memset((*void)&def, 0, sizeof(ProcessOptions));
+    let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
     return _proc_run(argv, o, out);
@@ -851,8 +847,7 @@ int sh_with(string command, ProcessOptions* opts, ProcessResult* out) {
 // stdout/stderr are pipes unless inherited (stdin_text and timeout_ms are not
 // used). 0, or -1 if it could not be started.
 int process_spawn(List<string>* argv, ProcessOptions* opts, Process* p) {
-    let def: ProcessOptions;
-    memset((*void)&def, 0, sizeof(ProcessOptions));
+    let def: ProcessOptions;            // the defaults: every field zero
     ProcessOptions* o = opts != null ? opts : &def;
     _proc_flush_inherited(o);
     return _proc_start(argv, o, !o.inherit_stdin, false, p);
