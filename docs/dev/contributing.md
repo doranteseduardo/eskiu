@@ -69,7 +69,8 @@ Every fix comes with a regression test. CI also runs:
 - C++17, no dependencies beyond LLVM and the standard library.
 - `camelCase` methods and members, `snake_case` locals.
 - Comments only where the reason is not obvious from the code.
-- AST nodes are `shared_ptr` (`ExprPtr`, `StmtPtr`, `DeclPtr`); see `AGENTS.md` for why.
+- AST nodes are `shared_ptr` (`ExprPtr`, `StmtPtr`, `DeclPtr`): struct-method bodies and template bodies
+  are shared by several declarations, so do not convert them to `unique_ptr`.
 - Commit subjects are short and imperative, with no trailing period.
 
 ## Proposals

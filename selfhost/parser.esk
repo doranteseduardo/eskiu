@@ -1,12 +1,7 @@
 // Self-hosted recursive-descent parser. Tokenizes the whole file up front (via the
-// self-hosted lexer, selfhost/lexer.esk) into a buffer and indexes into it — like
-// the C++ parser — for arbitrary lookahead and backtracking. Builds the AST
-// (selfhost/ast.esk), printed in the C++ `--test-parser` format. Parity-gated.
-//
-// S0: function `<type> <name>() { return <int>; }`.
-// S1: full expression precedence chain + unary + parens + negative-literal folding;
-//     literals INT/FLOAT/BOOL/NULL + identifiers. (String/char literal values and
-//     postfix call/index/member/cast arrive in S2.)
+// self-hosted lexer, selfhost/lexer.esk) into a buffer and indexes into it, like the
+// C++ parser, for arbitrary lookahead and backtracking. Builds the AST
+// (selfhost/ast.esk), printed in the C++ `--test-parser` format, and resolves imports.
 
 import <fs>;
 import <io>;

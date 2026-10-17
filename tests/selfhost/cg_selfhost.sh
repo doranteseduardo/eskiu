@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase D gate: the self-hosted code generator compiles the WHOLE self-hosted compiler.
+# The self-hosted code generator compiles the whole self-hosted compiler.
 #
 # Two checks, over every selfhost/*.esk module (lexer, preprocessor, parser, sema,
 # codegen, the drivers) + the cg_inputs corpus:

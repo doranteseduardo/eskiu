@@ -1,13 +1,7 @@
-// Self-hosted code generation (Phase C of the back-end). Walks the typed AST and
-// emits LLVM IR as TEXT — no LLVM library to bind. The oracle is behavioral: the
-// emitted .ll, compiled with clang and run, must produce the same exit code/output
-// as the C++-built binary (LLVM auto-numbers/folds, so the IR text itself can't be
-// matched byte-for-byte). Named SSA temps (%tN) sidestep LLVM's strict 0,1,2,…
-// numbering for unnamed values.
-//
-// S0: functions returning an integer constant.
-// S1: scalar locals + params via alloca/load/store, integer arithmetic, comparisons,
-//     bitwise ops, unary negate, assignment. Control flow, calls, structs follow.
+// Self-hosted code generator. Walks the typed AST and emits LLVM IR as text, with no
+// LLVM library to bind; the driver compiles the .ll with clang. Its output is checked by
+// behavior: the program built from it must give the same exit code and output as the
+// C++-built one (LLVM numbers and folds values, so the IR text itself can differ).
 //
 // The module is split into parts, imported here in order (each part relies on the
 // declarations of the parts before it, so compile this file, not a part alone):

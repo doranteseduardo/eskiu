@@ -1,12 +1,8 @@
-// Self-hosted lexer — the Eskiu port of `lexer/lexer.cpp`, built incrementally
-// and parity-tested against the C++ `--test-lexer`. Free functions over a
-// `Lexer*` (explicit cursor state); mirrors the C++ peek/advance/skip semantics.
-//
-// Complete: whitespace + line/block comments, identifiers + keywords, numbers,
-// string + char literals, operators + delimiters + pragma, EOF. Mirrors the full
-// preprocessor-free C++ lexer; byte-identical to `--test-lexer` over the whole
-// real corpus (tests/selfhost/lex_parity.sh --full → 114/114). The preprocessor
-// itself is a separate (future) self-host target — see selfhost/README.md.
+// Self-hosted lexer, the Eskiu port of `lexer/lexer.cpp`. Free functions over a
+// `Lexer*` (explicit cursor state) with the C++ peek/advance/skip semantics: whitespace
+// and comments, identifiers and keywords, numbers, string and char literals, operators,
+// delimiters and pragmas. Its token stream is byte-identical to `eskiuc --test-lexer`
+// (tests/selfhost/lex_parity.sh). The preprocessor is selfhost/preprocessor.esk.
 
 import <ctype>;
 import <io>;

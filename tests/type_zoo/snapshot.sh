@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Golden-IR oracle for the typed-Type migration (v0.2.3 Stage 0.5).
+# Golden-IR oracle for changes to the type layer (`ty::Type`).
 #
 # The migration of normalizeType / getTypeFromString / substType / unifyTypeParam
 # onto the structured `Type` IR is meant to be BEHAVIOR-PRESERVING. This harness

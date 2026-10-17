@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Whole-corpus behavioral equivalence gate (promotion P3).
+# Whole-corpus behavioral equivalence of the two compilers.
 #
 # Runs the ENTIRE positive test corpus (tests/*.esk) through the Eskiu-built compiler
 # end to end: its driver (full pipeline, incl. sema) links via clang with no -l flags, so

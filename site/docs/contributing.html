@@ -216,7 +216,8 @@ listed in it. Details are in <a href="https://github.com/eskiu-lang/eskiu/blob/m
 <li>C++17, no dependencies beyond LLVM and the standard library.</li>
 <li><code>camelCase</code> methods and members, <code>snake_case</code> locals.</li>
 <li>Comments only where the reason is not obvious from the code.</li>
-<li>AST nodes are <code>shared_ptr</code> (<code>ExprPtr</code>, <code>StmtPtr</code>, <code>DeclPtr</code>); see <code>AGENTS.md</code> for why.</li>
+<li>AST nodes are <code>shared_ptr</code> (<code>ExprPtr</code>, <code>StmtPtr</code>, <code>DeclPtr</code>): struct-method bodies and template bodies
+  are shared by several declarations, so do not convert them to <code>unique_ptr</code>.</li>
 <li>Commit subjects are short and imperative, with no trailing period.</li>
 </ul>
 <h2 id="proposals">Proposals</h2>

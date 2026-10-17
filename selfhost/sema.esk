@@ -1,17 +1,7 @@
-// Self-hosted semantic analyzer (Phase B of the back-end). Consumes the enriched
-// AST (ast.esk). Mirrors sema/type_checker.cpp incrementally.
-//
-// S0: name resolution — a two-pass walk (register top-level names, then check
-// bodies with a scope stack) that catches *undefined variables*. The oracle is the
-// verdict (`Type checking succeeded!` / exit code) + the `tests/errors/` EXPECT-ERROR
-// substring, like tests/run.sh's negative tests. Types, calls, generics, traits,
-// const-correctness, match exhaustiveness, async/escape come in later slices.
-//
-// Symbol table: a flat list of {name, depth}. Entering a scope bumps `depth`;
-// leaving it pops every trailing entry at that depth. Avoids nested-List mutation
-// (List_get returns structs by value). Lambda/match-arm/catch bodies are not yet
-// walked (they bind names we don't extract yet) — safe: under-checking can't turn a
-// clean program's verdict from succeeded to failed.
+// Self-hosted type checker. Consumes the AST (ast.esk) and mirrors sema/type_checker.cpp:
+// name resolution over a scope stack, types and conversions, calls and generics,
+// interfaces and constraints, control flow, the `-Wall` checks and the editor queries.
+// A diagnostic has the same text and position as the C++ compiler's.
 //
 // The module is split into parts, imported here in order (each part relies on the
 // declarations of the parts before it, so compile this file, not a part alone):

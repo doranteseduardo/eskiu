@@ -3,11 +3,10 @@
 // A structured, typed representation of an Eskiu type — the replacement for the
 // ad-hoc `std::string` type surgery scattered across sema/ and codegen/.
 //
-// Stage 0 of the typed-Type migration (see the v0.2.3 plan): this is the pure,
-// registry-free *syntactic* layer. `parse(s)` turns a canonical type spelling
+// This is the pure, registry-free *syntactic* layer. `parse(s)` turns a canonical type spelling
 // into a `Type`; `str()` renders it back. The invariant is an exact round-trip:
 //   parse(s).str() == s   for every canonical spelling.
-// To make that hold during migration, `str()` preserves the source spelling —
+// To make that hold, `str()` preserves the source spelling —
 // the leading-vs-trailing pointer form, the int/float spelling (`int` vs
 // `int32`), and `const`/`volatile` qualifiers (carried verbatim, NOT semantically
 // resolved — const semantics stay in `ast/type_qual.h`/`tyq::`, unchanged).

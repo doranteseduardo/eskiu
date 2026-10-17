@@ -58,3 +58,7 @@ assets/*.tar.gz
 .kotlin/
 .intellijPlatform/
 Icon
+
+# Local guidance for coding agents (not part of the repository)
+AGENTS.md
+CLAUDE.md

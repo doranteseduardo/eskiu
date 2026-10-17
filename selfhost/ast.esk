@@ -1,8 +1,7 @@
-// AST for the self-hosted parser + a printer that reproduces the C++
-// `--test-parser` dump (ast/ast_printer.cpp) byte-for-byte. Nodes are tagged
-// heap structs (one fat struct per category, `kind` selects the live fields);
-// cross-category children are pointers. Grown slice by slice — S0 covers just
-// FunctionDecl / BlockStmt / ReturnStmt / integer LiteralExpr.
+// AST for the self-hosted compiler, and a printer that reproduces the C++
+// `--test-parser` dump (ast/ast_printer.cpp) byte for byte. Nodes are tagged heap
+// structs (one struct per category; `kind` selects the live fields), and children of
+// another category are pointers.
 
 import <io>;
 import <mem>;
