@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "../intrinsics.h"
 #include "../ast/type_qual.h"
 
 // Template type-name utilities (mangleTemplate / splitTemplateType / substType)
@@ -174,42 +175,43 @@ llvm::Function* CodeGen::instantiateGenericMethod(const std::string& instName, c
 // supported intrinsics lives here; their signatures are declared in stdlib (e.g.
 // stdlib/atomic.esk) and the orderings/semantics are fixed (docs/dev/async-design.md §3).
 llvm::Value* CodeGen::lowerIntrinsicCall(const std::string& fn, CallExpr* node) {
-    // Atomics operate on a *int (i32) cell.
-    if (fn == "atomic_load") {
-        llvm::Value* cell = evaluateExpr(node->args[0]);
-        auto* ld = builder->CreateLoad(llvm::Type::getInt32Ty(*context), cell, "atm.load");
-        ld->setAtomic(llvm::AtomicOrdering::Acquire);
-        ld->setAlignment(llvm::Align(4));
-        return ld;
-    }
-    if (fn == "atomic_store") {
-        llvm::Value* cell = evaluateExpr(node->args[0]);
-        llvm::Value* v    = evaluateExpr(node->args[1]);
-        auto* st = builder->CreateStore(v, cell);
-        st->setAtomic(llvm::AtomicOrdering::Release);
-        st->setAlignment(llvm::Align(4));
+    AtomicIntrinsic a;
+    if (!parseAtomicIntrinsic(fn, a))
+        throw std::runtime_error("intrinsic '" + fn + "' is declared but has no codegen lowering");
+    if (a.op == "fence") {
+        builder->CreateFence(llvm::AtomicOrdering::SequentiallyConsistent);
         return llvm::UndefValue::get(llvm::Type::getVoidTy(*context));
     }
-    if (fn == "atomic_swap") {
-        llvm::Value* cell = evaluateExpr(node->args[0]);
-        llvm::Value* v    = evaluateExpr(node->args[1]);
-        // Alignment from the operand width, so a 64-bit cell isn't under-aligned.
-        llvm::MaybeAlign al = module->getDataLayout().getABITypeAlign(v->getType());
-        return builder->CreateAtomicRMW(
-            llvm::AtomicRMWInst::Xchg, cell, v, al,
-            llvm::AtomicOrdering::AcquireRelease);
+    llvm::Type* ty = a.kind == AtomicKind::I64 ? llvm::Type::getInt64Ty(*context)
+                   : a.kind == AtomicKind::Ptr ? (llvm::Type*)llvm::PointerType::get(*context, 0)
+                   : llvm::Type::getInt32Ty(*context);
+    llvm::Align al = module->getDataLayout().getABITypeAlign(ty);
+    llvm::Value* cell = evaluateExpr(node->args[0]);
+    auto operand = [&](size_t i) { return coerceValue(evaluateExpr(node->args[i]), ty, false); };
+    if (a.op == "load") {
+        auto* ld = builder->CreateLoad(ty, cell, "atm.load");
+        ld->setAtomic(llvm::AtomicOrdering::Acquire);
+        ld->setAlignment(al);
+        return ld;
     }
-    if (fn == "atomic_cas") {
-        llvm::Value* cell     = evaluateExpr(node->args[0]);
-        llvm::Value* expected = evaluateExpr(node->args[1]);
-        llvm::Value* desired  = evaluateExpr(node->args[2]);
-        llvm::MaybeAlign al = module->getDataLayout().getABITypeAlign(desired->getType());
-        llvm::Value* cx = builder->CreateAtomicCmpXchg(
-            cell, expected, desired, al,
+    if (a.op == "store") {
+        auto* st = builder->CreateStore(operand(1), cell);
+        st->setAtomic(llvm::AtomicOrdering::Release);
+        st->setAlignment(al);
+        return llvm::UndefValue::get(llvm::Type::getVoidTy(*context));
+    }
+    if (a.op == "cas") {
+        llvm::Value* expected = operand(1);
+        llvm::Value* desired = operand(2);
+        llvm::Value* cx = builder->CreateAtomicCmpXchg(cell, expected, desired, al,
             llvm::AtomicOrdering::AcquireRelease, llvm::AtomicOrdering::Acquire);
-        return builder->CreateExtractValue(cx, 1, "atm.cas.ok"); // success bit (i1)
+        return builder->CreateExtractValue(cx, 1, "atm.cas.ok");   // success bit (i1)
     }
-    throw std::runtime_error("intrinsic '" + fn + "' is declared but has no codegen lowering");
+    llvm::AtomicRMWInst::BinOp op = a.op == "swap" ? llvm::AtomicRMWInst::Xchg
+        : a.op == "fetch_add" ? llvm::AtomicRMWInst::Add : a.op == "fetch_sub" ? llvm::AtomicRMWInst::Sub
+        : a.op == "fetch_and" ? llvm::AtomicRMWInst::And : a.op == "fetch_or" ? llvm::AtomicRMWInst::Or
+        : llvm::AtomicRMWInst::Xor;
+    return builder->CreateAtomicRMW(op, cell, operand(1), al, llvm::AtomicOrdering::AcquireRelease);
 }
 
 void CodeGen::visit(CallExpr* node) {

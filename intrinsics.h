@@ -17,13 +17,29 @@
 // codegen (a compiler bug), and a lowering with no entry here is unreachable.
 // ============================================================================
 
-inline const std::set<std::string>& supportedIntrinsics() {
-    static const std::set<std::string> names = {
-        "atomic_load", "atomic_store", "atomic_swap", "atomic_cas",
-    };
-    return names;
+// The atomic intrinsics are a regular family: `atomic_<op>` on an `int` cell,
+// `atomic_<op>64` on an `int64` cell and `atomic_<op>_ptr` on a pointer cell, plus
+// `atomic_fence()`. Each op has one ordering: load acquire, store release, the rest
+// acq_rel (a failed cas acquire), fence seq_cst.
+enum class AtomicKind { I32, I64, Ptr };
+struct AtomicIntrinsic { std::string op; AtomicKind kind = AtomicKind::I32; };
+
+inline bool parseAtomicIntrinsic(const std::string& name, AtomicIntrinsic& out) {
+    if (name == "atomic_fence") { out = {"fence", AtomicKind::I32}; return true; }
+    if (name.rfind("atomic_", 0) != 0) return false;
+    std::string rest = name.substr(7);
+    AtomicKind k = AtomicKind::I32;
+    if (rest.size() > 4 && rest.compare(rest.size() - 4, 4, "_ptr") == 0) { k = AtomicKind::Ptr; rest.resize(rest.size() - 4); }
+    else if (rest.size() > 2 && rest.compare(rest.size() - 2, 2, "64") == 0) { k = AtomicKind::I64; rest.resize(rest.size() - 2); }
+    static const std::set<std::string> intOps = {"load", "store", "swap", "cas", "fetch_add", "fetch_sub",
+                                                 "fetch_and", "fetch_or", "fetch_xor"};
+    static const std::set<std::string> ptrOps = {"load", "store", "swap", "cas"};
+    if (!(k == AtomicKind::Ptr ? ptrOps : intOps).count(rest)) return false;
+    out = {rest, k};
+    return true;
 }
 
 inline bool isSupportedIntrinsic(const std::string& name) {
-    return supportedIntrinsics().count(name) != 0;
+    AtomicIntrinsic a;
+    return parseAtomicIntrinsic(name, a);
 }
