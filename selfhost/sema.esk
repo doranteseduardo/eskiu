@@ -4606,9 +4606,10 @@ void sema_binary_checks(Sema* s, *ExprNode e, string lt0, string rt0) {
         dprintf(2, "error: %s:%d:%d: invalid operands for operator: %s and %s\n", s.filename, s.line, s.col, lt0, rt0);
     }
     // `s == "abc"` compares two addresses (mirrors the C++ -Wstring-compare).
+    // Only a pointer comparison: `S == "x"` on a struct S is an overloaded operator.
     if ((sema_streq(e.sval, "==") == 1 || sema_streq(e.sval, "!=") == 1)
-        && ((e.a != null && e.a.kind == EK_LITERAL && e.a.lit_kind == LIT_STRING)
-            || (e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_STRING))) {
+        && ((e.a != null && e.a.kind == EK_LITERAL && e.a.lit_kind == LIT_STRING && sema_is_addr_ty(s, e.b) == 1)
+            || (e.b != null && e.b.kind == EK_LITERAL && e.b.lit_kind == LIT_STRING && sema_is_addr_ty(s, e.a) == 1))) {
         sema_warn(s, "string-compare", e.line, e.col,
                   sema_cat(sema_cat("comparison with a string literal compares addresses, not text; use strcmp(a, b) ", e.sval), " 0"));
     }
@@ -4960,6 +4961,16 @@ string sema_did_you_mean(Sema* s, string name, int kind, string recv) {
 
 // A use of a function declared `deprecated("msg")` warns at its position, once per
 // position, outside imported code and generic instances (TypeChecker::noteDeprecatedUse).
+// Is `e` a `string` or pointer value (what `==` compares by address)?
+int sema_is_addr_ty(Sema* s, *ExprNode e) {
+    if (e == null) { return 0; }
+    if (e.kind == EK_LITERAL && (e.lit_kind == LIT_STRING || e.lit_kind == LIT_NULL)) { return 1; }
+    string t = sema_canon(s, sema_infer_type(s, e));
+    if ((int)t[0] == 63) { t = sema_sub_str(t, 1, sema_slen(t)); }
+    if (sema_streq(t, "string") == 1 || sema_c_ptr(t) == 1) { return 1; }
+    return 0;
+}
+
 // A warning on by default, unless -Wno-<name>; once per position, never in an imported
 // declaration or a generic instance (mirrors the C++ noteWarning).
 void sema_warn(Sema* s, string name, int line, int col, string msg) {
