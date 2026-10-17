@@ -246,6 +246,51 @@ void CodeGen::emitAssignment(BinaryExpr* node) {
     exprValueStack.push(rhs);
 }
 
+// Integer `/` and `%` with defined results: a zero divisor traps, and a signed
+// division of the minimum value by -1 wraps (the quotient is the minimum, the
+// remainder 0), as signed overflow wraps elsewhere. A constant divisor other than
+// 0 and -1 needs neither check, so division by a constant keeps its fast form.
+llvm::Value* CodeGen::emitIntDivRem(llvm::Value* left, llvm::Value* right, bool uns, bool rem) {
+    llvm::Type* ty = right->getType();
+    auto* c = llvm::dyn_cast<llvm::ConstantInt>(right);
+    bool maybeZero = !c || c->isZero();
+    bool maybeNegOne = !uns && (!c || c->isMinusOne());
+    if (maybeZero) {
+        llvm::Function* fn = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* trap = llvm::BasicBlock::Create(*context, "div.zero", fn);
+        llvm::BasicBlock* ok = llvm::BasicBlock::Create(*context, "div.ok", fn);
+        builder->CreateCondBr(builder->CreateICmpEQ(right, llvm::ConstantInt::get(ty, 0)), trap, ok);
+        builder->SetInsertPoint(trap);
+        builder->CreateCall(llvm::Intrinsic::getOrInsertDeclaration(module.get(), llvm::Intrinsic::trap));
+        builder->CreateUnreachable();
+        builder->SetInsertPoint(ok);
+    }
+    if (uns) return rem ? builder->CreateURem(left, right) : builder->CreateUDiv(left, right);
+    if (!maybeNegOne) return rem ? builder->CreateSRem(left, right) : builder->CreateSDiv(left, right);
+    llvm::Value* isNegOne = builder->CreateICmpEQ(right, llvm::ConstantInt::getSigned(ty, -1));
+    llvm::Value* safe = builder->CreateSelect(isNegOne, llvm::ConstantInt::get(ty, 1), right);
+    if (rem) return builder->CreateSRem(left, safe);
+    return builder->CreateSelect(isNegOne, builder->CreateNeg(left), builder->CreateSDiv(left, safe));
+}
+
+// A shift count is taken modulo the operand width (what x86 and AArch64 shifts do),
+// so a count of the width or more, or a negative one, is never LLVM poison.
+llvm::Value* CodeGen::maskShiftCount(llvm::Value* count) {
+    unsigned w = count->getType()->getIntegerBitWidth();
+    if (w <= 1) return count;
+    if (auto* c = llvm::dyn_cast<llvm::ConstantInt>(count))
+        if (c->getValue().ult(w)) return count;
+    return builder->CreateAnd(count, llvm::ConstantInt::get(count->getType(), w - 1));
+}
+
+// float -> integer saturates: a value beyond the target range becomes its minimum or
+// maximum and NaN becomes 0 (plain fptosi/fptoui would be poison there).
+llvm::Value* CodeGen::emitFloatToInt(llvm::Value* val, llvm::Type* target, bool uns) {
+    llvm::Intrinsic::ID id = uns ? llvm::Intrinsic::fptoui_sat : llvm::Intrinsic::fptosi_sat;
+    llvm::Function* f = llvm::Intrinsic::getOrInsertDeclaration(module.get(), id, {target, val->getType()});
+    return builder->CreateCall(f, {val});
+}
+
 llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     // Short-circuit logical operators: the RHS must be evaluated ONLY when the LHS
     // doesn't already decide the result, so a guarded expression like
@@ -407,14 +452,12 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFDiv(left, right)
-            : (opUnsigned ? builder->CreateUDiv(left, right)
-                          : builder->CreateSDiv(left, right));
+            : emitIntDivRem(left, right, opUnsigned, false);
     } else if (node->op == "%") {
         promoteToFloat(); widenForArith();
         result = left->getType()->isFloatingPointTy()
             ? builder->CreateFRem(left, right)
-            : (opUnsigned ? builder->CreateURem(left, right)
-                          : builder->CreateSRem(left, right));
+            : emitIntDivRem(left, right, opUnsigned, true);
     } else if (node->op == "==") {
         promoteToFloat();   // mixed float/int or float/double: bring both to a common float type
         if (left->getType()->isFloatingPointTy())
@@ -462,8 +505,10 @@ llvm::Value* CodeGen::emitBuiltinBinary(BinaryExpr* node, llvm::Value* left) {
     } else if (node->op == "<<" || node->op == ">>") {
         // A shift computes in the (promoted) width of the value shifted; the count is
         // converted to that width and never widens the result (C).
-        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy())
+        if (left->getType()->isIntegerTy() && right->getType()->isIntegerTy()) {
             right = builder->CreateZExtOrTrunc(right, left->getType());
+            right = maskShiftCount(right);
+        }
         // The shift kind follows the value being shifted (the left operand) only; the
         // count's signedness is irrelevant, so a signed value keeps an arithmetic shift.
         if (node->op == "<<") result = builder->CreateShl(left, right);
@@ -1017,7 +1062,7 @@ void CodeGen::storeBitfieldInto(llvm::Value* wordPtr, const BitfieldSlot& slot,
                 ? builder->CreateTrunc(val, sty)
                 : unsignedSrc ? builder->CreateZExt(val, sty) : builder->CreateSExt(val, sty);
         else if (val->getType()->isFloatingPointTy())
-            val = builder->CreateFPToSI(val, sty);
+            val = emitFloatToInt(val, sty, false);
     }
     llvm::Type* aty = slot.accessType ? slot.accessType : sty;
     llvm::Value* word = loadWord(*builder, aty, wordPtr, slot.accessAlign, vol);
@@ -1111,9 +1156,7 @@ void CodeGen::visit(CastExpr* node) {
     } else if (val->getType()->isFloatingPointTy() && targetType->isIntegerTy()) {
         // float→int: an unsigned target needs FPToUI, else a value above the signed max
         // (e.g. (uint32)3e9) saturates to the signed max instead of the true value.
-        result = eskiuUnsigned(node->targetType)
-            ? builder->CreateFPToUI(val, targetType)
-            : builder->CreateFPToSI(val, targetType);
+        result = emitFloatToInt(val, targetType, eskiuUnsigned(node->targetType));
     } else if (val->getType()->isFloatingPointTy() && targetType->isFloatingPointTy()) {
         result = builder->CreateFPCast(val, targetType);
     } else if (val->getType()->isPointerTy() && targetType->isIntegerTy()) {

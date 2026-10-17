@@ -583,6 +583,9 @@ private:
     // an already evaluated left operand (the right one is evaluated here).
     void emitAssignment(BinaryExpr* node);
     llvm::Value* emitBuiltinBinary(BinaryExpr* node, llvm::Value* left);
+    llvm::Value* emitIntDivRem(llvm::Value* left, llvm::Value* right, bool uns, bool rem);
+    llvm::Value* maskShiftCount(llvm::Value* count);
+    llvm::Value* emitFloatToInt(llvm::Value* val, llvm::Type* target, bool uns);
     void visit(UnaryExpr* node) override;
     void visit(IncDecExpr* node) override;
     void visit(QuestionExpr* node) override;

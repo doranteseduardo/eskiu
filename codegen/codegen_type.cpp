@@ -221,7 +221,7 @@ llvm::Value* CodeGen::intToFloat(llvm::Value* val, llvm::Type* ty, bool unsigned
 
 llvm::Value* CodeGen::coerceValue(llvm::Value* val, llvm::Type* target, bool unsignedSrc) {
     // The single home for implicit numeric coercion: int/int -> coerceInt,
-    // int/float -> intToFloat, float/int -> FPToSI, float/float -> FPCast.
+    // int/float -> intToFloat, float/int -> emitFloatToInt, float/float -> FPCast.
     // This ladder was copy-pasted at every implicit-conversion site (assignment,
     // return, var-decl, ternary, ADT field, template arg); some copies had drifted
     // (the ternary omitted float->int). Non-numeric or already-matching values pass
@@ -232,7 +232,7 @@ llvm::Value* CodeGen::coerceValue(llvm::Value* val, llvm::Type* target, bool uns
     if (src->isIntegerTy() && target->isFloatingPointTy())       return intToFloat(val, target, unsignedSrc);
     if (src->isFloatingPointTy() && target->isIntegerTy(1))
         return builder->CreateFCmpUNE(val, llvm::ConstantFP::get(src, 0.0));
-    if (src->isFloatingPointTy() && target->isIntegerTy())       return builder->CreateFPToSI(val, target);
+    if (src->isFloatingPointTy() && target->isIntegerTy())       return emitFloatToInt(val, target, false);
     if (src->isFloatingPointTy() && target->isFloatingPointTy()) return builder->CreateFPCast(val, target);
     return val;
 }
