@@ -1090,10 +1090,11 @@ void TypeChecker::errorAtDecl(Decl* d, const std::string& message) {
 }
 
 void TypeChecker::warning(int line, int col, const std::string& message) {
-    if (inInstance) return;   // a generic body is linted once, not once per instance
+    if (inInstance || noWarnings) return;   // a generic body is linted once, not once per instance
     // Code from an imported module is a library: not linted, as C compilers treat
     // system headers.
     if (auto* d = dynamic_cast<Decl*>(posCtx); d && d->fromImport) return;
+    if (warningsAsErrors) { error(line, col, message); return; }
     std::stringstream ss;
     ss << diagFile() << ":" << line << ":" << col << ": warning: " << userSpelling(message);
     std::cerr << ss.str() << "\n";

@@ -113,6 +113,10 @@ static llvm::cl::opt<bool> WnoDangling("Wno-dangling-pointer",
     llvm::cl::desc("Do not warn when a local's address escapes"), llvm::cl::cat(EskiuCat));
 static llvm::cl::opt<bool> WnoFrame("Wno-frame-larger-than",
     llvm::cl::desc("Do not warn on a local larger than 1 MiB"), llvm::cl::cat(EskiuCat));
+static llvm::cl::opt<bool> Werror("Werror",
+    llvm::cl::desc("Report every warning as an error"), llvm::cl::cat(EskiuCat));
+static llvm::cl::opt<bool> Wnone("w",
+    llvm::cl::desc("Print no warnings"), llvm::cl::cat(EskiuCat));
 static llvm::cl::opt<bool> WnoFormat("Wno-format",
     llvm::cl::desc("Do not check printf-style format strings against their arguments"), llvm::cl::cat(EskiuCat));
 
@@ -123,6 +127,8 @@ static void applyWarningFlags(TypeChecker& tc) {
     if (WnoDangling) tc.disabledWarnings.insert("dangling-pointer");
     if (WnoFrame) tc.disabledWarnings.insert("frame-larger-than");
     if (WnoFormat) tc.disabledWarnings.insert("format");
+    tc.warningsAsErrors = Werror;
+    tc.noWarnings = Wnone;
 }
 
 static llvm::cl::opt<bool> Wall("Wall",

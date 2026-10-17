@@ -111,6 +111,8 @@ public:
     // address-of-packed-member, dangling-pointer, frame-larger-than, format. Off for
     // the internal re-checks (after the async lowering, editor queries).
     bool warnDefaults = true;
+    bool warningsAsErrors = false;   // -Werror: every warning is reported as an error
+    bool noWarnings = false;         // -w: no warning is printed
     std::set<std::string> disabledWarnings;
     void noteWarning(const std::string& name, int line, int col, const std::string& message);
     // A local over this many bytes warns (-Wframe-larger-than): thread stacks are
