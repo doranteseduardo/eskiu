@@ -1602,6 +1602,11 @@ const std::vector<std::shared_ptr<LiteralExpr>>& TypeChecker::paramDefaultsOf(co
             out.push_back(nullptr);
             continue;
         }
+        if (fd->typeParams.empty()) {   // its type is checked where it is declared
+            lit->accept(this);
+            std::string e = assignabilityError(fd->params[i].first, getExpressionType(lit.get()), lit.get());
+            if (!e.empty()) errorAt(def, "default value of parameter '" + pname + "': " + e);
+        }
         out.push_back(lit);
     }
     curFile = saved;

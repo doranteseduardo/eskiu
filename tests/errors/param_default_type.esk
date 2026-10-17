@@ -1,0 +1,4 @@
+// EXPECT-ERROR: 3:35: default value of parameter 'port': cannot convert 'string' to 'int'
+// A default is checked against its parameter's type where it is declared, called or not.
+void connect(string h, int port = "443") { }
+int main() { return 0; }

@@ -1231,6 +1231,14 @@ int sema_pdefs(Sema* s, string key, *DeclNode sd, string mname) {
                 List_push<*ExprNode>(&out, null);
                 continue;
             }
+            if (List_len<TypeParam>(&fd.type_params) == 0) {   // its type is checked where it is declared
+                string derr = sema_assign_err(s, pm.ty, lit);
+                if (derr[0] != 0) {
+                    s.had_error = 1;
+                    dprintf(2, "error: %s:%d:%d: default value of parameter '%s': %s\n",
+                            s.filename, def.line, def.col, pm.name, derr);
+                }
+            }
             List_push<*ExprNode>(&out, lit);
         }
     }
