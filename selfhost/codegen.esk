@@ -2237,6 +2237,17 @@ CgStruct cg_find_struct(Codegen* g, string name) {
 
 int cg_field_idx(CgStruct* s, string fname) {
     int i = 0; int n = List_len<string>(&s.fnames);
+    if (n > 8 && s.name != null) {             // a hash index (ast_fx_*) for a wide struct
+        string owner = cg_cat("c:", s.name);
+        if (ast_fx_ready(owner, n) == 0) {
+            while (i < n) { ast_fx_put(owner, List_get<string>(&s.fnames, i), i); i = i + 1; }
+            ast_fx_done(owner, n);
+            i = 0;
+        }
+        int k = ast_fx_get(owner, fname);
+        if (k >= 0 && k < n && cg_streq(List_get<string>(&s.fnames, k), fname) == 1) { return k; }
+        if (k < 0) { return 0 - 1; }
+    }
     while (i < n) { if (cg_streq(List_get<string>(&s.fnames, i), fname) == 1) { return i; } i = i + 1; }
     return 0 - 1;
 }

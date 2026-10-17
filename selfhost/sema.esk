@@ -655,16 +655,34 @@ int sema_plain_member(Sema* s, string name) {
 
 // The declared type of field `name` of struct/union `sn`, or null when it has no such
 // field (a method is not a field).
+// The index of the first field named `name` in declaration `d` (a struct or union), or
+// -1: a hash index (ast_fx_*) for a wide one, else a scan.
+int sema_field_index(*DeclNode d, string name) {
+    int i = 0; int n = List_len<Param>(&d.params);
+    if (n > 8) {
+        string owner = sema_cat("s:", sema_i64_text((int64)d));
+        if (ast_fx_ready(owner, n) == 0) {
+            while (i < n) { ast_fx_put(owner, List_get<Param>(&d.params, i).name, i); i = i + 1; }
+            ast_fx_done(owner, n);
+            i = 0;
+        }
+        int k = ast_fx_get(owner, name);
+        if (k >= 0 && k < n && sema_streq(List_get<Param>(&d.params, k).name, name) == 1) { return k; }
+        if (k < 0) { return -1; }
+    }
+    while (i < n) {
+        if (sema_streq(List_get<Param>(&d.params, i).name, name) == 1) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
 string sema_field_type(Sema* s, string sn, string name) {
     *DeclNode d = sema_find_tdecl(s, sn);
     if (d == null || (d.kind != DK_STRUCT && d.kind != DK_UNION)) { return null; }
-    int i = 0; int n = List_len<Param>(&d.params);
-    while (i < n) {
-        Param f = List_get<Param>(&d.params, i);
-        if (sema_streq(f.name, name) == 1) { return f.ty; }
-        i = i + 1;
-    }
-    return null;
+    int i = sema_field_index(d, name);
+    if (i < 0) { return null; }
+    return List_get<Param>(&d.params, i).ty;
 }
 
 // Is `name` a function declared `must_use`? (Discarding its result is an error.)
@@ -1797,18 +1815,15 @@ string sema_member_type(Sema* s, string mbt, string field) {
         // A generic struct's field resolves only through an instance (`Box<int>`).
         if (msd != null && (List_len<TypeParam>(&msd.type_params) == 0
             || List_len<string>(&mtargs) == List_len<TypeParam>(&msd.type_params))) {
-            int mi = 0; int mn = List_len<Param>(&msd.params);
-            while (mi < mn) {
+            int mi = sema_field_index(msd, field);
+            if (mi >= 0) {
                 Param mf = List_get<Param>(&msd.params, mi);
-                if (sema_streq(mf.name, field) == 1) {
-                    // A bitfield whose values all fit an int reads as `int` (C promotion).
-                    if (mi < List_len<int>(&msd.field_bits) && List_get<int>(&msd.field_bits, mi) > 0
-                        && sema_streq(ast_bf_read_type(sema_canon(s, sema_strip_const(mf.ty)), List_get<int>(&msd.field_bits, mi)), "int") == 1) {
-                        return "int";
-                    }
-                    return sema_subst_params(mf.ty, &msd.type_params, &mtargs);
+                // A bitfield whose values all fit an int reads as `int` (C promotion).
+                if (mi < List_len<int>(&msd.field_bits) && List_get<int>(&msd.field_bits, mi) > 0
+                    && sema_streq(ast_bf_read_type(sema_canon(s, sema_strip_const(mf.ty)), List_get<int>(&msd.field_bits, mi)), "int") == 1) {
+                    return "int";
                 }
-                mi = mi + 1;
+                return sema_subst_params(mf.ty, &msd.type_params, &mtargs);
             }
         }
     }
@@ -3242,7 +3257,7 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
     sema_parse_targs(e.sval, &targs);
     int nf = List_len<Param>(&d.params);
     int n = List_len<*ExprNode>(&e.kids);
-    List<string> seen; List_init<string>(&seen, 4);
+    let seen: StrTab;                      // a set: the fields named so far
     // A literal is either positional or named (mirrors the C++ StructInitExpr check).
     int named0 = 0; int mixed = 0; int mi = 0;
     while (mi < n) {
@@ -3272,19 +3287,15 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
         string ft = "";
         string shown = nm;
         if (nm[0] != 0) {
-            int fi = 0;
-            while (fi < nf) {
-                Param p = List_get<Param>(&d.params, fi);
-                if (sema_streq(p.name, nm) == 1) { ft = p.ty; }
-                fi = fi + 1;
-            }
+            int fi = sema_field_index(d, nm);
+            if (fi >= 0) { ft = List_get<Param>(&d.params, fi).ty; }
             if (ft[0] == 0) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: struct '%s' has no field '%s'\n", s.filename, s.line, s.col, e.sval, nm);
-            } else if (sema_in_list(&seen, nm) == 1) {
+            } else if (StrTab_has(&seen, nm) == 1) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: field '%s' is initialized more than once in '%s' literal\n", s.filename, s.line, s.col, nm, e.sval);
-            } else { List_push<string>(&seen, nm); }
+            } else { StrTab_set(&seen, nm, 1); }
         } else if (i < nf) {
             Param p = List_get<Param>(&d.params, i);
             ft = p.ty; shown = p.name;
@@ -8003,32 +8014,32 @@ string sema_bitfield_base(Sema* s, string t) {
 // Struct/union fields: not void; a bitfield needs an integer type at least as wide.
 void sema_check_fields(Sema* s, *DeclNode d) {
     int i = 0; int n = List_len<Param>(&d.params);
-    List<string> fnames; List_init<string>(&fnames, 8);
+    let fnames: StrTab;                     // a set: the field names seen
     string what = "struct"; if (d.kind == DK_UNION) { what = "union"; }
     int k = 0;
     while (k < n) {
         string fname = List_get<Param>(&d.params, k).name;
-        if (sema_in_list(&fnames, fname) == 1) {
+        if (StrTab_has(&fnames, fname) == 1) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: duplicate field '%s' in %s '%s'\n", s.filename, s.line, s.col, fname, what, d.name);
-        } else { List_push<string>(&fnames, fname); }
+        } else { StrTab_set(&fnames, fname, 1); }
         k = k + 1;
     }
-    List<string> mnames; List_init<string>(&mnames, 4);
+    let mnames: StrTab;                     // a set: the method names seen
     int m = 0; int mn = List_len<*DeclNode>(&d.methods);
     while (m < mn) {
         string mname = List_get<*DeclNode>(&d.methods, m).name;
         *DeclNode md = List_get<*DeclNode>(&d.methods, m);
         int mdl = s.line; int mdc = s.col;             // at the method (as the C++ checker)
         if (md.line > 0) { mdl = md.line; mdc = md.col; }
-        if (sema_in_list(&fnames, mname) == 1) {
+        if (StrTab_has(&fnames, mname) == 1) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: method '%s' of struct '%s' has the same name as a field\n", s.filename, mdl, mdc, mname, d.name);
         }
-        if (sema_in_list(&mnames, mname) == 1) {
+        if (StrTab_has(&mnames, mname) == 1) {
             s.had_error = 1;
             dprintf(2, "error: %s:%d:%d: duplicate method '%s' in struct '%s'\n", s.filename, mdl, mdc, mname, d.name);
-        } else { List_push<string>(&mnames, mname); }
+        } else { StrTab_set(&mnames, mname, 1); }
         int mp = 0;
         while (mp < List_len<Param>(&md.params)) {
             if (sema_streq(List_get<Param>(&md.params, mp).name, "self") == 1) {
