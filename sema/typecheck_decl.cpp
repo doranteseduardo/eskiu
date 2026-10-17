@@ -1255,6 +1255,27 @@ void TypeChecker::visit(VarDecl* node) {
 void TypeChecker::visit(StructDecl* node) {
     defineSymbol(node->name, "struct:" + node->name);
     checkTypeParams(node, node->name, node->typeParams);
+    // A field default (`int t = 30;`) is a constant of the field's type, as a global's
+    // initializer; it is what an omitted or unset field of the struct holds.
+    for (auto& f : node->fields) {
+        if (!f.defaultValue) continue;
+        Expr* e = f.defaultValue.get();
+        ASTNode* at = e->line > 0 ? static_cast<ASTNode*>(e) : node;
+        if (!node->typeParams.empty()) {
+            errorAt(at, "field '" + f.name + "' of generic struct '" + node->name + "' cannot have a default value");
+            continue;
+        }
+        if (f.bitWidth != 0) { errorAt(at, "bitfield '" + f.name + "' cannot have a default value"); continue; }
+        inferVariantTarget(f.defaultValue, f.type, true);
+        f.defaultValue->accept(this);
+        if (!isConstInit(f.defaultValue)) {
+            errorAt(at, "default value of field '" + f.name + "' is not a compile-time constant");
+            continue;
+        }
+        std::string err = assignabilityError(f.type, getExpressionType(e), e);
+        if (!err.empty())
+            errorAt(at, "default value of field '" + f.name + "': " + err);
+    }
     {
         std::set<std::string> names;
         for (const auto& f : node->fields)

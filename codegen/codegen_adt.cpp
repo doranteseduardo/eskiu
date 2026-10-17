@@ -200,7 +200,61 @@ void CodeGen::emitArrayInitInto(llvm::Value* dest, ArrayLitExpr* lit, const std:
     }
 }
 
-void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init) {
+ExprPtr CodeGen::defaultExprFor(const std::string& t0) {
+    std::string t = tyq::strip(expandAlias(t0));
+    ty::Type pt = ty::Type::parse(t);
+    if (pt.kind == ty::Type::Kind::Array && pt.elem) {
+        ExprPtr e = defaultExprFor(pt.elem->str());
+        if (!e) return nullptr;
+        auto* at = llvm::dyn_cast<llvm::ArrayType>(getTypeFromString(t));
+        if (!at || at->getNumElements() > 65536) return nullptr;
+        return std::make_shared<ArrayLitExpr>(std::vector<ExprPtr>((size_t)at->getNumElements(), e));
+    }
+    if (pt.kind == ty::Type::Kind::Array || isPointerType(t)) return nullptr;
+    std::string sname = stripToStructKey(t);
+    auto fit = structFields.find(sname);
+    // A generic struct's instance starts at zero (its fields have no defaults, and a
+    // field's own defaults apply only outside generic code), as in the self-host.
+    if (fit == structFields.end() || unionFields.count(sname) || templateInstanceArgs.count(sname)) return nullptr;
+    auto hit = structHasDefaults.find(sname);
+    if (hit != structHasDefaults.end()) {
+        if (hit->second != 1) return nullptr;
+    } else {
+        structHasDefaults[sname] = -1;               // a recursive struct reaches itself only by pointer
+        bool any = false;
+        for (const auto& f : fit->second) if (f.defaultValue || defaultExprFor(f.type)) { any = true; break; }
+        structHasDefaults[sname] = any ? 1 : 0;
+        if (!any) return nullptr;
+    }
+    return std::make_shared<StructInitExpr>(sname, std::vector<std::pair<std::string, ExprPtr>>{});
+}
+
+ExprPtr CodeGen::withDefaults(StructInitExpr* init, const ExprPtr& self) {
+    std::string sname = resolveStructInitName(init->structName);
+    if (!defaultExprFor(sname)) return self;
+    const auto& fields = structFields[sname];
+    bool named = !init->fieldInits.empty() && !init->fieldInits[0].first.empty();
+    std::vector<std::pair<std::string, ExprPtr>> all;
+    std::set<std::string> given;
+    for (size_t i = 0; i < init->fieldInits.size(); ++i) {
+        std::string n = named ? init->fieldInits[i].first : (i < fields.size() ? fields[i].name : "");
+        if (n.empty()) continue;
+        given.insert(n);
+        all.push_back({n, init->fieldInits[i].second});
+    }
+    for (const auto& f : fields) {
+        if (given.count(f.name)) continue;
+        ExprPtr d = f.defaultValue ? f.defaultValue : defaultExprFor(f.type);
+        if (d) all.push_back({f.name, d});
+    }
+    auto out = std::make_shared<StructInitExpr>(init->structName, all);
+    out->line = init->line; out->col = init->col;
+    return out;
+}
+
+void CodeGen::emitStructInitInto(llvm::Value* dest, StructInitExpr* init0) {
+    ExprPtr keep = withDefaults(init0, nullptr);
+    StructInitExpr* init = keep ? static_cast<StructInitExpr*>(keep.get()) : init0;
     std::string sname = resolveStructInitName(init->structName);
     auto fit = structFields.find(sname);
     if (fit == structFields.end()) return;

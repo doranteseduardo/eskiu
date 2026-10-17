@@ -309,6 +309,10 @@ llvm::Constant* CodeGen::foldConstDecl(VarDecl* v) {
 }
 
 void CodeGen::visit(VarDecl* node) {
+    // A variable of a type with field defaults that nothing initializes starts as the
+    // default value (`S{}`, an array of them), not as zero.
+    if (!node->initializer && !node->isExtern)
+        if (ExprPtr d = defaultExprFor(node->type)) node->initializer = d;
     // A numeric `const` folds to its value: array dimensions, case labels and later
     // constant initializers use it, and reads of the variable yield the constant.
     llvm::Constant* constVal = node->isStatic ? nullptr : foldConstDecl(node);

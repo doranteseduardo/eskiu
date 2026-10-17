@@ -119,7 +119,9 @@ llvm::Constant* CodeGen::constInitializer(const ExprPtr& expr, llvm::Type* declT
     // Struct literal `S{ ... }` against a struct type: fold each named/positional field
     // to a constant and zero-fill the rest. A bitfield struct or a union is folded
     // through its byte image (constAggregateImage).
-    if (auto* si = dynamic_cast<StructInitExpr*>(expr.get())) {
+    if (auto* si0 = dynamic_cast<StructInitExpr*>(expr.get())) {
+        ExprPtr full = withDefaults(si0, expr);       // omitted fields take their defaults
+        auto* si = static_cast<StructInitExpr*>(full.get());
         std::string sname = resolveStructInitName(si->structName);
         auto fit = structFields.find(sname);
         auto stIt = structTypes.find(sname);

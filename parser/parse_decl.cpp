@@ -500,9 +500,12 @@ DeclPtr Parser::parseStructDecl() {
                     bitWidth = (int)std::stoll(w.value, nullptr, 0);
                     if (bitWidth == 0) bitWidth = -1;   // `: 0`, rejected by the type checker
                 }
+                ExprPtr dflt;
+                if (match(TokenType::EQ)) dflt = parseExpression();   // a default value
                 consume(TokenType::SEMICOLON, "Expected ';' after field");
                 StructDecl::Field f{memberType, memberName, bitWidth};
                 f.line = memberTok.line; f.col = memberTok.column;
+                f.defaultValue = dflt;
                 fields.push_back(f);
             }
         } catch (const std::exception& e) {

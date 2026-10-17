@@ -703,6 +703,14 @@ private:
     std::map<std::string, std::string> typeAliases;
 
     void emitStructInitInto(llvm::Value* dest, StructInitExpr* init);
+    // Field defaults (`struct S { int t = 30; }`): the expression a value of type `t` starts
+    // as when nothing initializes it (`S{}` for a struct with defaults, directly or in a
+    // field; an array literal of those for an array of it), or null for a zero value.
+    ExprPtr defaultExprFor(const std::string& t);
+    // `init` with every field it omits given its default (a named literal), or `init`
+    // itself when the struct has no defaults.
+    ExprPtr withDefaults(StructInitExpr* init, const ExprPtr& self);
+    std::map<std::string, int> structHasDefaults;   // 1 yes, 0 no, -1 being computed
     // Fill an array alloca `dest` (of type `arrType`, e.g. "int[3]") from an array
     // literal: store each element, then zero-fill the remaining slots (C-style). With
     // `zeroed` the storage is already zero and only the given elements are stored.

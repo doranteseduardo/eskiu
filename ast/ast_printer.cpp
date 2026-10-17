@@ -100,6 +100,13 @@ void ASTPrinter::visit(StructDecl* node) {
         std::string line = field.unnamed ? field.type : field.type + " " + field.name;
         if (field.bitWidth > 0 || field.unnamed) line += " : " + std::to_string(field.bitWidth);
         println(line);
+        if (field.defaultValue) {
+            indentLevel++;
+            println("Default:");
+            indentLevel++;
+            field.defaultValue->accept(this);
+            indentLevel -= 2;
+        }
     }
     indentLevel--;
 
