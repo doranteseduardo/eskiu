@@ -625,7 +625,9 @@ Integer arithmetic has defined results at run time, the same at every optimizati
 (unlike C, where these cases are undefined behavior):
 
 - `+`, `-`, `*`, unary `-` and `++`/`--` wrap around in two's complement on overflow, for
-  signed types as for unsigned ones: `int x = 2147483647; x + 1` is `-2147483648`.
+  signed types as for unsigned ones: `int x = 2147483647; x + 1` is `-2147483648`. Under
+  `--safe` a signed `+`, `-` or `*` on `int` or `int64` that overflows traps instead
+  (Zig's ReleaseSafe; unsigned and narrow arithmetic still wraps).
 - A zero divisor in `/` or `%` stops the program with a trap (the process ends with a
   signal, SIGTRAP or SIGILL depending on the CPU), as `--safe` bounds checks do. A divisor
   the compiler can see is constant (`x / 0`) is a compile error instead (3.9).
@@ -3336,7 +3338,7 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc fmt --check file.esk …` | Report files that are not formatted (exit non-zero); write nothing |
 | `eskiuc file.esk --asan -o prog` | Instrument with AddressSanitizer (memory errors) and link its runtime |
 | `eskiuc file.esk --ubsan -o prog` | Insert trapping bounds checks (traps on out-of-bounds; no runtime) |
-| `eskiuc file.esk --safe -o prog` | Bounds-check every array and slice index at runtime (trap on out-of-range); off by default |
+| `eskiuc file.esk --safe -o prog` | Run-time safety checks that trap instead of continuing: every array and slice index is bounds-checked, a signed `+`, `-` or `*` on `int`/`int64` that overflows traps (instead of wrapping), and dereferencing a null pointer (`*p`, `p.f`, `p[i]`) traps; off by default |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings in the program's own files (not in imported modules): unused vars/params/functions, assignment-in-condition, a local that may be used uninitialized |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
 | `eskiuc file.esk -Wno-format -o prog` | Turn off one of the default-on warnings (see Diagnostics): `-Wno-string-compare`, `-Wno-format`, `-Wno-address-of-packed-member`, `-Wno-dangling-pointer`, `-Wno-frame-larger-than`, `-Wno-deprecated` |

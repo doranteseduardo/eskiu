@@ -57,6 +57,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   affected; it imports `<mem>`, `<io>` and `<math>` and repeats their spellings, so it
   combines with every stdlib module.
 
+- `--safe` also traps on a signed `+`, `-`, `*` overflow (`int`, `int64`) and on
+  dereferencing a null pointer (`*p`, `p.f`, `p[i]`), in both compilers; the default
+  build is unchanged.
+
 ### Changed
 - Integer division and remainder by a run-time zero trap (they were undefined: x86
   trapped, AArch64 returned a value, and the optimizer could drop a later check), and
