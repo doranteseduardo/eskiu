@@ -1,0 +1,55 @@
+// Run-time integer and conversion rules, the same at every optimization level (the
+// values come from argv, so nothing folds): signed overflow wraps, a shift count is
+// taken modulo the operand width, `MIN / -1` wraps to MIN with remainder 0, a zero
+// divisor traps, and float -> integer saturates with NaN as 0.
+import <process>;
+import <list>;
+import <mem>;
+extern int printf(string fmt, ...);
+extern int atoi(string s);
+
+int div_by(int a, int b) { return a / b; }
+
+void child(string self, string mode) {
+    let argv: List<string>; List_init<string>(&argv, 2);
+    argv.push(self); argv.push(mode);
+    let opts: ProcessOptions;
+    let r: ProcessResult;
+    process_run(&argv, &opts, &r);
+    printf("%s: trapped=%d out=[%s]\n", mode, r.exit_code != 0 ? 1 : 0, r.stdout.data);
+    ProcessResult_free(&r);
+    List_free<string>(&argv);
+}
+
+int main(int argc, string* argv) {
+    if (argc > 1 && atoi(argv[1]) == 0) {
+        int z = argc - 2;
+        printf("%d", div_by(10, z));
+        return 0;
+    }
+    int n = argc;
+    int big = 2147483647 + n - 1;
+    printf("wrap %d %d\n", big + 1, (-2147483647 - n) * 1);
+    printf("shift %d %d %d %d\n", 1 << (31 + n), 1 << (32 * n), -8 >> (40 + n - 1), (int)((uint32)1 << (63 + n)));
+    int64 one64 = (int64)n;
+    printf("shift64 %lld %lld\n", one64 << (64 + n - 1), one64 << (n - 2));
+    int min = -2147483647 - n;
+    int neg1 = -n;
+    printf("minneg1 %d %d\n", min / neg1, min % neg1);
+    int64 min64 = -9223372036854775807 - (int64)n;
+    printf("minneg1_64 %lld %lld\n", min64 / (int64)neg1, min64 % (int64)neg1);
+    printf("div %d %d %d %d\n", -7 / (n + 1), -7 % (n + 1), 7 / -(n + 1), 7 % -(n + 1));
+    uint32 u = (uint32)(10 * n);
+    printf("udiv %u %u\n", u / (uint32)(n + 2), u % (uint32)(n + 2));
+    double d = 1e12 * (double)n;
+    double z = (double)(n - 1);
+    double nan = z / z;
+    printf("f2i %d %d %d\n", (int)d, (int)-d, (int)nan);
+    printf("f2u %u %d %d %d\n", (uint32)-d, (uint8)(300.0 * (double)n), (uint8)(-41.0 * (double)n), (int8)(-200.0 * (double)n));
+    printf("f2i64 %lld %llu\n", (int64)(1e30 * (double)n), (uint64)(-1.0 * (double)n));
+    float f = 3.99 * (float)n;
+    int fi = (int)f;
+    printf("f32 %d %d\n", fi, (int)-f);
+    child(argv[0], "0");
+    return 0;
+}
