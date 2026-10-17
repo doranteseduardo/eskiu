@@ -26,8 +26,7 @@ int main() {
     List_free<string>(&argv);
 
     // Options: stdin text, a working directory, extra environment, a timeout.
-    let opts: ProcessOptions;
-    memset((*void)&opts, 0, sizeof(ProcessOptions));
+    let opts: ProcessOptions;        // every field starts at zero
     opts.stdin_text = "banana\napple\ncherry\n";
     opts.cwd = "/";
     let env: List<string>;  List_init<string>(&env, 2);
@@ -39,9 +38,9 @@ int main() {
     ProcessResult_free(&r);
     List_free<string>(&env);
 
-    // A command that runs too long is killed.
-    memset((*void)&opts, 0, sizeof(ProcessOptions));
-    opts.timeout_ms = 200;
+    // A command that runs too long is killed. A struct literal resets the options:
+    // the fields it does not name are zero.
+    opts = ProcessOptions{timeout_ms: 200};
     sh_with("sleep 10", &opts, &r);
     printf("timed out: %d (exit %d)\n", r.timed_out ? 1 : 0, r.exit_code);
     ProcessResult_free(&r);

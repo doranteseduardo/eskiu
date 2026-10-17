@@ -1665,7 +1665,7 @@ Point p = Point { x: 1.5, y: 2.5 };
 Point p = Point { 1.5, 2.5 };
 ```
 
-Fields are assigned in declaration order in the positional form. A field the literal leaves out is zero-filled (as in C), in either form. Each value is checked against its field's type (an integer literal must fit the field), and naming a field twice, naming a field the struct does not have, or giving more positional values than there are fields is an error.
+Fields are assigned in declaration order in the positional form. A field the literal leaves out is zero-filled (as in C), in either form, so `T{}` is the zero value of `T`. Assigning a literal is how a variable is reset for reuse, with no `memset`: `opts = ProcessOptions{};` clears every field, and `opts = ProcessOptions{timeout_ms: 200};` clears them and sets one. Each value is checked against its field's type (an integer literal must fit the field), and naming a field twice, naming a field the struct does not have, or giving more positional values than there are fields is an error.
 
 ```eskiu
 struct P { int x; int y; double z; }

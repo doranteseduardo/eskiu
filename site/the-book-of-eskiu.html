@@ -3306,10 +3306,7 @@ pre.code-block {
 
        let argv: List&lt;string&gt;;  List_init&lt;string&gt;(&amp;argv, 4);
        argv.push(&quot;sort&quot;);  argv.push(&quot;-r&quot;);
-       let opts: ProcessOptions;
-       memset((*void)&amp;opts, 0, sizeof(ProcessOptions));
-       opts.stdin_text = &quot;apple\ncherry\nbanana\n&quot;;
-       opts.timeout_ms = 5000;
+       ProcessOptions opts = ProcessOptions{stdin_text: &quot;apple\ncherry\nbanana\n&quot;, timeout_ms: 5000};
        if (process_run(&amp;argv, &amp;opts, &amp;r) != 0) {
            let err: String;  err.init(32);
            process_last_error(&amp;err);
