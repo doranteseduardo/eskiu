@@ -458,6 +458,10 @@ std::string formatSource(const std::string& src) {
     FmtLayout layout;         // the open braces' kinds and parentheses (fmtLayoutLine)
     char last = 0;            // the last code character so far
     std::vector<char> condLast;   // `last` at each open #if
+    // The nesting at each open #if: each branch starts from it (only one reaches the
+    // lexer), and the code after `#endif` continues from the last branch.
+    std::vector<int> condDepth;
+    std::vector<FmtLayout> condLayout;
     int stmtOrig = 0, stmtNew = 0;   // the current statement's first line: indent before and after
     bool sepNext = false;     // the last line closed a top-level block
     bool firstLine = true;
@@ -567,13 +571,23 @@ std::string formatSource(const std::string& src) {
             while (k < t.size() && (std::isalnum((unsigned char)t[k]) || t[k] == '_')) k++;
             std::string kw = t.substr(ks, k - ks);
             // Each branch, and the code after `#endif`, starts from the state at the `#if`.
-            if (kw == "if" || kw == "ifdef" || kw == "ifndef") { condStr.push_back(inStr); condLast.push_back(last); }
-            else if ((kw == "elif" || kw == "else") && !condStr.empty()) { inStr = condStr.back(); last = condLast.back(); }
-            else if (kw == "endif" && !condStr.empty()) {
+            if (kw == "if" || kw == "ifdef" || kw == "ifndef") {
+                condStr.push_back(inStr);
+                condLast.push_back(last);
+                condDepth.push_back(depth);
+                condLayout.push_back(layout);
+            } else if ((kw == "elif" || kw == "else") && !condStr.empty()) {
+                inStr = condStr.back();
+                last = condLast.back();
+                depth = condDepth.back();
+                layout = condLayout.back();
+            } else if (kw == "endif" && !condStr.empty()) {
                 inStr = condStr.back();
                 last = condLast.back();
                 condStr.pop_back();
                 condLast.pop_back();
+                condDepth.pop_back();
+                condLayout.pop_back();
             }
             if (prevCont) ppLine = t.substr(0, t.size() - 1);
             else if (!shebang) inBlock = directiveOpensComment(t);

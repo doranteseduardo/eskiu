@@ -243,6 +243,21 @@ void fmt_open(FmtLay* st, int kind) {
     st.paren = 0;
 }
 
+// `src`'s braces and parentheses copied into `dst` (fresh lists): the nesting saved at
+// an `#if` (mirrors the C++ condLayout).
+void fmt_lay_copy(FmtLay* dst, FmtLay* src) {
+    int k = List_len<int>(&src.kinds);
+    List_init<int>(&dst.kinds, k + 4);
+    List_init<int>(&dst.parens, k + 4);
+    int i = 0;
+    while (i < k) {
+        List_push<int>(&dst.kinds, List_get<int>(&src.kinds, i));
+        List_push<int>(&dst.parens, List_get<int>(&src.parens, i));
+        i = i + 1;
+    }
+    dst.paren = src.paren;
+}
+
 int fmt_top_block(FmtLay* st) {
     int k = List_len<int>(&st.kinds);
     if (k == 0 || List_get<int>(&st.kinds, k - 1) == 66) {
@@ -720,6 +735,12 @@ String format_source(*uint8 src, int n) {
     int last = 0;          // the last code character so far
     List<int> condLast;    // `last` at each open #if
     List_init<int>(&condLast, 4);
+    // The nesting at each open #if: each branch starts from it (only one reaches the
+    // lexer), and the code after `#endif` continues from the last branch.
+    List<int> condDepth;
+    List_init<int>(&condDepth, 4);
+    List<FmtLay> condLay;
+    List_init<FmtLay>(&condLay, 4);
     int stmtOrig = 0;      // the current statement's first line: indent before and after
     int stmtNew = 0;
     int sepNext = 0;       // the last line closed a top-level block
@@ -930,16 +951,25 @@ String format_source(*uint8 src, int n) {
             if (fmt_eq(kw, "if") == 1 || fmt_eq(kw, "ifdef") == 1 || fmt_eq(kw, "ifndef") == 1) {
                 List_push<int>(&condStr, inStr);
                 List_push<int>(&condLast, last);
+                List_push<int>(&condDepth, depth);
+                let saved: FmtLay;
+                fmt_lay_copy(&saved, &layout);
+                List_push<FmtLay>(&condLay, saved);
             }
             else if ((fmt_eq(kw, "elif") == 1 || fmt_eq(kw, "else") == 1) && nc > 0) {
                 inStr = List_get<int>(&condStr, nc - 1);
                 last = List_get<int>(&condLast, nc - 1);
+                depth = List_get<int>(&condDepth, nc - 1);
+                FmtLay at_if = List_get<FmtLay>(&condLay, nc - 1);
+                fmt_lay_copy(&layout, &at_if);
             }
             else if (fmt_eq(kw, "endif") == 1 && nc > 0) {
                 inStr = List_get<int>(&condStr, nc - 1);
                 last = List_get<int>(&condLast, nc - 1);
                 List_remove<int>(&condStr, nc - 1);
                 List_remove<int>(&condLast, nc - 1);
+                List_remove<int>(&condDepth, nc - 1);
+                List_remove<FmtLay>(&condLay, nc - 1);
             }
             if (prevCont == 1) {
                 String_clear(&ppLine);
