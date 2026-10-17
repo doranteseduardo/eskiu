@@ -1,0 +1,2 @@
+// EXPECT-ERROR: invalid digit '2' in binary literal '0b10'
+int main() { int a = 0b102; return a; }

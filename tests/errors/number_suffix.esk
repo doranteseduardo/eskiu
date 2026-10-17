@@ -1,2 +1,2 @@
-// EXPECT-ERROR: invalid suffix 'b101' on numeric literal '0'
-int main() { return 0b101; }
+// EXPECT-ERROR: invalid suffix 'abc' on numeric literal '12'
+int main() { return 12abc; }

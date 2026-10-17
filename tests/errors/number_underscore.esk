@@ -1,2 +1,2 @@
-// EXPECT-ERROR: invalid suffix '_000' on numeric literal '1'
-int main() { return 1_000; }
+// EXPECT-ERROR: digit separator '_' must be between two digits
+int main() { return 1_000_; }

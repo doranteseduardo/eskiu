@@ -1,0 +1,24 @@
+// Binary literals (0b/0B) and `_` digit separators between digits, in decimal, hex,
+// binary, octal and float literals, in constants and array sizes, and in `#if`.
+extern int printf(string fmt, ...);
+const int MASK = 0b1111_0000;
+int[0b100] arr;
+int main() {
+    int b = 0b1011;
+    uint32 reg = 0B1000_0000_0000_0000_0000_0000_0000_0001;
+    int64 big = 1_000_000_000_000;
+    int hx = 0xFF_FF;
+    int hx2 = 0x_10;
+    double d = 1_234.5_6;
+    double e = 1e1_0;
+    uint64 all = 0b1111111111111111111111111111111111111111111111111111111111111111;
+    int zero = 0b0;
+    int oct = 0_17;
+    printf("%d %u %lld %d %d %.2f %.0f %llu %d %d %d %d %d\n", b, reg, big, hx, hx2, d, e, all, zero, oct, MASK, (int)sizeof(arr), pp_ok());
+    return 0;
+}
+#if 0b101 == 5 && 1_000 == 1000
+int pp_ok() { return 1; }
+#else
+int pp_ok() { return 0; }
+#endif

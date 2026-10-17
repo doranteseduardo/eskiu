@@ -1,0 +1,2 @@
+// EXPECT-ERROR: digit separator '_' must be between two digits
+int main() { int a = 1__000; return a; }

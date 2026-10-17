@@ -1,0 +1,17 @@
+// A generic instance satisfies an interface through a method declared inline in the
+// generic struct or through a top-level function named after the instance
+// (`Ctr_int_next` for `Ctr<int>`), in both compilers.
+extern int printf(string fmt, ...);
+interface Counter { int next(); }
+struct Ctr<T> { T step; T cur; }
+int Ctr_int_next(*Ctr<int> self) { self.cur += self.step; return self.cur; }
+struct Inl<T> { T v; int next() { self.v += 1; return (int)self.v; } }
+int run(Counter c, int n) { int last = 0; for (i in 0..n) { last = c.next(); } return last; }
+int main() {
+    Ctr<int> c = Ctr<int>{3, 0};
+    Inl<int64> k = Inl<int64>{10};
+    printf("%d %d\n", run(&c, 4), run(&k, 2));
+    Counter[2] cs = {&c, &k};
+    printf("%d %d\n", cs[0].next(), cs[1].next());
+    return 0;
+}

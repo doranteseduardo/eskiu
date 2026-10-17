@@ -1,0 +1,2 @@
+// EXPECT-ERROR: binary literal '0b' has no digits
+int main() { int a = 0b; return a; }
