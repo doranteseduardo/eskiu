@@ -22,7 +22,8 @@ private:
 
     // Print a `Parameters:` section: each param as `type name`. Shared by
     // FunctionDecl / ExternDecl / IntrinsicDecl.
-    void printParams(const std::vector<std::pair<std::string, std::string>>& params);
+    void printParams(const std::vector<std::pair<std::string, std::string>>& params,
+                     const std::vector<std::string>* defaults = nullptr);
 
     // Visitor methods
     void visit(Program* node) override;

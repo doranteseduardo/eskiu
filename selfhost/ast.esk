@@ -523,6 +523,8 @@ struct ExprNode {
     int col;
     int mline;             // EK_MEMBER: position of the member name (line/col are the '.')
     int mcol;
+    string dbg_text;       // EK_CALL `dbg(e)`: the source text of `e`, whitespace folded
+    int dbg_builtin;       // EK_CALL: sema resolved `dbg(e)` to the builtin (no user `dbg`)
 }
 
 struct StmtNode {
@@ -579,6 +581,8 @@ struct DeclNode {
     int is_vol;                    // DK_VARDECL: `volatile` global
     int is_static;                 // DK_VARDECL: `static` written on a global (a sema error)
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
+    List<*ExprNode> param_defaults; // DK_FUNCTION: per-param default value (null = none); empty when it has none
+    List<string> param_def_texts;   // their source text (the AST printer)
     int is_packed;                 // struct: `packed` qualifier / `#pragma pack(1)` (align 1)
     int pack_align;                // struct: `#pragma pack(N)` alignment cap (0 = natural)
     string operator_sym;           // `operator <op>(...)`: the op ("+","[]","u-"); "" = normal fn
@@ -1054,7 +1058,11 @@ void print_params(*DeclNode dn, int d) {
     while (i < n) {
         Param pm = List_get<Param>(&dn.params, i);
         pind(d);
-        printf("%s %s\n", pm.ty, pm.name);
+        if (i < List_len<string>(&dn.param_def_texts) && List_get<string>(&dn.param_def_texts, i)[0] != 0) {
+            printf("%s %s = %s\n", pm.ty, pm.name, List_get<string>(&dn.param_def_texts, i));
+        } else {
+            printf("%s %s\n", pm.ty, pm.name);
+        }
         i = i + 1;
     }
 }

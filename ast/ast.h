@@ -114,6 +114,10 @@ public:
     // Per-param (line, col) of the parameter name (parallel to params; may be
     // empty for synthesized functions): diagnostics about a parameter point here.
     std::vector<std::pair<int, int>> paramPositions;
+    // Per-param default value (`int port = 443`; parallel to params, null = none) and its
+    // source text (for the AST printer). A call that omits trailing arguments gets them.
+    std::vector<ExprPtr> paramDefaults;
+    std::vector<std::string> paramDefaultTexts;
     // `async fn`: the call yields `*Future<returnType>`; the body is lowered to a
     // resumable state machine by the async transform. Declared return type stays
     // in `returnType` (the inner T).
@@ -636,6 +640,10 @@ class CallExpr : public Expr {
 public:
     ExprPtr callee;
     std::vector<ExprPtr> args;
+    // `dbg(e)`: the source text of `e` (the builtin prints it with the value), and
+    // whether the type checker resolved the call to the builtin (no user `dbg`).
+    std::string dbgText;
+    bool dbgBuiltin = false;
 
     CallExpr(ExprPtr callee, const std::vector<ExprPtr>& args = {})
         : callee(std::move(callee)), args(args) {}
@@ -734,6 +742,8 @@ public:
     std::string structName;
     // pair: (field_name, value) — field_name is empty string for positional init
     std::vector<std::pair<std::string, ExprPtr>> fieldInits;
+    // (line, col) of each named field (parallel to fieldInits; 0 for a positional one).
+    std::vector<std::pair<int, int>> fieldPositions;
 
     StructInitExpr(const std::string& name,
                    std::vector<std::pair<std::string, ExprPtr>> inits)

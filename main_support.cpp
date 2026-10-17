@@ -407,6 +407,7 @@ std::shared_ptr<Program> loadProgram(const std::vector<std::string>& inputs, con
         if (lexer.hadError) { if (lexFailed) *lexFailed = true; return nullptr; }
 
         Parser parser(tokens);
+        parser.sourceText = &lexer.text();
         parser.filename = fname;
         parser.stdlibPath = stdlibRoot;
         parser.basedir = dirOf(fname);

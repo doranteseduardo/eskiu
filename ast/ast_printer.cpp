@@ -48,11 +48,13 @@ void ASTPrinter::printTypeParams(const std::vector<std::string>& typeParams,
     indentLevel--;
 }
 
-void ASTPrinter::printParams(const std::vector<std::pair<std::string, std::string>>& params) {
+void ASTPrinter::printParams(const std::vector<std::pair<std::string, std::string>>& params,
+                             const std::vector<std::string>* defaults) {
     println("Parameters:");
     indentLevel++;
-    for (auto& param : params) {
-        println(param.first + " " + param.second);
+    for (size_t i = 0; i < params.size(); ++i) {
+        bool hasDef = defaults && i < defaults->size() && !(*defaults)[i].empty();
+        println(params[i].first + " " + params[i].second + (hasDef ? " = " + (*defaults)[i] : ""));
     }
     indentLevel--;
 }
@@ -63,7 +65,7 @@ void ASTPrinter::visit(FunctionDecl* node) {
     indentLevel++;
 
     printTypeParams(node->typeParams, node->constraints);
-    printParams(node->params);
+    printParams(node->params, &node->paramDefaultTexts);
 
     // A forward declaration (prototype) has no body — omit the section rather than
     // dereferencing a null body (cf. ReturnStmt skipping a null value).

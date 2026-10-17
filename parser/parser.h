@@ -38,6 +38,8 @@ struct ImportCache {
 class Parser {
 public:
     explicit Parser(const std::vector<Token>& tokens);
+    // The (preprocessed) source the tokens came from, for `dbg(e)`'s text; may be null.
+    const std::string* sourceText = nullptr;
 
     // Parse the token stream. Returns nullptr (and prints diagnostics to stderr)
     // if any declaration failed to parse.
@@ -101,6 +103,7 @@ private:
     // close turns '>>' into a single '>' left for the outer close.
     void consumeTemplateClose(const char* ctx);
     std::vector<Token> tokens;
+    std::string sourceSpan(const Token& from, const Token& to) const;
     size_t current;
     // Safety net against pathological input: nested expressions/statements beyond
     // kMaxNesting levels are rejected with an error instead of overflowing the stack
@@ -302,5 +305,6 @@ private:
     void parseTypeInto(std::string& out);
     std::vector<std::pair<std::string, std::string>> parseParameterList(
         std::vector<bool>* escaping = nullptr,
-        std::vector<std::pair<int, int>>* positions = nullptr);
+        std::vector<std::pair<int, int>>* positions = nullptr,
+        std::vector<ExprPtr>* defaults = nullptr, std::vector<std::string>* defaultTexts = nullptr);
 };

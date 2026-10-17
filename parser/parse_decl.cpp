@@ -375,7 +375,9 @@ DeclPtr Parser::parseFunctionDecl() {
     consume(TokenType::LPAREN, "Expected '('");
     std::vector<bool> esc;
     std::vector<std::pair<int, int>> paramPos;
-    auto params = parseParameterList(&esc, &paramPos);
+    std::vector<ExprPtr> defaults;
+    std::vector<std::string> defaultTexts;
+    auto params = parseParameterList(&esc, &paramPos, &defaults, &defaultTexts);
     consume(TokenType::RPAREN, "Expected ')'");
 
     if (isOperator) {
@@ -406,6 +408,8 @@ DeclPtr Parser::parseFunctionDecl() {
     decl->constraints = typeConstraints;
     decl->paramEscaping = esc;
     decl->paramPositions = paramPos;
+    for (const auto& d : defaults)
+        if (d) { decl->paramDefaults = defaults; decl->paramDefaultTexts = defaultTexts; break; }
     decl->line = nameTok.line; decl->col = nameTok.column;
     return decl;
 }

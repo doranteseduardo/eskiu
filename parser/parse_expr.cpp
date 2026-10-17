@@ -10,16 +10,19 @@
 ExprPtr Parser::parseStructInit(const std::string& structName) {
     Token lbTok = consume(TokenType::LBRACE, "Expected '{'");
     std::vector<std::pair<std::string, ExprPtr>> inits;
+    std::vector<std::pair<int, int>> positions;
 
     if (!check(TokenType::RBRACE)) {
         do {
             // Named: fieldName: expr
             if (check(TokenType::IDENT) && peek_ahead(1).type == TokenType::COLON) {
-                std::string fieldName = advance().value;
+                Token fieldTok = advance();
                 advance(); // consume ':'
-                inits.push_back({fieldName, parseExpression()});
+                positions.push_back({fieldTok.line, fieldTok.column});
+                inits.push_back({fieldTok.value, parseExpression()});
             } else {
                 // Positional
+                positions.push_back({0, 0});
                 inits.push_back({"", parseExpression()});
             }
         } while (match(TokenType::COMMA) && !check(TokenType::RBRACE));   // trailing comma ok
@@ -27,6 +30,7 @@ ExprPtr Parser::parseStructInit(const std::string& structName) {
 
     consume(TokenType::RBRACE, "Expected '}'");
     auto si = std::make_shared<StructInitExpr>(structName, std::move(inits));
+    si->fieldPositions = std::move(positions);
     si->line = lbTok.line; si->col = lbTok.column;
     return si;
 }
@@ -372,12 +376,17 @@ ExprPtr Parser::parsePostfix() {
         }
         if (match(TokenType::LPAREN)) {
             Token callTok = tokens[current - 1];
+            Token firstArg = tokens[current];
             std::vector<ExprPtr> args;
             if (!check(TokenType::RPAREN)) {
                 do { args.push_back(parseExpression()); } while (match(TokenType::COMMA));
             }
+            Token closeTok = tokens[current];
             consume(TokenType::RPAREN, "Expected ')'");
-            expr = withPos(std::make_shared<CallExpr>(expr, args), callTok);
+            auto call = withPos(std::make_shared<CallExpr>(expr, args), callTok);
+            if (auto* id = dynamic_cast<IdentExpr*>(expr.get()); id && id->name == "dbg" && args.size() == 1)
+                call->dbgText = sourceSpan(firstArg, closeTok);
+            expr = call;
         } else if (match(TokenType::LBRACKET)) {
             Token idxTok = tokens[current - 1];
             ExprPtr index = parseExpression();

@@ -190,6 +190,7 @@ public:
     // Set when a lexical error (unterminated literal/comment, malformed char)
     // was reported. The driver checks this and aborts before parsing.
     bool hadError = false;
+    const std::string& text() const { return source; }   // the preprocessed source
 
 private:
     std::string source;

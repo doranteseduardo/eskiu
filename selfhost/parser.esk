@@ -432,6 +432,21 @@ Token p_peek_k(Parser* p, int k) {
     return List_get<Token>(&p.toks, i);
 }
 
+// The source between two tokens with each whitespace run folded to one space
+// (the C++ Parser::sourceSpan): the text `dbg(e)` prints for `e`.
+string p_source_span(Parser* p, Token from, Token to) {
+    *String out = alloc<String>(1);
+    String_init(out, 16);
+    int space = 0;
+    for (int i = from.start; i < to.start; i++) {
+        uint8 c = p.src[i];
+        if (c == 32 || c == 9 || c == 10 || c == 13) { if (out.len > 0) { space = 1; } continue; }
+        if (space == 1) { String_push(out, (char)32); space = 0; }
+        String_push(out, (char)c);
+    }
+    return out.data;
+}
+
 int p_at(Parser* p) {
     return p_peek(p).type;
 }
@@ -1256,11 +1271,16 @@ int lambda_ahead(Parser* p) {
             *ExprNode c = ast_new_expr();
             c.kind = EK_CALL; c.a = e;
             List_init<*ExprNode>(&c.kids, 4);
+            Token first_arg = p_peek(p);
             if (p_at(p) != RPAREN) {
                 List_push<*ExprNode>(&c.kids, parse_expr(p));
                 while (p_at(p) == COMMA) { p_adv(p); List_push<*ExprNode>(&c.kids, parse_expr(p)); }
             }
+            Token close_tok = p_peek(p);
             p_expect(p, RPAREN, "Expected ')'");
+            if (e.kind == EK_IDENT && List_len<*ExprNode>(&c.kids) == 1 && str_eq(e.sval, "dbg") == 1) {
+                c.dbg_text = p_source_span(p, first_arg, close_tok);
+            }
             e = c;
         } else if (t == LBRACKET) {
             p_adv(p);
@@ -2207,9 +2227,19 @@ void parse_type_params(Parser* p, List<TypeParam>* out, int with_constraints) {
 
 // Parameter list (mirror parseParameterList): `[escaping] Type name`, comma-
 // separated, or a trailing `...` variadic. Fills d.params; leaves p at ')'.
+// Set by a caller whose parameters may have default values (a function or method
+// declaration); parse_params reads and clears it, so a lambda inside a default does not
+// inherit it.
+int g_allow_defaults;
+
 void parse_params(Parser* p, *DeclNode d) {
+    int allow = g_allow_defaults;
+    g_allow_defaults = 0;
     List_init<Param>(&d.params, 4);
     List_init<int>(&d.param_escaping, 4);
+    List_init<*ExprNode>(&d.param_defaults, 1);
+    List_init<string>(&d.param_def_texts, 1);
+    int any_def = 0;
     if (p_at(p) != RPAREN) {
         while (1 == 1) {
             if (p_at(p) == ELLIPSIS) {
@@ -2226,8 +2256,27 @@ void parse_params(Parser* p, *DeclNode d) {
             pm.name = tok_text(p.src, p_expect_ident(p, "Expected parameter name"));
             List_push<Param>(&d.params, pm);
             List_push<int>(&d.param_escaping, esc);
+            *ExprNode def = null;
+            string def_text = "";
+            if (p_at(p) == EQ) {
+                if (allow == 0) {
+                    p_fail(p, "a default value is allowed only on a function's parameter");
+                    return;
+                }
+                p_adv(p);
+                Token from = p_peek(p);
+                def = parse_ternary(p);
+                def_text = p_source_span(p, from, p_peek(p));
+                any_def = 1;
+            }
+            List_push<*ExprNode>(&d.param_defaults, def);
+            List_push<string>(&d.param_def_texts, def_text);
             if (p_at(p) == COMMA) { p_adv(p); } else { break; }
         }
+    }
+    if (any_def == 0) {
+        List_init<*ExprNode>(&d.param_defaults, 1);
+        List_init<string>(&d.param_def_texts, 1);
     }
 }
 
@@ -2272,6 +2321,7 @@ string parse_operator_token(Parser* p) {
         if (List_len<TypeParam>(&d.type_params) > 0) { List_push<string>(&g_genericnames, d.name); }
     }
     p_expect(p, LPAREN, "Expected '('");
+    g_allow_defaults = 1;
     parse_params(p, d);                    // fills d.params, stops at ')'
     p_expect(p, RPAREN, "Expected ')'");
     if (opsym[0] != 0) {                   // build the canonical name from op + param types
@@ -2415,6 +2465,7 @@ void parse_unnamed_bitfield(Parser* p, *DeclNode d, string ty) {
             m.ret_type = mty;
             m.name = tok_text(p.src, mnm);
             p_expect(p, LPAREN, "Expected '('");
+            g_allow_defaults = 1;
             parse_params(p, m);
             p_expect(p, RPAREN, "Expected ')'");
             if (p_at(p) == LBRACE) {

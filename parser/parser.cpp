@@ -337,7 +337,8 @@ void Parser::parseTypeInto(std::string& out) {
 }
 
 std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
-        std::vector<bool>* escaping, std::vector<std::pair<int, int>>* positions) {
+        std::vector<bool>* escaping, std::vector<std::pair<int, int>>* positions,
+        std::vector<ExprPtr>* defaults, std::vector<std::string>* defaultTexts) {
     std::vector<std::pair<std::string, std::string>> params;
 
     if (!check(TokenType::RPAREN)) {
@@ -359,6 +360,16 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
             params.push_back({type, nameTok.value});
             if (escaping) escaping->push_back(isEscaping);
             if (positions) positions->push_back({nameTok.line, nameTok.column});
+            ExprPtr def;
+            std::string defText;
+            if (check(TokenType::EQ)) {
+                Token eq = advance();
+                if (!defaults) fail("a default value is allowed only on a function's parameter", eq);
+                Token from = peek();
+                def = parseTernary();
+                defText = sourceSpan(from, peek());
+            }
+            if (defaults) { defaults->push_back(def); defaultTexts->push_back(defText); }
         } while (match(TokenType::COMMA));
     }
 
@@ -368,6 +379,27 @@ std::vector<std::pair<std::string, std::string>> Parser::parseParameterList(
 // ============================================================================
 // Declarations
 // ============================================================================
+
+// The source text from token `from` up to (not including) token `to`, with each run of
+// whitespace (newlines too) folded to one space; "" without a source.
+std::string Parser::sourceSpan(const Token& from, const Token& to) const {
+    if (!sourceText) return "";
+    auto offsetOf = [&](const Token& t) -> size_t {
+        size_t off = 0; int line = 1;
+        while (line < t.line && off < sourceText->size()) { if ((*sourceText)[off] == '\n') line++; off++; }
+        return std::min(sourceText->size(), off + (size_t)std::max(0, t.column - 1));
+    };
+    size_t a = offsetOf(from), b = offsetOf(to);
+    std::string out;
+    bool space = false;
+    for (size_t i = a; i < b; ++i) {
+        char c = (*sourceText)[i];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { space = !out.empty(); continue; }
+        if (space) { out += ' '; space = false; }
+        out += c;
+    }
+    return out;
+}
 
 std::shared_ptr<Program> Parser::parse() {
     auto decls = parseProgram();
@@ -469,6 +501,8 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     if (lexer.hadError) { hadError = true; continue; }
 
                     Parser sub(itoks);
+                    std::string subSource = lexer.text();
+                    sub.sourceText    = &subSource;
                     sub.filename      = fullPath;
                     sub.basedir       = subdir;
                     sub.stdlibPath    = stdlibPath;
