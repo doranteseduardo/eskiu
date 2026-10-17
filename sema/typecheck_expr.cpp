@@ -246,7 +246,13 @@ void TypeChecker::finishBinary(BinaryExpr* node) {
             auto* l = dynamic_cast<LiteralExpr*>(e);
             return l && l->kind == LiteralExpr::Kind::STRING;
         };
-        if (isStrLit(node->left.get()) || isStrLit(node->right.get()))
+        // Only a pointer comparison: `S == "x"` on a struct S is an overloaded operator.
+        auto isAddr = [&](Expr* e) {
+            std::string t = normalizeType(tyq::strip(getExpressionType(e)));
+            return t == "string" || t == "null" || isPointerType(t);
+        };
+        bool lLit = isStrLit(node->left.get()), rLit = isStrLit(node->right.get());
+        if ((lLit && isAddr(node->right.get())) || (rLit && isAddr(node->left.get())))
             noteWarning("string-compare", node->line, node->col,
                         "comparison with a string literal compares addresses, not text; use strcmp(a, b) " +
                         node->op + " 0");
