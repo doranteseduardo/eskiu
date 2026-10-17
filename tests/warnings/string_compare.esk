@@ -1,0 +1,13 @@
+// EXPECT-WARNING: string_compare.esk:9:11: warning: comparison with a string literal compares addresses, not text; use strcmp(a, b) == 0 [-Wstring-compare]
+// EXPECT-WARNING: string_compare.esk:10:13: warning: comparison with a string literal compares addresses, not text; use strcmp(a, b) != 0 [-Wstring-compare]
+// `==` / `!=` against a string literal compares two addresses, so equal text in two
+// places compares unequal. Comparing with null is fine. On by default.
+import <mem>;
+extern int printf(string fmt, ...);
+int main(int argc, string* argv) {
+    string s = argv[argc - 1];
+    if (s == "abc") { printf("same address\n"); }
+    if ("x" != s) { printf("different\n"); }
+    if (s != null && strcmp(s, "abc") == 0) { printf("same text\n"); }
+    return 0;
+}

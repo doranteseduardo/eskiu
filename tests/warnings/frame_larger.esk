@@ -1,0 +1,10 @@
+// EXPECT-WARNING: frame_larger.esk:6:18: warning: local 'big' takes 4194304 bytes of stack; a thread's stack is 512 KiB to 8 MiB, so allocate it with alloc<T> or make it static [-Wframe-larger-than]
+// A local over 1 MiB warns: it overflows a thread's stack. A static or a heap
+// allocation does not.
+int main() {
+    static int[1048576] fine;
+    int[1048576] big;
+    int[1000] small;
+    big[0] = 1; small[0] = 2; fine[0] = 3;
+    return big[0] + small[0] + fine[0];
+}

@@ -1,0 +1,15 @@
+// EXPECT-WARNING: packed_address.esk:10:17: warning: taking the address of packed member 'val' of 'Pk' may give an unaligned pointer [-Waddress-of-packed-member]
+// EXPECT-WARNING: packed_address.esk:11:18: warning: taking the address of packed member 'w' of 'Pk' may give an unaligned pointer [-Waddress-of-packed-member]
+// The address of a member that the packing aligns below its type's alignment may be
+// unaligned (strict-alignment CPUs fault on loads through it). Byte-sized members and
+// members of an unpacked struct are fine.
+packed struct Pk { uint8 tag; int64 val; uint8[4] b; uint16[2] w; }
+struct Plain { uint8 tag; int64 val; }
+int main() {
+    Pk k; Plain q;
+    *int64 pv = &k.val;
+    *uint16 pw = &k.w[1];
+    *uint8 pb = &k.b[1];
+    *int64 qv = &q.val;
+    return (int)(*pv + (int64)*pw + (int64)*pb + *qv);
+}

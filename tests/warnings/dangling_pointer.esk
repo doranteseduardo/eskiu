@@ -1,0 +1,23 @@
+// EXPECT-WARNING: dangling_pointer.esk:9:40: warning: returning 'p', which holds the address of local 'x' (dangling pointer) [-Wdangling-pointer]
+// EXPECT-WARNING: dangling_pointer.esk:10:53: warning: returning 'p', which holds the address of local 'a' (dangling pointer) [-Wdangling-pointer]
+// EXPECT-WARNING: dangling_pointer.esk:12:24: warning: returning a struct that holds the address of local 'y' (dangling pointer) [-Wdangling-pointer]
+// EXPECT-WARNING: dangling_pointer.esk:14:29: warning: storing the address of local 'z' in global 'g' (it dangles once the function returns)
+// A local's address that escapes through a pointer variable, a returned struct or (with
+// -Wall) a global. A pointer reassigned to something else, a static and main are fine.
+struct H { *int p; }
+*int g;
+*int leak1() { int x = 3; *int p = &x; return p; }
+*int leak2() { int[4] a; *int p = &a[0]; p = p + 1; return p; }
+*int ok1(*int q) { int x = 3; *int p = &x; *p = 4; p = q; return p; }
+H leak3() { int y = 1; return H{&y}; }
+*int ok2() { static int s = 1; *int p = &s; return p; }
+void leak4() { int z = 2; g = &z; }
+int main() {
+    int m = 5;
+    g = &m;
+    int v = 0;
+    *int r = ok1(&v);
+    H h = leak3();
+    leak4();
+    return *r + *ok2() + (leak1() == null ? 0 : 1) + (leak2() == null ? 0 : 1) + (h.p == null ? 0 : 1);
+}
