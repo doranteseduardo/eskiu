@@ -5603,6 +5603,9 @@ CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e) {
         v.op = ""; v.ty = "void"; return v;
     }
     int k = ast_atomic_kind(nm);
+    // Orderings: acquire / release / acq_rel, or monotonic for a `_relaxed` name.
+    string o_ld = " acquire"; string o_st = " release"; string o_rmw = " acq_rel"; string o_fail = " acquire";
+    if (ast_atomic_relaxed(nm) == 1) { o_ld = " monotonic"; o_st = " monotonic"; o_rmw = " monotonic"; o_fail = " monotonic"; }
     string ty = "i32"; string al = "4";
     if (k == 1) { ty = "i64"; al = cg_itoa(g.i64al); }
     if (k == 2) { ty = "ptr"; al = cg_itoa(g.ptrsz); }
@@ -5610,13 +5613,13 @@ CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e) {
     if (cg_streq(op, "load") == 1) {
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = load atomic "); cg_emit(g, ty); cg_emit(g, ", ptr "); cg_emit(g, cell);
-        cg_emit(g, " acquire, align "); cg_emit(g, al); cg_emit(g, "\n");
+        cg_emit(g, o_ld); cg_emit(g, ", align "); cg_emit(g, al); cg_emit(g, "\n");
         v.op = t; v.ty = ty; return v;
     }
     string a1 = cg_coerce(g, cg_expr(g, List_get<*ExprNode>(&e.kids, 1)), ty);
     if (cg_streq(op, "store") == 1) {
         cg_emit(g, "  store atomic "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, a1); cg_emit(g, ", ptr "); cg_emit(g, cell);
-        cg_emit(g, " release, align "); cg_emit(g, al); cg_emit(g, "\n");
+        cg_emit(g, o_st); cg_emit(g, ", align "); cg_emit(g, al); cg_emit(g, "\n");
         v.op = ""; v.ty = "void"; return v;
     }
     if (cg_streq(op, "cas") == 1) {
@@ -5624,7 +5627,7 @@ CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e) {
         string p = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, p); cg_emit(g, " = cmpxchg ptr "); cg_emit(g, cell);
         cg_emit(g, ", "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, a1); cg_emit(g, ", "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, des);
-        cg_emit(g, " acq_rel acquire, align "); cg_emit(g, al); cg_emit(g, "\n");
+        cg_emit(g, o_rmw); cg_emit(g, o_fail); cg_emit(g, ", align "); cg_emit(g, al); cg_emit(g, "\n");
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = extractvalue { "); cg_emit(g, ty); cg_emit(g, ", i1 } "); cg_emit(g, p); cg_emit(g, ", 1\n");
         v.op = t; v.ty = "i1"; return v;
@@ -5637,7 +5640,7 @@ CgVal cg_emit_atomic(Codegen* g, string nm, *ExprNode e) {
     if (cg_streq(op, "fetch_xor") == 1) { rmw = "xor"; }
     string t = cg_tmp(g);
     cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = atomicrmw "); cg_emit(g, rmw); cg_emit(g, " ptr "); cg_emit(g, cell);
-    cg_emit(g, ", "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, a1); cg_emit(g, " acq_rel, align "); cg_emit(g, al); cg_emit(g, "\n");
+    cg_emit(g, ", "); cg_emit(g, ty); cg_emit(g, " "); cg_emit(g, a1); cg_emit(g, o_rmw); cg_emit(g, ", align "); cg_emit(g, al); cg_emit(g, "\n");
     v.op = t; v.ty = ty; return v;
 }
 

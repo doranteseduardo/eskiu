@@ -286,10 +286,23 @@ string ast_ty_mangle(string tin) {
 }
 // The atomic intrinsics (mirrors intrinsics.h parseAtomicIntrinsic): `atomic_<op>` on
 // an `int` cell, `atomic_<op>64` on an `int64` cell, `atomic_<op>_ptr` on a pointer
-// cell, and `atomic_fence()`. The op ("" when `name` is none of them) and the cell kind
-// (0 int, 1 int64, 2 pointer).
-string ast_atomic_op(string name) {
-    if (ast_streq(name, "atomic_fence") == 1) { return "fence"; }
+// cell, and `atomic_fence()`, each with an optional `_relaxed` suffix. The op ("" when
+// `name` is none of them) and the cell kind (0 int, 1 int64, 2 pointer).
+// A trailing `_relaxed` (monotonic ordering; never on the fence).
+int ast_atomic_relaxed(string name) {
+    int n = 0; while (name[n] != 0) { n = n + 1; }
+    if (n > 15 && ast_streq((string)((*uint8)name + n - 8), "_relaxed") == 1) { return 1; }
+    return 0;
+}
+// The name without its `_relaxed` suffix.
+string ast_atomic_base(string name) {
+    if (ast_atomic_relaxed(name) == 0) { return name; }
+    int n = 0; while (name[n] != 0) { n = n + 1; }
+    return ast_sub(name, 0, n - 8);
+}
+string ast_atomic_op(string name0) {
+    if (ast_streq(name0, "atomic_fence") == 1) { return "fence"; }
+    string name = ast_atomic_base(name0);
     if (ast_has_prefix(name, "atomic_") == 0) { return ""; }
     string rest = (string)((*uint8)name + 7);
     int n = 0; while (rest[n] != 0) { n = n + 1; }
@@ -302,7 +315,8 @@ string ast_atomic_op(string name) {
                    || ast_streq(op, "fetch_or") == 1 || ast_streq(op, "fetch_xor") == 1)) { return op; }
     return "";
 }
-int ast_atomic_kind(string name) {
+int ast_atomic_kind(string name0) {
+    string name = ast_atomic_base(name0);
     int n = 0; while (name[n] != 0) { n = n + 1; }
     if (n > 11 && name[n - 4] == '_' && name[n - 3] == 'p' && name[n - 2] == 't' && name[n - 1] == 'r') { return 2; }
     if (n > 9 && name[n - 2] == '6' && name[n - 1] == '4') { return 1; }
