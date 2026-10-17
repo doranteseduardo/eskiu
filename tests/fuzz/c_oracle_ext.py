@@ -2,8 +2,9 @@
 c_oracle_ext.py: a second C-translatable generator for the C oracle, for what c_oracle.py
 does not generate: float and double arithmetic and conversions, structs passed and
 returned by value (small ones in registers, large ones through sret), arrays of
-structs, unions read through another member, and user variadic functions with mixed
-argument types.
+structs reached through pointers and pointer arithmetic, calls through function
+pointers, unions read through another member and nested in a struct (sizeof checked),
+and user variadic functions with mixed argument types.
 
 Undefined and unspecified behavior is avoided on both sides: divisors are nonzero
 literals (no NaN whose sign could depend on constant folding), a float converted to an
@@ -126,6 +127,18 @@ def gen_struct_family(rng, o, k, decls_esk, decls_c, funcs_esk, funcs_c):
     o.both(f"    {S}[3] arr{k};", f"    {S} arr{k}[3];")
     o.both(f"    for (int i = 0; i < 3; i++) {{ arr{k}[i] = mk{k}(i + {a}); }}")
     o.both(f"    arr{k}[1] = mod{k}(arr{k}[2], {d}); show{k}(arr{k}[1]); show{k}(arr{k}[2]);")
+    # Through a pointer into the array (with pointer arithmetic) and a function pointer.
+    ints = [n for n, t, ct, fmt, kind in fields if t in ("int", "int64")]
+    o.esk.append(f"    *{S} p{k} = &arr{k}[0];"); o.c.append(f"    {S}* p{k} = &arr{k}[0];")
+    o.both(f"    p{k} = p{k} + {rng.randint(1, 2)};")
+    if ints:
+        n = rng.choice(ints)
+        v = rng.randint(1, 99)
+        o.esk.append(f"    p{k}.{n} = p{k}.{n} + {v};")
+        o.c.append(f"    p{k}->{n} = p{k}->{n} + {v};")
+    o.both(f"    show{k}(*p{k}); show{k}(arr{k}[0]);")
+    o.esk.append(f"    fn({S}, int)->{S} fp{k} = mod{k};"); o.c.append(f"    {S} (*fp{k})({S}, int) = mod{k};")
+    o.both(f"    show{k}(fp{k}(a{k}, {rng.randint(1, 9)}));")
 
 
 def gen_union(rng, o, k, decls_esk, decls_c):
@@ -140,6 +153,15 @@ def gen_union(rng, o, k, decls_esk, decls_c):
         o.both(f"    u{k}.i = {v};", f"    u{k}.i = {v}LL;")
     o.both(f'    printf("%lld %d %d %d %d\\n", u{k}.i, u{k}.h[0], u{k}.h[1], (int)u{k}.b[0], (int)u{k}.b[7]);',
            f'    printf("%lld %d %d %d %d\\n", u{k}.i, u{k}.h[0], u{k}.h[1], (int)u{k}.b[0], (int)u{k}.b[7]);')
+    # The union nested in a struct: layout (sizeof) and the members around it.
+    W = f"W{k}"
+    decls_esk.append(f"struct {W} {{ int16 tag; {U} u; uint8 tail; }}")
+    decls_c.append(f"typedef struct {W} {{ short tag; {U} u; unsigned char tail; }} {W};")
+    t, tl = rng.randint(-300, 300), rng.randint(0, 255)
+    o.esk.append(f"    {W} w{k} = {W}{{tag: (int16){t}, tail: (uint8){tl}}};")
+    o.c.append(f"    {W} w{k} = {{ .tag = (short){t}, .tail = (unsigned char){tl} }};")
+    o.both(f"    w{k}.u = u{k};")
+    o.both(f'    printf("%d %lld %d %d\\n", (int)w{k}.tag, w{k}.u.i, (int)w{k}.tail, (int)sizeof({W}));')
 
 
 VARIADIC_ESK = """int64 vsum(int n, ...) {

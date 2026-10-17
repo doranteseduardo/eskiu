@@ -1,6 +1,6 @@
 name: Fuzz (long)
 
-# Long runs of the stdlib parser fuzzer under AddressSanitizer, started by hand
+# Long runs of the stdlib parser fuzzer under AddressSanitizer and of the C oracle, started by hand
 # before a release (or by pushing to ci/fuzz). Each seed runs every target for `seconds`; the inputs that
 # crash, trip ASan, break a round trip or hang are uploaded as an artifact.
 on:
@@ -46,4 +46,40 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: findings-${{ matrix.seed }}
+          path: tests/fuzz/findings/
+
+  oracle:
+    # Long C-oracle runs (both generators) against clang, with the self-hosted compiler.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [21, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 22
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libssl-dev
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+          sudo apt-get install -y llvm-22-dev clang-22
+          echo "LLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR=$LLVM_DIR -DCMAKE_CXX_COMPILER=clang++-22
+          cmake --build build -j"$(nproc)"
+
+      - name: Oracle
+        run: ESKIU_CLANG=clang-22 python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 6000 --oracle-ext 4000 --seed ${{ matrix.seed }} --jobs "$(nproc)"
+
+      - name: Findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-findings-${{ matrix.seed }}
           path: tests/fuzz/findings/
