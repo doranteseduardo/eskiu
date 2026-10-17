@@ -2207,7 +2207,9 @@ void al_free_rebind_items(List<*StmtNode>* items, List<string>* owned) {
     while (i < List_len<*StmtNode>(items)) {
         *StmtNode it = List_get<*StmtNode>(items, i); i = i + 1;
         if (it.kind == SK_VARDECL) {
-            if (it.expr != null && al_in(owned, it.name) == 1) { List_push<*StmtNode>(&out, al_free_closure_of(mk_ident(it.name))); }
+            // Every declaration resets the field (to its initializer, or to zero), so the
+            // env the field held is freed first (null on the first pass: a no-op).
+            if (al_in(owned, it.name) == 1) { List_push<*StmtNode>(&out, al_free_closure_of(mk_ident(it.name))); }
             List_push<*StmtNode>(&out, it);
         } else { List_push<*StmtNode>(&out, al_free_rebind(it, owned)); }
     }

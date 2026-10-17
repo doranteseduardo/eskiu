@@ -427,7 +427,9 @@ void freeBeforeRebind(std::vector<BlockItem>& its, const std::set<std::string>& 
     for (auto& it : its) {
         if (std::holds_alternative<DeclPtr>(it)) {
             auto* vd = dynamic_cast<VarDecl*>(std::get<DeclPtr>(it).get());
-            if (vd && vd->initializer && owned.count(vd->name)) out.push_back(freeClosureOf(vd->name));
+            // Every declaration resets the field (to its initializer, or to zero), so the
+            // env the field held is freed first (null on the first pass: a no-op).
+            if (vd && owned.count(vd->name)) out.push_back(freeClosureOf(vd->name));
         } else it = BlockItem(freeBeforeRebind(std::get<StmtPtr>(it), owned));
         out.push_back(it);
     }
