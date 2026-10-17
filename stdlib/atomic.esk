@@ -1,11 +1,17 @@
-// atomic.esk — lock-free atomic operations on a 32-bit (`int`) cell.
+// atomic.esk: lock-free atomic operations on `int`, `int64` and pointer cells.
 //
 // These are compiler intrinsics (declared with the `intrinsic` qualifier): the
 // calls below lower directly to LLVM atomic instructions, not to external
 // function calls, and emit no `declare`. Memory orderings are fixed to
-// the safe acquire/release defaults — a published value (written before an
-// atomic_store / atomic_swap / a winning atomic_cas) is visible to any thread
-// that observes the new cell value via atomic_load / atomic_swap / atomic_cas.
+// the safe acquire/release defaults: a published value (written before an
+// atomic_store / atomic_swap / a winning atomic_cas / a fetch op) is visible to any
+// thread that observes the new cell value via atomic_load / atomic_swap /
+// atomic_cas / a fetch op. atomic_fence() is a full (sequentially consistent) fence.
+//
+// The names form one family: `atomic_<op>` works on an `int` cell, `atomic_<op>64`
+// on an `int64` cell and `atomic_<op>_ptr` on a pointer cell (load, store, swap and
+// cas only). On a 32-bit target a 64-bit atomic may become a call into the C
+// compiler's atomic runtime (libatomic) instead of an instruction.
 //
 // The async runtime (stdlib/future.esk) uses these for the Future state
 // handshake; see docs/dev/async-design.md §3.
@@ -14,6 +20,8 @@
 //   if (atomic_cas(&flag, 0, 1)) { /* we won the transition 0 -> 1 */ }
 //   int old = atomic_swap(&flag, 2);   // store 2, return previous value
 //   int now = atomic_load(&flag);
+//   int64 hits = 0;
+//   atomic_fetch_add64(&hits, 1);      // returns the value before the add
 
 // Atomically read the cell (acquire ordering).
 intrinsic int atomic_load(*int cell);
@@ -27,3 +35,30 @@ intrinsic int atomic_swap(*int cell, int v);
 // If the cell equals `expected`, set it to `desired` and return true; otherwise
 // leave it unchanged and return false (acq_rel on success, acquire on failure).
 intrinsic bool atomic_cas(*int cell, int expected, int desired);
+
+// Atomically combine `v` into the cell and return the previous value (acq_rel).
+intrinsic int atomic_fetch_add(*int cell, int v);
+intrinsic int atomic_fetch_sub(*int cell, int v);
+intrinsic int atomic_fetch_and(*int cell, int v);
+intrinsic int atomic_fetch_or(*int cell, int v);
+intrinsic int atomic_fetch_xor(*int cell, int v);
+
+// The same on an `int64` cell.
+intrinsic int64 atomic_load64(*int64 cell);
+intrinsic void atomic_store64(*int64 cell, int64 v);
+intrinsic int64 atomic_swap64(*int64 cell, int64 v);
+intrinsic bool atomic_cas64(*int64 cell, int64 expected, int64 desired);
+intrinsic int64 atomic_fetch_add64(*int64 cell, int64 v);
+intrinsic int64 atomic_fetch_sub64(*int64 cell, int64 v);
+intrinsic int64 atomic_fetch_and64(*int64 cell, int64 v);
+intrinsic int64 atomic_fetch_or64(*int64 cell, int64 v);
+intrinsic int64 atomic_fetch_xor64(*int64 cell, int64 v);
+
+// On a pointer cell (`**void`; cast a typed pointer's address): load, store, swap, cas.
+intrinsic *void atomic_load_ptr(**void cell);
+intrinsic void atomic_store_ptr(**void cell, *void v);
+intrinsic *void atomic_swap_ptr(**void cell, *void v);
+intrinsic bool atomic_cas_ptr(**void cell, *void expected, *void desired);
+
+// A full memory fence (sequentially consistent).
+intrinsic void atomic_fence();

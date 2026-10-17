@@ -1,0 +1,44 @@
+// The atomic family: fetch ops on `int`, every op on `int64`, load/store/swap/cas on a
+// pointer cell, and the fence, single-threaded and with eight threads contending.
+import <atomic>;
+extern int printf(string fmt, ...);
+
+int counter = 0;
+int64 big = 0;
+int bits = 0;
+*void slot = null;
+int[8] marks;
+
+int main() {
+    printf("%d %d\n", atomic_fetch_add(&counter, 5), counter);
+    printf("%d %d\n", atomic_fetch_sub(&counter, 2), counter);
+    atomic_store(&bits, 12);
+    printf("%d %d %d\n", atomic_fetch_and(&bits, 10), atomic_fetch_or(&bits, 1), atomic_fetch_xor(&bits, 3));
+    printf("%d\n", bits);
+    atomic_store64(&big, 5000000000);
+    printf("%lld %lld\n", atomic_load64(&big), atomic_swap64(&big, 7));
+    printf("%d %d %lld\n", atomic_cas64(&big, 7, 9) ? 1 : 0, atomic_cas64(&big, 7, 11) ? 1 : 0, big);
+    printf("%lld %lld %lld %lld\n", atomic_fetch_add64(&big, 1), atomic_fetch_sub64(&big, 2), atomic_fetch_or64(&big, 16), atomic_load64(&big));
+    printf("%lld %lld\n", atomic_fetch_and64(&big, 31), atomic_fetch_xor64(&big, 1));
+    int a = 1; int b = 2;
+    atomic_store_ptr(&slot, (*void)&a);
+    printf("%d\n", *(*int)atomic_load_ptr(&slot));
+    printf("%d %d\n", atomic_cas_ptr(&slot, (*void)&b, null) ? 1 : 0, atomic_cas_ptr(&slot, (*void)&a, (*void)&b) ? 1 : 0);
+    printf("%d %d\n", *(*int)atomic_swap_ptr(&slot, null), slot == null ? 1 : 0);
+    atomic_fence();
+
+    big = 0; counter = 0;
+    *void[8] tids;
+    for (t in 0..8) {
+        int me = t;
+        tids[t] = thread_create(void() {
+            for (i in 0..20000) { atomic_fetch_add64(&big, 3); atomic_fetch_add(&counter, 1); }
+            atomic_store(&marks[me], 1);
+        });
+    }
+    for (t in 0..8) { thread_join(tids[t]); }
+    int done = 0;
+    for (t in 0..8) { done += atomic_load(&marks[t]); }
+    printf("%lld %d %d\n", atomic_load64(&big), atomic_load(&counter), done);
+    return 0;
+}
