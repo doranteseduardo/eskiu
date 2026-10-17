@@ -1,0 +1,73 @@
+// Structs and unions wider than 8 fields, where both compilers look fields up through a
+// hash index: member reads and writes, a named literal in any order, a bitfield, a
+// generic instance, a union, and `&` of a field.
+extern int printf(string fmt, ...);
+struct W {
+    int f0;
+    int f1;
+    int f2;
+    int f3;
+    int f4;
+    int f5;
+    int f6;
+    int f7;
+    int f8;
+    int f9;
+    int f10;
+    int f11;
+    int f12;
+    int f13;
+    int f14;
+    int f15;
+    int f16;
+    int f17;
+    int f18;
+    int f19;
+    uint32 lo : 4;
+    uint32 hi : 12;
+    string name;
+}
+struct G<T> {
+    T g0;
+    T g1;
+    T g2;
+    T g3;
+    T g4;
+    T g5;
+    T g6;
+    T g7;
+    T g8;
+    T g9;
+    T g10;
+    T g11;
+}
+union U {
+    int u0;
+    int u1;
+    int u2;
+    int u3;
+    int u4;
+    int u5;
+    int u6;
+    int u7;
+    int u8;
+    int u9;
+    int64 big;
+}
+int main() {
+    W w = W{f19: 19, name: "wide", f3: 3, hi: 4095, f0: 1};
+    w.f10 = w.f19 + w.f3;
+    w.lo = 15;
+    *int p = &w.f12;
+    *p = 12;
+    printf("%d %d %d %d %d %d %s %d\n", w.f0, w.f3, w.f10, w.f12, (int)w.lo, (int)w.hi, w.name, w.f7);
+    G<int64> g;
+    g.g11 = (int64)5000000000;
+    g.g0 = g.g11 + (int64)1;
+    printf("%lld %lld %lld\n", g.g0, g.g11, g.g6);
+    U u;
+    u.big = 0;
+    u.u9 = 7;
+    printf("%d %d\n", u.u0, u.u9);
+    return 0;
+}

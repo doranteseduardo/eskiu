@@ -1,0 +1,17 @@
+// EXPECT-ERROR: duplicate field 'f5'
+struct W {
+    int f0;
+    int f1;
+    int f2;
+    int f3;
+    int f4;
+    int f5;
+    int f6;
+    int f7;
+    int f8;
+    int f9;
+    int f10;
+    int f11;
+    int f5;
+}
+int main() { W w; return w.f0; }
