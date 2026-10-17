@@ -1,0 +1,50 @@
+// <libc>: the common C library, usable alongside every other stdlib module (the same
+// functions are spelled the same way everywhere).
+import <libc>;
+import <fs>;
+import <process>;
+import <string>;
+import <env>;
+import <json>;
+import <log>;
+import <term>;
+import <net>;
+
+int cmp_int(*void a, *void b) { return *(*int)a - *(*int)b; }
+void bye() { printf("bye\n"); }
+
+int main() {
+    char[64] buf;
+    strcpy(&buf[0], "hello");
+    strcat(&buf[0], ", world");
+    printf("%s %lld %lld %lld\n", (string)&buf[0], strlen((string)&buf[0]), strspn("aab", "a"), strcspn("abc", "c"));
+    printf("%s %s\n", (string)strrchr("a/b/c", '/'), (string)strpbrk("key=value", "=:"));
+    *char d = strdup("dup");
+    printf("%s\n", (string)d);
+    free((*void)d);
+    *string end = null;
+    printf("%lld %llu %.2f %lld %d %.1f\n", strtoll("-42xyz", end, 10), strtoull("ff", null, 16), strtod("3.25", null), atoll("123456789012"), atoi("7"), atof("2.5"));
+    printf("%lld\n", llabs(-9));
+    int[5] xs = {4, 1, 3, 5, 2};
+    qsort((*void)&xs[0], 5, 4, cmp_int);
+    int key = 3;
+    *int found = (*int)bsearch((*void)&key, (*void)&xs[0], 5, 4, cmp_int);
+    printf("%d %d %d\n", xs[0], xs[4], *found);
+    int a = 0; int b = 0;
+    sscanf("12 34", "%d %d", &a, &b);
+    snprintf(&buf[0], 64, "%d+%d", a, b);
+    printf("%s\n", (string)&buf[0]);
+    printf("%d %d %d %c %c\n", isalpha('a'), isdigit('x'), isspace(' ') != 0 ? 1 : 0, toupper('q'), tolower('Q'));
+    printf("%.3f %.3f %.3f %.1f %.1f %.1f\n", sin(0.0), cos(0.0), atan2(1.0, 1.0) * 4.0, log10(1000.0), round(2.5), trunc(-2.7));
+    printf("%.1f %.1f %.2f\n", fmax(1.0, 3.0), hypot(3.0, 4.0), (double)sqrtf(2.25));
+    *void f = fopen("/nonexistent/x", "r");
+    printf("%d %d\n", f == null ? 1 : 0, libc_errno() == LIBC_ENOENT ? 1 : 0);
+    libc_set_errno(0);
+    printf("%d %d\n", libc_errno(), time(null) > 1700000000 ? 1 : 0);
+    *void m = malloc(16);
+    m = realloc(m, 64);
+    memset(m, 0, 64);
+    free(m);
+    atexit(bye);
+    return 0;
+}
