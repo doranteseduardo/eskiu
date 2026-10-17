@@ -1,0 +1,4 @@
+// EXPECT-ERROR: a file with top-level statements has no 'main'
+extern int printf(string f, ...);
+printf("x\n");
+int main() { return 0; }

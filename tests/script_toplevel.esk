@@ -1,0 +1,22 @@
+// A file with top-level statements is a script: they run in order as the implicit
+// main, its globals are assigned in that order (any initializer), the functions see
+// them, and `argc`/`argv` hold the arguments.
+extern int printf(string fmt, ...);
+int total = 0;
+void add(int n) { total += n; }
+add(3);
+add(4);
+printf("%d\n", total);
+int[3] xs = {1, 2, 3};
+string label = argc > 1 ? argv[1] : "none";
+for (x in xs) { add(x); }
+printf("%d %s %d\n", total, label, argc);
+struct P { int x; int y; }
+P p = P{x: total, y: 2};
+p.y = p.y * 10;
+*Node[2] nodes;
+struct Node { int v; }
+int twice(int v) { return v * 2; }
+int doubled = twice(total);
+printf("%d %d %d %d\n", p.x, p.y, doubled, nodes[0] == null ? 1 : 0);
+if (total > 100) { return 1; }
