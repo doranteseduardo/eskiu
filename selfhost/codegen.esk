@@ -119,6 +119,7 @@ struct Codegen {
     *ExprNode tern_node;     // a `?:` bound for an interface: each arm boxes into tern_iface
     string tern_iface;
     int uses_eh;             // program uses try/throw → declare the Itanium EH runtime
+    int uses_throw;          // program throws → install the uncaught-exception reporter
     int uses_threads;        // program calls thread_create → the driver links pthread
     int uses_heap_env;       // a closure heap-allocated its env → ensure malloc is declared
     int safe;                // --safe: emit runtime slice/array index bounds checks (opt-in)
@@ -341,6 +342,7 @@ void cg_init(Codegen* g) {
     g.lam_expret = "";
     g.tern_node = null; g.tern_iface = "";
     g.uses_eh = 0;
+    g.uses_throw = 0;
     g.uses_threads = 0;
     g.uses_heap_env = 0;
     g.safe = 0;
@@ -6863,6 +6865,7 @@ void cg_stmt(Codegen* g, *StmtNode st) {
         // inside a try so the landingpad catches it). is_err = 1 (async lowering only):
         // the value is an exception object a capturing catch copied, thrown again as is.
         g.uses_eh = 1;
+        g.uses_throw = 1;
         CgVal val = cg_expr(g, st.expr);
         if (st.is_err == 1) {
             cg_emit_callish(g, "void", "@__cxa_throw", cg_cat("ptr ", cg_cat(val.op, ", ptr @_ZTIPv, ptr null")), 1);
@@ -8882,6 +8885,50 @@ void cg_emit_tydecl_body(Codegen* g, *DeclNode d) {
     cg_deftype(g, d.name, cg_cat(op, cg_cat((string)String_cstr(&body), cl)));
 }
 
+// A program that throws reports an exception nobody catches by type and value
+// (mirrors the C++ emitUncaughtReporter): a constructor installs a std::terminate
+// handler that rethrows into a catch-all, prints to stderr and aborts.
+void cg_emit_uncaught(Codegen* g, *Program prog) {
+    if (g.freestanding == 1 || cg_prog_defines(prog, "main") == 0) { return; }
+    if (cg_prog_defines(prog, "strcmp") == 1 || cg_prog_defines(prog, "snprintf") == 1 || cg_prog_defines(prog, "fflush") == 1
+        || cg_prog_defines(prog, "write") == 1 || cg_prog_defines(prog, "abort") == 1) { return; }
+    cg_ensure_extern(g, "snprintf", "declare i32 @snprintf(ptr, i64, ptr, ...)\n");
+    cg_ensure_extern(g, "fflush", "declare i32 @fflush(ptr)\n");
+    cg_ensure_extern(g, "write", "declare i64 @write(i32, ptr, i64)\n");
+    cg_ensure_extern(g, "abort", "declare void @abort()\n");
+    cg_ensure_extern(g, "_ZSt13set_terminatePFvvE", "declare ptr @_ZSt13set_terminatePFvvE(ptr)\n");
+    String_append(&g.globals, "@.eskiu.ux.int = private unnamed_addr constant [4 x i8] c\"int\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.int32 = private unnamed_addr constant [6 x i8] c\"int32\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.int64 = private unnamed_addr constant [6 x i8] c\"int64\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.string = private unnamed_addr constant [7 x i8] c\"string\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.f1 = private unnamed_addr constant [34 x i8] c\"error: uncaught exception: %s %d\\0A\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.f2 = private unnamed_addr constant [36 x i8] c\"error: uncaught exception: %s %lld\\0A\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.f3 = private unnamed_addr constant [36 x i8] c\"error: uncaught exception: %s \\22%s\\22\\0A\\00\"\n");
+    String_append(&g.globals, "@.eskiu.ux.f4 = private unnamed_addr constant [31 x i8] c\"error: uncaught exception: %s\\0A\\00\"\n");
+    String_append(&g.globals, "@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 65535, ptr @__eskiu_install_terminate, ptr null }]\n");
+    cg_emit(g, "define internal void @__eskiu_terminate() personality ptr @"); cg_emit(g, cg_eh_pers(g)); cg_emit(g, " {\n");
+    cg_emit(g, "entry:\n  %buf = alloca [512 x i8]\n  invoke void @__cxa_rethrow() to label %never unwind label %lp\n");
+    cg_emit(g, "never:\n  unreachable\n");
+    cg_emit(g, "lp:\n  %pad = landingpad { ptr, i32 } catch ptr null\n  %exc = extractvalue { ptr, i32 } %pad, 0\n");
+    cg_emit(g, "  %obj = call ptr @__cxa_begin_catch(ptr %exc)\n");
+    cg_emit(g, "  %tnp = getelementptr i8, ptr %obj, i64 8\n  %tn = load ptr, ptr %tnp\n  %pay = getelementptr i8, ptr %obj, i64 16\n");
+    cg_emit(g, "  %c1 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.int)\n  %c2 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.int32)\n");
+    cg_emit(g, "  %c3 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.int64)\n  %c4 = call i32 @strcmp(ptr %tn, ptr @.eskiu.ux.string)\n");
+    cg_emit(g, "  %e1 = icmp eq i32 %c1, 0\n  %e2 = icmp eq i32 %c2, 0\n  %isint = or i1 %e1, %e2\n");
+    cg_emit(g, "  br i1 %isint, label %int, label %notint\n");
+    cg_emit(g, "int:\n  %iv = load i32, ptr %pay\n  %n1 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f1, ptr %tn, i32 %iv)\n  br label %out\n");
+    cg_emit(g, "notint:\n  %e3 = icmp eq i32 %c3, 0\n  br i1 %e3, label %i64, label %noti64\n");
+    cg_emit(g, "i64:\n  %lv = load i64, ptr %pay\n  %n2 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f2, ptr %tn, i64 %lv)\n  br label %out\n");
+    cg_emit(g, "noti64:\n  %sv = load ptr, ptr %pay\n  %e4 = icmp eq i32 %c4, 0\n  %nn = icmp ne ptr %sv, null\n  %isstr = and i1 %e4, %nn\n");
+    cg_emit(g, "  br i1 %isstr, label %str, label %other\n");
+    cg_emit(g, "str:\n  %n3 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f3, ptr %tn, ptr %sv)\n  br label %out\n");
+    cg_emit(g, "other:\n  %n4 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 512, ptr @.eskiu.ux.f4, ptr %tn)\n  br label %out\n");
+    cg_emit(g, "out:\n  %n = phi i32 [ %n1, %int ], [ %n2, %i64 ], [ %n3, %str ], [ %n4, %other ]\n");
+    cg_emit(g, "  %big = icmp sgt i32 %n, 511\n  %len = select i1 %big, i32 511, i32 %n\n  %len64 = sext i32 %len to i64\n");
+    cg_emit(g, "  %fl = call i32 @fflush(ptr null)\n  %wr = call i64 @write(i32 2, ptr %buf, i64 %len64)\n  call void @abort()\n  unreachable\n}\n");
+    cg_emit(g, "define internal void @__eskiu_install_terminate() {\nentry:\n  %old = call ptr @_ZSt13set_terminatePFvvE(ptr @__eskiu_terminate)\n  ret void\n}\n");
+}
+
 void cg_program(Codegen* g, *Program prog) {
     // Does the program throw or catch anywhere? Only then do defers get landingpads.
     int ei = 0;
@@ -9342,5 +9389,6 @@ void cg_program(Codegen* g, *Program prog) {
         String_append(&g.globals, "declare void @__cxa_rethrow()\n");
         String_append(&g.globals, "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
         cg_ensure_extern(g, "strcmp", "declare i32 @strcmp(ptr, ptr)\n");   // catch matching; <mem> may declare it too
+        if (g.uses_throw == 1) { cg_emit_uncaught(g, prog); }
     }
 }
