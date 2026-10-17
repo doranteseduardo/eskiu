@@ -1,4 +1,7 @@
 #include <cstdint>
+#include <cctype>
+#include <cstring>
+#include <vector>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -99,23 +102,321 @@ std::string dirOf(const std::string& path) {
     return slash == std::string::npos ? "." : path.substr(0, slash);
 }
 
+// ── Statement layout for `eskiuc fmt` ───────────────────────────────────────
+// The braces and parentheses open across lines: each `{` is a block ('B': a function
+// or control-flow body, a struct or interface body, a match arm) or an initializer
+// ('I': an array or struct literal, an enum body), and each brace level counts its own
+// open `(` and `[`.
+namespace {
+struct FmtLayout {
+    std::vector<char> kinds;
+    std::vector<int> parens;
+    int paren = 0;
+};
+
+bool fmtIdentChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
+
+std::string fmtFirstWord(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size() && s[i] == ' ') i++;
+    size_t j = i;
+    while (j < s.size() && fmtIdentChar(s[j])) j++;
+    return s.substr(i, j - i);
+}
+
+// Count the brackets of t[from..] (strings and chars skipped, up to a comment) into the
+// layout state: a line that is left as it is, or the code after a multi-line string.
+void fmtCountBrackets(FmtLayout& st, const std::string& t, size_t from) {
+    size_t n = t.size();
+    for (size_t i = from; i < n; ++i) {
+        char c = t[i];
+        if (c == '"' || c == '\'') {
+            size_t j = i + 1;
+            while (j < n && t[j] != c) { if (t[j] == '\\' && j + 1 < n) j++; j++; }
+            i = j;
+            continue;
+        }
+        if (c == '/' && i + 1 < n && (t[i + 1] == '/' || t[i + 1] == '*')) break;
+        if (c == '(' || c == '[') {
+            st.paren++;
+        } else if (c == ')' || c == ']') {
+            st.paren--;
+        } else if (c == '{') {
+            st.kinds.push_back('I');
+            st.parens.push_back(st.paren);
+            st.paren = 0;
+        } else if (c == '}' && !st.kinds.empty()) {
+            st.kinds.pop_back();
+            st.paren = st.parens.back();
+            st.parens.pop_back();
+        }
+    }
+}
+
+// Operators that get one space on each side, longest first.
+const char* const kFmtSpacedOps[] = {"<<=", ">>=", "==", "!=", "<=", ">=", "&&", "||", "+=", "-=",
+                                     "*=", "/=", "%=", "&=", "|=", "^=", "="};
+
+// Lay out one code line `t` (no leading blanks): split it after each statement's `;`
+// and around block braces, so `if (a) { return 1; }` becomes three lines and
+// `x = 1; y = 2;` two, and normalize its spacing (one space between tokens, around
+// assignment, comparison and logical operators, after a comma or semicolon and before
+// a block `{`; none before `,` `;` `)` `]` or after `(` `[`). Only blanks between tokens
+// change, so the tokens are the same. `last` is the last code character of the
+// previous line, and is updated. A line that ends inside a string or a comment, or with
+// `\`, is left as it is (its braces and parentheses still count). A trailing `//`
+// comment stays on the first piece.
+std::vector<std::string> fmtLayoutLine(FmtLayout& st, const std::string& t, char& last) {
+    if (t.find('\0') != std::string::npos) return {t};   // a NUL byte: left alone
+    std::vector<std::string> pieces;
+    std::string cur, comment;
+    bool needSpace = false;
+    std::string lastWord;
+    size_t n = t.size(), i = 0;
+    bool ok = n == 0 || t[n - 1] != '\\';
+    auto rtrimCur = [&] { while (!cur.empty() && cur.back() == ' ') cur.pop_back(); };
+    auto skipBlanks = [&](size_t j) { while (j < n && (t[j] == ' ' || t[j] == '\t')) j++; return j; };
+    auto restIsCode = [&](size_t j) {
+        j = skipBlanks(j);
+        return j < n && !(t[j] == '/' && j + 1 < n && (t[j + 1] == '/' || t[j + 1] == '*'));
+    };
+    auto emit = [&](const std::string& s) {
+        if (needSpace && !cur.empty() && cur.back() != ' ') cur += ' ';
+        needSpace = false;
+        cur += s;
+        last = s.back();
+    };
+    auto flush = [&] {
+        rtrimCur();
+        if (!cur.empty()) pieces.push_back(cur);
+        cur.clear();
+        needSpace = false;
+        lastWord.clear();
+    };
+    auto openBrace = [&](char kind) {
+        st.kinds.push_back(kind);
+        st.parens.push_back(st.paren);
+        st.paren = 0;
+    };
+    // After a block's `}`: `else`, `while`, `catch`, `finally` and `;` `)` `,` `]` stay
+    // on its line; anything else starts a new one.
+    auto afterClose = [&] {
+        size_t j = skipBlanks(i);
+        if (j >= n) return;
+        size_t k = j;
+        while (k < n && fmtIdentChar(t[k])) k++;
+        std::string w = t.substr(j, k - j);
+        if (w == "else" || w == "while" || w == "catch" || w == "finally") { cur += ' '; i = j; return; }
+        if (t[j] == ';' || t[j] == ')' || t[j] == ',' || t[j] == ']') { i = j; return; }
+        if (restIsCode(j)) flush();
+    };
+    while (ok && i < n) {
+        char c = t[i];
+        if (c == '"' || c == '\'') {
+            size_t j = i + 1;
+            while (j < n && t[j] != c) { if (t[j] == '\\' && j + 1 < n) j++; j++; }
+            if (j >= n) { ok = false; break; }
+            emit(t.substr(i, j + 1 - i));
+            lastWord.clear();
+            i = j + 1;
+            continue;
+        }
+        if (c == '/' && i + 1 < n && t[i + 1] == '/') {
+            size_t g = i;
+            while (g > 0 && (t[g - 1] == ' ' || t[g - 1] == '\t')) g--;
+            comment = t.substr(g);
+            break;
+        }
+        if (c == '/' && i + 1 < n && t[i + 1] == '*') {
+            size_t e = t.find("*/", i + 2);
+            if (e == std::string::npos) { ok = false; break; }
+            char keep = last;
+            emit(t.substr(i, e + 2 - i));
+            last = keep;
+            i = e + 2;
+            continue;
+        }
+        if (c == ' ' || c == '\t') {
+            if (!cur.empty() && cur.back() != ' ' && cur.back() != '(' && cur.back() != '[') cur += ' ';
+            i++;
+            continue;
+        }
+        if (fmtIdentChar(c)) {
+            size_t j = i;
+            while (j < n && fmtIdentChar(t[j])) j++;
+            std::string w = t.substr(i, j - i);
+            emit(w);
+            i = j;
+            if ((w == "if" || w == "while" || w == "for" || w == "switch" || w == "catch" || w == "match") &&
+                i < n && t[i] == '(' && lastWord != "operator")
+                cur += ' ';
+            lastWord = w;
+            continue;
+        }
+        if (lastWord == "operator" && std::strchr("+-*/%=!<>&|^~[]", c)) {   // `operator ==` as written
+            size_t j = i;
+            while (j < n && std::strchr("+-*/%=!<>&|^~[]", t[j])) j++;
+            emit(t.substr(i, j - i));
+            lastWord.clear();
+            i = j;
+            continue;
+        }
+        const char* op = nullptr;
+        if (lastWord != "operator")
+            for (const char* o : kFmtSpacedOps)
+                if (t.compare(i, std::strlen(o), o) == 0) { op = o; break; }
+        if (op) {
+            rtrimCur();
+            if (!cur.empty()) cur += ' ';
+            cur += op;
+            last = '=';
+            needSpace = true;
+            lastWord.clear();
+            i += std::strlen(op);
+            continue;
+        }
+        if (c == ',') {
+            rtrimCur();
+            cur += ',';
+            last = ',';
+            needSpace = true;
+            lastWord.clear();
+            i++;
+            continue;
+        }
+        if (c == ';') {
+            rtrimCur();
+            cur += ';';
+            last = ';';
+            lastWord.clear();
+            i++;
+            if (st.paren == 0 && (st.kinds.empty() || st.kinds.back() == 'B') && restIsCode(i)) flush();
+            else needSpace = true;
+            continue;
+        }
+        if (c == '(' || c == '[') {
+            emit(std::string(1, c));
+            st.paren++;
+            lastWord.clear();
+            i++;
+            continue;
+        }
+        if (c == ')' || c == ']') {
+            rtrimCur();
+            cur += c;
+            last = c;
+            needSpace = false;
+            st.paren--;
+            lastWord.clear();
+            i++;
+            continue;
+        }
+        if (c == '{') {
+            std::string head = cur;
+            while (!head.empty() && head.back() == ' ') head.pop_back();
+            std::string fw = fmtFirstWord(head);
+            bool topBlock = st.kinds.empty() || st.kinds.back() == 'B';
+            bool block;
+            if (head.empty())
+                block = topBlock && st.paren == 0 && last != '=' && last != ',' && last != '(' && last != '[';
+            else if (fw == "enum")
+                block = false;
+            else
+                block = head.back() == ')' || (head.size() >= 2 && head.compare(head.size() - 2, 2, "->") == 0) ||
+                        lastWord == "else" || lastWord == "do" || lastWord == "try" || lastWord == "finally" ||
+                        lastWord == "defer" || lastWord == "errdefer" || fw == "struct" || fw == "union" ||
+                        fw == "interface" || fw == "packed" || fw == "match" ||
+                        (head.back() == ':' && (fw == "case" || fw == "default"));
+            lastWord.clear();
+            if (!block) {
+                emit("{");
+                openBrace('I');
+                i++;
+                continue;
+            }
+            rtrimCur();
+            if (!cur.empty()) cur += ' ';
+            size_t j = skipBlanks(i + 1);
+            if (j < n && t[j] == '}') {          // an empty block stays `{}`
+                cur += "{}";
+                last = '}';
+                needSpace = false;
+                i = j + 1;
+                afterClose();
+                continue;
+            }
+            cur += '{';
+            last = '{';
+            needSpace = false;
+            openBrace('B');
+            i++;
+            if (restIsCode(i)) flush();
+            continue;
+        }
+        if (c == '}') {
+            char kind = 'I';
+            if (!st.kinds.empty()) {
+                kind = st.kinds.back();
+                st.kinds.pop_back();
+                st.paren = st.parens.back();
+                st.parens.pop_back();
+            }
+            i++;
+            lastWord.clear();
+            needSpace = false;
+            if (kind == 'B') {
+                flush();
+                cur = "}";
+                last = '}';
+                afterClose();
+            } else {
+                cur += '}';
+                last = '}';
+            }
+            continue;
+        }
+        emit(std::string(1, c));
+        lastWord.clear();
+        i++;
+    }
+    if (!ok) {
+        fmtCountBrackets(st, t, i);         // the rest still counts; the text is kept
+        return {t};
+    }
+    rtrimCur();
+    if (!cur.empty()) pieces.push_back(cur);
+    // A trailing comment stays with the statement's first line (`while (x) {  // why`).
+    if (!comment.empty()) {
+        if (pieces.empty()) pieces.push_back(comment.substr(comment.find_first_not_of(" \t")));
+        else pieces.front() += comment;
+    }
+    if (pieces.empty()) pieces.push_back(t);
+    return pieces;
+}
+}  // namespace
+
 // ── eskiuc fmt ──────────────────────────────────────────────────────────────
-// A conservative, comment-preserving reindenter. It normalizes only what is
-// unambiguous and can never change a program's meaning:
-//   * leading indentation = 4 spaces per `{`-nesting level
+// A comment-preserving formatter that only changes blanks between tokens and line
+// breaks, so it can never change a program's meaning:
+//   * one statement per line: a line is split after each statement's `;` and around
+//     block braces (fmtLayoutLine), so `if (a) { return 1; }` takes three lines;
+//     initializer braces (`{1, 2}`, `P{x: 1}`, an enum body) stay on their line
+//   * spacing: one blank between tokens, around assignment, comparison and logical
+//     operators, after `,` and `;`, before a block `{`; none before `,` `;` `)` `]`
+//   * indentation = 4 spaces per `{`-nesting level; a line that continues a statement
+//     (inside open parentheses, or after a line that does not end one) keeps its
+//     indentation relative to the statement's first line, at least 4 more
 //   * trailing whitespace stripped, except after a trailing `\` (trimming it there
 //     would turn the line into a continuation)
-//   * blank lines kept, so every line keeps its number (`__LINE__`, diagnostics);
-//     only blank lines at the end of the file are dropped
+//   * blank lines kept; only blank lines at the end of the file are dropped
 //   * exactly one final newline
-//   * a line after one ending in `\` (a continuation) is kept byte for byte
-// Each line's *content* (operators, inner spacing, comments, and every byte of a
-// string or char literal, including a stray `\r` and every line of a string that
-// spans lines) is preserved verbatim; only the
-// `\r` of a CRLF line ending is taken off. Braces inside strings, char literals and
-// comments are ignored, so formatting is idempotent and safe. Preprocessor lines
-// (`#…`) sit at column 0 and do not affect nesting. The file's line ending (LF or
-// CRLF, judged by its first line break) is preserved.
+//   * a line after one ending in `\` (a continuation), a line inside a multi-line string
+//     or block comment, and a line that opens one keep their bytes
+// Comments and every byte of a string or char literal are preserved; only the `\r` of
+// a CRLF line ending is taken off. Braces inside strings, char literals and comments are
+// ignored, so formatting is idempotent and safe. Preprocessor lines (`#…`) sit at
+// column 0 and do not affect nesting. The file's line ending (LF or CRLF, judged by its
+// first line break) is preserved.
 std::string formatSource(const std::string& src) {
     size_t firstNl = src.find('\n');
     const std::string eol = (firstNl != std::string::npos && firstNl > 0 && src[firstNl - 1] == '\r')
@@ -154,6 +455,11 @@ std::string formatSource(const std::string& src) {
     bool strSeen = false;     // inStr was already set at the start of the previous line
     bool strInCond = false;   // the open string began inside a conditional
     std::string ppLine;       // the directive's logical line (continuations joined)
+    FmtLayout layout;         // the open braces' kinds and parentheses (fmtLayoutLine)
+    char last = 0;            // the last code character so far
+    std::vector<char> condLast;   // `last` at each open #if
+    int stmtOrig = 0, stmtNew = 0;   // the current statement's first line: indent before and after
+    bool sepNext = false;     // the last line closed a top-level block
     bool firstLine = true;
     auto directiveOpensComment = [](const std::string& l) {
         size_t n = l.size();
@@ -226,7 +532,13 @@ std::string formatSource(const std::string& src) {
         if (inStr && !directive) {           // inside a multi-line string: bytes verbatim
             std::string t = raw;
             scanNesting(t, 0);
-            if (!inStr) t = rtrim(t);
+            if (!inStr) {
+                t = rtrim(t);
+                if (!t.empty()) last = t.back();
+                size_t q = 0;                    // the string's closing quote
+                while (q < t.size() && t[q] != '"') { if (t[q] == '\\' && q + 1 < t.size()) q++; q++; }
+                fmtCountBrackets(layout, t, q + 1);
+            }
             out += t; out += eol;
             continue;
         }
@@ -241,6 +553,9 @@ std::string formatSource(const std::string& src) {
         if (a == std::string::npos) { pendingBlank++; continue; }
         std::string t = raw.substr(a);
 
+        // A top-level definition is set apart from what follows it.
+        if (sepNext && pendingBlank == 0 && t[0] != '}' && t[0] != '#') out += eol;
+        sepNext = false;
         for (; pendingBlank > 0; pendingBlank--) out += eol;   // keep every blank line
 
         ppCont = t[0] == '#';
@@ -251,22 +566,49 @@ std::string formatSource(const std::string& src) {
             size_t ks = k;
             while (k < t.size() && (std::isalnum((unsigned char)t[k]) || t[k] == '_')) k++;
             std::string kw = t.substr(ks, k - ks);
-            if (kw == "if" || kw == "ifdef" || kw == "ifndef") condStr.push_back(inStr);
-            else if ((kw == "elif" || kw == "else") && !condStr.empty()) inStr = condStr.back();
-            else if (kw == "endif" && !condStr.empty()) { inStr = condStr.back(); condStr.pop_back(); }
+            // Each branch, and the code after `#endif`, starts from the state at the `#if`.
+            if (kw == "if" || kw == "ifdef" || kw == "ifndef") { condStr.push_back(inStr); condLast.push_back(last); }
+            else if ((kw == "elif" || kw == "else") && !condStr.empty()) { inStr = condStr.back(); last = condLast.back(); }
+            else if (kw == "endif" && !condStr.empty()) {
+                inStr = condStr.back();
+                last = condLast.back();
+                condStr.pop_back();
+                condLast.pop_back();
+            }
             if (prevCont) ppLine = t.substr(0, t.size() - 1);
             else if (!shebang) inBlock = directiveOpensComment(t);
             continue;
         }
 
-        // This line's indent dedents for each leading `}`.
-        int lead = depth;
-        for (char c : t) { if (c == '}') lead--; else break; }
-        if (lead < 0) lead = 0;
-        scanNesting(t, 0);
-        if (!inStr) t = rtrim(t);            // trailing blanks inside an open string are its bytes
-        out.append((size_t)lead * 4, ' ');
-        out += t; out += eol;
+        // A line inside open parentheses, or after one that did not end a statement
+        // (with `;`, `{`, `}` or a label's `:`), continues that statement: it keeps its
+        // indentation relative to the statement's first line, at least 4 more (an item
+        // of a multi-line list after a `,` keeps its own).
+        bool contLine = t[0] != '}' && (layout.paren > 0 ||
+                        (last != 0 && last != ';' && last != '{' && last != '}' && last != ':'));
+        bool listItem = last == ',' && layout.paren == 0;
+        std::vector<std::string> pieces = fmtLayoutLine(layout, t, last);
+        for (size_t pi = 0; pi < pieces.size(); ++pi) {
+            std::string piece = pieces[pi];
+            int ind;
+            if (pi == 0 && contLine) {
+                int diff = (int)a - stmtOrig;
+                ind = stmtNew + (listItem ? std::max(0, diff) : std::max(4, diff));
+            } else {
+                // A statement's indent dedents for each leading `}`.
+                int lead = depth;
+                for (char c : piece) { if (c == '}') lead--; else break; }
+                if (lead < 0) lead = 0;
+                ind = lead * 4;
+                stmtOrig = (int)a;
+                stmtNew = ind;
+            }
+            scanNesting(piece, 0);
+            if (!inStr) piece = rtrim(piece);    // trailing blanks inside an open string are its bytes
+            out.append((size_t)ind, ' ');
+            out += piece; out += eol;
+        }
+        sepNext = depth == 0 && pieces.back()[0] == '}';
     }
     return out;
 }
