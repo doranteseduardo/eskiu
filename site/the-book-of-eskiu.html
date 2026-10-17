@@ -406,7 +406,7 @@ pre.code-block {
 <a href="#sec-20-2" class="toc-sec">20.2 AddressSanitizer</a>
 <a href="#sec-20-3" class="toc-sec">20.3 Memory leak detection</a>
 <a href="#sec-20-4" class="toc-sec">20.4 Inspecting generated IR</a>
-<a href="#sec-20-5" class="toc-sec">20.5 Bounds checking with --safe</a>
+<a href="#sec-20-5" class="toc-sec">20.5 Run-time checks with --safe</a>
 <a href="#chapter-21" class="toc-ch">Chapter 21</a>
 <a href="#sec-21-1" class="toc-sec">21.1 Test functions</a>
 <a href="#sec-21-2" class="toc-sec">21.2 The .esk + .expected pattern</a>
@@ -637,6 +637,14 @@ pre.code-block {
  printf(&quot;%lld\n&quot;, big);</pre>
 <p class="output"><em>Output:</em> 4 0 6000000000</p>
 <p>Converting to <code>bool</code> tests against zero. <code>(bool)2</code>, <code>(bool)0.5</code> and a non-null pointer are all <code>true</code>; only <code>0</code>, <code>0.0</code> and <code>null</code> are <code>false</code>.</p>
+<p>Arithmetic has the same result at every optimization level, unlike C where these cases are undefined: signed overflow wraps around, a shift count is taken modulo the width of the value shifted, a division by zero stops the program, and the most negative value divided by <code>-1</code> gives itself. Converting a <code>float</code> or <code>double</code> outside the target&#x27;s range saturates to the nearest limit, and NaN becomes <code>0</code>:</p>
+<pre class="code-block"> int big = 2147483647;
+ int s = 31;
+ printf(&quot;%d %d\n&quot;, big + 1, 1 &lt;&lt; (s + 1));   // -2147483648 1 (32 &amp; 31 is 0)
+ double huge = 1e20;
+ double neg = -1.0;
+ printf(&quot;%d %d\n&quot;, (int)huge, (uint8)neg);    // 2147483647 0</pre>
+<p>Compile with <code>--safe</code> (20.5) to make a signed overflow trap instead of wrapping.</p>
 <h2 class="section" id="sec-2-4">2.4 A complete example</h2>
 <pre class="code-block"> import &lt;io&gt;;</pre>
 <pre class="code-block"> int main() {
@@ -969,6 +977,14 @@ pre.code-block {
        x: 5.0,
        y: 6.0,
  };</pre>
+<p>A field can declare a default after its name. It is what the field holds whenever nothing sets it: a field the literal leaves out, and a variable declared without an initializer. <code>T{}</code> is then the default value, and assigning it resets a variable for reuse, with no <code>memset</code>:</p>
+<pre class="code-block"> struct Opts { int timeout_ms = 30000; bool follow = true; string name = &quot;client&quot;; }
+
+ Opts a;                              // 30000, true, &quot;client&quot;
+ Opts b = Opts { timeout_ms: 500 };   // 500, true, &quot;client&quot;
+ a.follow = false;
+ a = Opts {};                         // back to the defaults</pre>
+<p>A default is a constant, like a global&#x27;s initializer. Memory from <code>alloc&lt;T&gt;</code> is zeroed rather than defaulted (write <code>*p = Opts {};</code>), and a field of a generic struct or a bitfield cannot have one.</p>
 <h2 class="section" id="sec-5-3">5.3 Methods</h2>
 <p>A method is a function inside a struct body. <code>self</code> refers to a pointer to the instance:</p>
 <pre class="code-block"> struct Rect {
@@ -1990,6 +2006,7 @@ pre.code-block {
  printf(&quot;%c\n&quot;, String_char_at(&amp;s, 0));                   // H
  printf(&quot;%lld\n&quot;, String_index_of(&amp;s, &#x27;l&#x27;));              // 2
  printf(&quot;%d\n&quot;, String_eq_cstr(&amp;s, &quot;Hello!&quot;)); // 1</pre>
+<p><code>==</code> and <code>!=</code> also compare a <code>String</code>&#x27;s text, against another <code>String</code> or a C string: <code>if (s == &quot;Hello!&quot;)</code>. On a plain <code>string</code> (a <code>char*</code>), <code>==</code> compares addresses, so use <code>strcmp</code> there; the compiler warns when it sees one compared with a string literal.</p>
 <pre class="code-block"> let sub: String;
  String_init(&amp;sub, 8);
  String_substring(&amp;s, &amp;sub, 1, 4);                          // ello
@@ -2732,11 +2749,12 @@ pre.code-block {
 <p>When output is wrong and the source looks correct, inspect what the compiler actually generated:</p>
 <pre class="code-block"> eskiuc suspect.esk --test-codegen    # dumps LLVM IR to stdout
  # Verify that types, loads, and stores are what you expect</pre>
-<h2 class="section" id="sec-20-5">20.5 Bounds checking with --safe</h2>
+<h2 class="section" id="sec-20-5">20.5 Run-time checks with --safe</h2>
 <p>By default array and slice indexing is unchecked, matching C: an out-of-range index reads or writes whatever is at that address. Compiling with <code>--safe</code> inserts a bounds check on every array and slice index, so a violation traps immediately instead of corrupting memory:</p>
 <pre class="code-block"> eskiuc prog.esk --safe -o prog
  ./prog                     # traps at the first out-of-bounds index</pre>
 <p><code>--safe</code> is off by default, so release builds pay nothing for it. Turn it on during development and testing so silent memory corruption becomes a clean, immediate failure, then ship without it (or keep it on where a trap is preferable to undefined behaviour).</p>
+<p>The same flag also traps on a signed <code>+</code>, <code>-</code> or <code>*</code> of <code>int</code> or <code>int64</code> that overflows (which otherwise wraps) and on dereferencing a null pointer through <code>*p</code>, <code>p.field</code> or <code>p[i]</code>. Unsigned and narrow arithmetic still wraps.</p>
 <div class="chapter-start" id="chapter-21"><span class="chapter-label">Chapter 21</span>
 <h1 class="chapter-title">Testing</h1><hr class="chapter-rule"></div>
 <p>Eskiu has no built-in test framework. The language gives you functions, return values, and <code>printf</code>. That is all you need. The pattern described here is the one used by Eskiu&#x27;s own test suite, which in 0.9.2 holds about a thousand programs (run tests with expected output, and error tests that must be rejected).</p>
@@ -2907,6 +2925,9 @@ pre.code-block {
 <div class="chapter-start" id="chapter-23"><span class="chapter-label">Chapter 23</span>
 <h1 class="chapter-title">Networking</h1><hr class="chapter-rule"></div>
 <p>Network programming in Eskiu is POSIX sockets via the stdlib module. No framework required for basic use. A TCP server is a file descriptor you accept connections on. A TCP client is a file descriptor you write bytes to.</p>
+<p>A few warnings are on without <code>-Wall</code>, because what they flag is almost always a mistake: <code>==</code> on a <code>string</code> against a string literal (<code>-Wstring-compare</code>), a <code>printf</code>-style format that does not match its arguments (<code>-Wformat</code>), the address of a packed struct member (<code>-Waddress-of-packed-member</code>), a local&#x27;s address returned through a pointer or a struct (<code>-Wdangling-pointer</code>) and a local larger than 1 MiB (<code>-Wframe-larger-than</code>). None of them stops a build. Each has a <code>-Wno-</code> form to turn it off, <code>-w</code> silences every warning, and <code>-Werror</code> turns every warning into an error for CI:</p>
+<pre class="code-block"> printf(&quot;%d\n&quot;, strlen(s));   // warning: format &#x27;%d&#x27; expects an int, but argument 2 has type &#x27;int64&#x27; [-Wformat]
+ eskiuc app.esk -Werror -o app    # fails on any warning</pre>
 <h2 class="section" id="sec-23-1">23.1 TCP echo server</h2>
 <pre class="code-block"> import &lt;net&gt;;
  import &lt;mem&gt;;
