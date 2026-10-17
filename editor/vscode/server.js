@@ -314,7 +314,9 @@ const REQUESTS = {
         const here = refs.find((r) => r.uri === p.textDocument.uri && r.range.start.line === p.position.line &&
             r.range.start.character <= p.position.character && p.position.character <= r.range.end.character);
         if (!here || refs.some((r) => r.uri !== p.textDocument.uri)) return null;
-        return here.range;
+        // The part rename replaces: `dist` of a `P_dist` that is also dot-called (`p.dist()`).
+        const w = Math.min(...refs.map((r) => r.range.end.character - r.range.start.character));
+        return { start: { line: here.range.end.line, character: here.range.end.character - w }, end: here.range.end };
     },
     'textDocument/rename': async (p) => {
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p.newName) || KEYWORDS.includes(p.newName)) return null;
