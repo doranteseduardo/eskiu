@@ -763,6 +763,17 @@ The operand may also be an expression: `sizeof(*p)`, `sizeof(a[0])`, `sizeof(s.f
 
 The type checker folds `sizeof` of a scalar, a pointer, a closure, an interface, a slice, a fixed array, a sum type, a generic instance, and a struct or union of those (bitfields and `#pragma pack(N)` included), using the target's layout (`--target`), so the constant checks below (a zero divisor, an array index out of bounds, a duplicate `case`) and `enum` member values see it. A union declared under `#pragma pack(N)` folds too.
 
+### 5.8.1 dbg Expression
+
+`dbg(e)` evaluates `e` once, prints its source text and value to stderr, and yields the value, so it can wrap any subexpression:
+
+```eskiu
+int m = dbg(n + 1) * 2;     // [dbg 12:13] n + 1 = 21
+dbg(p);                     // [dbg 14:5] p = P{x: 1, y: 2.5, s: "hi"}
+```
+
+The line and column are those of `dbg`. Integers, `bool`, `char` (`'z'`), floating point (`%g`), `string` (quoted, `null` unquoted) and pointers (`%p`) print as values; a fixed array prints its first 16 elements, a struct (a generic instance by its mangled name, `Box_int{...}`) its fields by name, nested up to 4 levels; a plain enum prints as `Color(5)`; any other type (a slice, a closure, a union, a sum type, a bitfield struct) prints as `<T>`. The argument may not be a `void` call. `dbg` is not a reserved word: a variable or function named `dbg` hides the builtin.
+
 ### 5.9 Conditional (ternary)
 
 `cond ? a : b` evaluates `cond`, then evaluates and yields **exactly one** of the two
@@ -898,6 +909,19 @@ A call, a dot-call, a generic call and the function used as a value all count as
 only as `deprecated("...")` at the start of a top-level declaration, so a variable or
 function named `deprecated` is still valid, and it applies only to functions. The release
 policy that uses it is in [stability.md](stability.md).
+
+### 6.1.3 Default Parameter Values
+
+A parameter may give a default value, used when a call leaves that argument out:
+
+```eskiu
+void connect(string host, int port = 443, bool verbose = false) { ... }
+
+connect("example.com");            // port 443, verbose false
+connect("example.com", 8080);      // verbose false
+```
+
+Every parameter after one with a default needs a default too, and a variadic function takes none. A default is a literal (`"none"`, `'x'`, `true`, `null`, `-1.5`) or an integer constant expression over literals, enum members and top-level `const` integers (`BASE + 43`). It is folded where the function is declared, so a local of the caller with the same name does not change it. Defaults may be written on the prototype or on the definition, not on both. They apply to direct calls, to generic functions, `async` functions and inline methods of non-generic structs (`s.add()`), and to a top-level `T_method(self, ...)` called with dot syntax. Calls through a function value (`fn(...)->R`) pass every argument. `extern` and `intrinsic` prototypes, interface methods and lambdas take no defaults.
 
 ### 6.2 Void Functions
 

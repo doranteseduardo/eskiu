@@ -62,6 +62,17 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   affected; it imports `<mem>`, `<io>` and `<math>` and repeats their spellings, so it
   combines with every stdlib module.
 
+- Editor tooling: `--references-at LINE:COL` lists every place in the file that names
+  the symbol under the cursor (`FILE:LINE:COL:WIDTH`), and the VS Code extension and the
+  LSP server use it for Find References and Rename. A struct literal's field names count
+  as uses, and `--definition-at` on a field's declaration answers it.
+- Default parameter values: `void connect(string host, int port = 443)`. A call that
+  omits trailing arguments gets the defaults (direct calls, generic and async functions,
+  dot-calls of methods). A default is a literal or an integer constant expression, folded
+  where the function is declared. Both compilers.
+- `dbg(e)` prints `[dbg L:C] <source of e> = <value>` to stderr and yields the value:
+  numbers, `bool`, `char`, strings, pointers, arrays, plain enums and structs field by
+  field (both compilers, same output).
 - `--safe` also traps on a signed `+`, `-`, `*` overflow (`int`, `int64`) and on
   dereferencing a null pointer (`*p`, `p.f`, `p[i]`), in both compilers; the default
   build is unchanged.

@@ -782,6 +782,14 @@ pre.code-block {
  try_to_double(n);
  printf(&quot;outside: %d\n&quot;, n);     // still 5</pre>
 <p class="output"><em>Output:</em> inside: 10 outside: 5</p>
+<h3>Default values</h3>
+<p>A parameter can have a default value. A call that leaves out the trailing arguments gets the defaults:</p>
+<pre class="code-block"> void connect(string host, int port = 443, bool verbose = false) {
+       printf(&quot;%s:%d %d\n&quot;, host, port, verbose ? 1 : 0);
+ }
+ connect(&quot;example.com&quot;);          // example.com:443 0
+ connect(&quot;example.com&quot;, 8080);    // example.com:8080 0</pre>
+<p>A default must be a constant: a literal, or an integer expression over literals, enum members and <code>const</code> globals. Once a parameter has a default, every parameter after it needs one too.</p>
 <h2 class="section" id="sec-3-4">3.4 Recursion</h2>
 <p>A function can call itself. Useful when a problem is naturally defined in terms of a smaller version of itself:</p>
 <pre class="code-block"> int factorial(int n) {
@@ -1674,6 +1682,10 @@ pre.code-block {
  *Vec3 p = &amp;v;
  printf(&quot;%lld %lld %lld\n&quot;, sizeof(*p), sizeof(a[0]), sizeof(a));   // 12 4 20</pre>
 <p>A <code>sizeof</code> is a compile-time constant, so it can size an array (<code>uint8[sizeof(Vec3)] raw;</code>) or appear in a <code>case</code> label or an enum value.</p>
+<h3>Inspecting a value with dbg</h3>
+<p><code>dbg(e)</code> prints the source text of <code>e</code> and its value to stderr, then yields the value, so it can wrap part of an expression while you debug. Structs print field by field and arrays element by element:</p>
+<pre class="code-block"> int m = dbg(n + 1) * 2;     // [dbg 12:13] n + 1 = 21
+ dbg(v);                     // [dbg 13:5] v = Vec3{x: 1, y: 2, z: 3}</pre>
 <h2 class="section" id="sec-12-4">12.4 Operator precedence</h2>
 <p>From lowest to highest. When in doubt, add parentheses:</p>
 <pre class="code-block"> =    +=    -=         *=   /=   %=       assignment (right to left)
