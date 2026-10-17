@@ -1,0 +1,41 @@
+// An exception nobody catches is reported by type and value on stderr (as the REPL
+// does) and the program aborts: from main, from a thread, and a struct exception.
+// The test runs itself in each mode and prints the child's stderr.
+import <process>;
+import <list>;
+import <mem>;
+import <string>;
+extern int printf(string fmt, ...);
+extern int atoi(string s);
+struct Oops { int code; }
+
+void run(string self, string mode) {
+    let argv: List<string>; List_init<string>(&argv, 2);
+    argv.push(self); argv.push(mode);
+    let opts: ProcessOptions;
+    let r: ProcessResult;
+    process_run(&argv, &opts, &r);
+    printf("mode %s: failed=%d stderr=%s", mode, r.exit_code != 0 ? 1 : 0, r.stderr.data);
+    ProcessResult_free(&r);
+    List_free<string>(&argv);
+}
+
+int main(int argc, string* argv) {
+    if (argc > 1) {
+        int mode = atoi(argv[1]);
+        if (mode == 1) { throw "no handler"; }
+        if (mode == 2) { throw (int64)5000000000; }
+        if (mode == 3) { throw Oops{7}; }
+        if (mode == 4) {
+            *void t = thread_create(void() { throw 42; });
+            thread_join(t);
+        }
+        return 0;
+    }
+    try { throw 1; } catch (int e) { printf("caught %d\n", e); }
+    run(argv[0], "1");
+    run(argv[0], "2");
+    run(argv[0], "3");
+    run(argv[0], "4");
+    return 0;
+}
