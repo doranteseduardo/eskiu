@@ -1,0 +1,31 @@
+// fork.esk: the classic C fork() example, line for line.
+//
+//   eskiuc examples/fork.esk -o fork && ./fork
+//
+// fork() and waitpid() come from <process>, which declares the POSIX calls it uses
+// (they are not available on Windows: see process_spawn.esk for the portable way).
+// stdout is flushed before fork() so the buffered "before" is not copied into the
+// child and printed twice.
+import <io>;
+import <process>;
+
+extern void perror(string s);
+
+int main() {
+#ifdef _WIN32
+    println("fork() is POSIX only; examples/process_spawn.esk works everywhere");
+    return 0;
+#else
+    puts("before fork");
+    fflush(io_stdout());
+    int pid = fork();
+    if (pid < 0) { perror("fork"); return 1; }
+    if (pid == 0) {
+        puts("in the child");
+    } else {
+        puts("in the parent");
+        waitpid(pid, null, 0);
+    }
+    return 0;
+#endif
+}

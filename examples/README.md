@@ -48,6 +48,8 @@ from the repo root works out of the box (or set `ESKIU_ROOT=.`).
 | [dir_list.esk](dir_list.esk) | an `ls`-like command-line tool: declared options and generated `--help`, colored output that turns off when piped or with `NO_COLOR`, log messages on stderr, formatted modification times | `<args>` `<term>` `<log>` `<time>` `<fs>` |
 | [files.esk](files.esk) | walk a directory tree, glob for files, count lines, and build and remove a scratch directory | `<fs>` |
 | [processes.esk](processes.esk) | run commands with and without a shell, capture stdout and stderr, feed stdin, set cwd, env and a timeout | `<process>` |
+| [fork.esk](fork.esk) | the classic C `fork()` / `waitpid()` example, line for line (POSIX only) | `<process>`, `<io>` |
+| [process_spawn.esk](process_spawn.esk) | the same parent/child program without `fork()`, portable: the program starts itself again with `process_spawn` | `<process>`, `<list>` |
 | [tcp_echo_server.esk](tcp_echo_server.esk) | a TCP echo server over the POSIX socket API | `<net>` |
 | [http_server.esk](http_server.esk) | a concurrent HTTP/1.1 server with a worker pool | `<http>` |
 | [http2_tls_server.esk](http2_tls_server.esk) | an HTTP/2-over-TLS server (ALPN negotiates `h2`) via OpenSSL | `<tls>` `<http2>` |

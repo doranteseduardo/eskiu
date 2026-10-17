@@ -235,6 +235,22 @@ if [[ -z "$SANITIZE" ]]; then
     done
 fi
 
+# Examples with a tests/examples/NAME.expected: examples/NAME.esk is built and run,
+# and its output compared. fork() does not exist on Windows (fork.esk says so).
+echo "Examples:"
+for exp in "$here"/examples/*.expected; do
+    [[ -e "$exp" ]] || continue
+    name="$(basename "$exp" .expected)"
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [[ "$name" == fork ]] && continue ;; esac
+    if ! "$ESKIUC" $SAN_FLAG "$here/../examples/$name.esk" -o "$work/ex_$name" > "$work/ex_$name.log" 2>&1; then
+        bad "examples/$name" "build failed: $(head -2 "$work/ex_$name.log" | tr '\n' ' ')"
+    elif "$work/ex_$name" > "$work/ex_$name.out" 2>&1 && diff -q "$work/ex_$name.out" "$exp" > /dev/null; then
+        ok "examples/$name"
+    else
+        bad "examples/$name" "output differs: $(diff "$exp" "$work/ex_$name.out" | head -4 | tr '\n' ' ')"
+    fi
+done
+
 # The example scripts in examples/scripts/, run through their shebang line against a
 # local fake API and a temporary directory tree (tests/scripts/check.sh). Not under a
 # sanitizer: they run through `eskiuc run`, which builds without one.
