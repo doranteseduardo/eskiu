@@ -56,7 +56,7 @@ Single-line comments begin with `//` and extend to the end of the line. A traili
 
 ### 2.2 Identifiers
 
-An identifier begins with a letter (`a`–`z`, `A`–`Z`) or underscore (`_`), followed by zero or more letters, digits (`0`–`9`), or underscores. Identifiers are case-sensitive: `point` and `Point` are distinct.
+An identifier begins with a letter (`a`–`z`, `A`–`Z`) or underscore (`_`), followed by zero or more letters, digits (`0`–`9`), or underscores. Identifiers are case-sensitive: `point` and `Point` are distinct. Identifiers and operators are ASCII: a UTF-8 character outside a string literal, a character literal or a comment is a lexical error that names it (`non-ASCII character 'ñ' outside a string or comment`). Strings and comments may hold any UTF-8 text.
 
 ```eskiu
 my_var    _internal    Count    x1
@@ -962,7 +962,7 @@ intrinsic int  atomic_load(*int cell);
 intrinsic void atomic_store(*int cell, int v);
 ```
 
-A call to an intrinsic lowers to a specific instruction sequence chosen by codegen (the `<atomic>` intrinsics lower to LLVM atomic loads/stores/`cmpxchg` with fixed acquire/release ordering) instead of an ordinary `call`. Intrinsics are how the standard library exposes operations that have no portable C spelling; application code rarely declares its own.
+A call to an intrinsic lowers to a specific instruction sequence chosen by codegen (the `<atomic>` intrinsics lower to LLVM atomic loads, stores, `atomicrmw`, `cmpxchg` and `fence` with fixed orderings) instead of an ordinary `call`. The compiler knows one family: `atomic_<op>` on an `int` cell, `atomic_<op>64` on an `int64` cell and `atomic_<op>_ptr` on a pointer cell, where `<op>` is `load` (acquire), `store` (release), `swap`, `cas` (acq_rel; a failed `cas` acquire), or, for the integer cells, `fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`, `fetch_xor` (acq_rel, returning the previous value), plus `atomic_fence()` (seq_cst). Any other name is an error. Intrinsics are how the standard library exposes operations that have no portable C spelling; application code rarely declares its own.
 
 ### 6.5 Lambdas and Closures
 
@@ -1253,7 +1253,15 @@ try {
 
 #### Unhandled exceptions
 
-If no `catch` clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler, the program terminates.
+If no `catch` clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler (the end of `main`, of a thread's function, or a C frame that cannot unwind), the program prints the exception's type, and its value for an `int`, `int64` or `string`, to stderr and aborts (exit status 134 on Unix):
+
+```
+error: uncaught exception: string "config not found"
+error: uncaught exception: int 42
+error: uncaught exception: ParseError
+```
+
+This is the format the REPL uses. A program that never throws does not install the handler; neither does a `--freestanding` build, which has no C++ runtime.
 
 #### Linking
 
@@ -2411,7 +2419,8 @@ Eskiu ships a set of standard library files in the `stdlib/` directory. Import a
 | `stdlib/map.esk`      | `Map<V>`, a string-keyed hash map (open addressing, linear probing, grows at 0.75 load): `Map_init`, `Map_at` (get-or-insert → `*V` slot, sets `*created`), `Map_get`, `Map_free`. Plus `HashMap<K,V>`, keyed on any value type via `hash`/`eq` function pointers passed to `HashMap_init` (built-in `int_hash`/`int_eq`, and `cstr_hash`/`cstr_eq` for `string` keys by content); same `_at`/`_get`/`_free` shape. Both have `_has`, `_get_or`, `_len`, `_remove`, `_keys`, `_values`, `_each`. `Set<T>` is a hash set over `HashMap`: `Set_init`, `Set_add`, `Set_has`, `Set_remove`, `Set_len`, `Set_each`, `Set_items`, `Set_free` (see [Map, HashMap and Set](#map-hashmap-and-set)) |
 | `stdlib/threading.esk`| Synchronization over pthread: `Mutex` (`_init`/`_lock`/`_unlock`/`_destroy`), `Cond` (`_init`/`_wait`/`_signal`/`_broadcast`/`_destroy`), `Sem` (`_init`/`_wait`/`_post`/`_destroy`). Pairs with the `thread_create`/`thread_join` built-ins |
 | `stdlib/eventloop.esk`| Readiness reactor over kqueue (macOS) / epoll (Linux): `EventLoop`, `el_new`, `EventLoop_add_read`, `EventLoop_add_write`, `EventLoop_del`, `EventLoop_run`, `EventLoop_stop`, `EventLoop_free`, plus a timer wheel (`EventLoop_add_timer`/`EventLoop_del_timer`). Callback is `fn(EventLoop*, int)->void` |
-| `stdlib/atomic.esk`| Atomic intrinsics on an `int` cell: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas`, lowering to LLVM atomics with fixed acquire/release ordering. Declared with the `intrinsic` qualifier |
+| `stdlib/atomic.esk`| Atomic intrinsics: `atomic_load`/`atomic_store`/`atomic_swap`/`atomic_cas` and `atomic_fetch_add`/`_sub`/`_and`/`_or`/`_xor` on an `int` cell, the same with a `64` suffix on an `int64` cell, `atomic_load_ptr`/`_store_ptr`/`_swap_ptr`/`_cas_ptr` on a pointer cell, and `atomic_fence()`; lowered to LLVM atomics with fixed orderings (6.4.1). Declared with the `intrinsic` qualifier |
+| `stdlib/libc.esk`  | The common C library for ported code, opt-in: string.h (`strcpy`, `strncpy`, `strcat`, `strrchr`, `strspn`, `strdup`, `strerror`, ...), stdlib.h (`malloc`, `realloc`, `strtoll`, `strtod`, `atoll`, `qsort`, `bsearch`, `rand`, `system`, `atexit`, ...), stdio.h (`snprintf`, `vsnprintf`, `sscanf`, `fopen`, `fgets`, `perror`, `remove`, `rename`, ...), ctype.h, the rest of libm (`sin` ... `tanh`, `exp`, `log`, `log2`, `log10`, `cbrt`, `hypot`, `round`, `trunc`, `fmin`, `fmax`, `float` versions), `time`, `raise`, the POSIX unistd calls (`getpid`, `read`, `write`, `close`, `getcwd`, `unlink`, `access`, `sleep`, `usleep`, `signal`), and `libc_errno()`/`libc_set_errno()` with `LIBC_E*` codes. Imports `<mem>`, `<io>` and `<math>`. Each function is spelled as the other stdlib modules spell it, so it combines with all of them; the C `long` functions are left out (32 bits on Windows) in favor of the `long long` ones |
 | `stdlib/json.esk`     | JSON builder + parser. Builder: `Json` + `Json_init`/`_free`/`_cstr`, `Json_obj_begin`/`_end`, `Json_arr_begin`/`_end`, `Json_key`, `Json_str`, `Json_int`, `Json_bool`, `Json_null` (auto separators). Parser (strict RFC 8259: exact literals, no trailing data, `\uXXXX` escapes decoded; returns `null` on malformed input): `json_parse(src) -> *JsonValue` + `JsonValue_kind`/`_len`/`_at`/`_get`/`_as_int`/`_as_double`/`_as_bool`/`_as_cstr`/`_free`. Documents: `JsonValue_object`/`_array`/`_string`/`_number`/`_int`/`_bool`/`_null`, `JsonValue_set`/`_push`/`_remove`, `JsonValue_stringify`/`_pretty`, `json_get(v, "a.b[0][\"k.x\"]")` |
 | `stdlib/csv.esk`      | RFC 4180 CSV: `csv_parse`/`csv_parse_with`/`csv_parse_buf` into a `CsvTable` (`CsvTable_len`/`_row`/`_cell`/`_col`/`_get`/`_error`/`_write`/`_free`), `csv_write_row`/`csv_write_row_with` |
 | `stdlib/dotenv.esk`   | `.env` files: `dotenv_load`, `dotenv_load_override`, `dotenv_parse` into a `Map<string>`, `dotenv_free`, `dotenv_error`/`dotenv_error_line` |
@@ -3329,6 +3338,7 @@ Sections are separated by `:`. Trailing sections may be omitted if empty.
 | `eskiuc file.esk --safe -o prog` | Bounds-check every array and slice index at runtime (trap on out-of-range); off by default |
 | `eskiuc file.esk -Wall -o prog` | Enable lint warnings in the program's own files (not in imported modules): unused vars/params/functions, assignment-in-condition, a local that may be used uninitialized |
 | `eskiuc file.esk -Wextra -o prog` | Extra warnings on top of `-Wall`: signed/unsigned comparison mismatches |
+| `eskiuc file.esk -Wno-format -o prog` | Turn off one of the default-on warnings (see Diagnostics): `-Wno-string-compare`, `-Wno-format`, `-Wno-address-of-packed-member`, `-Wno-dangling-pointer`, `-Wno-frame-larger-than`, `-Wno-deprecated` |
 | `eskiuc file.esk -O2 -o prog` | Optimize: run the LLVM middle-end (`-O1`/`-O2`/`-O3`). `-O0` (default) emits naive IR straight to the backend. A level above 3 is rejected |
 | `eskiuc file.esk -o prog -lfoo` | Link, passing library flags through to the linker |
 | `eskiuc file.esk -o prog --link-arg=ARG` | Pass an extra argument to the linker (repeatable) |
@@ -3409,7 +3419,17 @@ error: file.esk:8:22: undefined variable 'foo'
 error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 ```
 
-The format is `error: file:line:col: message`. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. `-Wall` warnings are printed as `file:line:col: warning: message`. Every mode, including the `--test-*` modes, exits with a non-zero status when it reports an error.
+The format is `error: file:line:col: message`. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. `-Wall` warnings are printed as `file:line:col: warning: message`.
+
+A few warnings are on by default, because the code they flag is almost always a mistake. Each ends with its flag and is turned off with the matching `-Wno-` option; none of them rejects a program, and code from an imported module is not checked:
+
+| Warning | Flags |
+|---|---|
+| `-Wstring-compare` | `==` / `!=` with a string literal operand: it compares two addresses, so equal text in two places compares unequal. Use `strcmp(a, b) == 0` or `String_eq_cstr` |
+| `-Wformat` | A literal format string of `printf`, `fprintf`, `dprintf`, `sprintf`, `snprintf`, `String_format`, `String_appendf` or a `log_*` function whose conversions do not match the arguments after C's default promotions (`%d` with an `int64`, `%s` with an `int` or a `String`, `%f` with an integer), a missing or extra argument, an unknown conversion. `%l` is 64 bits except on Windows targets, where `long` is 32 |
+| `-Waddress-of-packed-member` | `&s.f` (or `&s.a[i]`) where the struct's packing aligns `f` below its type's alignment: the pointer may be unaligned, and strict-alignment CPUs (32-bit ARM) fault on a load through it |
+| `-Wdangling-pointer` | Returning a local pointer variable whose every assignment so far stored the address of a local (`*int p = &x; return p;`), or a struct literal holding a local's address (`return H{&y};`). With `-Wall`, also storing a local's address in a global outside `main` |
+| `-Wframe-larger-than` | A local larger than 1 MiB: a thread's stack is 512 KiB (secondary threads on macOS) to 8 MiB, so allocate it with `alloc<T>` or make it `static` | Every mode, including the `--test-*` modes, exits with a non-zero status when it reports an error.
 
 Reading a scalar local (a number, `bool`, `char`, pointer, `string` or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable"), although such a local holds zero (11.1): a read nothing assigns is usually a mistake. It applies when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but `-Wall` reports it as `variable 'x' may be used uninitialized`. The check follows every path through `if`/`else`, loops (a loop body may run zero times; the loop exits when its condition fails or at a `break`), `switch` fall-through, `match` arms, `try`/`catch`/`finally` (a handler or the `finally` may run before the body assigned anything), `defer` bodies (at each exit that runs them), early `return`/`break`/`continue`, and a lambda, which reads the variables it captures when it is created. Taking the address (`&x`) counts as an assignment, and `sizeof(x)` is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. `static` locals start at zero and are never reported, and the body of an `async` function is not checked.
 

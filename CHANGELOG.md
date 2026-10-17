@@ -10,6 +10,61 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ## [Unreleased]
 
+### Highlights
+- Run-time integer and conversion rules are defined: overflow wraps, a shift count is
+  taken modulo the width, a zero divisor traps, `MIN / -1` wraps, and float to integer
+  saturates (NaN is 0). The same program gives the same result at `-O0` and `-O2`.
+- Locals, `alloc_with` blocks and sum-type values start at zero.
+- Warnings on by default for common C mistakes: `==` against a string literal, printf
+  format strings that do not match their arguments, the address of a packed member, a
+  local's address returned through a pointer or struct, and locals over 1 MiB.
+- An uncaught exception prints its type and value (`error: uncaught exception: string
+  "boom"`) instead of the C++ runtime's message.
+- Binary literals (`0b1011`) and digit separators (`1_000_000`).
+- `<atomic>` gains fetch operations, 64-bit and pointer cells, and a fence; the new
+  `<libc>` module declares the common C library functions.
+- The self-hosted compiler checks large programs in linear time (13k lines: 24 s to
+  under 1 s).
+
+### Added
+- Binary integer literals `0b`/`0B` and `_` digit separators between two digits, in
+  every numeric literal and in `#if` (both compilers, editor grammars).
+- Default-on warnings, each silenced by its `-Wno-` flag (both compilers print the same
+  text): `-Wstring-compare` (`s == "abc"` compares addresses), `-Wformat` (a literal
+  format of `printf`, `fprintf`, `snprintf`, `String_format`, `String_appendf`,
+  `log_*` checked against the arguments: each conversion's type after C's promotions,
+  `*` widths, the count; `%ld` is 32 bits on Windows), `-Waddress-of-packed-member`,
+  `-Wdangling-pointer` (returning a pointer variable that holds a local's address, or a
+  struct literal that does; with `-Wall` also storing a local's address in a global
+  outside `main`), `-Wframe-larger-than` (a local over 1 MiB). New code is never
+  rejected by them: a program that compiled before still compiles.
+- An exception that no handler catches (in `main`, a thread, or across a C frame such as
+  a `qsort` callback) prints `error: uncaught exception: <type> <value>` to stderr and
+  aborts (exit 134), as the REPL reports it. A `std::terminate` handler installed by a
+  constructor rethrows the exception into a catch-all; only programs that throw get it.
+- `<atomic>`: `atomic_fetch_add`/`_sub`/`_and`/`_or`/`_xor` on `int`, the whole family on
+  `int64` (`atomic_load64`, `atomic_cas64`, `atomic_fetch_add64`, ...), `atomic_load_ptr`
+  / `_store_ptr` / `_swap_ptr` / `_cas_ptr` on pointer cells, and `atomic_fence()`.
+- `<libc>`: the common C library (string.h, stdlib.h, stdio.h, ctype.h, the rest of libm,
+  `time`, `raise`, the POSIX unistd calls) plus `libc_errno()`/`libc_set_errno()` and
+  `LIBC_E*` codes. Opt-in, so a program that defines its own `log` or `remove` is not
+  affected; it imports `<mem>`, `<io>` and `<math>` and repeats their spellings, so it
+  combines with every stdlib module.
+
+### Changed
+- Integer division and remainder by a run-time zero trap (they were undefined: x86
+  trapped, AArch64 returned a value, and the optimizer could drop a later check), and
+  the most negative value divided by `-1` gives itself with remainder 0. A divisor known
+  to be a nonzero constant other than `-1` keeps its fast form.
+- A run-time shift count is taken modulo the width of the shifted value (`& 31`, `& 63`),
+  what the hardware does, instead of LLVM poison.
+- Float to integer conversion saturates to the target's range and NaN converts to 0
+  (it was LLVM poison: `(uint8)-41.0` gave 0 at `-O0` and 215 at `-O2`).
+- A non-ASCII character outside a string or comment is one error naming the character
+  (`non-ASCII character 'ñ' ... identifiers and operators are ASCII`) instead of one
+  `unexpected byte` per byte.
+- The non-exhaustive `match` error lists every missing arm, quoted, in both compilers.
+
 ### Fixed
 - A local declared without an initializer starts at zero in both compilers, as a global, a
   `static` local and `alloc<T>` already did: every field of a struct, every element of an
@@ -28,6 +83,13 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 - A sum-type value zeroes its payload area before storing the variant's fields, so the
   bytes past a short variant (`Small(4)` in an enum with a three-field variant) are zero
   instead of left over stack contents, and two equal values have equal bytes.
+- The self-hosted compiler looks names up through hash indexes: it was quadratic in the
+  number of declarations (4000 structs and functions took 15 s to compile, now 0.3 s).
+- The self-hosted compiler accepts a top-level function named after a generic
+  instance (`int Ctr_int_next(*Ctr<int> self)`) as that instance's interface method, as
+  the C++ compiler does.
+- The C++ type checker keeps a generic struct instance's packing and bitfield widths,
+  so `&b.f` of a bitfield of `B<uint32>` is rejected (as in the self-host).
 
 ## [0.11.0] - 2026-10-14
 
