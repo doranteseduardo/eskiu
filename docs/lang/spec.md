@@ -939,6 +939,20 @@ The one function that may not be `void` is `main`: its return value is the proce
 code, so it must return `int` (`int main()` or `int main(int argc, string* argv)`). A
 `void main()` is a compile error.
 
+**Scripts.** A file may instead have statements at the top level, mixed with declarations. It is then a script: the compiler gives it `int main(int __argc, string* __argv)`, whose body is those statements in source order. The arguments are in the globals `int argc` and `string* argv`. A top-level variable of a script is a global that the functions see; one with an initializer starts at zero and is assigned at its place in that order, so its initializer may be any expression (a call, `argv[1]`), not only a constant. A `const` variable and an array-literal initializer keep the global rules (a constant). A `return n;` ends the script with exit code `n`; reaching the end returns 0.
+
+```eskiu
+extern int printf(string fmt, ...);
+int total = 0;
+void add(int n) { total += n; }
+add(3);
+add(4);
+string who = argc > 1 ? argv[1] : "world";
+printf("%d %s\n", total, who);      // 7 world
+```
+
+A top-level line is a statement when no declaration can start with its tokens: a statement keyword (`if`, `for`, `while`, `return`, ...), `{`, a literal or prefix operator, a call `f(...)`, or an assignment, member or postfix use of a name (`x = 1`, `p.x = 2`, `arr[0] = 3`, `*p = 4`); `Point[2] ps;` and `*Node p;` still declare. A file with top-level statements may not also define `main`, and an imported file may not have them.
+
 ### 6.3 Variadic Functions
 
 The ellipsis `...` marks a variadic parameter list; at least one fixed parameter

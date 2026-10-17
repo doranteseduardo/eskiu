@@ -3233,6 +3233,23 @@ pre.code-block {
        return 0;
  }</pre>
 <p><code>eskiuc run</code> compiles the file to a temporary executable, runs it, deletes the executable and exits with the program's exit code. Everything after the file name goes to the program, including arguments that start with a dash; options for the compiler, such as <code>-O2</code>, go before the file name:</p>
+<p>A script does not need <code>main</code>. Statements may sit at the top level, between the declarations, and they run in order; the arguments are in <code>argc</code> and <code>argv</code>, and a top-level variable is a global the functions can see:</p>
+<pre class="code-block"> #!/usr/bin/env -S eskiuc run
+ import &lt;io&gt;;
+
+ int greeted = 0;
+ void greet(string name) {
+       printf(&quot;hello, %s\n&quot;, name);
+       greeted += 1;
+ }
+ for (i in 1..argc) {
+       greet(argv[i]);
+ }
+ if (greeted == 0) {
+       println_err(&quot;usage: greet NAME...&quot;);
+       return 2;
+ }</pre>
+<p>Run either version the same way:</p>
 <pre class="code-block"> eskiuc run greet.esk Ada &quot;Grace Hopper&quot;
  eskiuc run -O2 greet.esk -v
  echo $?            # the exit code of greet</pre>

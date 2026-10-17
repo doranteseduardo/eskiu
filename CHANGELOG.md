@@ -62,6 +62,10 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   affected; it imports `<mem>`, `<io>` and `<math>` and repeats their spellings, so it
   combines with every stdlib module.
 
+- Scripts without `main`: a file may have statements at the top level, which run in
+  order as an implicit `main`, with the arguments in the globals `argc` and `argv`. Its
+  top-level variables are globals the functions see, and their initializers run in that
+  order, so they may be any expression. Both compilers.
 - `eskiuc fmt` lays code out: one statement per line (`if (a) { return 1; }` takes three
   lines), one blank between tokens and around assignment, comparison and logical
   operators, continuation lines indented relative to their statement, a blank line after
