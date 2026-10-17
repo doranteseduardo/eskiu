@@ -1463,7 +1463,8 @@ int sema_check(Sema* s, *Program prog) {
             sema_expr(s, d.init);
             s.lam_ret = "";
         }
-        if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && sema_is_const_init(s, d.init) == 0) {
+        if (d.kind == DK_VARDECL && d.is_extern == 0 && d.init != null && d.script_init == 0
+            && sema_is_const_init(s, d.init) == 0) {
             sema_error(s, sema_cat(sema_cat("initializer of global '", d.name), "' is not a compile-time constant"));
         }
         // A global's initializer converts to its type like a local's (mirrors the C++ VarDecl

@@ -1444,7 +1444,8 @@ void sema_expr_k(Sema* s, *ExprNode e) {
                 dprintf(2, "error: %s:%d:%d: compound assignment: integer literal %s is out of range for '%s'\n", s.filename, s.line, s.col, e.b.b.sval, ct);
             }
         }
-        if (sema_streq(e.sval, "=") == 1 && e.a != null) {
+        // A script global's initializer in the implicit main was checked at its declaration.
+        if (sema_streq(e.sval, "=") == 1 && e.a != null && e.script_init == 0) {
             string alt = sema_infer_type(s, e.a);
             if (e.a.kind == EK_IDENT) {   // declared type, even if narrowed
                 alt = sema_lookup_type(s, e.a.sval);
@@ -1505,13 +1506,15 @@ void sema_expr_k(Sema* s, *ExprNode e) {
         }
         sema_expr(s, e.a);
         s.callee_ctx = saved_callee;
-        if (sema_streq(e.sval, "=") == 1) {
+        if (sema_streq(e.sval, "=") == 1 && e.script_init == 0) {
             sema_hint_iface(s, e.b, sema_infer_type(s, e.a));
         }
         if (lam_rebind == 1) {
             s.lam_local = e.a.sval;
         }
-        sema_expr(s, e.b);
+        if (e.script_init == 0) {
+            sema_expr(s, e.b);
+        }
         if (lam_rebind == 1) {
             s.lam_local = "";
             List_push<*ExprNode>(&s.wlam, e.b);

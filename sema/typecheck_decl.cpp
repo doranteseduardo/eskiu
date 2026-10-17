@@ -1133,7 +1133,7 @@ void TypeChecker::visit(VarDecl* node) {
         }
         // A global's initializer is evaluated at compile time (there is no code before
         // `main` to run it), so it must be a constant expression, as in C.
-        if (scopes.size() <= 1 && !node->isStatic && !isConstInit(node->initializer))
+        if (scopes.size() <= 1 && !node->isStatic && !node->scriptInit && !isConstInit(node->initializer))
             errorAt(node, "initializer of global '" + node->name + "' is not a compile-time constant");
         // Array literal `= {..}`: the target must be a fixed-size array; check the
         // element count (fewer than the size zero-fill, C-style) and element types.

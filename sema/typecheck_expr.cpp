@@ -192,7 +192,7 @@ void TypeChecker::visit(BinaryExpr* node) {
             auto inserted = applyNarrowings(keys);
             b->right->accept(this);
             undoNarrowings(inserted);
-        } else {
+        } else if (!b->scriptInit) {      // a script global's initializer was checked at its declaration
             if (b->op == "=") {
                 hintIfaceTarget(b->right.get(), getExpressionType(b->left.get()));
                 inferVariantTarget(b->right, getExpressionType(b->left.get()));
@@ -205,7 +205,7 @@ void TypeChecker::visit(BinaryExpr* node) {
 
 void TypeChecker::finishBinary(BinaryExpr* node) {
     if (node->op == "=") {
-        checkAssignment(node);
+        if (!node->scriptInit) checkAssignment(node);   // a script global: checked at its declaration
         // A lambda assigned to a lambda local is bound to it like an initializer.
         if (auto* lam = dynamic_cast<LambdaExpr*>(node->right.get()))
             if (auto* id = dynamic_cast<IdentExpr*>(node->left.get());
