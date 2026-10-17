@@ -818,10 +818,15 @@ limited to 4 jobs by default (`--jobs`).
   share. Undefined behavior is avoided the same way on both sides (divisors and shift
   counts are guarded, indices masked, side effects kept where C fixes the order); `defer`
   has no C counterpart, so the C side runs the deferred statements at every exit.
+- The second generator (`--oracle-ext N`, module `c_oracle_ext.py`) covers what the first
+  does not: `float` and `double` arithmetic and conversions, structs passed and returned
+  by value (small ones in registers, large ones through sret), arrays of structs, unions
+  read through another member, and user variadic functions with mixed arguments. It is
+  checked the same way (`c_oracle.check_program`).
 
 ```bash
 python3 tests/fuzz/eskiu_fuzz.py --iterations 300 --seed 1           # mutation loop
-python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 200 --seed 1 # the CI oracle gate
+python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 200 --oracle-ext 100 --seed 1   # the CI oracle gate
 python3 tests/fuzz/eskiu_fuzz.py --oracle-only --oracle 20000 --seed 5   # a long run
 python3 tests/fuzz/eskiu_fuzz.py --oracle-repro 5:1234    # print one program (Eskiu + C)
 python3 tests/fuzz/eskiu_fuzz.py --oracle-reduce 5:1234   # shrink a finding

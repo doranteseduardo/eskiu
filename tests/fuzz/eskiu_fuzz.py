@@ -479,6 +479,27 @@ def oracle_compilers(args, clang):
         comps.append(("self", [args.eskiuc_esk], env))
     return comps
 
+def oracle_ext_run(args, clang):
+    import c_oracle, c_oracle_ext
+    comps = oracle_compilers(args, clang)
+    def one(idx):
+        esk, c = c_oracle_ext.gen_program(random.Random(f"ext:{args.seed}:{idx}"))
+        kind, detail = c_oracle.check_program(esk, c, comps, clang)
+        return idx, kind, detail, esk, c
+    counts = {}
+    findings = 0
+    with ThreadPoolExecutor(max_workers=args.jobs) as ex:
+        for idx, kind, detail, esk, c in ex.map(one, range(args.oracle_ext)):
+            counts[kind] = counts.get(kind, 0) + 1
+            if kind != "OK":
+                findings += 1
+                base = FINDINGS / f"oracle_ext_{kind.lower()}_{args.seed}_{idx}"
+                with open(str(base) + ".esk", "w") as f: f.write(esk)
+                with open(str(base) + ".c", "w") as f: f.write(c)
+                print(f"[ORACLE-EXT {kind}] {args.seed}:{idx} -> {base}.esk\n    {detail.strip()[:300]}")
+    print(f"C oracle (ext): {args.oracle_ext} programs, " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    return findings
+
 def oracle_run(args, clang):
     import c_oracle
     comps = oracle_compilers(args, clang)
@@ -547,6 +568,9 @@ def main():
                     help="self-hosted compiler also checked by the C oracle (skipped if missing)")
     ap.add_argument("--oracle", type=int, default=0,
                     help="number of C-oracle programs to generate and check")
+    ap.add_argument("--oracle-ext", type=int, default=0,
+                    help="number of programs from the second C-oracle generator (c_oracle_ext.py: "
+                         "floats, structs by value, unions, variadics)")
     ap.add_argument("--oracle-only", action="store_true",
                     help="run only the C oracle (skip the mutation/generation loop)")
     ap.add_argument("--oracle-repro", metavar="SEED:INDEX",
@@ -581,10 +605,13 @@ def main():
     FINDINGS.mkdir(exist_ok=True)
     findings = 0
 
-    if args.oracle:
+    if args.oracle or args.oracle_ext:
         if not clang:
             print("error: the C oracle needs clang (set ESKIU_CLANG)", file=sys.stderr); sys.exit(2)
+    if args.oracle:
         findings += oracle_run(args, clang)
+    if args.oracle_ext:
+        findings += oracle_ext_run(args, clang)
     if args.oracle_only:
         args.iterations = 0
 
