@@ -1431,7 +1431,7 @@ string cg_coerce(Codegen* g, CgVal val, string target) {
         if (cg_is_unsigned(val.ety) == 1) { cg_emit(g, "uitofp "); } else { cg_emit(g, "sitofp "); }
         cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target);
     }
-    else if (tw > 0 && sf == 1) { cg_emit(g, "fptosi "); cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target); }
+    else if (tw > 0 && sf == 1) { cg_emit_fp_sat(g, 0, val.ty, val.op, target); }
     else if (tf == 1 && sf == 1) {                        // float<->double
         if (cg_streq(target, "double") == 1) { cg_emit(g, "fpext "); } else { cg_emit(g, "fptrunc "); }
         cg_emit(g, val.ty); cg_emit(g, " "); cg_emit(g, val.op); cg_emit(g, " to "); cg_emit(g, target);
@@ -3225,6 +3225,96 @@ string cg_fcmp_pred(string s) {
     return "";
 }
 
+// An integer literal operand ("12", "-1") as a value; `ok` is 0 for anything else.
+int64 cg_const_int(string op, *int ok) {
+    *ok = 0;
+    if (op == null || op[0] == 0) { return (int64)0; }
+    int i = 0; int neg = 0;
+    if (op[0] == 45) { neg = 1; i = 1; }
+    if (op[i] == 0) { return (int64)0; }
+    let v: int64 = 0;
+    while (op[i] != 0) {
+        if (op[i] < 48 || op[i] > 57) { return (int64)0; }
+        v = v * (int64)10 + (int64)(op[i] - 48);
+        i = i + 1;
+    }
+    *ok = 1;
+    if (neg == 1) { return -v; }
+    return v;
+}
+
+// A shift count is taken modulo the operand width, as the C++ maskShiftCount: a count
+// of the width or more (or a negative one) is never LLVM poison.
+string cg_mask_shift(Codegen* g, string ity, string cnt) {
+    int w = cg_int_w(ity);
+    if (w <= 1) { return cnt; }
+    int ok = 0;
+    int64 c = cg_const_int(cnt, &ok);
+    if (ok == 1 && c >= (int64)0 && c < (int64)w) { return cnt; }
+    string t = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = and "); cg_emit(g, ity); cg_emit(g, " ");
+    cg_emit(g, cnt); cg_emit(g, ", "); cg_emit(g, cg_itoa(w - 1)); cg_emit(g, "\n");
+    return t;
+}
+
+// Integer `/` and `%` with defined results, as the C++ emitIntDivRem: a zero divisor
+// traps, a signed division of the minimum by -1 wraps (quotient the minimum, remainder
+// 0). A constant divisor other than 0 and -1 needs no check.
+string cg_int_divrem(Codegen* g, string op, string ity, string a, string b) {
+    int uns = 0;
+    if (cg_streq(op, "udiv") == 1 || cg_streq(op, "urem") == 1) { uns = 1; }
+    int ok = 0;
+    int64 c = cg_const_int(b, &ok);
+    int maybe_zero = 1; int maybe_neg1 = 1;
+    if (ok == 1) { if (c != (int64)0) { maybe_zero = 0; } if (c != (int64)-1) { maybe_neg1 = 0; } }
+    if (uns == 1) { maybe_neg1 = 0; }
+    if (maybe_zero == 1) {
+        g.uses_trap = 1;
+        string z = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, z); cg_emit(g, " = icmp eq "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, b); cg_emit(g, ", 0\n");
+        string fail = cg_lbl(g); string fine = cg_lbl(g);
+        cg_emit(g, "  br i1 "); cg_emit(g, z); cg_emit(g, ", label %"); cg_emit(g, fail);
+        cg_emit(g, ", label %"); cg_emit(g, fine); cg_emit(g, "\n");
+        g.terminated = 1;
+        cg_label(g, fail);
+        cg_emit(g, "  call void @llvm.trap()\n");
+        cg_emit(g, "  unreachable\n");
+        g.terminated = 1;
+        cg_label(g, fine);
+    }
+    string d = b; string isn1 = "";
+    if (maybe_neg1 == 1) {
+        isn1 = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, isn1); cg_emit(g, " = icmp eq "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, b); cg_emit(g, ", -1\n");
+        d = cg_tmp(g);
+        cg_emit(g, "  "); cg_emit(g, d); cg_emit(g, " = select i1 "); cg_emit(g, isn1); cg_emit(g, ", ");
+        cg_emit(g, ity); cg_emit(g, " 1, "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, b); cg_emit(g, "\n");
+    }
+    string q = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, q); cg_emit(g, " = "); cg_emit(g, op); cg_emit(g, " "); cg_emit(g, ity);
+    cg_emit(g, " "); cg_emit(g, a); cg_emit(g, ", "); cg_emit(g, d); cg_emit(g, "\n");
+    if (maybe_neg1 == 0 || cg_streq(op, "srem") == 1) { return q; }
+    string ng = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, ng); cg_emit(g, " = sub "); cg_emit(g, ity); cg_emit(g, " 0, "); cg_emit(g, a); cg_emit(g, "\n");
+    string r = cg_tmp(g);
+    cg_emit(g, "  "); cg_emit(g, r); cg_emit(g, " = select i1 "); cg_emit(g, isn1); cg_emit(g, ", ");
+    cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, ng); cg_emit(g, ", "); cg_emit(g, ity); cg_emit(g, " "); cg_emit(g, q); cg_emit(g, "\n");
+    return r;
+}
+
+// float -> integer saturates (NaN is 0), as the C++ emitFloatToInt: the text of a
+// call to `llvm.fpto[su]i.sat`, after the caller's `%t = `.
+void cg_emit_fp_sat(Codegen* g, int uns, string fty, string fop, string ity) {
+    string nm = "llvm.fptosi.sat.";
+    if (uns == 1) { nm = "llvm.fptoui.sat."; }
+    string sfx = "f64";
+    if (cg_streq(fty, "float") == 1) { sfx = "f32"; }
+    string full = cg_cat(nm, cg_cat(ity, cg_cat(".", sfx)));
+    cg_ensure_extern(g, full, cg_cat("declare ", cg_cat(ity, cg_cat(" @", cg_cat(full, cg_cat("(", cg_cat(fty, ")\n")))))));
+    cg_emit(g, "call "); cg_emit(g, ity); cg_emit(g, " @"); cg_emit(g, full); cg_emit(g, "(");
+    cg_emit(g, fty); cg_emit(g, " "); cg_emit(g, fop); cg_emit(g, ")");
+}
+
 // Integer arithmetic/bitwise op → LLVM mnemonic ("" if not such an op).
 string cg_arith_op(string s) {
     if (cg_streq(s, "+") == 1) { return "add"; }
@@ -4555,6 +4645,14 @@ CgVal cg_binary_builtin(Codegen* g, *ExprNode e, CgVal left) {
     if (cg_streq(e.sval, ">>") == 1) { op_uns = cg_is_unsigned(l.ety); }
     string op = cg_arith_op_s(e.sval, op_uns);
     if (op[0] != 0) {
+        if (cg_streq(op, "shl") == 1 || cg_streq(op, "ashr") == 1 || cg_streq(op, "lshr") == 1) {
+            irop = cg_mask_shift(g, icty, irop);
+        }
+        if (cg_streq(op, "sdiv") == 1 || cg_streq(op, "srem") == 1
+            || cg_streq(op, "udiv") == 1 || cg_streq(op, "urem") == 1) {
+            v.op = cg_int_divrem(g, op, icty, ilop, irop);
+            v.ty = icty; v.ety = cg_binary_ety(g, e.sval, l.ety, r.ety); if (v.ety[0] == 0) { v.ety = l.ety; } return v;
+        }
         string t = cg_tmp(g);
         cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = "); cg_emit(g, op);
         cg_emit(g, " "); cg_emit(g, icty); cg_emit(g, " "); cg_emit(g, ilop);
@@ -5111,12 +5209,12 @@ CgVal cg_expr_i(Codegen* g, *ExprNode e) {
             v.op = cg_cabi_callback(g, e.a.sval); v.ty = "ptr"; v.ety = dstety; return v;
         }
         CgVal src = cg_expr(g, e.a);
-        // float → unsigned int needs fptoui; cg_coerce emits signed fptosi, which saturates
-        // a value above the signed max (e.g. (uint32)3e9 → 2147483647 instead of 3e9).
+        // float → unsigned int saturates to the unsigned range (cg_coerce saturates to the
+        // signed one: (uint32)3e9 would be 2147483647 instead of 3e9).
         if (cg_is_float(src.ty) == 1 && cg_int_w(dll) > 1 && cg_is_unsigned(dstety) == 1) {
             string t = cg_tmp(g);
-            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = fptoui "); cg_emit(g, src.ty);
-            cg_emit(g, " "); cg_emit(g, src.op); cg_emit(g, " to "); cg_emit(g, dll); cg_emit(g, "\n");
+            cg_emit(g, "  "); cg_emit(g, t); cg_emit(g, " = ");
+            cg_emit_fp_sat(g, 1, src.ty, src.op, dll); cg_emit(g, "\n");
             v.op = t; v.ty = dll; v.ety = dstety; return v;
         }
         v.op = cg_coerce(g, src, dll);    // int/float/ptr conversions (sitofp/fptosi/…)
