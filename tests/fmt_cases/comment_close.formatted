@@ -2,4 +2,7 @@
    spans lines */ int g() {
     return 1;
 }
-int main() { return g(); }
+
+int main() {
+    return g();
+}

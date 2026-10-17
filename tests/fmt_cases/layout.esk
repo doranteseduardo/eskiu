@@ -1,0 +1,22 @@
+// One statement per line, spacing between tokens, continuation lines.
+extern int printf(string fmt, ...);
+enum Color { Red, Green = 5 }
+enum Shape { Circle(int), Square(int) }
+struct V { int x; int y; int sum() { return self.x+self.y; } }
+bool operator ==(V a, V b) { return a.x==b.x && a.y==b.y; }
+int pick(int a,int b) { if (a>b) { return a; } else { return b; } }
+int area(Shape s) {
+    match (s) { Circle(r) -> { return 3*r*r; } Square(w) -> { return w*w; } }
+}
+int main() {
+    int[3] a = {1,2,3}; V v = V{x: 1, y: 2};   // a and v
+    int t = 0; for (int i = 0; i<3; i++) { t+=a[i]; }
+    fn(int)->int dbl = int(int x) { return x*2; };
+    if (t == 6
+            || v.sum() == 3) { printf("%d %d\n", dbl(t), pick(v.x, v.y)); }
+    do { t-=1; } while (t > 0);
+    printf("%d %d %d\n",
+           area(Circle(2)),
+           area(Square(3)), (int)Green);
+    return v == V{1, 2} ? 0 : 1;
+}

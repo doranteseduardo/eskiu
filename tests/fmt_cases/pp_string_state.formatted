@@ -16,6 +16,7 @@ int main() {
     string t = "  {x
   y";
     printf("%s| %d %d\n", t, K, z);
-    char c = '"'; printf("%c\n", c);
+    char c = '"';
+    printf("%c\n", c);
     return 0;
 }
