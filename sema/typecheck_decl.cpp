@@ -415,6 +415,10 @@ void TypeChecker::visit(FunctionDecl* node) {
         int pl = node->line, pc = node->col;
         if (pi < node->paramPositions.size()) { pl = node->paramPositions[pi].first; pc = node->paramPositions[pi].second; }
         defineSymbol(param.second, pt, pl, pc, /*isParam=*/true);
+        // A parameter's own position: its name hovers and resolves like a local's.
+        if (pi < node->paramPositions.size() && pl > 0 && inPrimaryFile())
+            hoverSyms.push_back({pl, pc, (int)param.second.size(),
+                                 pt.rfind("struct:", 0) == 0 ? pt.substr(7) : pt});
         if (!node->body) scopes.back()[param.second].used = true;   // a prototype's names are documentation
         // `const int x` (or `T*const p`): the parameter itself may not be reassigned.
         if (tyq::bindingConst(param.first)) scopes.back()[param.second].isConst = true;

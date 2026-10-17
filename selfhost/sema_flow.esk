@@ -1880,6 +1880,9 @@ void sema_check_fn(Sema* s, *DeclNode f, string self_type) {
         }
         else {
             sema_define_at(s, pm.name, sema_isub(s, pm.ty), pconst, pm.line, pm.col, 1);
+            if (s.tool != 0 && pm.line > 0) {   // its name hovers and resolves like a local's
+                sema_tool_hsym(s, pm.line, pm.col, sema_slen(pm.name), sema_display_ty(s, sema_isub(s, pm.ty)));
+            }
         }
         if (s.in_inst == 1) {              // `id<void>`: a type argument may make a parameter void
             string iperr = sema_void_type_err(s, sema_isub(s, pm.ty));

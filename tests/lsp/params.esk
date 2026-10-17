@@ -1,0 +1,17 @@
+// A parameter's name at its declaration hovers, resolves and lists its references,
+// like a local's.
+// HOVER 11:13 int
+// HOVER 11:23 *Point
+// DEF 11:13 11:13
+// DEF 12:12 11:13
+// REFS 11:13 11:13 12:12 12:22
+// REFS 12:22 11:13 12:12 12:22
+// REFS 11:23 11:23 12:16
+struct Point { int x; }
+int run(int k, *Point p) {
+    return k + p.x + k;
+}
+int main() {
+    Point q = Point{x: 1};
+    return run(0, &q) - 1;
+}
