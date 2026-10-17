@@ -545,6 +545,7 @@ void parse_into(Parser* p, *Program prog);
 
 // Lexeme of a token as an owned NUL-terminated string (heap copy of source bytes).
 string tok_text(*uint8 src, Token t) {
+    if (t.type == INT_LIT || t.type == FLOAT_LIT) { return lx_num_text(src, t.start, t.len); }
     *uint8 buf = alloc<uint8>(t.len + 1);
     int i = 0;
     while (i < t.len) { buf[i] = src[t.start + i]; i = i + 1; }
