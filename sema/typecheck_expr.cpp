@@ -1366,6 +1366,7 @@ bool TypeChecker::checkGenericMethodCall(CallExpr* node, MemberExpr* member, con
     auto ft = funcTemplateDecls.find(fnName);
     if (ft == funcTemplateDecls.end() || ft->second->params.empty()) return false;
     FunctionDecl* fd = ft->second;
+    appendDefaultArgs(node->args, node->args.size() + 1, fnName, node);
     calledFns.insert(fnName);
     noteDeprecatedUse(fnName, member->memberLine > 0 ? member->memberLine : node->line,
                       member->memberLine > 0 ? member->memberCol : node->col);

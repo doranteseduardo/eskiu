@@ -19,6 +19,8 @@ int later(int x = 5);
 T pick<T>(T a, int n = 2) { return a + n; }
 Future<T>* rdy<T>(T v) { Future<T>* f = future_new<T>(); Future_complete<T>(f, v); return f; }
 async int work(int x, int mul = 3) { int q = await rdy<int>(x); return q * mul; }
+struct Cell<T> { T v; }
+T Cell_get<T>(Cell<T>* self, T extra = 1) { return self.v + extra; }
 string label(string s = "none", char c = 'x') { printf("%s %c\n", s, c); return s; }
 int main() {
     int BASE = 1;
@@ -34,6 +36,9 @@ int main() {
     printf("%d %d %d\n", pick(5), pick<int>(6, 1), pick<int>(7));
     Future<int>* f = work(4);
     printf("%d\n", f.value);
+    Cell<int> c = Cell<int>{v: 3};
+    *Cell<int> pc = &c;
+    printf("%d %d %d\n", c.get(), c.get(10), pc.get());
     label();
     label("yes");
     return BASE - 1;

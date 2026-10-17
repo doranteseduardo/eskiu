@@ -1271,24 +1271,38 @@ void sema_fill_defaults(Sema* s, *ExprNode e) {
         }
         bt = sema_strip_const(sema_strip_nullable(bt));
         sd = sema_find_struct(s, bt);
-        if (sd == null || sema_field_index(sd, e.a.sval) >= 0) {
-            return;
-        }
-        mname = e.a.sval;
-        key = sema_cat(sema_cat(bt, "_"), mname);
-        int has = 0;
-        int j = 0;
-        while (j < List_len<*DeclNode>(&sd.methods)) {
-            if (sema_streq(List_get<*DeclNode>(&sd.methods, j).name, mname) == 1) {
-                has = 1;
-            }
-            j = j + 1;
-        }
-        if (has == 0) {
-            if (sema_find_fndecl(s, key) == null) {
+        if (sd == null) {
+            // a generic `S_m<T>(S<T>* self, ...)` on an instance of S (C++ checkGenericMethodCall)
+            *DeclNode gsd = sema_find_struct(s, sema_base_name(bt));
+            if (gsd == null || List_len<TypeParam>(&gsd.type_params) == 0 || sema_field_index(gsd, e.a.sval) >= 0) {
                 return;
             }
-            sd = null;                         // a top-level `T_m(self, ...)` called with dot syntax
+            key = sema_cat(sema_cat(sema_base_name(bt), "_"), e.a.sval);
+            *DeclNode gfn = sema_find_fndecl(s, key);
+            if (gfn == null || List_len<TypeParam>(&gfn.type_params) == 0 || List_len<Param>(&gfn.params) == 0) {
+                return;
+            }
+            mname = e.a.sval;
+        } else {
+            if (sema_field_index(sd, e.a.sval) >= 0) {
+                return;
+            }
+            mname = e.a.sval;
+            key = sema_cat(sema_cat(bt, "_"), mname);
+            int has = 0;
+            int j = 0;
+            while (j < List_len<*DeclNode>(&sd.methods)) {
+                if (sema_streq(List_get<*DeclNode>(&sd.methods, j).name, mname) == 1) {
+                    has = 1;
+                }
+                j = j + 1;
+            }
+            if (has == 0) {
+                if (sema_find_fndecl(s, key) == null) {
+                    return;
+                }
+                sd = null;                         // a top-level `T_m(self, ...)` called with dot syntax
+            }
         }
         given = given + 1;
     } else {
