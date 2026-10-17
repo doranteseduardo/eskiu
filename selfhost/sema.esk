@@ -340,11 +340,11 @@ int64 sema_parse_int(string t);
 // unknown, e.g. a `const` name).
 int64 sema_dim_value(Sema* s, string dim) {
     if (sema_all_digits(dim) == 1) { return sema_parse_int(dim); }
-    int i = 0; int n = List_len<EVar>(&s.evars);
-    while (i < n) {
+    int i = NameIdx_first(&s.evars_ix, dim);
+    while (i >= 0) {
         EVar ev = List_get<EVar>(&s.evars, i);
-        if (ev.plain == 1 && sema_streq(ev.variant, dim) == 1) { return sema_parse_int(ev.val); }
-        i = i + 1;
+        if (ev.plain == 1) { return sema_parse_int(ev.val); }
+        i = NameIdx_next(&s.evars_ix, i);
     }
     return (int64)-1;
 }
@@ -458,11 +458,11 @@ void sema_fold_enum(Sema* s, *DeclNode d, int report) {
         if (known == 1 || seen == 0) {
             pm.ty = sema_i64_text(v);
             List_set<Param>(&d.params, i, pm);
-            int k = 0;
-            while (k < List_len<EVar>(&s.evars)) {
+            int k = NameIdx_first(&s.evars_ix, pm.name);
+            while (k >= 0) {
                 EVar ev = List_get<EVar>(&s.evars, k);
-                if (sema_streq(ev.en, d.name) == 1 && sema_streq(ev.variant, pm.name) == 1) { ev.val = pm.ty; List_set<EVar>(&s.evars, k, ev); }
-                k = k + 1;
+                if (sema_streq(ev.en, d.name) == 1) { ev.val = pm.ty; List_set<EVar>(&s.evars, k, ev); }
+                k = NameIdx_next(&s.evars_ix, k);
             }
         }
         prev = sema_parse_int(pm.ty);
@@ -645,11 +645,10 @@ int sema_local_bound(Sema* s, string name) {
 
 // Is `name` a member of a classic (payload-free, non-generic) enum?
 int sema_plain_member(Sema* s, string name) {
-    int i = 0; int n = List_len<EVar>(&s.evars);
-    while (i < n) {
-        EVar ev = List_get<EVar>(&s.evars, i);
-        if (ev.plain == 1 && sema_streq(ev.variant, name) == 1) { return 1; }
-        i = i + 1;
+    int i = NameIdx_first(&s.evars_ix, name);
+    while (i >= 0) {
+        if (List_get<EVar>(&s.evars, i).plain == 1) { return 1; }
+        i = NameIdx_next(&s.evars_ix, i);
     }
     return 0;
 }
@@ -715,12 +714,7 @@ int sema_is_aggregate(Sema* s, string t0) {
     if (d.kind == DK_STRUCT || d.kind == DK_UNION || d.kind == DK_INTERFACE) { return 1; }
     if (d.kind == DK_ENUM) {
         if (List_len<TypeParam>(&d.type_params) > 0) { return 1; }
-        int i = 0;
-        while (i < List_len<List<string>>(&d.payloads)) {
-            List<string> pl = List_get<List<string>>(&d.payloads, i);
-            if (List_len<string>(&pl) > 0) { return 1; }
-            i = i + 1;
-        }
+        if (ast_enum_has_payload(d) == 1) { return 1; }
     }
     return 0;
 }
@@ -1709,13 +1703,9 @@ string sema_method_ret(Sema* s, *ExprNode e) {
 
 // The enum a variant constructor `name` builds, or null.
 *DeclNode sema_variant_enum(Sema* s, string name) {
-    int i = 0; int n = List_len<EVar>(&s.evars);
-    while (i < n) {
-        EVar ev = List_get<EVar>(&s.evars, i);
-        if (sema_streq(ev.variant, name) == 1) { return sema_find_tdecl(s, ev.en); }
-        i = i + 1;
-    }
-    return null;
+    int i = NameIdx_first(&s.evars_ix, name);
+    if (i < 0) { return null; }
+    return sema_find_tdecl(s, List_get<EVar>(&s.evars, i).en);
 }
 
 string sema_infer_type(Sema* s, *ExprNode e);
@@ -2221,12 +2211,7 @@ int sema_arr_bracket(string t) {
 // A classic enum (no type parameters, no payloads): its values are `int`s.
 int sema_is_plain_enum_decl(*DeclNode d) {
     if (d == null || d.kind != DK_ENUM || List_len<TypeParam>(&d.type_params) > 0) { return 0; }
-    int i = 0;
-    while (i < List_len<List<string>>(&d.payloads)) {
-        List<string> pl = List_get<List<string>>(&d.payloads, i);
-        if (List_len<string>(&pl) > 0) { return 0; }
-        i = i + 1;
-    }
+    if (ast_enum_has_payload(d) == 1) { return 0; }
     return 1;
 }
 
@@ -3334,9 +3319,7 @@ void sema_check_struct_init(Sema* s, *ExprNode e) {
 // array/struct literal of constants. A call or a non-const variable read is not
 // constant. Used for global and `static` initializers (mirrors TypeChecker::isConstInit).
 int sema_is_enum_member(Sema* s, string name) {
-    int i = 0; int n = List_len<EVar>(&s.evars);
-    while (i < n) { if (sema_streq(List_get<EVar>(&s.evars, i).variant, name) == 1) { return 1; } i = i + 1; }
-    return 0;
+    return NameIdx_first(&s.evars_ix, name) >= 0;
 }
 int sema_is_const_init(Sema* s, *ExprNode e) {
     if (e == null) { return 1; }
@@ -4207,14 +4190,14 @@ int sema_fold_ci(Sema* s, *ExprNode e, AstCInt* out) {
             if (ast_ci_cast(sema_strip_const(sema_resolve_scalar(s, sy.type)), v, out) == 0) { out[0] = v; }
             return 1;
         }
-        int i = 0; int n = List_len<EVar>(&s.evars);
-        while (i < n) {
+        int i = NameIdx_first(&s.evars_ix, e.sval);
+        while (i >= 0) {
             EVar ev = List_get<EVar>(&s.evars, i);
-            if (sema_streq(ev.variant, e.sval) == 1 && ev.plain == 1) {
+            if (ev.plain == 1) {
                 out[0] = ast_ci_of(sema_parse_int(ev.val));
                 return 1;
             }
-            i = i + 1;
+            i = NameIdx_next(&s.evars_ix, i);
         }
         return 0;
     }
@@ -7503,12 +7486,7 @@ void sema_register_globals(Sema* s, *Program prog) {
                 ev.val = List_get<Param>(&d.params, j).ty;
                 ev.plain = 1;
                 if (List_len<TypeParam>(&d.type_params) > 0) { ev.plain = 0; }
-                int pj = 0;
-                while (pj < List_len<List<string>>(&d.payloads)) {
-                    List<string> ppl = List_get<List<string>>(&d.payloads, pj);
-                    if (List_len<string>(&ppl) > 0) { ev.plain = 0; }
-                    pj = pj + 1;
-                }
+                if (ast_enum_has_payload(d) == 1) { ev.plain = 0; }
                 List_push<EVar>(&s.evars, ev);
                 NameIdx_push(&s.evars_ix, vn);
                 j = j + 1;

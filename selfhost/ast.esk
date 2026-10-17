@@ -514,6 +514,22 @@ struct DeclNode {
     int from_import;               // top-level decl parsed from an `import`ed file (not linted)
     int line;                      // source position for diagnostics (0 = unknown)
     int col;
+    int payload_memo;              // enum: 0 = not computed, 1 = some member has a payload, 2 = none (ast_enum_has_payload)
+}
+
+// Does some member of enum `d` carry a payload? Memoized on the node (payloads are set
+// by the parser only), so the per-member queries do not rescan every member.
+int ast_enum_has_payload(*DeclNode d) {
+    if (d.payload_memo != 0) { return (int)(d.payload_memo == 1); }
+    int r = 0;
+    int i = 0;
+    while (i < List_len<List<string>>(&d.payloads)) {
+        List<string> pl = List_get<List<string>>(&d.payloads, i);
+        if (List_len<string>(&pl) > 0) { r = 1; i = List_len<List<string>>(&d.payloads); }
+        i = i + 1;
+    }
+    d.payload_memo = 2 - r;
+    return r;
 }
 
 // The fields of struct or union `d` in declaration order with its unnamed bitfields among
