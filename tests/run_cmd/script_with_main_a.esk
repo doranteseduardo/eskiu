@@ -1,0 +1,3 @@
+// A script compiled with another input that defines main (run.sh).
+extern int printf(string f, ...);
+printf("script\n");

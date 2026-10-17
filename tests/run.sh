@@ -388,6 +388,17 @@ else
     bad "cli/await-unplaced-located" "$(printf '%s' "$aw_out" | grep -m1 error)"
 fi
 
+# A script compiled with another input that defines main, or that has statements too, is
+# one located error (each file alone is checked by its parser).
+sm_out="$("$ESKIUC" "$here/run_cmd/script_with_main_b.esk" "$here/run_cmd/script_with_main_a.esk" -o "$work/script_with_main" 2>&1)"
+sm_two="$("$ESKIUC" "$here/run_cmd/script_with_main_a.esk" "$here/script_toplevel.esk" -o "$work/script_with_main" 2>&1)"
+if [[ "$sm_out" == *"script_with_main_a.esk:3:1: a file with top-level statements has no 'main'"* &&
+      "$sm_two" == *"script_toplevel.esk:7:1: only one input file may have top-level statements"* ]]; then
+    ok "cli/script-with-main-input"
+else
+    bad "cli/script-with-main-input" "$(printf '%s %s' "$sm_out" "$sm_two" | grep -m1 error)"
+fi
+
 # <process>: a child with a timeout reads an inherited terminal stdin (run under a
 # pseudo-terminal by `script`, skipped where there is none).
 if command -v script >/dev/null 2>&1 && "$ESKIUC" "$here/run_cmd/process_tty.esk" -o "$work/process_tty" >/dev/null 2>&1; then

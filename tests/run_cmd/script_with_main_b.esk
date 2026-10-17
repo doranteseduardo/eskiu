@@ -1,0 +1,2 @@
+// The other input of script_with_main_a.esk: its main conflicts with the script.
+int main() { return 0; }

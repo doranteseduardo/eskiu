@@ -478,6 +478,44 @@ int load_inputs(List<string>* infiles, string primary_src, *Program prog) {
         parse_into(&p, prog);
         fi = fi + 1;
     }
+    // A program has one main: a script's statements are its main, so no other input may
+    // define one or have top-level statements too (mirrors the C++ loadProgram).
+    *DeclNode script_main = null;
+    *DeclNode named_main = null;
+    int di = 0;
+    while (di < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, di);
+        di = di + 1;
+        if (d.kind != DK_FUNCTION || cg_streq(d.name, "main") == 0 || d.from_import == 1) {
+            continue;
+        }
+        int script = 0;
+        if (List_len<Param>(&d.params) == 2 && cg_streq(List_get<Param>(&d.params, 0).name, "__argc") == 1
+            && d.body != null) {
+            script = 1;
+        }
+        if (script == 0) {
+            if (named_main == null) {
+                named_main = d;
+            }
+            continue;
+        }
+        if (script_main != null) {
+            uint8[1024] mb;
+            sprintf((string)&mb[0], "error: %s:%d:%d: only one input file may have top-level statements (they are its main)\n",
+                    d.file, d.body.line, d.body.col);
+            eprint((string)&mb[0]);
+            return 0;
+        }
+        script_main = d;
+    }
+    if (script_main != null && named_main != null) {
+        uint8[1024] sb;
+        sprintf((string)&sb[0], "error: %s:%d:%d: a file with top-level statements has no 'main': the statements are its main\n",
+                script_main.file, script_main.body.line, script_main.body.col);
+        eprint((string)&sb[0]);
+        return 0;
+    }
     return 1;
 }
 

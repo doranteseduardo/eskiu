@@ -784,6 +784,27 @@ std::shared_ptr<Program> loadProgram(const std::vector<std::string>& inputs, con
         merged.insert(merged.end(), prog->declarations.begin(), prog->declarations.end());
         linkLibs.insert(linkLibs.end(), prog->linkLibs.begin(), prog->linkLibs.end());
     }
+    // A program has one main: a script's statements are its main, so no other input may
+    // define one or have top-level statements too (one file is checked by its parser).
+    const FunctionDecl* scriptMain = nullptr;
+    const FunctionDecl* namedMain = nullptr;
+    for (const auto& d : merged) {
+        auto* f = dynamic_cast<FunctionDecl*>(d.get());
+        if (!f || f->name != "main" || f->fromImport) continue;
+        bool script = f->params.size() == 2 && f->params[0].second == "__argc" && f->body;
+        if (!script) { if (!namedMain) namedMain = f; continue; }
+        if (scriptMain) {
+            std::cerr << "error: " << f->sourceFile << ":" << f->body->line << ":" << f->body->col
+                      << ": only one input file may have top-level statements (they are its main)\n";
+            return nullptr;
+        }
+        scriptMain = f;
+    }
+    if (scriptMain && namedMain) {
+        std::cerr << "error: " << scriptMain->sourceFile << ":" << scriptMain->body->line << ":"
+                  << scriptMain->body->col << ": a file with top-level statements has no 'main': the statements are its main\n";
+        return nullptr;
+    }
     if (macrosOut) *macrosOut = macros;
     auto program = std::make_shared<Program>(merged);
     program->linkLibs = linkLibs;
