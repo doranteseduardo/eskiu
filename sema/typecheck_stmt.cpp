@@ -640,9 +640,9 @@ void TypeChecker::visit(MatchStmt* node) {
         std::string missing;
         for (const auto& m : ed->members)
             if (!covered.count(m.first) && !(plain && valueArm.count(m.second)))   // an equal-valued arm covers it
-                missing += (missing.empty() ? "" : ", ") + m.first;
+                missing += (missing.empty() ? "'" : ", '") + m.first + "'";
         if (!missing.empty())
-            errorAt(node, "non-exhaustive match on " + st + ": missing " + missing +
+            errorAt(node, "non-exhaustive match on '" + st + "': missing " + missing +
                           " (add those arms or a `_` default)");
     }
 }
