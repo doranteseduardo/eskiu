@@ -2068,6 +2068,8 @@ library remains for cases where you want to thread `hash`/`eq` explicitly.)
 
 All variables declared in a function body are allocated on the stack. Stack memory is reclaimed automatically when the enclosing function returns. There is no garbage collector.
 
+A local declared without an initializer starts at zero, like a global, a `static` local and `alloc<T>`: every field of a struct (pointers, strings and function values are null), every element of an array, a union and a slice. Each declaration gets a fresh zero, so a variable declared inside a loop does not keep the previous iteration's value, also in an `async` function. `let o: Opts;` is therefore the zero value of `Opts`. (Unlike C, where such a local is indeterminate.)
+
 ```eskiu
 struct Point { float x; float y; }
 
@@ -2702,8 +2704,7 @@ int main() {
 
     let argv: List<string>;  List_init<string>(&argv, 4);
     argv.push("grep");  argv.push("-c");  argv.push("x");
-    let opts: ProcessOptions;
-    memset((*void)&opts, 0, sizeof(ProcessOptions));   // the zero value is the default
+    let opts: ProcessOptions;              // zero: the defaults
     opts.stdin_text = "x\ny\nx\n";
     opts.timeout_ms = 5000;
     if (process_run(&argv, &opts, &r) != 0) {   // -1: could not start
@@ -2731,8 +2732,10 @@ started die too), `r.timed_out` is set and `exit_code` is 137. `ProcessOptions` 
 `stdin_text`, `cwd`, `env` (a `List<string>*` of extra `"NAME=value"` entries replacing
 same-named ones), `timeout_ms`, and the flags `inherit_stdin`, `inherit_stdout`,
 `inherit_stderr` (use the parent's stream instead of a pipe; without `stdin_text` or
-`inherit_stdin` the child's stdin is empty) and `merge_stderr` (`2>&1`). Free a result
-with `ProcessResult_free`.
+`inherit_stdin` the child's stdin is empty) and `merge_stderr` (`2>&1`). When the child
+inherits stdout or stderr, `process_run`, `sh_with` and `process_spawn` flush the
+parent's stdio buffers first, so what the parent printed before comes out first. Free a
+result with `ProcessResult_free`.
 
 `process_spawn(argv, opts, &p)` starts the child and returns at once. Its stdin is a
 pipe unless `inherit_stdin` (`Process_write_stdin`, `Process_close_stdin`), its output
@@ -3378,7 +3381,7 @@ error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 
 The format is `error: file:line:col: message`. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. `-Wall` warnings are printed as `file:line:col: warning: message`. Every mode, including the `--test-*` modes, exits with a non-zero status when it reports an error.
 
-Reading a scalar local (a number, `bool`, `char`, pointer, `string` or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable") when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but `-Wall` reports it as `variable 'x' may be used uninitialized`. The check follows every path through `if`/`else`, loops (a loop body may run zero times; the loop exits when its condition fails or at a `break`), `switch` fall-through, `match` arms, `try`/`catch`/`finally` (a handler or the `finally` may run before the body assigned anything), `defer` bodies (at each exit that runs them), early `return`/`break`/`continue`, and a lambda, which reads the variables it captures when it is created. Taking the address (`&x`) counts as an assignment, and `sizeof(x)` is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. `static` locals start at zero and are never reported, and the body of an `async` function is not checked.
+Reading a scalar local (a number, `bool`, `char`, pointer, `string` or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable"), although such a local holds zero (11.1): a read nothing assigns is usually a mistake. It applies when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but `-Wall` reports it as `variable 'x' may be used uninitialized`. The check follows every path through `if`/`else`, loops (a loop body may run zero times; the loop exits when its condition fails or at a `break`), `switch` fall-through, `match` arms, `try`/`catch`/`finally` (a handler or the `finally` may run before the body assigned anything), `defer` bodies (at each exit that runs them), early `return`/`break`/`continue`, and a lambda, which reads the variables it captures when it is created. Taking the address (`&x`) counts as an assignment, and `sizeof(x)` is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. `static` locals start at zero and are never reported, and the body of an `async` function is not checked.
 
 ---
 

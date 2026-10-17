@@ -8,6 +8,20 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- A local declared without an initializer starts at zero in both compilers, as a global, a
+  `static` local and `alloc<T>` already did: every field of a struct, every element of an
+  array, a union and a slice, at each declaration (a variable declared in a loop does not
+  keep the previous iteration's value, also across an `await`). Before, it held whatever
+  was on the stack, and with `-O2` LLVM could drop code that read it (undefined
+  behavior): `let o: ProcessOptions;` passed to `process_spawn` crashed. Reading a scalar
+  local nothing assigned is still an error.
+- `process_run`, `sh_with` and `process_spawn` flush stdio before starting a child that
+  inherits stdout or stderr, so the parent's earlier output is not printed after the
+  child's.
+
 ## [0.11.0] - 2026-10-14
 
 ### Highlights

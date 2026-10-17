@@ -589,6 +589,9 @@ pre.code-block {
 <pre class="code-block"> let x: int = 5;                 // let-style with type annotation
  int x = 5;                      // C-style</pre>
 <p>Both are identical to the compiler. The <code>let</code> form is useful when the annotation adds clarity. The C-style form is more compact.</p>
+<p>A variable declared without a value starts at zero, unlike in C, where it holds whatever was in that memory. A struct declared as <code>let o: Opts;</code> has every field zero (pointers and strings are <code>null</code>), and an array such as <code>int[16] buf;</code> is all zeros, every time the declaration runs, including each turn of a loop. Reading a number you never assigned is still a compile error, because it is almost always a mistake.</p>
+<pre class="code-block"> struct Opts { string cwd; int timeout; }
+ let o: Opts;                    // o.cwd == null, o.timeout == 0</pre>
 <h2 class="section" id="sec-2-2">2.2 The primitive types</h2>
 <p>Eskiu&#x27;s built-in types:</p>
 <pre class="code-block">           Type        Size        Example       Use it for</pre>

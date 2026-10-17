@@ -242,6 +242,11 @@ let flag: bool = true;
 
 Both styles compile to the same IR. Use whichever reads more clearly in context.
 
+A variable declared without a value starts at zero: `let o: Opts;` has every field zero
+(null pointers and strings, empty arrays), and so does `int[16] buf;`. This differs from C,
+where such a variable holds whatever was in memory. Reading a number or pointer you never
+assigned is still a compile error, since it is usually a mistake.
+
 ### Primitive types
 
 | Type     | Width    | Notes                           |

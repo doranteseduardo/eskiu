@@ -358,6 +358,10 @@ let pi: float = 3.14;
 let flag: bool = true;
 </code></pre>
 <p>Both styles compile to the same IR. Use whichever reads more clearly in context.</p>
+<p>A variable declared without a value starts at zero: <code>let o: Opts;</code> has every field zero
+(null pointers and strings, empty arrays), and so does <code>int[16] buf;</code>. This differs from C,
+where such a variable holds whatever was in memory. Reading a number or pointer you never
+assigned is still a compile error, since it is usually a mistake.</p>
 <h3 id="primitive-types">Primitive types</h3>
 <div class="tablewrap"><table>
 <thead>

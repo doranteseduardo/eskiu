@@ -2044,6 +2044,7 @@ library remains for cases where you want to thread <code>hash</code>/<code>eq</c
 <h2 id="11-memory">11. Memory</h2>
 <h3 id="111-stack-allocation">11.1 Stack Allocation</h3>
 <p>All variables declared in a function body are allocated on the stack. Stack memory is reclaimed automatically when the enclosing function returns. There is no garbage collector.</p>
+<p>A local declared without an initializer starts at zero, like a global, a <code>static</code> local and <code>alloc&lt;T&gt;</code>: every field of a struct (pointers, strings and function values are null), every element of an array, a union and a slice. Each declaration gets a fresh zero, so a variable declared inside a loop does not keep the previous iteration's value, also in an <code>async</code> function. <code>let o: Opts;</code> is therefore the zero value of <code>Opts</code>. (Unlike C, where such a local is indeterminate.)</p>
 <pre><code class="language-eskiu">struct Point { float x; float y; }
 
 int main() {
@@ -2933,8 +2934,7 @@ int main() {
 
     let argv: List&lt;string&gt;;  List_init&lt;string&gt;(&amp;argv, 4);
     argv.push(&quot;grep&quot;);  argv.push(&quot;-c&quot;);  argv.push(&quot;x&quot;);
-    let opts: ProcessOptions;
-    memset((*void)&amp;opts, 0, sizeof(ProcessOptions));   // the zero value is the default
+    let opts: ProcessOptions;              // zero: the defaults
     opts.stdin_text = &quot;x\ny\nx\n&quot;;
     opts.timeout_ms = 5000;
     if (process_run(&amp;argv, &amp;opts, &amp;r) != 0) {   // -1: could not start
@@ -2961,8 +2961,10 @@ started die too), <code>r.timed_out</code> is set and <code>exit_code</code> is 
 <code>stdin_text</code>, <code>cwd</code>, <code>env</code> (a <code>List&lt;string&gt;*</code> of extra <code>"NAME=value"</code> entries replacing
 same-named ones), <code>timeout_ms</code>, and the flags <code>inherit_stdin</code>, <code>inherit_stdout</code>,
 <code>inherit_stderr</code> (use the parent's stream instead of a pipe; without <code>stdin_text</code> or
-<code>inherit_stdin</code> the child's stdin is empty) and <code>merge_stderr</code> (<code>2&gt;&amp;1</code>). Free a result
-with <code>ProcessResult_free</code>.</p>
+<code>inherit_stdin</code> the child's stdin is empty) and <code>merge_stderr</code> (<code>2&gt;&amp;1</code>). When the child
+inherits stdout or stderr, <code>process_run</code>, <code>sh_with</code> and <code>process_spawn</code> flush the
+parent's stdio buffers first, so what the parent printed before comes out first. Free a
+result with <code>ProcessResult_free</code>.</p>
 <p><code>process_spawn(argv, opts, &amp;p)</code> starts the child and returns at once. Its stdin is a
 pipe unless <code>inherit_stdin</code> (<code>Process_write_stdin</code>, <code>Process_close_stdin</code>), its output
 pipes are read with <code>Process_read(&amp;p, 1 or 2, &amp;s)</code> (one read, up to 64 KiB; 0 at the end)
@@ -3630,7 +3632,7 @@ eskiuc kernel.esk --target aarch64-unknown-none --freestanding -o kernel.o
 error: file.esk:14:5: initializing 'p': cannot convert 'float' to 'int*'
 </code></pre>
 <p>The format is <code>error: file:line:col: message</code>. Line and column numbers are 1-based. Lexer, preprocessor, parser and type errors all use it, and an error inside an imported file names that file. <code>-Wall</code> warnings are printed as <code>file:line:col: warning: message</code>. Every mode, including the <code>--test-*</code> modes, exits with a non-zero status when it reports an error.</p>
-<p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable") when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>
+<p>Reading a scalar local (a number, <code>bool</code>, <code>char</code>, pointer, <code>string</code> or fn value) declared without an initializer before any assignment to it is an error ("use of uninitialized variable"), although such a local holds zero (11.1): a read nothing assigns is usually a mistake. It applies when the read is in the function's straight-line prefix, where no path assigns it. Elsewhere a read that some path reaches without an assignment is not an error, since the program's logic may guarantee it (as in C), but <code>-Wall</code> reports it as <code>variable 'x' may be used uninitialized</code>. The check follows every path through <code>if</code>/<code>else</code>, loops (a loop body may run zero times; the loop exits when its condition fails or at a <code>break</code>), <code>switch</code> fall-through, <code>match</code> arms, <code>try</code>/<code>catch</code>/<code>finally</code> (a handler or the <code>finally</code> may run before the body assigned anything), <code>defer</code> bodies (at each exit that runs them), early <code>return</code>/<code>break</code>/<code>continue</code>, and a lambda, which reads the variables it captures when it is created. Taking the address (<code>&amp;x</code>) counts as an assignment, and <code>sizeof(x)</code> is not a read. Only whole-variable reads of scalar locals are tracked: a struct, union, array, slice or interface local set field by field or element by element never warns. <code>static</code> locals start at zero and are never reported, and the body of an <code>async</code> function is not checked.</p>
 <hr>
 <h2 id="18-preprocessor">18. Preprocessor</h2>
 <p>A small text pass runs before lexing. It supports <strong>object-like and function-like macros</strong> and <strong>conditional compilation</strong>. Directives occupy their own line (the first non-blank character is <code>#</code>); a line inside a string literal that spans lines is string text, never a directive, and no macro expands in it. Both directive lines and skipped lines are blanked out so reported line numbers match the original source.</p>
