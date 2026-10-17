@@ -1576,6 +1576,17 @@ const std::vector<std::shared_ptr<LiteralExpr>>& TypeChecker::paramDefaultsOf(co
             continue;
         }
         seen = true;
+        // The names a default reads are uses (definition, references, rename).
+        if (fd->sourceFile.empty() || fd->sourceFile == sourceFile) {
+            std::function<void(Expr*)> noteUses = [&](Expr* e) {
+                if (auto* id = dynamic_cast<IdentExpr*>(e)) {
+                    if (id->line > 0) useLocations[{id->line, id->col}] = id->name;
+                    return;
+                }
+                astwalk::forEachChildExpr(e, [&](ExprPtr& c) { if (c) noteUses(c.get()); });
+            };
+            noteUses(def);
+        }
         if (genericOwner) {
             errorAt(def, "a method of generic struct '" + self.substr(1) + "' cannot have default values");
             out.push_back(nullptr);

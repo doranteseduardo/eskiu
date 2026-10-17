@@ -1,0 +1,8 @@
+// A name read by a parameter's default value is a use: it resolves to its definition
+// and is among its references, so a rename reaches it.
+// DEF 7:24 6:11
+// REFS 6:11 6:11 7:24 8:33
+// REFS 7:24 6:11 7:24 8:33
+const int BASE = 400;
+int connect(int port = BASE + 43) { return port; }
+int main() { return connect() - BASE - 43; }

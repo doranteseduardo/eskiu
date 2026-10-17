@@ -1109,6 +1109,27 @@ void sema_note_depr(Sema* s, string fname, int line, int col) {
 // (then the list starts with the implicit `self`). A default is a literal or an integer
 // constant expression, folded in the global scope; each call site gets a fresh literal.
 // Errors are reported once. Returns the index of the list in s.pd_lists.
+// The names a default reads are uses (definition, hover), recorded for a function of
+// the primary file even from a call in a generic instance (the C++ paramDefaultsOf).
+void sema_pdef_uses(Sema* s, *ExprNode e) {
+    if (e == null) {
+        return;
+    }
+    if (e.kind == EK_IDENT) {
+        if (e.line > 0) {
+            sema_tool_useloc(s, e.line, e.col, e.sval);
+        }
+        return;
+    }
+    sema_pdef_uses(s, e.a);
+    sema_pdef_uses(s, e.b);
+    int i = 0;
+    while (i < List_len<*ExprNode>(&e.kids)) {
+        sema_pdef_uses(s, List_get<*ExprNode>(&e.kids, i));
+        i = i + 1;
+    }
+}
+
 int sema_pdefs(Sema* s, string key, *DeclNode sd, string mname) {
     int cached = StrTab_get(&s.pd_ix, key, -1);
     if (cached >= 0) {
@@ -1192,6 +1213,15 @@ int sema_pdefs(Sema* s, string key, *DeclNode sd, string mname) {
                 continue;
             }
             seen = 1;
+            if (fd.from_import == 0) {
+                int was_inst = s.in_inst;
+                int was_import = s.cur_import;
+                s.in_inst = 0;
+                s.cur_import = 0;
+                sema_pdef_uses(s, def);
+                s.in_inst = was_inst;
+                s.cur_import = was_import;
+            }
             if (generic_owner == 1) {
                 s.had_error = 1;
                 dprintf(2, "error: %s:%d:%d: a method of generic struct '%s' cannot have default values\n",
