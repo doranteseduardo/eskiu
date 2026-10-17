@@ -958,8 +958,15 @@ String format_source(*uint8 src, int n) {
         // (with `;`, `{`, `}` or a label's `:`), continues that statement: it keeps its
         // indentation relative to the statement's first line, at least 4 more (an item
         // of a multi-line list after a `,` keeps its own). Mirrors the C++.
+        // A block's `{` on its own line (`int f()` then `{`) starts at its block's level.
+        int blockOpen = 0;
+        if (tb[0] == 123 && fmt_top_block(&layout) == 1 && layout.paren == 0 && last != 61 && last != 44
+            && last != 40 && last != 91) {
+            blockOpen = 1;
+        }
         int contLine = 0;
-        if (tb[0] != 125 && (layout.paren > 0 || (last != 0 && last != 59 && last != 123 && last != 125 && last != 58))) {
+        if (tb[0] != 125 && blockOpen == 0
+            && (layout.paren > 0 || (last != 0 && last != 59 && last != 123 && last != 125 && last != 58))) {
             contLine = 1;
         }
         int listItem = 0;

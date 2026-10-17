@@ -584,7 +584,10 @@ std::string formatSource(const std::string& src) {
         // (with `;`, `{`, `}` or a label's `:`), continues that statement: it keeps its
         // indentation relative to the statement's first line, at least 4 more (an item
         // of a multi-line list after a `,` keeps its own).
-        bool contLine = t[0] != '}' && (layout.paren > 0 ||
+        // A block's `{` on its own line (`int f()` then `{`) starts at its block's level.
+        bool blockOpen = t[0] == '{' && (layout.kinds.empty() || layout.kinds.back() == 'B') &&
+                         layout.paren == 0 && last != '=' && last != ',' && last != '(' && last != '[';
+        bool contLine = t[0] != '}' && !blockOpen && (layout.paren > 0 ||
                         (last != 0 && last != ';' && last != '{' && last != '}' && last != ':'));
         bool listItem = last == ',' && layout.paren == 0;
         std::vector<std::string> pieces = fmtLayoutLine(layout, t, last);
