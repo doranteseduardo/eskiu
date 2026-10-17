@@ -10,7 +10,7 @@ int main() {
     String_append(&s, "Hello");
     String_push(&s, (char)',');
     String_append(&s, " Eskiu");
-    printf("built=[%s] len=%d\n", String_cstr(&s), String_len(&s));   // Hello, Eskiu / 12
+    printf("built=[%s] len=%lld\n", String_cstr(&s), String_len(&s));   // Hello, Eskiu / 12
 
     let g: String;  String_init(&g, 16);
     String_append(&g, "  trim me  ");

@@ -1,0 +1,47 @@
+// A literal printf-style format string is checked against its arguments: each
+// conversion's class after C's promotions, `*` widths, and the argument count.
+import <string>;
+import <log>;
+extern int printf(string fmt, ...);
+extern int snprintf(*char buf, int64 n, string fmt, ...);
+struct P { int a; }
+int main() {
+    int64 big = 5;
+    int n = 3;
+    double d = 1.5;
+    float f = 2.5;
+    char[16] buf;
+    P p = P{1};
+    let s: String; String_init(&s, 8);
+    printf("%d %lld %f %s %p %c %5.2f %*d %%\n", n, big, d, "x", &n, 'a', f, n, n);
+    printf("%d\n", big);
+    printf("%lld\n", n);
+    printf("%s\n", n);
+    printf("%d\n", d);
+    printf("%f\n", n);
+    printf("%d %d\n", n);
+    printf("%d\n", n, n);
+    printf("%s\n", s);
+    printf("%y\n", n);
+    printf("%s\n", (string)&buf[0]);
+    snprintf(&buf[0], 16, "%d", big);
+    String_appendf(&s, "%s", n);
+    s.appendf("%d", big);
+    log_info("%d", big);
+    printf("%zu %ld %llu %u %x %hhd\n", (uint64)1, big, (uint64)2, (uint32)3, n, n);
+    return 0;
+}
+// EXPECT-WARNING: format.esk:17:11: warning: format '%d' expects an int, but argument 2 has type 'int64' [-Wformat]
+// EXPECT-WARNING: format.esk:18:11: warning: format '%lld' expects a 64-bit integer, but argument 2 has type 'int' [-Wformat]
+// EXPECT-WARNING: format.esk:19:11: warning: format '%s' expects a string, but argument 2 has type 'int' [-Wformat]
+// EXPECT-WARNING: format.esk:20:11: warning: format '%d' expects an int, but argument 2 has type 'double' [-Wformat]
+// EXPECT-WARNING: format.esk:21:11: warning: format '%f' expects a double, but argument 2 has type 'int' [-Wformat]
+// EXPECT-WARNING: format.esk:22:11: warning: the format string needs 2 argument(s), but 1 are given [-Wformat]
+// EXPECT-WARNING: format.esk:23:11: warning: the format string uses 1 argument(s), but 2 are given [-Wformat]
+// EXPECT-WARNING: format.esk:24:11: warning: format '%s' expects a string, but argument 2 has type 'String' [-Wformat]
+// EXPECT-WARNING: format.esk:25:11: warning: unknown conversion '%y' in the format string [-Wformat]
+// EXPECT-WARNING: format.esk:27:13: warning: format '%d' expects an int, but argument 4 has type 'int64' [-Wformat]
+// EXPECT-WARNING: format.esk:28:19: warning: format '%s' expects a string, but argument 3 has type 'int' [-Wformat]
+// EXPECT-WARNING: format.esk:29:14: warning: format '%d' expects an int, but argument 3 has type 'int64' [-Wformat]
+// EXPECT-WARNING: format.esk:30:13: warning: format '%d' expects an int, but argument 2 has type 'int64' [-Wformat]
+// EXPECT-WARNING: format.esk:14:7: warning: unused variable 'p'

@@ -183,7 +183,7 @@ done
 echo "Hint and deprecation text (byte-exact):"
 for esk in tests/errors/did_you_mean_*.esk tests/warnings/deprecated_use.esk tests/errors/match_*nonexhaustive*.esk \
            tests/warnings/string_compare.esk tests/warnings/packed_address.esk tests/warnings/dangling_pointer.esk \
-           tests/warnings/frame_larger.esk; do
+           tests/warnings/frame_larger.esk tests/warnings/format.esk; do
     [ -e "$esk" ] || continue
     for flags in "" "-Wno-deprecated"; do
         pick() { grep -E "did you mean|warning: '.*' is deprecated|non-exhaustive match|\[-W[a-z-]+\]" || true; }
