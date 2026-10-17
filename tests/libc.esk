@@ -34,7 +34,7 @@ int main() {
     sscanf("12 34", "%d %d", &a, &b);
     snprintf(&buf[0], 64, "%d+%d", a, b);
     printf("%s\n", (string)&buf[0]);
-    printf("%d %d %d %c %c\n", isalpha('a'), isdigit('x'), isspace(' ') != 0 ? 1 : 0, toupper('q'), tolower('Q'));
+    printf("%d %d %d %c %c\n", isalpha('a') != 0 ? 1 : 0, isdigit('x') != 0 ? 1 : 0, isspace(' ') != 0 ? 1 : 0, toupper('q'), tolower('Q'));
     printf("%.3f %.3f %.3f %.1f %.1f %.1f\n", sin(0.0), cos(0.0), atan2(1.0, 1.0) * 4.0, log10(1000.0), round(2.5), trunc(-2.7));
     printf("%.1f %.1f %.2f\n", fmax(1.0, 3.0), hypot(3.0, 4.0), (double)sqrtf(2.25));
     *void f = fopen("/nonexistent/x", "r");
