@@ -37,7 +37,7 @@ Homebrew's `llvm` formula tracks the newest release (LLVM 23 at the time of writ
 ### Build
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu.git
+git clone https://github.com/eskiu-lang/eskiu.git
 cd eskiu
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -- -j$(sysctl -n hw.logicalcpu)
@@ -77,7 +77,7 @@ sudo apt-get install -y llvm-22-dev
 ### Build
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu.git
+git clone https://github.com/eskiu-lang/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
@@ -99,7 +99,7 @@ apk add llvm22-dev cmake clang22 git make
 ### Build
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu.git
+git clone https://github.com/eskiu-lang/eskiu.git
 cd eskiu
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
@@ -117,7 +117,7 @@ Windows builds use the MSYS2 MINGW64 environment. From a MINGW64 shell:
 ```bash
 pacman -S --needed git mingw-w64-x86_64-toolchain mingw-w64-x86_64-llvm \
   mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
-git clone https://github.com/doranteseduardo/eskiu.git
+git clone https://github.com/eskiu-lang/eskiu.git
 cd eskiu
 cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \

@@ -32,7 +32,7 @@ export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
 Add the `export` line to `~/.zshrc` to make it permanent. Then clone and build:
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu.git
+git clone https://github.com/eskiu-lang/eskiu.git
 cd eskiu
 cmake -S . -B build
 cmake --build build -j$(sysctl -n hw.ncpu)
@@ -42,7 +42,7 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 
 ```bash
 sudo apt-get install -y git cmake llvm-22-dev clang-22 build-essential
-git clone https://github.com/doranteseduardo/eskiu.git
+git clone https://github.com/eskiu-lang/eskiu.git
 cd eskiu
 cmake -S . -B build -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
 cmake --build build -j$(nproc)

@@ -144,7 +144,7 @@ details.cl-full[open] { padding-bottom: 8px; }</style>
   <header class="top">
     <div class="bar top-in">
       <a class="brand" href="../index.html"><img src="../../assets/logo.png" alt="" />eskiu<span class="v">v0.12.0</span></a>
-      <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
+      <nav class="nav" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/eskiu-lang/eskiu">GitHub</a></nav>
       <div class="top-right">
         <a class="btn-install" href="../index.html#install">Install 0.12.0</a>
         <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
@@ -152,7 +152,7 @@ details.cl-full[open] { padding-bottom: 8px; }</style>
         </button>
       </div>
     </div>
-    <nav class="drawer" id="drawer" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/doranteseduardo/eskiu">GitHub</a></nav>
+    <nav class="drawer" id="drawer" aria-label="Main"><a href="../quickstart.html">Learn</a><a href="../docs/index.html" aria-current="page">Docs</a><a href="../index.html#playground">Playground</a><a href="../the-book-of-eskiu.html">Book</a><a href="../changelog.html">Changelog</a><a href="https://github.com/eskiu-lang/eskiu">GitHub</a></nav>
   </header>
   <div class="bar layout has-toc">
     <aside class="side" aria-label="Documentation"><span class="grp">Language</span><nav><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="spec.html">Spec</a><a href="grammar.html">Grammar</a><a href="build.html">Tooling</a><a href="stability.html">Stability</a><a href="glossary.html">Glossary</a></nav><span class="grp">Compiler internals</span><nav><a href="internals.html" aria-current="page">Overview</a><a href="architecture.html">Architecture</a><a href="design.html">Design</a><a href="abi.html">ABI</a><a href="async-design.html">Async</a><a href="self-hosting.html">Self-hosting</a><a href="http2-design.html">HTTP/2</a><a href="api.html">C++ API</a><a href="debugging.html">Debugging</a><a href="contributing.html">Contributing</a><a href="roadmap.html">Roadmap</a></nav></aside>
@@ -236,7 +236,7 @@ clang hello.o -o hello
 <td>C++ public API reference for the lexer, parser, type checker, and codegen modules</td>
 </tr>
 <tr>
-<td><a href="https://github.com/doranteseduardo/eskiu/blob/main/kernel/README.md"><code>../../kernel/README.md</code></a></td>
+<td><a href="https://github.com/eskiu-lang/eskiu/blob/main/kernel/README.md"><code>../../kernel/README.md</code></a></td>
 <td>The freestanding bare-metal ARM64 kernel demo (no libc; boots in QEMU), a worked example of <code>--freestanding</code> + inline asm</td>
 </tr>
 </tbody>
@@ -244,7 +244,7 @@ clang hello.o -o hello
 <hr>
 <h2 id="current-state">Current State</h2>
 <p>All compiler phases and editor tooling are complete and tested end-to-end. The language covers async/await, the full HTTP/2 stack (framing, HPACK with Huffman, streams and flow control, the multiplexed server, and TLS/ALPN), sum types with <code>match</code>, monomorphic and bounded generics (<code>&lt;T: Iface&gt;</code> / <code>&lt;T: A + B&gt;</code>), and a broad stdlib (allocators, threading, sockets, the async runtime, JSON, and more). The type checker is the single type resolver, and codegen consumes its resolved expression types.</p>
-<p>The compiler is also <strong>self-hosted</strong>: the whole pipeline is reimplemented in Eskiu under <code>selfhost/</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see <a href="self-hosting.html"><code>self-hosting.md</code></a>). The Eskiu-written compiler is behaviorally equivalent to the C++ one over the whole corpus (CI-gated) and dual-built as <code>eskiuc-esk</code>, with the C++ binary staying the shipped artifact. Release history is in the <a href="https://github.com/doranteseduardo/eskiu/blob/main/CHANGELOG.md">changelog</a>; the roadmap is in <a href="roadmap.html"><code>roadmap.md</code></a>.</p>
+<p>The compiler is also <strong>self-hosted</strong>: the whole pipeline is reimplemented in Eskiu under <code>selfhost/</code>, reaching a 3-stage bootstrap fixpoint with a code generator feature-complete against the C++ corpus (see <a href="self-hosting.html"><code>self-hosting.md</code></a>). The Eskiu-written compiler is behaviorally equivalent to the C++ one over the whole corpus (CI-gated) and dual-built as <code>eskiuc-esk</code>, with the C++ binary staying the shipped artifact. Release history is in the <a href="https://github.com/eskiu-lang/eskiu/blob/main/CHANGELOG.md">changelog</a>; the roadmap is in <a href="roadmap.html"><code>roadmap.md</code></a>.</p>
 <p>The VS Code extension provides real-time error squiggles, hover type info, and go-to-definition via two CLI flags (<code>--hover-at</code>, <code>--definition-at</code>).</p>
 <hr>
 <h2 id="architecture-at-a-glance">Architecture at a Glance</h2>
@@ -314,7 +314,7 @@ clang hello.o -o hello
         <a href="../the-book-of-eskiu.html">Book</a>
         <a href="internals.html">Internals</a>
         <a href="../changelog.html">Changelog</a>
-        <a href="https://github.com/doranteseduardo/eskiu">GitHub</a>
+        <a href="https://github.com/eskiu-lang/eskiu">GitHub</a>
         <a href="https://reactvision.xyz">ReactVision</a>
       </nav>
     </div>

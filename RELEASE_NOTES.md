@@ -28,7 +28,7 @@ eskiuc --version
 Or build from source (LLVM 21 or newer, LLVM 22 recommended, and CMake 3.20+):
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu
+git clone https://github.com/eskiu-lang/eskiu
 cd eskiu && cmake -S . -B build && cmake --build build
 ```
 

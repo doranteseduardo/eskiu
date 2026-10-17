@@ -7,7 +7,7 @@ change touches in some way.
 ## Build and check
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu && cd eskiu
+git clone https://github.com/eskiu-lang/eskiu && cd eskiu
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"
 ./build/eskiuc --version

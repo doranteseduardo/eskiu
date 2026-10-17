@@ -13,7 +13,7 @@
 #
 set -eu
 
-REPO="doranteseduardo/eskiu"
+REPO="eskiu-lang/eskiu"
 VERSION="${ESKIU_VERSION:-latest}"
 
 say()  { printf '%s\n' "$*"; }

@@ -5,8 +5,8 @@ holds the source-of-truth formula; the tap repo is where users actually install 
 
 ## One-time setup (maintainer)
 
-1. Create a public repo named **`homebrew-eskiu`** under the `doranteseduardo` account.
-   Homebrew requires the `homebrew-` prefix; the tap is then `doranteseduardo/eskiu`.
+1. Create a public repo named **`homebrew-eskiu`** under the `eskiu-lang` organization.
+   Homebrew requires the `homebrew-` prefix; the tap is then `eskiu-lang/eskiu`.
 2. Add the formula at `Formula/eskiu.rb` in that repo (copy [`eskiu.rb`](eskiu.rb)).
 
 ## Per release (maintainer)
@@ -17,7 +17,7 @@ After a `vX.Y.Z` release finishes and its assets (including `SHA256SUMS`) are at
 2. Fill the three `sha256` values from the release's `SHA256SUMS`:
 
    ```sh
-   curl -fsSL https://github.com/doranteseduardo/eskiu/releases/download/vX.Y.Z/SHA256SUMS
+   curl -fsSL https://github.com/eskiu-lang/eskiu/releases/download/vX.Y.Z/SHA256SUMS
    #   <hash>  eskiuc-macos-arm64.tar.gz    -> macOS block sha256
    #   <hash>  eskiuc-linux-x86_64.tar.gz   -> Linux on_intel sha256
    #   <hash>  eskiuc-linux-arm64.tar.gz    -> Linux on_arm sha256
@@ -34,7 +34,7 @@ After a `vX.Y.Z` release finishes and its assets (including `SHA256SUMS`) are at
 ## Install (user)
 
 ```sh
-brew install doranteseduardo/eskiu/eskiu
+brew install eskiu-lang/eskiu/eskiu
 ```
 
 `brew` handles the download, checksum, and PATH. `eskiuc` still needs `clang` at runtime to

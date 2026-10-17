@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml"><img src="https://github.com/doranteseduardo/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/eskiu-lang/eskiu/actions/workflows/ci.yml"><img src="https://github.com/eskiu-lang/eskiu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.12.0-6448d4" alt="Version 0.12.0"></a>
   <img src="https://img.shields.io/badge/LLVM-21%2B-orange" alt="LLVM 21+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
@@ -160,14 +160,14 @@ eskiuc --version
 
 The script picks the prebuilt binary for your platform (macOS arm64, Linux x86-64 or arm64),
 verifies its checksum and installs it. The Windows x86-64 build and the tarballs are on the
-[releases page](https://github.com/doranteseduardo/eskiu/releases). `eskiuc` links programs
+[releases page](https://github.com/eskiu-lang/eskiu/releases). `eskiuc` links programs
 with your system C toolchain (`cc`, `clang` or `gcc`), so have one installed.
 
 To build from source you need LLVM 21 or newer (22 recommended), CMake 3.20+ and a C++17
 compiler:
 
 ```bash
-git clone https://github.com/doranteseduardo/eskiu && cd eskiu
+git clone https://github.com/eskiu-lang/eskiu && cd eskiu
 cmake -S . -B build && cmake --build build
 ./build/eskiuc examples/hello.esk -o hello && ./hello
 ```

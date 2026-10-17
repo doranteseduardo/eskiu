@@ -35,9 +35,9 @@ Link to related discussions or issues
 ---
 
 **Note:** Before opening a feature request, check:
-1. [Language specification](https://github.com/doranteseduardo/eskiu/blob/develop/docs/lang/spec.md): Is this already documented?
-2. [Design decisions](https://github.com/doranteseduardo/eskiu/blob/develop/docs/dev/design.md): Does it align with the language's goals?
-3. [Roadmap](https://github.com/doranteseduardo/eskiu/blob/develop/docs/dev/roadmap.md): Is this already planned?
+1. [Language specification](https://github.com/eskiu-lang/eskiu/blob/develop/docs/lang/spec.md): Is this already documented?
+2. [Design decisions](https://github.com/eskiu-lang/eskiu/blob/develop/docs/dev/design.md): Does it align with the language's goals?
+3. [Roadmap](https://github.com/eskiu-lang/eskiu/blob/develop/docs/dev/roadmap.md): Is this already planned?
 4. Existing issues: Has someone suggested this?
 
 Feature requests are weighed against the design decisions in `docs/dev/design.md` and the

@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG ESKIU_VERSION=0.11.0
 RUN set -eu; \
-    base="https://github.com/doranteseduardo/eskiu/releases/download/v${ESKIU_VERSION}"; \
+    base="https://github.com/eskiu-lang/eskiu/releases/download/v${ESKIU_VERSION}"; \
     asset="eskiuc-linux-x86_64.tar.gz"; \
     cd /tmp; \
     curl -fsSLO "$base/$asset"; \

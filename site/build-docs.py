@@ -75,11 +75,11 @@ NAV_DEV = [
 NAVS = {"lang": NAV_LANG, "dev": NAV_DEV}
 
 # un-ported docs fall back to the GitHub source
-GH_BLOB = "https://github.com/doranteseduardo/eskiu/blob/main/"
+GH_BLOB = "https://github.com/eskiu-lang/eskiu/blob/main/"
 
 # Shown in the shared top bar (kept in step with the homepage). Bump per release.
 VERSION = "v0.12.0"
-GH = "https://github.com/doranteseduardo/eskiu"
+GH = "https://github.com/eskiu-lang/eskiu"
 
 CSS = r"""
 *, *::before, *::after { box-sizing: border-box; }
