@@ -1253,7 +1253,7 @@ try {
 
 #### Unhandled exceptions
 
-If no `catch` clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler (the end of `main`, of a thread's function, or a C frame that cannot unwind), the program prints the exception's type, and its value for an `int`, `int64` or `string`, to stderr and aborts (exit status 134 on Unix):
+If no `catch` clause matches the thrown value, the exception propagates up the call stack. If it reaches the top with no handler (the end of `main`, of a thread's function, or a C frame that cannot unwind), the program prints the exception's type, and its value for every primitive type (integers of every width, `float`, `double`, `bool`, `char`, `string`), to stderr and aborts (exit status 134 on Unix):
 
 ```
 error: uncaught exception: string "config not found"

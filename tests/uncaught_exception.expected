@@ -3,3 +3,6 @@ mode 1: failed=1 stderr=error: uncaught exception: string "no handler"
 mode 2: failed=1 stderr=error: uncaught exception: int64 5000000000
 mode 3: failed=1 stderr=error: uncaught exception: Oops
 mode 4: failed=1 stderr=error: uncaught exception: int 42
+mode 5: failed=1 stderr=error: uncaught exception: double 2.5
+mode 6: failed=1 stderr=error: uncaught exception: uint8 200
+mode 7: failed=1 stderr=error: uncaught exception: char 'q'

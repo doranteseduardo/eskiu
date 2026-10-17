@@ -40,7 +40,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   rejected by them: a program that compiled before still compiles. `-Werror` reports
   every warning as an error, `-w` prints none (both compilers).
 - An exception that no handler catches (in `main`, a thread, or across a C frame such as
-  a `qsort` callback) prints `error: uncaught exception: <type> <value>` to stderr and
+  a `qsort` callback) prints `error: uncaught exception: <type> <value>` (the value of any
+  primitive type; a struct prints its name; the REPL uses the same format) to stderr and
   aborts (exit 134), as the REPL reports it. A `std::terminate` handler installed by a
   constructor rethrows the exception into a catch-all; only programs that throw get it.
 - `<atomic>`: `atomic_fetch_add`/`_sub`/`_and`/`_or`/`_xor` on `int`, the whole family on

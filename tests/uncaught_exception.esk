@@ -26,6 +26,9 @@ int main(int argc, string* argv) {
         if (mode == 1) { throw "no handler"; }
         if (mode == 2) { throw (int64)5000000000; }
         if (mode == 3) { throw Oops{7}; }
+        if (mode == 5) { throw 2.5; }
+        if (mode == 6) { throw (uint8)200; }
+        if (mode == 7) { throw 'q'; }
         if (mode == 4) {
             *void t = thread_create(void() { throw 42; });
             thread_join(t);
@@ -37,5 +40,8 @@ int main(int argc, string* argv) {
     run(argv[0], "2");
     run(argv[0], "3");
     run(argv[0], "4");
+    run(argv[0], "5");
+    run(argv[0], "6");
+    run(argv[0], "7");
     return 0;
 }
