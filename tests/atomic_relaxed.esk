@@ -1,0 +1,28 @@
+// The `_relaxed` atomics: the same operations with monotonic ordering, on `int`,
+// `int64` and pointer cells, single-threaded and as counters shared by threads.
+import <atomic>;
+extern int printf(string fmt, ...);
+int hits = 0;
+int64 bytes = 0;
+int flag = 0;
+*void slot = null;
+int main() {
+    atomic_store_relaxed(&flag, 3);
+    printf("%d %d %d\n", atomic_load_relaxed(&flag), atomic_swap_relaxed(&flag, 4), atomic_cas_relaxed(&flag, 4, 5) ? 1 : 0);
+    printf("%d %d %d %d\n", atomic_fetch_and_relaxed(&flag, 4), atomic_fetch_or_relaxed(&flag, 3), atomic_fetch_xor_relaxed(&flag, 1), flag);
+    atomic_store64_relaxed(&bytes, 6000000000);
+    printf("%lld %lld %d\n", atomic_fetch_sub64_relaxed(&bytes, 1), atomic_load64_relaxed(&bytes), atomic_cas64_relaxed(&bytes, 1, 2) ? 1 : 0);
+    int a = 7;
+    atomic_store_ptr_relaxed(&slot, (*void)&a);
+    printf("%d %d\n", *(*int)atomic_load_ptr_relaxed(&slot), atomic_cas_ptr_relaxed(&slot, (*void)&a, null) ? 1 : 0);
+    bytes = 0;
+    *void[4] tids;
+    for (t in 0..4) {
+        tids[t] = thread_create(void() {
+            for (i in 0..50000) { atomic_fetch_add_relaxed(&hits, 1); atomic_fetch_add64_relaxed(&bytes, 2); }
+        });
+    }
+    for (t in 0..4) { thread_join(tids[t]); }
+    printf("%d %lld\n", atomic_load(&hits), atomic_load64(&bytes));
+    return 0;
+}
