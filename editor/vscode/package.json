@@ -58,7 +58,7 @@
           "type": "array",
           "items": { "type": "string" },
           "default": [],
-          "markdownDescription": "Extra command-line flags to pass to `eskiuc` (e.g. `[\"--freestanding\"]`)."
+          "markdownDescription": "Extra command-line flags to pass to `eskiuc` (e.g. `[\"--freestanding\"]`, `[\"-Wall\", \"-Wno-format\"]`). Default-on warnings (`-Wformat`, `-Wstring-compare`, ...) show as warnings; each `-Wno-` flag turns one off."
         },
         "eskiu.checkOnType": {
           "type": "boolean",

@@ -9,15 +9,18 @@ import javax.swing.JPanel
 class EskiuConfigurable : Configurable {
     private val compiler = JBTextField()
     private val node = JBTextField()
+    private val flags = JBTextField()
 
     override fun getDisplayName(): String = "Eskiu"
 
     override fun createComponent(): JComponent {
         compiler.emptyText.text = "build22/eskiuc or build/eskiuc in the project, ~/.eskiu/bin/eskiuc, else PATH"
         node.emptyText.text = "node on PATH, Homebrew, fnm, nvm or Volta"
+        flags.emptyText.text = "e.g. -Wall -Wno-format (passed to every check)"
         val panel: JPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent("eskiuc path:", compiler)
             .addLabeledComponent("Node.js path:", node)
+            .addLabeledComponent("Compiler flags:", flags)
             .addComponentFillVertically(JPanel(), 0)
             .panel
         reset()
@@ -26,18 +29,20 @@ class EskiuConfigurable : Configurable {
 
     override fun isModified(): Boolean {
         val s = EskiuSettings.get().state
-        return compiler.text.trim() != s.compilerPath || node.text.trim() != s.nodePath
+        return compiler.text.trim() != s.compilerPath || node.text.trim() != s.nodePath || flags.text.trim() != s.compilerFlags
     }
 
     override fun apply() {
         val s = EskiuSettings.get().state
         s.compilerPath = compiler.text.trim()
         s.nodePath = node.text.trim()
+        s.compilerFlags = flags.text.trim()
     }
 
     override fun reset() {
         val s = EskiuSettings.get().state
         compiler.text = s.compilerPath
         node.text = s.nodePath
+        flags.text = s.compilerFlags
     }
 }

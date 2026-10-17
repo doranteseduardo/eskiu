@@ -52,6 +52,8 @@ function send(obj) {
 
 // Path to eskiuc: $ESKIUC, else build22/build walking upwards or next to this file, else PATH
 let compilerOverride = '';   // initializationOptions.compilerPath
+// initializationOptions.compilerFlags (e.g. -Wall, -Wno-format), else $ESKIU_FLAGS split on spaces
+let compilerFlags = (process.env.ESKIU_FLAGS || '').split(/\s+/).filter(Boolean);
 
 function findEskiuc(hintPath) {
     if (compilerOverride) return compilerOverride;
@@ -182,7 +184,7 @@ function validate(uri, filePath, content) {
         try { fileText = fs.readFileSync(filePath, 'utf8'); } catch {}
     }
 
-    execFile(compiler, [target, '--test-typechecker'], { timeout: 10000, cwd: path.dirname(target) },
+    execFile(compiler, [target, ...compilerFlags, '--test-typechecker'], { timeout: 10000, cwd: path.dirname(target) },
         (err, stdout, stderr) => {
             const output = (stdout || '') + (stderr || '');
             const diagnostics = parseErrors(output, target, filePath, fileText);
@@ -405,6 +407,7 @@ function handleMessage(msg) {
     if (method === 'initialize') {
         const opts = (params && params.initializationOptions) || {};
         if (typeof opts.compilerPath === 'string') compilerOverride = opts.compilerPath.trim();
+        if (Array.isArray(opts.compilerFlags)) compilerFlags = opts.compilerFlags.filter(f => typeof f === 'string');
         send({ jsonrpc: '2.0', id, result: {
             capabilities: {
                 textDocumentSync: 1,          // full: every change carries the whole text
@@ -478,7 +481,7 @@ function handleMessage(msg) {
 
         const runTarget = tmpEntry || (entryPoint ? null : tmp) || tmp;
 
-        execFile(compiler, [runTarget, '--test-typechecker'], { timeout: 10000, cwd: path.dirname(runTarget) },
+        execFile(compiler, [runTarget, ...compilerFlags, '--test-typechecker'], { timeout: 10000, cwd: path.dirname(runTarget) },
             (err, stdout, stderr) => {
                 try { fs.unlinkSync(tmp); } catch {}
                 if (tmpEntry) { try { fs.unlinkSync(tmpEntry); } catch {} }

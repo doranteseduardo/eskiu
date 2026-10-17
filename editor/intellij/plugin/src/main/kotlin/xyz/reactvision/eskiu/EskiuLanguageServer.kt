@@ -27,6 +27,7 @@ class EskiuServer(project: Project) : OSProcessStreamConnectionProvider() {
         val cmd = GeneralCommandLine(findNode(), server)
         project.basePath?.let { cmd.withWorkDirectory(it) }
         findCompiler(project)?.let { cmd.withEnvironment("ESKIUC", it) }
+        EskiuSettings.get().state.compilerFlags.trim().takeIf { it.isNotEmpty() }?.let { cmd.withEnvironment("ESKIU_FLAGS", it) }
         commandLine = cmd
     }
 
