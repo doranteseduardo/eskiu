@@ -2504,7 +2504,8 @@ int main() {
 
 `String` is a growable, owned, NUL-terminated buffer. Beyond append/concat it
 offers per-character access and mutation (`String_char_at`, `String_set`,
-`String_push`), comparison (`String_eq`, `String_eq_cstr`), search
+`String_push`), comparison (`String_eq`, `String_eq_cstr`, and the operators `==` / `!=`
+between two Strings or a String and a C string, which compare text), search
 (`String_index_of`), `String_substring`, `String_reverse`, `String_clear`, and
 integer conversion (`String_from_int`, `String_to_int`):
 

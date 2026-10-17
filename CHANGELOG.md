@@ -48,6 +48,8 @@ Versions follow `MAJOR.MINOR.PATCH-stage` (e.g. `0.0.9-alpha`).
   / `_store_ptr` / `_swap_ptr` / `_cas_ptr` on pointer cells, and `atomic_fence()`. Every
   operation but the fence also has a `_relaxed` form (`atomic_fetch_add_relaxed`,
   `atomic_load64_relaxed`): monotonic ordering, for counters read after a join.
+- `==` and `!=` between two `String`s, or a `String` and a C string, compare text
+  (operators in `<string>` over `String_eq` / `String_eq_cstr`).
 - `<libc>`: the common C library (string.h, stdlib.h, stdio.h, ctype.h, the rest of libm,
   `time`, `raise`, the POSIX unistd calls) plus `libc_errno()`/`libc_set_errno()` and
   `LIBC_E*` codes. Opt-in, so a program that defines its own `log` or `remove` is not

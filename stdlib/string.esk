@@ -127,6 +127,13 @@ int String_eq_cstr(String* self, string s) {
     return 1;
 }
 
+// `a == b` / `a != b` on Strings compare their bytes (String_eq), and against a C
+// string its text (String_eq_cstr), so a String is never compared by address.
+bool operator ==(String a, String b) { return String_eq(&a, &b) == 1; }
+bool operator !=(String a, String b) { return String_eq(&a, &b) == 0; }
+bool operator ==(String a, string b) { return String_eq_cstr(&a, b) == 1; }
+bool operator !=(String a, string b) { return String_eq_cstr(&a, b) == 0; }
+
 // Reverse the characters in place.
 void String_reverse(String* self) {
     int64 i = 0;

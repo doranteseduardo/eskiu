@@ -1,0 +1,16 @@
+// `==` and `!=` on Strings compare text, against another String or a C string; the
+// address of the bytes does not matter.
+import <string>;
+extern int printf(string fmt, ...);
+int main() {
+    let a: String; String_from(&a, "hello");
+    let b: String; String_init(&b, 2);
+    b.append("hel"); b.append("lo");
+    let c: String; String_from(&c, "help");
+    printf("%d %d %d %d\n", a == b ? 1 : 0, a != b ? 1 : 0, a == c ? 1 : 0, a != c ? 1 : 0);
+    printf("%d %d %d\n", a == "hello" ? 1 : 0, a != "hello" ? 1 : 0, c == "hel" ? 1 : 0);
+    let e: String; String_init(&e, 1);
+    printf("%d\n", e == "" ? 1 : 0);
+    String_free(&a); String_free(&b); String_free(&c); String_free(&e);
+    return 0;
+}
