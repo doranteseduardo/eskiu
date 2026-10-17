@@ -148,6 +148,8 @@ public:
     bool isStatic = false;   // `static` local: one instance, persists across calls
     bool isExtern = false;   // `extern <type> <name>;` — a global defined in another
                              // translation unit (C interop); external linkage, no init
+    bool scriptInit = false; // a script's global: zero at start, its initializer runs in
+                             // order in the implicit main (any expression, not a constant)
     bool rangeBound = false; // a `for (i in A..B)` desugar decl: sema retypes it to the
                              // bounds' common integer type (ty::rangeVarType)
 
@@ -574,6 +576,9 @@ public:
     std::string op;
     ExprPtr right;
     std::string opFunc;   // set by sema when this resolves to a user operator overload ("" = built-in)
+    // A script's `x = <initializer>` in the implicit main: the initializer is the
+    // global's own, already checked at its declaration.
+    bool scriptInit = false;
 
     BinaryExpr(ExprPtr left, const std::string& op, ExprPtr right)
         : left(std::move(left)), op(op), right(std::move(right)) {}

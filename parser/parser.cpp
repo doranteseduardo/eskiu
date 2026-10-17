@@ -504,6 +504,7 @@ std::vector<DeclPtr> Parser::parseProgram() {
                     std::string subSource = lexer.text();
                     sub.sourceText    = &subSource;
                     sub.filename      = fullPath;
+                    sub.isImport      = true;
                     sub.basedir       = subdir;
                     sub.stdlibPath    = stdlibPath;
                     sub.importedFiles = importedFiles;
@@ -533,15 +534,140 @@ std::vector<DeclPtr> Parser::parseProgram() {
         }
 
         try {
+            if (startsScriptStatement()) {
+                Token at = peek();
+                if (isImport) fail("a top-level statement is allowed only in a program's own file, not in an import", at);
+                scriptOrder.push_back({parseStatement(), nullptr});
+                continue;
+            }
             DeclPtr decl = parseDeclaration();
             if (decl) {
                 decl->sourceFile = filename;
                 declarations.push_back(decl);
+                if (auto* vd = dynamic_cast<VarDecl*>(decl.get())) scriptOrder.push_back({nullptr, vd});
             }
         } catch (const std::exception& e) {
             recover(e);
         }
     }
 
+    try { buildScriptMain(declarations); } catch (const std::exception& e) { recover(e); }
     return declarations;
+}
+
+// A top-level line is a statement when no declaration can start that way: a statement
+// keyword, `{`, a literal or prefix operator, a call `f(`, an assignment, member or
+// postfix use of a name (`x = 1`, `p.x`, `arr[0] = 2` but not `Point[2] ps`), a label,
+// or a write through a pointer (`*p = 1`, but not `*Point p`). A rule on tokens only, so
+// both compilers read the same file the same way.
+bool Parser::startsScriptStatement() const {
+    auto isStmtAfterName = [](TokenType t) {
+        switch (t) {
+            case TokenType::LPAREN: case TokenType::DOT: case TokenType::EQ: case TokenType::PLUS_EQ:
+            case TokenType::MINUS_EQ: case TokenType::STAR_EQ: case TokenType::SLASH_EQ:
+            case TokenType::PERCENT_EQ: case TokenType::AMP_EQ: case TokenType::PIPE_EQ:
+            case TokenType::CARET_EQ: case TokenType::LSHIFT_EQ: case TokenType::RSHIFT_EQ:
+            case TokenType::PLUS_PLUS: case TokenType::MINUS_MINUS: case TokenType::COLON:
+            case TokenType::SEMICOLON:
+                return true;
+            default:
+                return false;
+        }
+    };
+    TokenType t = peek().type;
+    switch (t) {
+        case TokenType::IF: case TokenType::FOR: case TokenType::WHILE: case TokenType::DO:
+        case TokenType::RETURN: case TokenType::SWITCH: case TokenType::MATCH: case TokenType::TRY:
+        case TokenType::THROW: case TokenType::DEFER: case TokenType::ERRDEFER: case TokenType::BREAK:
+        case TokenType::CONTINUE: case TokenType::LBRACE: case TokenType::PLUS_PLUS:
+        case TokenType::MINUS_MINUS: case TokenType::LPAREN: case TokenType::INT_LIT:
+        case TokenType::FLOAT_LIT: case TokenType::STRING_LIT: case TokenType::CHAR_LIT:
+        case TokenType::MINUS: case TokenType::NOT: case TokenType::AMPERSAND: case TokenType::TILDE:
+        case TokenType::NULL_KW: case TokenType::TRUE: case TokenType::FALSE: case TokenType::SIZEOF:
+        case TokenType::FREE_CLOSURE: case TokenType::THREAD_CREATE: case TokenType::THREAD_JOIN:
+        case TokenType::ALLOC_WITH: case TokenType::AWAIT: case TokenType::ASM: case TokenType::SEMICOLON:
+            return true;
+        case TokenType::IDENT:
+        case TokenType::STAR: {
+            if (t == TokenType::IDENT && peek().value == "deprecated" &&
+                peek_ahead(1).type == TokenType::LPAREN && peek_ahead(2).type == TokenType::STRING_LIT)
+                return false;
+            int k = 0;
+            while (peek_ahead(k).type == TokenType::STAR) ++k;
+            if (peek_ahead(k).type != TokenType::IDENT) return false;
+            TokenType n = peek_ahead(k + 1).type;
+            if (isStmtAfterName(n)) return true;
+            if (n != TokenType::LBRACKET) return false;
+            // `arr[0] = 1` uses a name; `Point[2] ps` and `*Node[3] t` declare one.
+            int depth = 0, j = k + 1;
+            for (;; ++j) {
+                TokenType b = peek_ahead(j).type;
+                if (b == TokenType::EOF_TOKEN) return false;
+                if (b == TokenType::LBRACKET) depth++;
+                else if (b == TokenType::RBRACKET && --depth == 0) break;
+            }
+            return peek_ahead(j + 1).type != TokenType::IDENT;
+        }
+        default:
+            return false;
+    }
+}
+
+// A file with top-level statements is a script: it gets `int main(int __argc, string*
+// __argv)` running them in order, with the arguments in the globals `argc` and `argv`.
+// Each top-level variable with an initializer (not `const`, not an array literal)
+// becomes a global that starts at zero and is assigned at its place in that order, so
+// its initializer may be any expression and the functions see it.
+void Parser::buildScriptMain(std::vector<DeclPtr>& decls) {
+    StmtPtr first;
+    for (const auto& e : scriptOrder) if (e.first) { first = e.first; break; }
+    if (!first) return;
+    for (const auto& d : decls)
+        if (auto* fd = dynamic_cast<FunctionDecl*>(d.get()); fd && fd->name == "main" && !fd->fromImport) {
+            errLine = first->line;
+            errCol = first->col;
+            throw ParseError("a file with top-level statements has no 'main': the statements are its main");
+        }
+    std::vector<BlockItem> items;
+    auto at = [&](auto node) { node->line = first->line; node->col = first->col; return node; };
+    auto assign = [&](const std::string& name, ExprPtr value, bool script) {
+        auto lhs = at(std::make_shared<IdentExpr>(name));
+        auto be = at(std::make_shared<BinaryExpr>(lhs, "=", std::move(value)));
+        be->scriptInit = script;
+        items.push_back(StmtPtr(at(std::make_shared<ExprStmt>(be))));
+    };
+    assign("argc", at(std::make_shared<IdentExpr>("__argc")), false);
+    assign("argv", at(std::make_shared<IdentExpr>("__argv")), false);
+    for (const auto& [stmt, vd] : scriptOrder) {
+        if (stmt) {
+            items.push_back(stmt);
+            continue;
+        }
+        if (!vd->initializer || vd->isConst || vd->isExtern || dynamic_cast<ArrayLitExpr*>(vd->initializer.get()))
+            continue;
+        vd->scriptInit = true;
+        auto lhs = std::make_shared<IdentExpr>(vd->name);
+        lhs->line = vd->line;
+        lhs->col = vd->col;
+        auto be = std::make_shared<BinaryExpr>(lhs, "=", vd->initializer);
+        be->line = vd->line;
+        be->col = vd->col;
+        be->scriptInit = true;
+        auto es = std::make_shared<ExprStmt>(be);
+        es->line = vd->line;
+        es->col = vd->col;
+        items.push_back(StmtPtr(es));
+    }
+    bool returns = !items.empty() && std::holds_alternative<StmtPtr>(items.back()) &&
+                   dynamic_cast<ReturnStmt*>(std::get<StmtPtr>(items.back()).get());
+    if (!returns) items.push_back(StmtPtr(at(std::make_shared<ReturnStmt>(at(std::make_shared<LiteralExpr>(LiteralExpr::Kind::INT, "0"))))));
+    auto body = at(std::make_shared<BlockStmt>(items));
+    auto mainFn = at(std::make_shared<FunctionDecl>(
+        "main", "int", std::vector<std::pair<std::string, std::string>>{{"int", "__argc"}, {"string*", "__argv"}}, body));
+    mainFn->sourceFile = filename;
+    auto ga = at(std::make_shared<VarDecl>("argc", "int", nullptr));
+    auto gv = at(std::make_shared<VarDecl>("argv", "string*", nullptr));
+    ga->sourceFile = gv->sourceFile = filename;
+    decls.insert(decls.begin(), {ga, gv});
+    decls.push_back(mainFn);
 }

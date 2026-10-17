@@ -942,6 +942,7 @@ struct ExprNode {
     int mcol;
     string dbg_text;       // EK_CALL `dbg(e)`: the source text of `e`, whitespace folded
     int dbg_builtin;       // EK_CALL: sema resolved `dbg(e)` to the builtin (no user `dbg`)
+    int script_init;       // EK_BINARY `=`: a script global's initializer in the implicit main (checked at the declaration)
 }
 
 struct StmtNode {
@@ -997,6 +998,7 @@ struct DeclNode {
     int is_extern;                 // DK_VARDECL: `extern <type> <name>;` (C global, external linkage, no init)
     int is_vol;                    // DK_VARDECL: `volatile` global
     int is_static;                 // DK_VARDECL: `static` written on a global (a sema error)
+    int script_init;               // DK_VARDECL: a script's global (zero at start; the implicit main assigns its init)
     List<int> param_escaping;      // per-param `escaping` flag (parallel to params)
     List<*ExprNode> param_defaults; // DK_FUNCTION: per-param default value (null = none); empty when it has none
     List<string> param_def_texts;   // their source text (the AST printer)

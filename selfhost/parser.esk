@@ -32,6 +32,9 @@ struct Parser {
     int tdepth;            // current type nesting (see p_type_level)
     List<int> tca;         // ternary_colon_ahead's answer per start index (built once)
     int tca_done;
+    int is_import;         // an imported file: a top-level statement is an error
+    List<*StmtNode> so_stmts;   // scripts: the top-level statements and variables, in
+    List<*DeclNode> so_vars;    //   order (one of each pair is null; p_build_script_main)
 }
 
 // Session state shared across every file parsed in one run (mirrors the C++ parser's
@@ -538,6 +541,9 @@ void p_init(Parser* p, *uint8 src, int len) {
     p.nest = 0;
     p.tdepth = 0;
     p.tca_done = 0;
+    p.is_import = 0;
+    List_init<*StmtNode>(&p.so_stmts, 4);
+    List_init<*DeclNode>(&p.so_vars, 4);
     List_init<Token>(&p.toks, 256);
     let lx: Lexer;
     lx.src = src;
@@ -3909,6 +3915,7 @@ void do_import(Parser* p, *Program prog) {
     g_lex_file = full;
     p_init(&sub, ppsrc, plen);
     sub.basedir = str_dir(full);
+    sub.is_import = 1;
     int first = List_len<*DeclNode>(&prog.decls);
     parse_into(&sub, prog);
     while (first < List_len<*DeclNode>(&prog.decls)) {   // library code: not linted
@@ -3917,9 +3924,204 @@ void do_import(Parser* p, *Program prog) {
     }
 }
 
+// Scripts (mirrors the C++ Parser::startsScriptStatement / buildScriptMain): a
+// top-level line is a statement when no declaration can start that way, and a file
+// with top-level statements gets an implicit `main` running them in order.
+int p_stmt_after_name(int t) {
+    if (t == LPAREN || t == DOT || t == EQ || t == PLUS_EQ || t == MINUS_EQ || t == STAR_EQ || t == SLASH_EQ
+        || t == PERCENT_EQ || t == AMP_EQ || t == PIPE_EQ || t == CARET_EQ || t == LSHIFT_EQ || t == RSHIFT_EQ
+        || t == PLUS_PLUS || t == MINUS_MINUS || t == COLON || t == SEMICOLON) {
+        return 1;
+    }
+    return 0;
+}
+
+int p_starts_script_stmt(Parser* p) {
+    int t = p_at(p);
+    if (t == IF || t == FOR || t == WHILE || t == DO || t == RETURN || t == SWITCH || t == MATCH || t == TRY
+        || t == THROW || t == DEFER || t == ERRDEFER || t == BREAK || t == CONTINUE || t == LBRACE
+        || t == PLUS_PLUS || t == MINUS_MINUS || t == LPAREN || t == INT_LIT || t == FLOAT_LIT
+        || t == STRING_LIT || t == CHAR_LIT || t == MINUS || t == NOT || t == AMPERSAND || t == TILDE
+        || t == NULL_KW || t == TRUE || t == FALSE || t == SIZEOF || t == FREE_CLOSURE || t == THREAD_CREATE
+        || t == THREAD_JOIN || t == ALLOC_WITH || t == AWAIT || t == ASM || t == SEMICOLON) {
+        return 1;
+    }
+    if (t != IDENT && t != STAR) {
+        return 0;
+    }
+    if (t == IDENT && str_eq(tok_text(p.src, p_peek(p)), "deprecated") == 1 && p_peek_k(p, 1).type == LPAREN
+        && p_peek_k(p, 2).type == STRING_LIT) {
+        return 0;
+    }
+    int k = 0;
+    while (p_peek_k(p, k).type == STAR) {
+        k = k + 1;
+    }
+    if (p_peek_k(p, k).type != IDENT) {
+        return 0;
+    }
+    int n = p_peek_k(p, k + 1).type;
+    if (p_stmt_after_name(n) == 1) {
+        return 1;
+    }
+    if (n != LBRACKET) {
+        return 0;
+    }
+    // `arr[0] = 1` uses a name; `Point[2] ps` and `*Node[3] t` declare one.
+    int depth = 0;
+    int j = k + 1;
+    while (1 == 1) {
+        int b = p_peek_k(p, j).type;
+        if (b == EOF_TOKEN) {
+            return 0;
+        }
+        if (b == LBRACKET) {
+            depth = depth + 1;
+        } else if (b == RBRACKET) {
+            depth = depth - 1;
+            if (depth == 0) {
+                break;
+            }
+        }
+        j = j + 1;
+    }
+    if (p_peek_k(p, j + 1).type == IDENT) {
+        return 0;
+    }
+    return 1;
+}
+
+*ExprNode p_script_ident(string nm, int line, int col) {
+    *ExprNode e = mk_ident(nm);
+    e.line = line;
+    e.col = col;
+    return e;
+}
+
+*StmtNode p_script_assign(string nm, *ExprNode value, int script, int line, int col) {
+    *ExprNode be = ast_new_expr();
+    be.kind = EK_BINARY;
+    be.sval = "=";
+    be.a = p_script_ident(nm, line, col);
+    be.b = value;
+    be.script_init = script;
+    be.line = line;
+    be.col = col;
+    *StmtNode st = ast_new_stmt();
+    st.kind = SK_EXPR;
+    st.expr = be;
+    st.line = line;
+    st.col = col;
+    return st;
+}
+
+// A file with top-level statements is a script: it gets `int main(int __argc, string*
+// __argv)` running them in order, with the arguments in the globals `argc` and `argv`.
+// Each top-level variable with an initializer (not `const`, not an array literal)
+// becomes a global that starts at zero and is assigned at its place in that order.
+// The globals go before this file's declarations (`start`), main after them.
+void p_build_script_main(Parser* p, *Program prog, int start) {
+    *StmtNode first = null;
+    int i = 0;
+    int n = List_len<*StmtNode>(&p.so_stmts);
+    while (i < n && first == null) {
+        first = List_get<*StmtNode>(&p.so_stmts, i);
+        i = i + 1;
+    }
+    if (first == null) {
+        return;
+    }
+    int k = start;
+    while (k < List_len<*DeclNode>(&prog.decls)) {
+        *DeclNode d = List_get<*DeclNode>(&prog.decls, k);
+        if (d.kind == DK_FUNCTION && str_eq(d.name, "main") == 1 && d.from_import == 0) {
+            let at: Token;
+            at.line = first.line;
+            at.col = first.col;
+            p_report(p, at, "a file with top-level statements has no 'main': the statements are its main");
+        }
+        k = k + 1;
+    }
+    int fl = first.line;
+    int fc = first.col;
+    *StmtNode body = ast_new_stmt();
+    body.kind = SK_BLOCK;
+    body.line = fl;
+    body.col = fc;
+    List_init<*StmtNode>(&body.items, n + 4);
+    List_push<*StmtNode>(&body.items, p_script_assign("argc", p_script_ident("__argc", fl, fc), 0, fl, fc));
+    List_push<*StmtNode>(&body.items, p_script_assign("argv", p_script_ident("__argv", fl, fc), 0, fl, fc));
+    i = 0;
+    while (i < n) {
+        *StmtNode s = List_get<*StmtNode>(&p.so_stmts, i);
+        *DeclNode vd = List_get<*DeclNode>(&p.so_vars, i);
+        i = i + 1;
+        if (s != null) {
+            List_push<*StmtNode>(&body.items, s);
+            continue;
+        }
+        if (vd.init == null || vd.is_const == 1 || vd.is_extern == 1 || vd.init.kind == EK_ARRAYLIT) {
+            continue;
+        }
+        vd.script_init = 1;
+        List_push<*StmtNode>(&body.items, p_script_assign(vd.name, vd.init, 1, vd.line, vd.col));
+    }
+    int ni = List_len<*StmtNode>(&body.items);
+    if (List_get<*StmtNode>(&body.items, ni - 1).kind != SK_RETURN) {
+        *ExprNode zero = ast_new_expr();
+        zero.kind = EK_LITERAL;
+        zero.lit_kind = LIT_INT;
+        zero.sval = "0";
+        zero.line = fl;
+        zero.col = fc;
+        *StmtNode ret = ast_new_stmt();
+        ret.kind = SK_RETURN;
+        ret.expr = zero;
+        ret.line = fl;
+        ret.col = fc;
+        List_push<*StmtNode>(&body.items, ret);
+    }
+    *DeclNode mainfn = new_decl(DK_FUNCTION);
+    mainfn.name = "main";
+    mainfn.ret_type = "int";
+    List_init<Param>(&mainfn.params, 2);
+    let pa: Param;
+    pa.ty = "int";
+    pa.name = "__argc";
+    List_push<Param>(&mainfn.params, pa);
+    let pv: Param;
+    pv.ty = "string*";
+    pv.name = "__argv";
+    List_push<Param>(&mainfn.params, pv);
+    List_push<int>(&mainfn.param_escaping, 0);
+    List_push<int>(&mainfn.param_escaping, 0);
+    List_init<*ExprNode>(&mainfn.param_defaults, 1);
+    List_init<string>(&mainfn.param_def_texts, 1);
+    mainfn.body = body;
+    mainfn.line = fl;
+    mainfn.col = fc;
+    mainfn.file = p.file;
+    *DeclNode ga = new_decl(DK_VARDECL);
+    ga.name = "argc";
+    ga.ret_type = "int";
+    ga.line = fl;
+    ga.col = fc;
+    ga.file = p.file;
+    *DeclNode gv = new_decl(DK_VARDECL);
+    gv.name = "argv";
+    gv.ret_type = "string*";
+    gv.line = fl;
+    gv.col = fc;
+    gv.file = p.file;
+    List_insert<*DeclNode>(&prog.decls, start, gv);
+    List_insert<*DeclNode>(&prog.decls, start, ga);
+    List_push<*DeclNode>(&prog.decls, mainfn);
+}
+
 // Parse top-level items from `p` into an existing program (used both for the entry
 // file and recursively for each import, so imported decls land in declaration order).
 void parse_into(Parser* p, *Program prog) {
+    int start = List_len<*DeclNode>(&prog.decls);
     while (p_at(p) != EOF_TOKEN) {
         if (p_at(p) == PRAGMA) {   // #pragma link / pack state
             p_take_pragma(p);
@@ -3928,12 +4130,24 @@ void parse_into(Parser* p, *Program prog) {
             p_adv(p);
             do_import(p, prog);
         }
+        else if (p_starts_script_stmt(p) == 1) {
+            if (p.is_import == 1) {
+                p_report(p, p_peek(p), "a top-level statement is allowed only in a program's own file, not in an import");
+            }
+            List_push<*StmtNode>(&p.so_stmts, parse_stmt(p));
+            List_push<*DeclNode>(&p.so_vars, null);
+        }
         else {
             *DeclNode d = parse_decl_top(p);
             d.file = p.file;               // diagnostics inside it name this file
             List_push<*DeclNode>(&prog.decls, d);
+            if (d.kind == DK_VARDECL) {
+                List_push<*StmtNode>(&p.so_stmts, null);
+                List_push<*DeclNode>(&p.so_vars, d);
+            }
         }
     }
+    p_build_script_main(p, prog, start);
 }
 
 *Program parse_program(Parser* p) {

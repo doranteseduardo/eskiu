@@ -58,6 +58,8 @@ public:
     std::string basedir;
     // The source file being parsed; labels diagnostics ("<input>" when empty).
     std::string filename;
+    // Set on the parser of an imported file: a top-level statement is an error there.
+    bool isImport = false;
     // Root of the Eskiu installation — used to resolve <stdlib> imports
     // Set from $ESKIU_ROOT env var or dirname(argv[0])/../lib/eskiu
     std::string stdlibPath;
@@ -238,6 +240,11 @@ private:
     void addLinkLib(const std::string& name);
 
     StmtPtr parseStatement();
+    // Scripts: a file with top-level statements gets an implicit `main` (see
+    // buildScriptMain). The statements and the top-level variables, in order.
+    bool startsScriptStatement() const;
+    std::vector<std::pair<StmtPtr, VarDecl*>> scriptOrder;
+    void buildScriptMain(std::vector<DeclPtr>& decls);
     StmtPtr parseBlockStatement();
     BlockItem parseBlockItem();
     StmtPtr parseIfStatement();
