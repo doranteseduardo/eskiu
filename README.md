@@ -58,21 +58,20 @@ import <fetch>;
 import <json>;
 import <io>;
 
-int main() {
-    let r: Response;
-    int rc = fetch("https://api.github.com/repos/llvm/llvm-project", &r);
-    defer Response_free(&r);
-    if (rc != 0) { return 1; }
-    *JsonValue repo = Response_json(&r);
-    if (repo == null) { return 1; }
-    defer JsonValue_free(repo);
-    printf("%s has %lld stars\n", JsonValue_as_cstr(json_get(repo, "full_name")),
-           JsonValue_as_int(json_get(repo, "stargazers_count")));
-    return 0;
+let r: Response;
+if (fetch("https://api.github.com/repos/llvm/llvm-project", &r) != 0) {
+    return 1;
 }
+*JsonValue repo = Response_json(&r);
+if (repo == null) {
+    return 1;
+}
+printf("%s has %lld stars\n", JsonValue_as_cstr(json_get(repo, "full_name")),
+       JsonValue_as_int(json_get(repo, "stargazers_count")));
 ```
 
-[`examples/scripts/`](examples/scripts/) has longer ones: a to-do list in a JSON file, a
+A script needs no `main`: its statements run in order. [`examples/scripts/`](examples/scripts/)
+has longer ones: a to-do list in a JSON file, a
 GitHub repository report and a downloads folder organizer.
 
 ## Systems code
