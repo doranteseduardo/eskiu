@@ -23,6 +23,15 @@
 #include "codegen/codegen.h"
 
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
+#if defined(_WIN32)
+#include "llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h"
+#include "llvm/ExecutionEngine/SectionMemoryManager.h"
+// Declared here rather than through <windows.h>, whose macros (IN, OUT, DELETE) collide
+// with the compiler's own names. RUNTIME_FUNCTION entries are 12 bytes.
+extern "C" __declspec(dllimport) unsigned char __stdcall RtlAddFunctionTable(void* table, unsigned long count,
+                                                                             unsigned long long base);
+extern "C" __declspec(dllimport) unsigned char __stdcall RtlDeleteFunctionTable(void* table);
+#endif
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
@@ -640,13 +649,57 @@ private:
     void loadLibs(const std::vector<std::string>& libs);
 };
 
+#if defined(_WIN32)
+// Windows finds a function's unwind info (and so a C++ exception its frames) through
+// tables registered with RtlAddFunctionTable. RuntimeDyld hands a COFF object's .pdata
+// to registerEHFrames; its entries are RVAs from the object's image base, the lowest
+// address RuntimeDyld loaded a section at. One manager per object tracks that base.
+class SehMemoryManager : public llvm::SectionMemoryManager {
+    uint64_t base = UINT64_MAX;
+    std::vector<void*> tables;
+    void note(uint8_t* p) { if (p && (uint64_t)p < base) base = (uint64_t)p; }
+public:
+    uint8_t* allocateCodeSection(uintptr_t size, unsigned align, unsigned id, llvm::StringRef name) override {
+        uint8_t* p = SectionMemoryManager::allocateCodeSection(size, align, id, name);
+        note(p);
+        return p;
+    }
+    uint8_t* allocateDataSection(uintptr_t size, unsigned align, unsigned id, llvm::StringRef name,
+                                 bool readOnly) override {
+        uint8_t* p = SectionMemoryManager::allocateDataSection(size, align, id, name, readOnly);
+        note(p);
+        return p;
+    }
+    void registerEHFrames(uint8_t* addr, uint64_t, size_t size) override {
+        if (size < 12 || base == UINT64_MAX) return;
+        if (RtlAddFunctionTable(addr, (unsigned long)(size / 12), base)) tables.push_back(addr);
+    }
+    void deregisterEHFrames() override {
+        for (void* t : tables) RtlDeleteFunctionTable(t);
+        tables.clear();
+    }
+};
+#endif
+
 bool Repl::initJit() {
     auto jtmb = llvm::orc::JITTargetMachineBuilder::detectHost();
     if (!jtmb) {
         llvm::errs() << "error: " << llvm::toString(jtmb.takeError()) << "\n";
         return false;
     }
-    auto j = llvm::orc::LLJITBuilder().setJITTargetMachineBuilder(std::move(*jtmb)).create();
+    llvm::orc::LLJITBuilder builder;
+    builder.setJITTargetMachineBuilder(std::move(*jtmb));
+#if defined(_WIN32)
+    builder.setObjectLinkingLayerCreator([](llvm::orc::ExecutionSession& es)
+            -> llvm::Expected<std::unique_ptr<llvm::orc::ObjectLayer>> {
+        auto layer = std::make_unique<llvm::orc::RTDyldObjectLinkingLayer>(
+            es, [](const llvm::MemoryBuffer&) { return std::make_unique<SehMemoryManager>(); });
+        layer->setOverrideObjectFlagsWithResponsibilityFlags(true);
+        layer->setAutoClaimResponsibilityForObjectSymbols(true);
+        return std::unique_ptr<llvm::orc::ObjectLayer>(std::move(layer));
+    });
+#endif
+    auto j = builder.create();
     if (!j) {
         llvm::errs() << "error: " << llvm::toString(j.takeError()) << "\n";
         return false;
@@ -1282,26 +1335,6 @@ bool Repl::inferLets(Plan& plan, const std::vector<std::pair<int, int>>& letPos)
 
 // Run one input. `forced` picks the reading (a :load file is declarations).
 bool Repl::handleInput(const std::string& text, const std::string& file, Mode* forced) {
-#ifdef _WIN32
-    // The JIT does not register Windows (SEH) unwind tables for the code it loads, so an
-    // exception thrown in REPL code cannot be caught and would end the process: such
-    // inputs are refused before they are compiled.
-    bool usesExceptions = false;
-    {
-        std::map<std::string, Macro> macros;
-        CerrCapture cap;
-        Lexer lexer(text, &macros, file, nullptr);
-        for (Token t = lexer.next_token(); t.type != TokenType::EOF_TOKEN; t = lexer.next_token())
-            if (t.type == TokenType::THROW || t.type == TokenType::TRY || t.type == TokenType::CATCH ||
-                t.type == TokenType::FINALLY)
-                usesExceptions = true;
-    }
-    if (usesExceptions) {
-        std::cerr << "error: the REPL on Windows does not run code that throws or catches"
-                  << " exceptions yet; run it with `eskiuc run`" << std::endl;
-        return false;
-    }
-#endif
     Plan plan;
     plan.text = text;
     plan.file = file;

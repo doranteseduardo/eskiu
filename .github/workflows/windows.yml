@@ -194,8 +194,6 @@ jobs:
           fail=0
           for in_file in tests/repl/*.in; do
             name=$(basename "$in_file" .in)
-            # The REPL refuses exceptions on Windows (no SEH tables for JIT code): checked below.
-            [ "$name" = exceptions ] && continue
             (cd tests/repl && ../../build/eskiuc.exe repl < "$name.in" > "../../winbin/repl_$name.out" 2>&1)
             code=$?
             tr -d '\r' < "tests/repl/$name.expected" > "winbin/repl_$name.want"
@@ -206,12 +204,6 @@ jobs:
               echo "FAIL repl/$name (exit $code)"; head -20 "winbin/repl_$name.diff" 2>/dev/null; fail=1
             fi
           done
-          out=$(printf 'throw 1;\n1 + 1\n' | ./build/eskiuc.exe repl 2>&1 | tr -d '\r')
-          if [ "$out" = "$(printf 'error: the REPL on Windows does not run code that throws or catches exceptions yet; run it with `eskiuc run`\n2')" ]; then
-            echo "ok repl/exceptions-refused"
-          else
-            echo "FAIL repl/exceptions-refused: $out"; fail=1
-          fi
           exit $fail
 
       - name: Package manager
