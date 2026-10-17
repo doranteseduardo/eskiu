@@ -119,8 +119,10 @@ int64 fs_size(*void fp) {
 
     int64 cap = 0;
     if (fseek(fp, 0, 2) == 0) {
+        // Only a hint: a directory (fopen succeeds on Linux) reports LONG_MAX, and
+        // growing by doubling handles any size.
         const int64 size = ftell(fp);
-        if (size > 0) {
+        if (size > 0 && size < 1099511627776) {
             cap = size;
         }
         fseek(fp, 0, 0);
