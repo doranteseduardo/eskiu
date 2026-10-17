@@ -800,11 +800,13 @@ bool TypeChecker::foldConstInt(Expr* e, long long& out) {
 bool TypeChecker::foldConstIntT(Expr* e, ty::CInt& out) {
     if (auto* l = dynamic_cast<LiteralExpr*>(e)) {
         if (l->kind == LiteralExpr::Kind::INT) {
-            // A negative literal (`-1`) is the negated magnitude, typed as C types `1`.
+            // A negative literal (`-2147483648`) is one token, typed by its value as the
+            // program sees it at run time: `int` when the value fits, else `int64`.
             bool neg = !l->value.empty() && l->value[0] == '-';
-            try { out = ty::cintLiteral(std::stoull(neg ? l->value.substr(1) : l->value, nullptr, 0)); }
+            unsigned long long m = 0;
+            try { m = std::stoull(neg ? l->value.substr(1) : l->value, nullptr, 0); }
             catch (...) { return false; }
-            if (neg) ty::cintUnary("-", out, out);
+            out = neg ? ty::cintNegLiteral(m) : ty::cintLiteral(m);
             return true;
         }
         if (l->kind == LiteralExpr::Kind::CHAR) { out = ty::cintMake(l->value.empty() ? 0 : (unsigned char)l->value[0], 32, false); return true; }

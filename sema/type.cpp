@@ -603,6 +603,14 @@ bool cintCast(const std::string& t, const CInt& x, CInt& out) {
     return false;
 }
 
+CInt cintNegLiteral(unsigned long long m) {
+    if (m <= 2147483648ULL) return cintMake(-(long long)m, 32, false);
+    if (m <= 9223372036854775808ULL) return cintMake((long long)(0ULL - m), 64, false);
+    CInt lit = cintLiteral(m), out = lit;
+    cintUnary("-", lit, out);
+    return out;
+}
+
 bool cintUnary(const std::string& op, const CInt& x, CInt& out) {
     if (op == "-") { out = cintMake((long long)(0ULL - (unsigned long long)x.v), x.rank, x.uns); return true; }
     if (op == "~") { out = cintMake(~x.v, x.rank, x.uns); return true; }
@@ -677,6 +685,12 @@ struct DimFolder {
     CInt unary() {
         if (!ok || i >= s.size()) return fail();
         char c = s[i];
+        if (c == '-' && i + 1 < s.size() && std::isdigit((unsigned char)s[i + 1])) {   // `-5`: one literal
+            ++i;
+            CInt x = unary();
+            if (!ok) return fail();
+            return cintNegLiteral((unsigned long long)x.v);
+        }
         if (c == '-' || c == '+' || c == '~' || c == '!') {
             ++i;
             CInt x = unary(), r;

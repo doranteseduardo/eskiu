@@ -121,6 +121,9 @@ CInt cintLiteral(unsigned long long v);
 bool cintCast(const std::string& t, const CInt& x, CInt& out);
 // Unary `-`, `~`, `!`, `+`.
 bool cintUnary(const std::string& op, const CInt& x, CInt& out);
+// A negative literal `-m` (one token, as the program sees it at run time): `int` when
+// the value fits, else `int64`; past that, the C negation of the literal.
+CInt cintNegLiteral(unsigned long long m);
 // `x op y`; false when `op` does not fold or is undefined (division by zero, the most
 // negative value divided by -1, a shift count outside 0..width-1).
 bool cintBinary(const std::string& op, const CInt& x, const CInt& y, CInt& out);
